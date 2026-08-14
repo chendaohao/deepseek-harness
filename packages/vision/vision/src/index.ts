@@ -5,12 +5,21 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { VisionObserveRequest, VisionObservation } from './types.ts'
 // Type-only edge: loads the dsh-session declaration face for the SessionEventMap merge.
 
+/** Cordis service key of the vision-bridge marker service. */
+export const VISION_BRIDGE_SERVICE = 'visionBridge'
+
 export { VisionError } from './error.ts'
 export type { VisionObserveRequest, VisionObservation } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     vision: VisionService
+    /**
+     * Present while a vision bridge converts image content for text-only
+     * routes; host admission checks read it to admit images a text-only main
+     * model would otherwise refuse.
+     */
+    visionBridge: {}
   }
 }
 

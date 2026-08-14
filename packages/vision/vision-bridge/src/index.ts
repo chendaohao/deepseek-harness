@@ -14,6 +14,7 @@ import type { ContentBlock, GenerateOptions, UserMessage } from '@deepseek-ai/ds
 import { contentHasImage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { VISION_BRIDGE_SERVICE } from '@deepseek-ai/dsh-vision'
 import type { VisionObservedEvent } from '@deepseek-ai/dsh-vision'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -71,6 +72,10 @@ interface MessageImageGroup {
  * @param ctx - Cordis context carrying `llm`, `sessions`, and `vision`.
  */
 export function apply(ctx: Context): void {
+  // Marker service: host admission admits images on text-only routes while a
+  // bridge can convert them (disposal of this fiber unregisters it).
+  ctx.provide(VISION_BRIDGE_SERVICE, {})
+
   // Evidence index per session, fed by the authoritative log so a restarted
   // process reuses recorded observations instead of re-observing history.
   const evidenceBySession = new WeakMap<Session, Map<string, CachedEvidence>>()
