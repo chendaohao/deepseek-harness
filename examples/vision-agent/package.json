@@ -1,0 +1,7 @@
+{
+  "name": "vision-agent-example",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Runnable demo: vision observation for text-only model routes (bridge + tool)"
+}

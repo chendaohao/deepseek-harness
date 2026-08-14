@@ -1120,6 +1120,16 @@ describe('SessionStore', () => {
     expect(ctx.sessions.list()).toEqual([session])
   })
 
+
+  it('appends an ignorable marker only on non-surface events', () => {
+    const ctx = new Context()
+    void ctx
+    const session = Session.create(SessionId('ignorable-append'))
+    const marked = session.append('turn/start', { turn: 1 }, { ignorable: true })
+    expect(marked.ignorable).toBe(true)
+    const plain = session.append('turn/start', { turn: 2 })
+    expect(plain.ignorable).toBeUndefined()
+  })
   it('rejects duplicate ids and supports seeding', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

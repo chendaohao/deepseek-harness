@@ -90,7 +90,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:372`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:404`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:372`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:420`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -929,6 +929,28 @@ Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
+
+### `vision/*`
+
+<a id="visionobserved--log-only"></a>
+
+#### `vision/observed` — log-only
+
+```ts persistence-catalog
+/**
+ * One completed vision observation: the durable evidence text a vision
+ * model produced for the referenced images. Log-only, non-surface, and
+ * ignorable: reconstruction of model-visible content never reads it, and a
+ * reader without the vision vocabulary can safely skip it (the images
+ * themselves stay on the surface through their own `user/message` events).
+ * Consumers append it so a converted model request stays reconstructable
+ * from the log — the "model-visible ⟺ logged" invariant for bridged image
+ * input.
+ */
+'vision/observed': VisionObservedEvent
+```
+
+Source: [`packages/vision/vision/src/types.ts:63`](../packages/vision/vision/src/types.ts)
 
 ### `web/*`
 

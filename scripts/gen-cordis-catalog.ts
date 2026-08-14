@@ -71,6 +71,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   fs: 'filesystem.md',
   goals: 'goal.md',
   webServer: 'web-server.md',
+  remoteTunnel: 'remote-access.md',
   invariants: 'invariants.md',
   llm: 'llm-streaming.md',
   lsp: 'lsp.md',
@@ -78,6 +79,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   permissionPresets: 'permission-presets.md',
   planMode: 'plan.md',
   terminals: 'terminal.md',
+  vision: 'vision.md',
   sandbox: 'sandbox.md',
   sandboxPolicy: 'sandbox.md',
   sessionPersistence: 'persistence.md',
@@ -167,6 +169,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'agent-loop': 'core.md',
   'agent-preset': 'core.md',
   'approval': 'approval.md',
+  'remote-tunnel': 'remote-access.md',
   'commands': 'commands.md',
   'cordis': 'extensions.md',
   'credentials': 'credentials.md',
@@ -213,6 +216,8 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
  * appear on more than one page.
  */
 export const LINK_MAP: Readonly<Record<string, string>> = {
+  RemoteTunnelState: 'remote-access.md',
+  RemoteTunnelSession: 'remote-access.md',
   Agent: 'core.md',
   AgentCancelCause: 'core.md',
   AgentFactory: 'core.md',
@@ -506,6 +511,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
+  VisionObservation: 'observation result contract is owned by packages/vision/vision/src/types.ts',
+  VisionObserveRequest: 'observation request contract is owned by packages/vision/vision/src/types.ts',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',

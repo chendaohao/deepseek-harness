@@ -389,6 +389,22 @@ export interface SurfaceIntent {
 }
 
 /**
+ * Envelope options for a log-only (non-surface) {@link Session.append}.
+ * Surface events reject these: model-visible content must never be skippable.
+ */
+export interface SessionAppendOptions {
+  /**
+   * Marks the event as one a reader may safely skip when it does not
+   * recognize `type` (see {@link SessionEvent.ignorable}). Set only on
+   * purely informational records whose loss cannot affect reconstruction of
+   * model-visible content; defaulting to required means a forgotten marker
+   * over-refuses (an inconvenience) rather than silently resuming a gutted
+   * session.
+   */
+  ignorable?: true
+}
+
+/**
  * One immutable entry in the session log.
  *
  * A proper discriminated union over `type` (not independent `type`/`data`

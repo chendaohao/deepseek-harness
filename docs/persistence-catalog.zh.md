@@ -932,6 +932,28 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
+### `vision/*`
+
+<a id="visionobserved--log-only"></a>
+
+#### `vision/observed` — 仅日志
+
+```ts persistence-catalog
+/**
+ * One completed vision observation: the durable evidence text a vision
+ * model produced for the referenced images. Log-only, non-surface, and
+ * ignorable: reconstruction of model-visible content never reads it, and a
+ * reader without the vision vocabulary can safely skip it (the images
+ * themselves stay on the surface through their own `user/message` events).
+ * Consumers append it so a converted model request stays reconstructable
+ * from the log — the "model-visible ⟺ logged" invariant for bridged image
+ * input.
+ */
+'vision/observed': VisionObservedEvent
+```
+
+来源：[`packages/vision/vision/src/types.ts:63`](../packages/vision/vision/src/types.ts)
+
 ### `web/*`
 
 <a id="webdeepseek-search-llm-request--log-only"></a>

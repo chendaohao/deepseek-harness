@@ -47,6 +47,9 @@ import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as ToolVision from '@deepseek-ai/dsh-tool-vision'
+import { VisionService } from '@deepseek-ai/dsh-vision'
+import type { VisionObserveRequest, VisionObservation } from '@deepseek-ai/dsh-vision'
 import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
@@ -85,6 +88,16 @@ class CatalogAttachmentStore extends AttachmentStore {
 
   override readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
     return Promise.reject(new Error('gen-tool-catalog: attachment reads are unreachable during schema harvest'))
+  }
+}
+
+/** Vision seam marker that makes the vision_observe schema harvestable without provider I/O. */
+class CatalogVisionService extends VisionService {
+  readonly visionRoute = Object.freeze({ provider: 'catalog', model: 'catalog' })
+  readonly maxImagesPerRequest = 1
+
+  override observe(_request: VisionObserveRequest): Promise<VisionObservation> {
+    return Promise.reject(new Error('gen-tool-catalog: observation is unreachable during schema harvest'))
   }
 }
 
@@ -309,6 +322,23 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-vision',
+    dir: 'tool-vision',
+    source: 'packages/vision/tool-vision/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.vision', 'ctx.attachments'],
+    writes: ['tool/call', 'fs/observed after view presence/absence or successful file operation', 'durable attachment (vision_observe)', 'tool/result'],
+    async mount(ctx) {
+      // Schema harvest only: the bare fs provider and marker seams suffice;
+      // observation and attachment I/O are unreachable during harvest.
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(CatalogAttachmentStore)
+      new CatalogVisionService(ctx)
+      await ctx.plugin(ToolVision)
+    },
+    note:
+      'vision_observe reads a local image, commits it durably, and returns text evidence from the configured vision route - the tool for text-only model routes, complementing read_image (which requires the current route to accept image input). The plugin loads only while tools/fs/vision/attachments are all mounted.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs-search',

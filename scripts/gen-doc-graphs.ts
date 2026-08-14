@@ -97,6 +97,24 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'remoteTunnel',
+    pkg: 'remote-tunnel',
+    title: 'Remote access tunnel',
+    mode: 'seam',
+    implementations: ['remote-tunnel'],
+    consumers: ['apiproxy'],
+    note: 'Tunnels a remote host into the harness for outbound access.',
+  },
+  {
+    key: 'vision',
+    pkg: 'vision',
+    title: 'Vision observation',
+    mode: 'seam',
+    implementations: ['vision-llm'],
+    consumers: ['vision-bridge', 'tool-vision'],
+    note: 'Turns durable image attachments into text evidence for text-only model routes; the bridge converts requests, the tool observes files.',
+  },
+  {
     key: 'attachments',
     pkg: 'attachment',
     title: 'Durable binary attachment storage',

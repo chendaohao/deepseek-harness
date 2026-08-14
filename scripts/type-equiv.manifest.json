@@ -871,6 +871,21 @@
       "source": "packages/attachment/attachment/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/vision.md",
+      "symbol": "VisionObserveRequest",
+      "source": "packages/vision/vision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/vision.md",
+      "symbol": "VisionObservation",
+      "source": "packages/vision/vision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/vision.md",
+      "symbol": "VisionObservedEvent",
+      "source": "packages/vision/vision/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/attachment.md",
       "symbol": "ImageAttachmentRef",
       "source": "packages/attachment/attachment/src/types.ts"
@@ -1924,6 +1939,16 @@
       "doc": "docs/subsystems/feedback.md",
       "symbol": "MessageFeedbackDeleteResult",
       "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/remote-access.md",
+      "symbol": "RemoteTunnelState",
+      "source": "packages/remote/remote-tunnel/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/remote-access.md",
+      "symbol": "RemoteTunnelSession",
+      "source": "packages/remote/remote-tunnel/src/index.ts"
     }
   ]
 }
