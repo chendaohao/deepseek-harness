@@ -9,6 +9,14 @@
 
 ```mermaid
 flowchart LR
+  pkg_remote_tunnel["remote-tunnel"]
+  svc_remoteTunnel["ctx.remoteTunnel<br/>Remote access tunnel"]
+  pkg_apiproxy["apiproxy"]
+  pkg_vision["vision"]
+  svc_vision["ctx.vision<br/>Vision observation"]
+  pkg_vision_llm["vision-llm"]
+  pkg_vision_bridge["vision-bridge"]
+  pkg_tool_vision["tool-vision"]
   pkg_attachment["attachment"]
   svc_attachments["ctx.attachments<br/>Durable binary attachment storage"]
   pkg_attachment_local["attachment-local"]
@@ -49,7 +57,6 @@ flowchart LR
   pkg_settings["settings"]
   svc_settings["ctx.settings<br/>User-settings seam"]
   pkg_settings_file["settings-file"]
-  pkg_apiproxy["apiproxy"]
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
@@ -240,6 +247,7 @@ flowchart LR
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
   pkg_pwsh_local --> svc_shell
+  pkg_remote_tunnel --> svc_remoteTunnel
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
@@ -287,6 +295,8 @@ flowchart LR
   pkg_tools --> svc_tools
   pkg_typert_registry --> svc_typert
   pkg_user_questions --> svc_userQuestions
+  pkg_vision --> svc_vision
+  pkg_vision_llm --> svc_vision
   pkg_web --> svc_web
   pkg_web_fetch_http --> svc_web
   pkg_web_search_deepseek --> svc_web
@@ -330,6 +340,7 @@ flowchart LR
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
+  svc_remoteTunnel --> pkg_apiproxy
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_terminal_bash
   svc_sandboxPolicy --> pkg_bash_sandbox
@@ -401,6 +412,8 @@ flowchart LR
   svc_typert --> pkg_api_gateway
   svc_typert --> pkg_typert_loader
   svc_userQuestions --> pkg_tool_ask_user
+  svc_vision --> pkg_tool_vision
+  svc_vision --> pkg_vision_bridge
   svc_web --> pkg_tool_web
   svc_webServer --> pkg_connection
   svc_webServer --> pkg_hmr
@@ -410,9 +423,10 @@ flowchart LR
   svc_workspaceRegistry --> pkg_apiproxy
   svc_fs -. event gate .-> pkg_fs_observation_policy
 ```
-
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.remoteTunnel` | `seam` | [`remote-tunnel`](../packages/remote/remote-tunnel) | [`remote-tunnel`](../packages/remote/remote-tunnel) | `apiproxy` | - | 将远程主机经公网 HTTPS 隧道暴露给 harness 供外部访问。 |
+| `ctx.vision` | `seam` | [`vision`](../packages/vision/vision) | [`vision-llm`](../packages/vision/vision-llm) | [`vision-bridge`](../packages/vision/vision-bridge), [`tool-vision`](../packages/vision/tool-vision) | - | 为纯文本模型路由把持久化图片附件变成文本证据；bridge 转换请求，tool 观察文件。 |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | `host-runtime`, [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | 宿主会在会话事件之前提交已接受的图片；提供方适配器将已授权的持久引用解析为提供方原生内容。 |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic) | - | 适配器注册提供方实现；agent loop（智能体循环）与压缩功能调用提供方无关的流服务。 |
 | `ctx.tokenMeter` | `core` | [`token-meter`](../packages/llm/token-meter) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | 拥有按会话隔离的回放折叠区；压力消费方共享不可变且带修订版本的测量结果。 |

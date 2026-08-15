@@ -409,10 +409,20 @@ export interface ConnectionConfig {
   trustedHosts?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
+  /**
+   * Quiet-stream heartbeat interval for the two WebSocket downlinks (ms).
+   * While a stream delivers no frame, the server sends a
+   * `stream/heartbeat` probe every interval, which keeps tunnel edges from
+   * reaping idle sockets and lets clients detect a silently dead connection
+   * (a phone switching mobile data <-> WiFi tears its TCP leg without any
+   * close frame). 0 disables heartbeats — pair with the client's
+   * idleTimeoutMs=0 when both ends opt out.
+   */
+  heartbeatIntervalMs?: number
 }
 ```
 
-来源：[`packages/client/connection/src/index.ts:50`](../packages/client/connection/src/index.ts)
+来源：[`packages/client/connection/src/index.ts:53`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -466,6 +476,27 @@ export interface Config {
 ```
 
 来源：[`packages/code-runtime/code-runtime-worker-thread/src/index.ts:25`](../packages/code-runtime/code-runtime-worker-thread/src/index.ts)
+
+<a id="deepseek-aidsh-codegraph"></a>
+
+## `@deepseek-ai/dsh-codegraph`
+
+```ts config-catalog
+/** Configuration for one codegraph MCP server and the scoped checklist. */
+export interface Config {
+  /** codegraph CLI executable (default 'codegraph'). */
+  command?: string
+  /** Extra CLI args appended after `serve --mcp` (default []). */
+  args?: string[]
+  /** Per-tool-call timeout in ms (default 120000). */
+  toolCallTimeoutMs?: number
+  /** Set false to disable the plugin entirely (default true). */
+  enabled?: boolean
+}
+```
+
+来源：[`packages/codegraph/codegraph/src/index.ts:66`](../packages/codegraph/codegraph/src/index.ts)
+
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -1428,6 +1459,49 @@ export type Config = LocalConfig
 依赖：[`LocalConfig`](#deepseek-aidsh-pwsh-local)
 
 来源：[`packages/shell/pwsh-sandbox/src/index.ts:40`](../packages/shell/pwsh-sandbox/src/index.ts)
+
+<a id="deepseek-aidsh-remote-access"></a>
+
+## `@deepseek-ai/dsh-remote-access`
+
+Requires: `remoteTunnel` · `webServer` · `shellEnv`
+
+```ts config-catalog
+/** Plugin config: activation plus secret rotation. */
+export interface Config {
+  /** Whether the proxy, gate, and tunnel run at all; false leaves the plugin inert. */
+  enabled: boolean
+  /** Rotate the persisted pairing secret before opening the tunnel. */
+  resetSecret: boolean
+}
+```
+
+来源：[`packages/remote/remote-access/src/index.ts:37`](../packages/remote/remote-access/src/index.ts)
+
+<a id="deepseek-aidsh-remote-tunnel"></a>
+
+## `@deepseek-ai/dsh-remote-tunnel`
+
+```ts config-catalog
+/** Plugin config: activation plus binary sourcing. */
+export interface Config {
+  /**
+   * Whether `open()` may start tunnels. The shipped Web row derives this from
+   * the `--remote` flag; a disabled Service still loads, and open() fails
+   * loudly while disabled. Binary-sourcing misconfiguration fails the load.
+   */
+  enabled: boolean
+  /** Binary sourcing: download the pinned release, require an explicit path, or use PATH. Defaults to `allow`. */
+  download?: CloudflaredDownload
+  /** Explicit cloudflared executable; wins over every other source. */
+  binaryPath?: string
+}
+
+/** Where the tunnel child executable comes from. */
+export type CloudflaredDownload = 'allow' | 'deny' | 'system'
+```
+
+来源：[`packages/remote/remote-tunnel/src/index.ts:93`](../packages/remote/remote-tunnel/src/index.ts)
 
 <a id="deepseek-aidsh-repeat-tool-reminder"></a>
 
@@ -2847,6 +2921,30 @@ export type ApprovalPolicy = 'ask' | 'never'
 
 <a id="deepseek-aidsh-web"></a>
 
+<a id="deepseek-aidsh-vision-llm"></a>
+
+## `@deepseek-ai/dsh-vision-llm`
+
+Requires: `llm`
+
+```ts config-catalog
+/** Vision observation provider configuration. */
+export interface Config {
+  /** LLM seam provider route that serves the vision model (e.g. an `llm-pi-ai` route). */
+  provider: string
+  /** Exact model id on that route; the model must declare `image` input. */
+  model: string
+  /** System instruction sent with every observation request. */
+  prompt: string
+  /** Maximum images observed in one request. */
+  maxImagesPerRequest: number
+  /** Cap on observation output tokens; absent leaves the provider default. */
+  maxTokens?: number
+}
+```
+
+来源：[`packages/vision/vision-llm/src/index.ts:39`](../packages/vision/vision-llm/src/index.ts)
+
 ## `@deepseek-ai/dsh-web`
 
 ```ts config-catalog
@@ -3090,7 +3188,9 @@ export interface Config {
 - `@deepseek-ai/dsh-tool-call-timeout-policy` — 需要 `tools`（[`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts)）
 - `@deepseek-ai/dsh-tool-cordis` — 需要 `tools` · `systemPrompt` · `dynamicCordisRunner` · `cordisInspect`（[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)）
 - `@deepseek-ai/dsh-tool-subagent-control` — 需要 `tools` · `subagents`（[`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)）
+- `@deepseek-ai/dsh-tool-vision` — 需要 `tools` · `fs` · `vision` · `attachments`（[`packages/vision/tool-vision/src/index.ts`](../packages/vision/tool-vision/src/index.ts)）
 - `@deepseek-ai/dsh-user-questions`（[`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts)）
+- `@deepseek-ai/dsh-vision-bridge` — 需要 `llm` · `sessions` · `vision`（[`packages/vision/vision-bridge/src/index.ts`](../packages/vision/vision-bridge/src/index.ts)）
 - `@deepseek-ai/dsh-workspace` — 需要 `storageDomain` · `sessionPersistence`（[`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts)）
 
 ## Seam 包（不可直接加载）
@@ -3111,6 +3211,7 @@ export interface Config {
 - `@deepseek-ai/dsh-shell` — 抽象 `ShellExecutor`（[`packages/shell/shell/src/index.ts`](../packages/shell/shell/src/index.ts)）
 - `@deepseek-ai/dsh-spill` — 抽象 `SpillStore`（[`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts)）
 - `@deepseek-ai/dsh-subprocess` — 抽象 `SubprocessRuntime`（[`packages/subprocess/subprocess/src/index.ts`](../packages/subprocess/subprocess/src/index.ts)）
+- `@deepseek-ai/dsh-vision` — 抽象 `VisionService`（[`packages/vision/vision/src/index.ts`](../packages/vision/vision/src/index.ts)）
 - `@deepseek-ai/dsh-workflow` — 抽象 `WorkflowEngine`（[`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts)）
 ## 库包（无插件入口）
 
@@ -3123,6 +3224,7 @@ export interface Config {
 - `@deepseek-ai/dsh-atomic-write`（[`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts)）
 - `@deepseek-ai/dsh-base`（[`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts)）
 - `@deepseek-ai/dsh-brand`（[`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts)）
+- `@deepseek-ai/dsh-client-mobile`（[`packages/client/mobile/src/index.ts`](../packages/client/mobile/src/index.ts)）
 - `@deepseek-ai/dsh-client-schema-form`（[`packages/client/schema-form/src/index.ts`](../packages/client/schema-form/src/index.ts)）
 - `@deepseek-ai/dsh-client-test-runtime`（[`packages/test-support/client-runtime/src/index.ts`](../packages/test-support/client-runtime/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-attachment`（[`packages/client/ui-attachment/src/index.ts`](../packages/client/ui-attachment/src/index.ts)）

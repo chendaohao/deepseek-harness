@@ -123,6 +123,7 @@ flowchart TD
     pkg_client_connection["client-connection"]
     pkg_client_hmr["client-hmr"]
     pkg_client_locale["client-locale"]
+    pkg_client_mobile["client-mobile"]
     pkg_client_modules["client-modules"]
     pkg_client_runtime["client-runtime"]
     pkg_client_schema_form["client-schema-form"]
@@ -163,6 +164,9 @@ flowchart TD
   subgraph group_code_runtime["packages/code-runtime"]
     pkg_code_runtime["code-runtime"]
     pkg_code_runtime_worker_thread["code-runtime-worker-thread"]
+  end
+  subgraph group_codegraph["packages/codegraph"]
+    pkg_codegraph["codegraph"]
   end
   subgraph group_compaction["packages/compaction"]
     pkg_command_compact["command-compact"]
@@ -241,6 +245,10 @@ flowchart TD
     pkg_agent_presets["agent-presets"]
     pkg_persona["persona"]
   end
+  subgraph group_remote["packages/remote"]
+    pkg_remote_access["remote-access"]
+    pkg_remote_tunnel["remote-tunnel"]
+  end
   subgraph group_runtime_diagnostics["packages/runtime-diagnostics"]
     pkg_invariants["invariants"]
   end
@@ -317,6 +325,12 @@ flowchart TD
     pkg_typert_protocol["typert-protocol"]
     pkg_typert_registry["typert-registry"]
   end
+  subgraph group_vision["packages/vision"]
+    pkg_tool_vision["tool-vision"]
+    pkg_vision["vision"]
+    pkg_vision_bridge["vision-bridge"]
+    pkg_vision_llm["vision-llm"]
+  end
   subgraph group_workflow["packages/workflow"]
     pkg_tool_ralph["tool-ralph"]
     pkg_tool_workflow["tool-workflow"]
@@ -336,6 +350,7 @@ flowchart TD
   pkg_scope --> pkg_invariants
   pkg_cmdline --> pkg_invariants
   pkg_base --> pkg_invariants
+  pkg_client_mobile --> pkg_invariants
   pkg_client_modules --> pkg_invariants
   pkg_client_schema_form --> pkg_invariants
   pkg_client_ui_attachment --> pkg_invariants
@@ -378,6 +393,9 @@ flowchart TD
   pkg_anonymous_user_id --> pkg_brand
   pkg_anonymous_user_id --> pkg_home_paths
   pkg_anonymous_user_id --> pkg_invariants
+  pkg_remote_tunnel --> pkg_home_paths
+  pkg_remote_tunnel --> pkg_invariants
+  pkg_remote_tunnel --> pkg_subprocess
   pkg_settings --> pkg_brand
   pkg_settings --> pkg_invariants
   pkg_storage_domain --> pkg_invariants
@@ -482,6 +500,9 @@ flowchart TD
   pkg_session_projection --> pkg_session
   pkg_acp_snapshot --> pkg_invariants
   pkg_acp_snapshot --> pkg_session
+  pkg_vision --> pkg_attachment
+  pkg_vision --> pkg_invariants
+  pkg_vision --> pkg_session
   pkg_llm_retry --> pkg_agent
   pkg_llm_retry --> pkg_brand
   pkg_llm_retry --> pkg_invariants
@@ -594,6 +615,14 @@ flowchart TD
   pkg_loader_smoke --> pkg_invariants
   pkg_loader_smoke --> pkg_llm
   pkg_loader_smoke --> pkg_session
+  pkg_vision_bridge --> pkg_attachment
+  pkg_vision_bridge --> pkg_invariants
+  pkg_vision_bridge --> pkg_llm
+  pkg_vision_bridge --> pkg_session
+  pkg_vision_bridge --> pkg_vision
+  pkg_vision_llm --> pkg_invariants
+  pkg_vision_llm --> pkg_llm
+  pkg_vision_llm --> pkg_vision
   pkg_workflow --> pkg_agent
   pkg_workflow --> pkg_brand
   pkg_workflow --> pkg_invariants
@@ -943,6 +972,12 @@ flowchart TD
   pkg_llm_replay --> pkg_invariants
   pkg_llm_replay --> pkg_llm
   pkg_llm_replay --> pkg_session
+  pkg_tool_vision --> pkg_attachment
+  pkg_tool_vision --> pkg_fs
+  pkg_tool_vision --> pkg_invariants
+  pkg_tool_vision --> pkg_sandbox
+  pkg_tool_vision --> pkg_tools
+  pkg_tool_vision --> pkg_vision
   pkg_tool_workflow --> pkg_agent
   pkg_tool_workflow --> pkg_invariants
   pkg_tool_workflow --> pkg_llm
@@ -1013,6 +1048,10 @@ flowchart TD
   pkg_web_app --> pkg_invariants
   pkg_web_app --> pkg_shell_env
   pkg_web_app --> pkg_system_prompt
+  pkg_codegraph --> pkg_invariants
+  pkg_codegraph --> pkg_llm
+  pkg_codegraph --> pkg_mcp_client
+  pkg_codegraph --> pkg_tools
   pkg_compaction_tool_result_pruner --> pkg_compaction
   pkg_compaction_tool_result_pruner --> pkg_invariants
   pkg_compaction_tool_result_pruner --> pkg_llm
@@ -1029,6 +1068,11 @@ flowchart TD
   pkg_host_apiproxy --> pkg_agent_presets
   pkg_host_apiproxy --> pkg_cordis_host_runner
   pkg_host_apiproxy --> pkg_invariants
+  pkg_remote_access --> pkg_home_paths
+  pkg_remote_access --> pkg_host_webserver
+  pkg_remote_access --> pkg_invariants
+  pkg_remote_access --> pkg_remote_tunnel
+  pkg_remote_access --> pkg_shell_env
   pkg_sdk_protocol --> pkg_invariants
   pkg_sdk_protocol --> pkg_llm
   pkg_sdk_protocol --> pkg_session
@@ -1430,6 +1474,7 @@ flowchart TD
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`cmdline`](../packages/boot/cmdline) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`base`](../packages/bundle/base) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-mobile`](../packages/client/mobile) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-modules`](../packages/client/modules) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-schema-form`](../packages/client/schema-form) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-attachment`](../packages/client/ui-attachment) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -1459,6 +1504,7 @@ flowchart TD
 | [`host-frontend-static`](../packages/host/frontend-static) | `host` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol) |
 | [`anonymous-user-id`](../packages/identity/anonymous-user-id) | `identity` | [`brand`](../packages/util/brand), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`remote-tunnel`](../packages/remote/remote-tunnel) | `remote` | [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`subprocess`](../packages/subprocess/subprocess) |
 | [`settings`](../packages/settings/settings) | `settings` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`storage-domain`](../packages/storage/storage-domain) | `storage` | [`invariants`](../packages/runtime-diagnostics/invariants), [`storage`](../packages/storage/storage) |
 | [`storage-json`](../packages/storage/storage-json) | `storage` | [`invariants`](../packages/runtime-diagnostics/invariants), [`storage`](../packages/storage/storage) |
@@ -1490,6 +1536,7 @@ flowchart TD
 | [`session-persistence`](../packages/session/session-persistence) | `session` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`session-projection`](../packages/session/session-projection) | `session` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
 | [`acp-snapshot`](../packages/test-support/acp-snapshot) | `test-support` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
+| [`vision`](../packages/vision/vision) | `vision` | [`attachment`](../packages/attachment/attachment), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
 | [`llm-retry`](../packages/llm/llm-retry) | `llm` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`agent-default-model`](../packages/core/agent-default-model) | `core` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings) |
 | [`goal`](../packages/goal/goal) | `goal` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`typert-protocol`](../packages/typert/protocol) |
@@ -1514,6 +1561,8 @@ flowchart TD
 | [`shell`](../packages/shell/shell) | `shell` | [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`settings`](../packages/settings/settings), [`subprocess`](../packages/subprocess/subprocess) |
 | [`terminal`](../packages/terminal/terminal) | `terminal` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`loader-smoke`](../packages/test-support/loader-smoke) | `test-support` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`vision-bridge`](../packages/vision/vision-bridge) | `vision` | [`attachment`](../packages/attachment/attachment), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`vision`](../packages/vision/vision) |
+| [`vision-llm`](../packages/vision/vision-llm) | `vision` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`vision`](../packages/vision/vision) |
 | [`workflow`](../packages/workflow/workflow) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`workspace`](../packages/workspace/workspace) | `workspace` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`storage`](../packages/storage/storage), [`storage-domain`](../packages/storage/storage-domain) |
 | [`tools`](../packages/core/tools) | `core` | [`agent`](../packages/core/agent), [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`user-approval`](../packages/interaction/user-approval) |
@@ -1576,6 +1625,7 @@ flowchart TD
 | [`tool-terminal`](../packages/terminal/tool-terminal) | `terminal` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`system-prompt`](../packages/core/system-prompt), [`terminal`](../packages/terminal/terminal), [`tools`](../packages/core/tools) |
 | [`agent-loop-testkit`](../packages/test-support/agent-loop-testkit) | `test-support` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`llm-replay`](../packages/test-support/llm-replay) | `test-support` | [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`tool-vision`](../packages/vision/tool-vision) | `vision` | [`attachment`](../packages/attachment/attachment), [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`tools`](../packages/core/tools), [`vision`](../packages/vision/vision) |
 | [`tool-workflow`](../packages/workflow/tool-workflow) | `workflow` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`subagent-claude-code`](../packages/subagent/subagent-claude-code) | `subagent` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
@@ -1586,9 +1636,11 @@ flowchart TD
 | [`hooks-claude-code`](../packages/hooks/hooks-claude-code) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`api-remotes`](../packages/api/remotes) | `api` | [`agent`](../packages/core/agent), [`agent-presets`](../packages/preset/agent-presets), [`api-gateway`](../packages/api/gateway), [`commands`](../packages/interaction/commands), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`credentials`](../packages/credentials/credentials), [`goal`](../packages/goal/goal), [`host-plugin-inventory`](../packages/host/plugin-inventory), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`message-feedback`](../packages/feedback/message-feedback), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`settings`](../packages/settings/settings), [`typert-registry`](../packages/typert/registry) |
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants), [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
+| [`codegraph`](../packages/codegraph/codegraph) | `codegraph` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`mcp-client`](../packages/mcp/mcp-client), [`tools`](../packages/core/tools) |
 | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | `compaction` | [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`host-apiproxy`](../packages/host/apiproxy) | `host` | [`agent-presets`](../packages/preset/agent-presets), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`remote-access`](../packages/remote/remote-access) | `remote` | [`home-paths`](../packages/util/home-paths), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`remote-tunnel`](../packages/remote/remote-tunnel), [`shell-env`](../packages/shell/shell-env) |
 | [`sdk-protocol`](../packages/sdk/protocol) | `sdk` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`tool-bash`](../packages/shell/tool-bash) | `shell` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`shell`](../packages/shell/shell), [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval) |
 | [`tool-pwsh`](../packages/shell/tool-pwsh) | `shell` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`shell`](../packages/shell/shell), [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval) |
