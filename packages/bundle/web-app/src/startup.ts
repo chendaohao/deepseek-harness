@@ -27,6 +27,10 @@ export interface WebStartupValues {
   port?: number
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
+  /** `--remote`: expose the server over a public HTTPS tunnel and print a pairing QR code. */
+  remote: boolean
+  /** `--remote-reset`: rotate the remote pairing secret before opening the tunnel. */
+  remoteReset: boolean
 }
 
 /** The web flag family, as commander parsed it. */
@@ -34,6 +38,8 @@ interface WebOptions {
   host?: string
   port?: string
   trustedHost?: string[]
+  remote?: boolean
+  remoteReset?: boolean
 }
 
 /**
@@ -48,10 +54,13 @@ function webCommand(): Command {
     .option('--host <host>', 'bind host')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--remote', 'expose this server over a public HTTPS tunnel and print a phone-pairing QR code')
+    .option('--remote-reset', 'rotate the remote pairing secret before opening the tunnel')
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
   dsh --profile web --port 8080              serve on another port
+  dsh --profile web --remote                 expose a phone-pairing public URL + QR code
 `)
 }
 
@@ -76,6 +85,8 @@ export function apply(ctx: Context): void {
       ...options.host !== undefined && { host: options.host },
       ...options.port !== undefined && { port: Number(options.port) },
       trustedHosts: options.trustedHost ?? [],
+      remote: options.remote ?? false,
+      remoteReset: options.remoteReset ?? false,
     } satisfies WebStartupValues)
   })
   parseCmdline(ctx, program)

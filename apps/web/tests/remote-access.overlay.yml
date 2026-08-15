@@ -1,0 +1,11 @@
+# Keyless remote-access lane: replace the downloaded tunnel binary with the
+# fixture below, so the pairing flow runs without network or a real tunnel.
+- id: remote-tunnel
+  config:
+    enabled: true
+    download: 'deny'
+    binaryPath: !!js process.env.DSH_REMOTE_FIXTURE_BIN
+- id: remote-access
+  config:
+    enabled: true
+    resetSecret: false

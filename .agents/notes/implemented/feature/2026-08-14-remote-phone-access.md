@@ -1,0 +1,35 @@
+# Agent Note: Remote phone access over a pairing-gated HTTPS tunnel
+
+Status: implemented
+
+English | [中文](2026-08-14-remote-phone-access.zh.md)
+
+## Problem
+
+`dsh web` serves only the local machine: `--host 0.0.0.0` is rejected, and the `/api` trust fence (`dsh-client-connection`) is a DNS-rebinding defense, not authentication. Coding "anywhere, anytime" from a phone needs a public entry that adds real authentication without weakening the existing fence.
+
+## Decision
+
+**Two new plugins under `packages/remote/` compose the feature on existing extension points; the Web bundle's flag provider (`packages/bundle/web-app/src/startup.ts`) and the tool-cordis API catalog gained the `--remote` flag and catalog entries, and no core package changed.** `dsh-remote-tunnel` provides the `remoteTunnel` Service: a pinned, SHA-256-verified cloudflared release (`2026.8.1`, hashes from the official release checksums) exposing one loopback port as a `https://<slug>.trycloudflare.com` URL, with spawn retries, bounded stdout/stderr parsing, and SIGTERM→SIGKILL teardown. `dsh-remote-access` consumes it: a loopback-only reverse proxy (its own `node:http` server) that is the only public trust boundary, a pairing gate, and the terminal URL + QR surface. The shipped Web bundle enables both rows from `dsh web --remote`; `--remote-reset` rotates the secret. The cloudflared binary installs into `$DSH_HOME/bin` on first use (`download: 'deny'|'system'` opts out).
+
+**Authentication is a pairing cookie, separate from the existing fence.** A 32-byte secret lives at `$DSH_HOME/secrets/remote-pair` (0600, under a 0700 directory); `GET /pair/<ticket>` verifies a day-scoped HMAC ticket in constant time and answers 302 with a 30-day `HttpOnly; Secure; SameSite=Strict` cookie. The proxy passes only requests carrying a valid session cookie, and 401s everything else: behind the tunnel every connection arrives from the loopback address and the Host header is client-controlled, so no Host- or address-shaped shortcut exists. Ticket verification runs before the failure budget (10 failures per 10 minutes, keyed by client address — a global budget behind the tunnel, where every remote client shares the loopback address), so a correct ticket always succeeds. The ticket — never the secret — appears in the URL and is not single-use burned: the tunnel provider already terminates TLS and sees every request, so burning adds no protection against the only party that can observe the ticket, while reuse lets several devices pair from one QR.
+
+**The proxy normalizes requests to the webserver's authority.** Forwarded requests get Host rewritten to the webserver's bind authority (loopback under the shipped defaults) and origin/sec-fetch headers removed, so the existing `/api` fence and WebSocket gating apply unchanged; the privileged settings/credentials/agent-preset endpoints are reachable with a valid cookie, and the Web UI keeps them in a per-session memory scope on non-loopback pages. The tunnel hostname never enters the main server's trust list. Downstream WebSocket frames arriving before the upstream handshake completes are buffered within a byte bound (8 MiB), and per-frame (64 MiB) and send-queue (128 MiB) bounds refuse flooding pairs.
+
+**Lifecycle and presentation.** The tunnel opens after Loader settlement (the printed pair URL must not precede sibling rows like the `/api` route mounting); a child exit reopens with linear backoff (5 attempts, reset on success) and reprints URL/QR under the new hostname. `DSH_REMOTE_URL` registers through the shell-env seam while a session lives.
+
+**Transport resilience: heartbeat + idle watchdog.** A phone switching mobile data <-> WiFi tears its TCP leg to the edge without any close frame reaching the browser, and with the downlinks one-way and event-driven, an idle connection goes silently dead — no frames, no close event, so the reconnect machine never runs and the page stops responding. Two mechanisms cover the failure mode, both in `packages/client/connection`: the host `WebSocketDownlinks` sends a `stream/heartbeat` frame (new member of both frame unions; business layers ignore it, it is never logged or model-visible) on each quiet stream every `heartbeatIntervalMs` (host plugin Config, default 15 s, 0 disables) — which also keeps the tunnel edge from reaping idle sockets — and the client `ConnectionController` runs a per-generation idle watchdog (`idleTimeoutMs`, default 45 s = 3 heartbeats, 0 disables; loopback pages default it off because their sockets never cross a network boundary). Any frame resets the watchdog, so it only fires on a transport that died silently; firing aborts the generation and the existing backoff machine reconnects and resyncs. The browser's `online` event and the Network Information API's `change` event recycle the generation immediately as the fast path (Safari fires neither and falls back on the watchdog).
+
+## Alternatives considered
+
+**Extend the connection plugin with runtime trusted authorities and request gates.** Rejected: a plugin-owned reverse proxy that normalizes Host to loopback reaches the same trust properties with zero changes to existing packages.
+
+**Single-use pairing tickets.** Rejected as above: the only party that can observe a ticket is the tunnel provider, which sees all traffic anyway.
+
+**Serve the pairing page from apps/web.** Rejected: a plugin-served `/pair/<ticket>` page keeps the frontend shell untouched and the secret out of the app.
+
+**frp/Tailscale or a provider registry.** Rejected for v1: cloudflared quick tunnels need no account, server, or DNS; the provider is isolated behind the Service so a second provider can replace it without touching `remote-access`.
+
+## Consequences
+
+Phones drive the full GUI (chat, approvals, questions, tools) over HTTPS after scanning a terminal QR; unpaired visitors get a 401 pairing page; local and LAN behavior stays identical (`--remote` absent leaves both rows inert). A phone network switch no longer wedges the page: the host heartbeat plus the client idle watchdog detect the silently dead transport (≈45 s worst case) and the network-change fast path usually reconnects in well under a second, all through the existing reconnect/resync machine. History page reads survive slow remote links too: the Web carrier opts `session.history`/`subagent.history` out of the fixed 30-second unary deadline (pages scale with session content — the user's real tail pages run into the megabytes), and the runtime pairs the read with a generation-scoped abort (a reconnect cancels the stale fetch so it cannot compete with the fresh generation's own) plus a generous 5-minute page cap; carriers that pass no signal (the mobile core) keep the default budget. The Web UI keeps the privileged settings/credentials plane in a per-session memory scope for non-loopback pages; the endpoints themselves sit behind pairing auth — a Known Limitation until the auth layer has real-world mileage. The binary downloads once per host and is verified before execution; TryCloudflare's random subdomain and test positioning are documented limitations.

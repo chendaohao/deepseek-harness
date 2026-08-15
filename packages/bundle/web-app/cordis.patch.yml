@@ -135,6 +135,23 @@
         surfaceContext: true
         trustedHosts: !!js ctx.webStartup.trustedHosts
 
+    # Remote access over a public HTTPS tunnel: both rows stay inert until
+    # `--remote` enables them. The tunnel provider owns the cloudflared child;
+    # the access row owns the pairing gate, the loopback reverse proxy, and
+    # the URL + QR-code surface. `--remote-reset` rotates the pairing secret.
+    - id: remote-tunnel
+      name: '@deepseek-ai/dsh-remote-tunnel'
+      inject: [webStartup]
+      config:
+        enabled: !!js ctx.webStartup.remote ?? false
+
+    - id: remote-access
+      name: '@deepseek-ai/dsh-remote-access'
+      inject: [webStartup]
+      config:
+        enabled: !!js ctx.webStartup.remote ?? false
+        resetSecret: !!js ctx.webStartup.remoteReset ?? false
+
     # The client-plugin reload chain, always mounted: it is idle until a
     # rebuild watcher (pnpm run dev:web) actually rewrites client bundles. It
     # is a row rather than a child of web-runtime because its node half is a
