@@ -10,7 +10,9 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 
 ## `/api` WebSocket 下行
 
-`/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送对应的 `ServerRequest` 文本消息；客户端不会在这些 socket 上发送业务数据。任一 socket 结束都会使当前 connection generation 失败并重建两条流，连接就绪仍要求两条 socket 均已打开且 `host.describe` HTTP 调用成功。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE（Server-Sent Events）回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
+`/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送对应的 `ServerRequest` 文本消息；客户端不会在这些 socket 上发送业务数据。流安静时，Host 每 `heartbeatIntervalMs`（默认 15 000 毫秒；0 表示关闭）发送一条 `stream/heartbeat` 探针：既避免隧道边缘回收空闲 socket，也在没有事件流动时向客户端提供存活信号。任一 socket 结束都会使当前 connection generation 失败并重建两条流，连接就绪仍要求两条 socket 均已打开且 `host.describe` HTTP 调用成功。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE（Server-Sent Events）回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
+
+客户端侧，每个 connection generation 都运行空闲看门狗（`idleTimeoutMs`，默认 45 000 毫秒——三个心跳间隔；0 表示关闭）：任一时刻两条流在这么长时间内没有任何帧到达，就中止该 generation 并由循环按共享退避策略重连。Host 空闲期间心跳会不断重置计时器，因此看门狗触发即意味着传输层在没有任何 close 帧的情况下死亡——手机在移动数据与 WiFi 之间切换时，其 TCP 链路会被静默切断。loopback 页面默认关闭看门狗（其 socket 不跨设备或网络边界）；远程（隧道）与 LAN 页面使用默认值。浏览器的 `online` 事件与 Network Information API 的 `change` 事件会立即回收 generation，作为网络切换的快速通道；Safari 两者都不触发，由看门狗兜底。
 
 ## 模型体验
 

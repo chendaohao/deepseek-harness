@@ -26,6 +26,9 @@ export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
 
+/** Default quiet-stream heartbeat interval (ms): well under mobile/TCP and tunnel-edge idle reaps. */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
+
 /** Headroom for RPC JSON fields around aggregate base64 image payloads. */
 const REQUEST_ENVELOPE_HEADROOM_BYTES = 1024 * 1024
 
@@ -59,11 +62,22 @@ export interface ConnectionConfig {
   trustedHosts?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
+  /**
+   * Quiet-stream heartbeat interval for the two WebSocket downlinks (ms).
+   * While a stream delivers no frame, the server sends a
+   * `stream/heartbeat` probe every interval, which keeps tunnel edges from
+   * reaping idle sockets and lets clients detect a silently dead connection
+   * (a phone switching mobile data <-> WiFi tears its TCP leg without any
+   * close frame). 0 disables heartbeats — pair with the client's
+   * idleTimeoutMs=0 when both ends opt out.
+   */
+  heartbeatIntervalMs?: number
 }
 
 export const Config: z<ConnectionConfig> = z.object({
   trustedHosts: z.array(String).default([]),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
+  heartbeatIntervalMs: z.natural().default(DEFAULT_HEARTBEAT_INTERVAL_MS),
 })
 
 /**
@@ -131,6 +145,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
+  const heartbeatIntervalMs = config?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
@@ -173,7 +188,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
   ctx.inject(['apiProxy'], (apiCtx) => {
     assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
-    const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
+    const downlinks = new WebSocketDownlinks(apiCtx.apiProxy, { heartbeatIntervalMs })
     const registerDownlink = (
       path: string,
       handle: WebUpgradeRoute['handler'],

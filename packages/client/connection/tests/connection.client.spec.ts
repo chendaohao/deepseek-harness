@@ -319,4 +319,87 @@ describe('connection lifecycle', () => {
       controller.stop()
     }
   })
+
+  it('recycles a generation whose streams fall silent past idleTimeoutMs (silent network switch)', async () => {
+    const api = new FakeApiClient()
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, { ...FAST, idleTimeoutMs: 30 })
+    controller.start()
+    try {
+      // The watchdog keeps recycling silent generations (~40ms per cycle at
+      // this scale), so the assertions track growth rather than exact counts.
+      await vi.waitFor(() => { expect(connected).toBeGreaterThanOrEqual(1) })
+      const first = connected
+      // No frames, no close event — exactly what a phone sees when its
+      // mobile-data leg dies on a WiFi switch. The watchdog aborts the
+      // generation and the loop reconnects without any transport signal.
+      await vi.waitFor(() => { expect(connected).toBeGreaterThan(first) }, { timeout: 2_000 })
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('frames (heartbeats included) reset the idle watchdog', async () => {
+    const api = new FakeApiClient()
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, { ...FAST, idleTimeoutMs: 40 })
+    controller.start()
+    const interval = setInterval(() => {
+      api.pushMux({ type: 'stream/heartbeat' })
+      api.pushHost({ type: 'stream/heartbeat' })
+    }, 10)
+    try {
+      await vi.waitFor(() => { expect(connected).toBe(1) })
+      await new Promise(resolve => setTimeout(resolve, 120))
+      expect(connected).toBe(1) // several watchdog windows passed, kept alive by heartbeats
+      clearInterval(interval)
+      await vi.waitFor(() => { expect(connected).toBeGreaterThan(1) }) // silence now recycles
+    } finally {
+      clearInterval(interval)
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('recycle() ends the current generation and reconnects on the next backoff', async () => {
+    const api = new FakeApiClient()
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(connected).toBe(1) })
+      controller.recycle()
+      await vi.waitFor(() => { expect(connected).toBe(2) }, { timeout: 2_000 })
+      expect(api.openMuxCount).toBe(1)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('connection lost'))
+      controller.stop()
+      controller.recycle() // stopped loop: no-op, no throw
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('leaves a silent generation alone when idleTimeoutMs is 0', async () => {
+    const api = new FakeApiClient()
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, { ...FAST, idleTimeoutMs: 0 })
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(connected).toBe(1) })
+      api.pushMux(subscribedFrame()) // touchIdle's disabled arm: frames flow, nothing arms
+      await new Promise(resolve => setTimeout(resolve, 120))
+      expect(connected).toBe(1)
+      expect(api.openMuxCount).toBe(1)
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
 })

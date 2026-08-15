@@ -706,6 +706,18 @@
         "tests/**/*.ts"
       ]
     },
+    "apps/mobile": {
+      "project": [
+        "App.tsx",
+        "src/**/*.ts",
+        "src/**/*.tsx"
+      ],
+      "ignoreDependencies": [
+        "expo-status-bar",
+        "expo-updates",
+        "expo-system-ui"
+      ]
+    },
     "apps/web": {
       "entry": [
         "tests/**/*.e2e.ts",

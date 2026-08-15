@@ -31,6 +31,15 @@ import { SessionQueueMirror } from './queue-mirror.ts'
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
+/**
+ * Deadline for history page reads. Pages scale with session content and travel
+ * user-paced (open a session, page up), so the carrier's fixed 30s unary
+ * budget would cut them on slow remote (tunnel) links; this cap still bounds a
+ * hung host, while the connection generation's abort (openAbort) is the real
+ * deadline on link loss — a reconnect cancels the stale fetch and refetches.
+ */
+const HISTORY_PAGE_TIMEOUT_MS = 5 * 60_000
+
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
   /** Catalog-discovered address selecting non-activating subagent transport. */
@@ -77,6 +86,8 @@ export class Session implements SessionFace {
    *  a pre-disconnect open whose history request is already doomed. Stale doOpen
    *  passes drop all writes once the generation moves on. */
   private openGeneration = 0
+  /** Aborts the current generation's in-flight history fetch; resync() replaces it. */
+  private openAbort = new AbortController()
   private loadingOlder = false
   private pending = new Map<string, PendingInteraction>()
   private pendingRev = 0
@@ -421,6 +432,10 @@ export class Session implements SessionFace {
     // that follows it, so ordering is guaranteed).
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
+    // Cancel the dead generation's history fetch: it rode a connection that no
+    // longer exists, and its settle must not starve the fresh generation's own.
+    this.openAbort.abort()
+    this.openAbort = new AbortController()
     this.openPromise = null
     this.openState = 'cold'
     this.openError = null
@@ -773,9 +788,13 @@ export class Session implements SessionFace {
     hasMore: boolean
     projections?: ProjectionsBaseline
   }>> {
+    const signal = AbortSignal.any([
+      this.openAbort.signal,
+      AbortSignal.timeout(HISTORY_PAGE_TIMEOUT_MS),
+    ])
     return this.address === undefined
-      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
-      : this.api.subagents.history({ ...this.address, ...payload })
+      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload }, signal)
+      : this.api.subagents.history({ ...this.address, ...payload }, signal)
   }
 }
 

@@ -2,7 +2,7 @@ import { once } from 'node:events'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import WebSocket from 'ws'
+import WebSocket, { type RawData } from 'ws'
 import type {
   ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -63,6 +63,22 @@ async function serve(downlinks: WebSocketDownlinks): Promise<{
 
 function read(socket: WebSocket): Promise<ServerRequest> {
   return once(socket, 'message').then(([data]) => JSON.parse(String(data)) as ServerRequest)
+}
+
+/** Collect the next `count` parsed frames off one socket. */
+function readMany(socket: WebSocket, count: number): Promise<ServerRequest[]> {
+  return new Promise((resolve) => {
+    const frames: ServerRequest[] = []
+    const onMessage = (data: RawData): void => {
+      // ws delivers text frames as single Buffers (the payloadBytes precedent).
+      frames.push(JSON.parse((data as Buffer).toString('utf8')) as ServerRequest)
+      if (frames.length >= count) {
+        socket.off('message', onMessage)
+        resolve(frames)
+      }
+    }
+    socket.on('message', onMessage)
+  })
 }
 
 async function acceptedSocket(downlinks: WebSocketDownlinks): Promise<WebSocket> {
@@ -305,4 +321,134 @@ describe('WebSocket downlinks', () => {
       await closing
     }
   })
+  it('sends stream/heartbeat frames while the stream is quiet', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle), { heartbeatIntervalMs: 20 })
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    const first = await read(socket)
+    const second = await read(socket)
+    expect(first.payload).toEqual({ type: 'stream/heartbeat' })
+    expect(second.payload).toEqual({ type: 'stream/heartbeat' })
+    expect(second.rpcId).not.toBe(first.rpcId)
+  })
+
+  it('does not heartbeat while frames keep flowing', async () => {
+    const downlinks = new WebSocketDownlinks(api(
+      async function * (signal) {
+        let n = 0
+        while (!signal.aborted) {
+          yield { rpcId: RpcId(`frame-${n}`), payload: { type: 'session/subscribed', sessionId: 'session-1' as never, lastSeq: n } }
+          n++
+          await new Promise(resolve => setTimeout(resolve, 5))
+        }
+      },
+      idle,
+    ), { heartbeatIntervalMs: 30 })
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    const frames = await readMany(socket, 15)
+    socket.close()
+    expect(frames.every(frame => (frame.payload as { type: string }).type === 'session/subscribed')).toBe(true)
+  })
+
+  it('sends no heartbeats when heartbeatIntervalMs is 0 (the default)', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    let received = false
+    socket.on('message', () => { received = true })
+    await new Promise(resolve => setTimeout(resolve, 60))
+    expect(received).toBe(false)
+  })
+
+  it('closes the downlink when a heartbeat send fails', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle), { heartbeatIntervalMs: 20 })
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    const accepted = await acceptedSocket(downlinks)
+    const closed = once(socket, 'close')
+    const send = vi.spyOn(accepted, 'send').mockImplementation(((
+      _data: unknown,
+      optionsOrCallback?: unknown,
+      callback?: (error?: Error) => void,
+    ) => {
+      const done = typeof optionsOrCallback === 'function'
+        ? optionsOrCallback as (error?: Error) => void
+        : callback
+      done?.(new Error('heartbeat send failed'))
+    }) as WebSocket['send'])
+    await closed
+    expect(send).toHaveBeenCalled()
+    send.mockRestore()
+  })
+
+  it('swallows a source whose cleanup throws during unwind', async () => {
+    const downlinks = new WebSocketDownlinks(api(
+      async function * (signal) {
+        try {
+          await untilAbort(signal)
+        } finally {
+          throw new Error('cleanup failed')
+        }
+      },
+      idle,
+    ))
+    const host = await serve(downlinks)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    const closed = once(socket, 'close')
+    socket.close()
+    await closed
+    // The throwing finally must not break teardown: unwind swallows it, and an
+    // unhandled rejection would fail this test anyway.
+    await expect(host.close()).resolves.toBeUndefined()
+  })
+
+  it('ends the downlink when the source completes normally', async () => {
+    const downlinks = new WebSocketDownlinks(api(
+      async function * () {
+        yield { rpcId: RpcId('f1'), payload: { type: 'session/subscribed', sessionId: 'session-1' as never, lastSeq: 1 } }
+        yield { rpcId: RpcId('f2'), payload: { type: 'stream/heartbeat' } }
+      },
+      idle,
+    ))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    const closed = once(socket, 'close')
+    const frames = await readMany(socket, 2)
+    expect(frames.map(frame => (frame.payload as { type: string }).type)).toEqual(['session/subscribed', 'stream/heartbeat'])
+    await closed
+  })
+
+  it('sends no failure frame when a source rejects during teardown', async () => {
+    const downlinks = new WebSocketDownlinks(api(
+      async function * (signal) {
+        await new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => { reject(new Error('aborted by signal')) }, { once: true })
+        })
+      },
+      idle,
+    ))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    let received = false
+    socket.on('message', () => { received = true })
+    const closed = once(socket, 'close')
+    socket.close()
+    await closed
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect(received).toBe(false)
+  })
 })
+

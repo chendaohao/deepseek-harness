@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "DSH 语音",
+    "slug": "dsh-mobile-voice",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "ai.deepseek.dsh.voice"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "允许 DSH 语音使用相机扫描配对二维码"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "允许 DSH 语音使用麦克风将你的语音转为文字",
+          "speechRecognitionPermission": "允许 DSH 语音识别你的语音"
+        }
+      ]
+    ]
+  }
+}

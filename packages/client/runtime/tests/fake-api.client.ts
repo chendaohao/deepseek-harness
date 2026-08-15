@@ -133,6 +133,7 @@ export class FakeApiClient implements IApiClient {
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
   lastSearchSignal: AbortSignal | undefined
+  lastHistorySignal: AbortSignal | undefined
 
   // Parameters carry local structural annotations: the CI lint lane runs
   // without built lib/, so IApiClient's indexed-access types collapse to any
@@ -144,8 +145,10 @@ export class FakeApiClient implements IApiClient {
       return this.record('session.search', payload, this.onSearch(payload))
     },
     create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
-    history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
-      this.record('session.history', payload, this.onHistory(payload)),
+    history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }, signal?: AbortSignal) => {
+      this.lastHistorySignal = signal
+      return this.record('session.history', payload, this.onHistory(payload))
+    },
     models: (payload: unknown) => this.record('session.models', payload, this.onModels(payload)),
     selectModel: (payload: { provider: string; model: string }) =>
       this.record('session.selectModel', payload, this.onSelectModel(payload)),

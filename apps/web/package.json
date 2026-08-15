@@ -46,6 +46,9 @@
     "typescript": "^6.0.3",
     "vite": "^6.0.0",
     "vitest": "^4.1.8",
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.2",
+    "@deepseek-ai/dsh-client-mobile": "workspace:^",
+    "ws": "^8.21.0",
+    "@types/ws": "^8.18.1"
   }
 }

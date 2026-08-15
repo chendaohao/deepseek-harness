@@ -24,6 +24,7 @@
     "website/.generated/**",
     "vendor/**", // Vendored source keeps upstream style and idioms.
     "native/**", // The imported landlock-run subtree has its own gates; see native/README.md.
+    "apps/mobile/**", // Expo/React-Native toolchain: typechecked by its own tsc --noEmit (apps/mobile README).
     "**/*.js",
     "**/*.mjs",
     "**/*.config.ts", // Tool and app configs are outside the repository TypeScript programs.

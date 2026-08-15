@@ -78,6 +78,31 @@ export interface ConnectionHandle {
 }
 
 /**
+ * Subscribe the browser's network-change signals to a recycle callback.
+ * `online` fires when connectivity is regained, and the Network Information
+ * API's `change` fires when the effective connection type changes (e.g.
+ * cellular <-> WiFi) even without an offline gap; Safari implements neither
+ * NIA nor a switch gap signal, which is the idle watchdog's case.
+ * @param onChange - callback invoked on each network-change signal.
+ * @returns disposer removing every listener.
+ */
+function attachNetworkChangeListeners(onChange: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined
+  window.addEventListener('online', onChange)
+  // NetworkInformation is a Chrome-family API: TS lib.dom declares the type
+  // but not the Navigator.connection member, so the access is narrowed to the
+  // minimal event-target surface this plugin uses.
+  const connection = (navigator as Navigator & {
+    connection?: EventTarget & { addEventListener: typeof EventTarget.prototype.addEventListener }
+  }).connection
+  connection?.addEventListener('change', onChange)
+  return () => {
+    window.removeEventListener('online', onChange)
+    connection?.removeEventListener('change', onChange)
+  }
+}
+
+/**
  * Client plugin body: pick the api by page mode and provide ctx.connection.
  * @param ctx - client cordis context.
  */
@@ -86,6 +111,7 @@ export function apply(ctx: Context): void {
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
   const api: IApiClient = fixtureClient ?? new WebApiClient()
+  const isLoopback = pageLocation === undefined || isLoopbackHostname(pageLocation.hostname)
   const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
   let started = false
   let description: HostDescription | undefined
@@ -103,7 +129,7 @@ export function apply(ctx: Context): void {
   }
   const handle: ConnectionHandle = {
     api,
-    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback,
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {
@@ -115,6 +141,15 @@ export function apply(ctx: Context): void {
     start(sinks, config) {
       if (started) throw new Error('connection: the stream loop is already owned by another consumer')
       started = true
+      // Loopback pages keep the idle watchdog off by default: their sockets do
+      // not cross a device or network boundary, so a silently dead transport is
+      // not a failure mode there and the watchdog would only churn. Remote
+      // (tunnel) and LAN pages get the default deadline; an explicit
+      // idleTimeoutMs always wins.
+      const resolvedConfig: ConnectionConfig = {
+        ...(isLoopback ? { idleTimeoutMs: 0 } : {}),
+        ...config ?? {},
+      }
       const controller = new ConnectionController(api, {
         ...sinks,
         onConnected: (next) => {
@@ -130,10 +165,17 @@ export function apply(ctx: Context): void {
           if (state === 'reconnecting') publishDescription(undefined)
           sinks.onStateChange?.(state)
         },
-      }, config ?? {})
+      }, resolvedConfig)
       controller.start()
+      // Network-change fast path: a mobile-data <-> WiFi switch tears the
+      // browser's sockets silently, so the platform signals are the earliest
+      // reliable hint; recycle() drops the stale generation and the loop
+      // reconnects on the new interface. The idle watchdog covers platforms
+      // that fire neither signal (Safari has no Network Information API).
+      const disposeNetworkListeners = attachNetworkChangeListeners(() => { controller.recycle() })
       return {
         stop: () => {
+          disposeNetworkListeners()
           controller.stop()
           publishDescription(undefined)
         },

@@ -868,6 +868,25 @@ describe('remaining branches', () => {
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
   })
 
+  it('cancels the dead generation\'s history fetch on resync and gives the fresh generation a live signal', async () => {
+    const { api, session } = makeSession()
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => stale.promise
+    const opening = session.open()
+    const staleSignal = api.lastHistorySignal
+    expect(staleSignal?.aborted).toBe(false)
+    api.onHistory = () => histResponse(plainTurn(6, 1, '新', '代'))
+    const resynced = session.resync()
+    // The old fetch rode the dead connection: its signal is aborted so the
+    // fresh generation's own fetch never competes with a zombie request.
+    expect(staleSignal?.aborted).toBe(true)
+    stale.reject(new Error('aborted by resync'))
+    await Promise.all([opening, resynced])
+    expect(api.lastHistorySignal).not.toBe(staleSignal)
+    expect(api.lastHistorySignal?.aborted).toBe(false)
+    expect(session.getSnapshot().openState).toBe('open')
+  })
+
   it('successful cancel leaves no promptError', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))

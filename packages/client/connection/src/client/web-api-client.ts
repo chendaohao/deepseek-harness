@@ -11,6 +11,13 @@ type Parser<F> = { parse(value: unknown): F }
 
 /** Browser platform subclass: unary/respond use fetch; mux/host use downlink-only WebSockets. */
 export class WebApiClient extends AbstractApiClient {
+  constructor() {
+    // History pages scale with session content, so the fixed 30s unary budget
+    // would cut them on slow remote (tunnel) links; the Web runtime supplies
+    // the real deadline (connection-generation abort + generous page cap).
+    super(undefined, true)
+  }
+
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
     return globalThis.fetch(input, init)
   }

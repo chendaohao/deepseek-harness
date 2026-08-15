@@ -90,6 +90,9 @@ export abstract class ReleaseFamily {
     for (const manifestPath of manifestPaths) {
       const normalized = manifestPath.replaceAll('\\', '/')
       const manifest = readManifest(resolve(root, manifestPath))
+      // Private apps (native-toolchain products) never join a release family;
+      // skipping them at the one enumeration point covers bump/verify/pack.
+      if (manifest.private === true) continue
       const name = requireString(manifest, 'name', normalized)
       const version = requireString(manifest, 'version', normalized)
       if (name === WORKSPACE_ROOT_PACKAGE) throw new Error(`${normalized} selected the workspace root`)

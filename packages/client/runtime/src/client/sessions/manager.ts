@@ -683,6 +683,7 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
+    if (frame.type === 'stream/heartbeat') return // transport liveness probe; never session-scoped
     if (
       frame.type === 'session/event'
       && frame.event.type === 'user/message'
