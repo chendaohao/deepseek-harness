@@ -11,6 +11,7 @@ import {
 import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
+  ImageMediaType,
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
@@ -43,14 +44,29 @@ function ensureReference(ref: ImageAttachmentRef): string {
   return match[1]
 }
 
+/**
+ * Run admission on one image's bytes: detect the real format by full decode,
+ * enforce the deployment allowlist, then cross-check a declared type when
+ * present. The detected format is authoritative; a declared type only narrows
+ * admission by refusing declarations that disagree with the bytes.
+ * @param data - complete encoded image bytes.
+ * @param declaredMediaType - caller-declared type to cross-check, or undefined to accept the detected type.
+ * @param limits - deployment policy for pixels and accepted media types.
+ * @returns verified format and dimensions with the exact byte length.
+ */
 async function inspectMetadata(
   data: Uint8Array,
-  declaredMediaType: ImageAttachmentRef['mediaType'],
-  maxPixels?: number,
+  declaredMediaType: ImageMediaType | undefined,
+  limits: ImageAttachmentLimits,
 ): Promise<Omit<ImageAttachmentRef, 'attachmentId' | 'name'>> {
   if (data.byteLength === 0) throw new AttachmentError('Image is empty.', 'INVALID_IMAGE')
-  const detected = await detectImage(data, maxPixels)
-  if (detected.mediaType !== declaredMediaType) throw new AttachmentError('Declared image type does not match its bytes.', 'IMAGE_TYPE_MISMATCH')
+  const detected = await detectImage(data, limits.maxImagePixels)
+  if (!limits.mediaTypes.includes(detected.mediaType)) {
+    throw new AttachmentError(`Image type "${detected.mediaType}" is not accepted by this deployment.`, 'IMAGE_TYPE_NOT_ALLOWED')
+  }
+  if (declaredMediaType !== undefined && detected.mediaType !== declaredMediaType) {
+    throw new AttachmentError('Declared image type does not match its bytes.', 'IMAGE_TYPE_MISMATCH')
+  }
   return { ...detected, bytes: data.byteLength }
 }
 
@@ -64,7 +80,7 @@ export async function validateImageFile(input: SaveImageAttachment, limits: Imag
   if (input.data.byteLength > limits.maxImageBytes) {
     throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
   }
-  await inspectMetadata(input.data, input.mediaType, limits.maxImagePixels)
+  await inspectMetadata(input.data, input.mediaType, limits)
 }
 
 /**
@@ -135,7 +151,7 @@ async function ensureDurableHome(path: string): Promise<string> {
  */
 export async function saveImageFile(root: string, input: SaveImageAttachment, limits: ImageAttachmentLimits): Promise<ImageAttachmentRef> {
   if (input.data.byteLength > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
-  const metadata = await inspectMetadata(input.data, input.mediaType, limits.maxImagePixels)
+  const metadata = await inspectMetadata(input.data, input.mediaType, limits)
   const sha256 = digest(input.data)
   const bucket = join(root, 'objects', sha256.slice(0, 2))
   const staging = join(root, 'tmp')

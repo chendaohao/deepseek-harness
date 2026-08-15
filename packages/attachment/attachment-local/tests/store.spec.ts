@@ -166,6 +166,12 @@ describe('local attachment store', () => {
     await expect(saveImageFile(storageRoot, {
       data: PNG, mediaType: 'image/jpeg',
     }, LIMITS)).rejects.toMatchObject({ code: 'IMAGE_TYPE_MISMATCH' })
+    // No declared type: the store detects the format from the bytes.
+    const detected = await saveImageFile(storageRoot, { data: PNG }, LIMITS)
+    expect(detected.mediaType).toBe('image/png')
+    // Deployment allowlist refusal on the DETECTED type, without any declaration.
+    await expect(saveImageFile(storageRoot, { data: PNG }, { ...LIMITS, mediaTypes: ['image/jpeg'] }))
+      .rejects.toMatchObject({ code: 'IMAGE_TYPE_NOT_ALLOWED' })
     await expect(saveImageFile(storageRoot, {
       data: PNG, mediaType: 'image/png',
     }, { ...LIMITS, maxImageBytes: 1 })).rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })

@@ -23,7 +23,7 @@
 </evidence>
 ```
 
-执行在一切文件 I/O 之前先做全部拒绝检查：非空路径、图片扩展名、已挂载的 attachment 服务、受支持的媒体类型，然后是常规文件读取目标（按会话 cwd 解析、`fs/observed` 事件、attachment 限额的字节上限）。字节先经 `attachments.saveImage` 提交（内容寻址、幂等）再观察，即使工具结果随后被记录，证据也引用持久化对象。
+执行在一切文件 I/O 之前先做全部拒绝检查：非空路径、已挂载的 attachment 服务，然后是常规文件读取目标（按会话 cwd 解析、`fs/observed` 事件、attachment 限额的字节上限）。store 的准入从字节中检测图片格式并强制部署的媒体类型允许列表，因此文件的扩展名不决定准入。字节先经 `attachments.saveImage` 提交（内容寻址、幂等）再观察，即使工具结果随后被记录，证据也引用持久化对象。
 
 ## Model Experience
 

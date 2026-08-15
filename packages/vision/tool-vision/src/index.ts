@@ -8,10 +8,9 @@
  * @module @deepseek-ai/dsh-tool-vision
  */
 
-import { basename, extname } from 'node:path'
+import { basename } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { AttachmentError } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsInfo, FsTarget } from '@deepseek-ai/dsh-fs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -30,15 +29,6 @@ export const name = 'tool-vision'
  * package owns one tool).
  */
 export const inject = ['tools', 'fs', 'vision', 'attachments']
-
-/** Extensions `vision_observe` accepts; magic-byte validation at the attachment service stays authoritative. */
-const IMAGE_EXTENSIONS: Readonly<Record<string, ImageMediaType>> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-}
 
 /** The canonical outcome declared by the `vision_observe` output schema. */
 export interface VisionObserveValue {
@@ -157,17 +147,11 @@ export function applyVisionObserveTool(ctx: Context): void {
       if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
 
       // Every gate runs before any filesystem I/O so a refusal never leaks
-      // partial reads or attachment writes.
-      const mediaType = IMAGE_EXTENSIONS[extname(args.file_path).toLowerCase()]
-      if (mediaType === undefined) {
-        throw new Error(`cannot observe "${args.file_path}": vision_observe only accepts PNG/JPEG/WebP/GIF paths`)
-      }
+      // partial reads or attachment writes; format and deployment-policy
+      // verification stay with the attachment store's admission.
       const attachments = ctx.get('attachments')
       if (attachments === undefined) {
         throw new Error(`cannot observe "${args.file_path}": no attachment service is mounted`)
-      }
-      if (!attachments.imageLimits.mediaTypes.includes(mediaType)) {
-        throw new Error(`cannot observe "${args.file_path}": ${mediaType} images are not accepted by this deployment`)
       }
 
       const { target, info } = await resolveRegularReadTarget(ctx, exec, args.file_path)
@@ -177,19 +161,9 @@ export function applyVisionObserveTool(ctx: Context): void {
       const byteCap = Math.min(attachments.imageLimits.maxImageBytes, attachments.imageLimits.maxMessageImageBytes)
       const data = await ctx.fs.readBytes(target, exec.signal, byteCap)
       // Persist before observing: the evidence references a durably committed
-      // object even when the tool result is recorded.
-      let ref: ImageAttachmentRef
-      try {
-        ref = await attachments.saveImage({ data, mediaType, name: basename(target.displayPath) })
-      } catch (error: unknown) {
-        if (!(error instanceof AttachmentError) || error.code !== 'IMAGE_TYPE_MISMATCH') throw error
-        const extension = extname(target.displayPath).toLowerCase()
-        throw new Error(
-          `cannot observe "${target.displayPath}": the ${extension} extension declares ${mediaType}, but the bytes use a different image format; `
-          + 'rename the file to match its actual format if it is PNG/JPEG/WebP/GIF, or convert it to one of those formats',
-          { cause: error },
-        )
-      }
+      // object even when the tool result is recorded. The store detects the
+      // format from the bytes and enforces the deployment allowlist.
+      const ref = await attachments.saveImage({ data, name: basename(target.displayPath) })
 
       const observation = await ctx.vision.observe(
         { attachments: [ref], ...(args.question === undefined ? {} : { question: args.question }) },

@@ -37,14 +37,14 @@ export abstract class AttachmentStore extends Service {
   /**
    * Validate one image without persisting it.
    * Batch callers validate every member before saving any member.
-   * @param input - encoded bytes, declared media type, and optional display name.
+   * @param input - encoded bytes, optional declared media type, and optional display name.
    * @returns completion after the encoded raster has been fully decoded.
    */
   abstract validateImage(input: SaveImageAttachment): Promise<void>
 
   /**
    * Validate and durably commit one image before its owning session event is appended.
-   * @param input - encoded bytes, declared media type, and optional display name.
+   * @param input - encoded bytes, optional declared media type, and optional display name.
    * @returns a durable content-addressed reference.
    */
   abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>

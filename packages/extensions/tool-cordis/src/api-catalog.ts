@@ -360,13 +360,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract validateImage(input: SaveImageAttachment): Promise<void>',
         description: 'Validate one image without persisting it. Batch callers validate every member before saving any member.',
-        parameters: [{ name: 'input', description: 'encoded bytes, declared media type, and optional display name.' }],
+        parameters: [{ name: 'input', description: 'encoded bytes, optional declared media type, and optional display name.' }],
         returns: 'completion after the encoded raster has been fully decoded.',
       },
       {
         signature: 'abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>',
         description: 'Validate and durably commit one image before its owning session event is appended.',
-        parameters: [{ name: 'input', description: 'encoded bytes, declared media type, and optional display name.' }],
+        parameters: [{ name: 'input', description: 'encoded bytes, optional declared media type, and optional display name.' }],
         returns: 'a durable content-addressed reference.',
       },
       {
@@ -960,6 +960,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Select whether plan mode should be active. Between turns the method appends the change immediately because no in-turn pre-step will run until another prompt starts a turn. The open-turn fold is the idle signal: agent status stays `running` through post-turn checkpointing, when no further in-turn pre-step runs. During an open turn the selection remains pending until the next accepted in-turn pre-step. Repeated selection of the current or already-pending state is a no-op.',
         parameters: [{ name: 'agent', description: 'The agent to switch.' }, { name: 'active', description: 'Whether plan mode should be active.' }],
         returns: 'what happened: `committed` (logged now), `queued` (awaiting the next accepted in-turn pre-step), `cancelled` (an opposite pending selection was cleared; the logged state already matches), or `noop` (already in that state).',
+      },
+    ],
+  },
+  {
+    key: 'remoteTunnel',
+    summary: 'The remote-tunnel Service (`ctx.remoteTunnel`): resolves the cloudflared binary and opens tunnel sessions over the loopback port it is handed.',
+    description: 'The remote-tunnel Service (`ctx.remoteTunnel`): resolves the cloudflared binary and opens tunnel sessions over the loopback port it is handed.',
+    methods: [
+      {
+        signature: 'async open(port: number): Promise<RemoteTunnelSession>',
+        description: 'Open one tunnel session exposing the given loopback port.',
+        parameters: [{ name: 'port', description: 'loopback port the tunnel targets (the proxy or webserver port).' }],
+        returns: 'the live session with its public URL; rejects after the attempt budget.',
       },
     ],
   },
@@ -2024,6 +2037,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'vision',
+    summary: 'Vision observation service: turn durable image attachments into text evidence without assuming the current model route can see images.',
+    description: 'Vision observation service: turn durable image attachments into text evidence without assuming the current model route can see images. The service is a pure capability — it never writes session events; the observing consumer owns recording (a tool result records itself, the request bridge appends `vision/observed`).',
+    methods: [
+      {
+        signature: 'abstract readonly visionRoute: { provider: string; model: string }',
+        description: 'The provider route and model this observer uses, declared beside the service so consumers can record and attribute observations without knowing the provider\'s configuration.',
+        parameters: [],
+      },
+      {
+        signature: 'abstract readonly maxImagesPerRequest: number',
+        description: 'Deployment-resolved maximum images observed in one request.',
+        parameters: [],
+      },
+      {
+        signature: 'abstract observe(request: VisionObserveRequest, signal?: AbortSignal): Promise<VisionObservation>',
+        description: 'Observe one set of durable images and return text evidence.',
+        parameters: [{ name: 'request', description: 'the image references and optional steering question.' }, { name: 'signal', description: 'optional cancellation for provider work.' }],
+        returns: 'the evidence text and provider token accounting when reported.',
+        throws: ['{@link VisionError} for observation failures; the provider route surfaces its own LlmError for request-level failures.'],
+      },
+    ],
+  },
+  {
     key: 'web',
     summary: 'The web access service.',
     description: 'The web access service. Registered as `ctx.web` (one instance per context).\n\nSelection semantics (resolved at execution time, never order-dependent):\n\n- A configured id that is registered and `available()` → that provider.\n- A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.\n- A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.\n- No id configured, exactly one registered usable provider → that provider.\n- No id configured, multiple usable providers → `WEB_PROVIDER_AMBIGUOUS`.\n- No id configured, no usable provider → `WEB_PROVIDER_UNAVAILABLE`.',
@@ -2398,6 +2435,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; their messages already obey the immutable creation contract.' }],
   },
   {
+    name: 'remote-tunnel/state',
+    mode: 'emit',
+    signature: '\'remote-tunnel/state\'(state: RemoteTunnelState): void',
+    summary: 'One tunnel session reported a durable fact: its public URL became ready, its child exited, or a final spawn attempt failed.',
+    description: 'One tunnel session reported a durable fact: its public URL became ready, its child exited, or a final spawn attempt failed. `open()` rejects with the same message a final `failed` state carries.',
+    parameters: [{ name: 'state', description: 'the discriminated session fact.' }],
+  },
+  {
     name: 'session-telemetry/record',
     mode: 'waterfall',
     signature: '\'session-telemetry/record\'(record: SessionTelemetryRecord, next: () => SessionTelemetryRecord): SessionTelemetryRecord',
@@ -2648,10 +2693,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentStatus',
     declaration: 'export type AgentStatus = \'idle\' | \'running\';',
-  },
-  {
-    name: 'ApprovalOutcome',
-    declaration: 'export type ApprovalOutcome = \'allowed-once\' | \'rejected\' | \'cancelled\' | \'unavailable\';',
   },
   {
     name: 'ApprovalPolicy',
@@ -3578,6 +3619,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
   },
   {
+    name: 'RemoteTunnelSession',
+    declaration: 'export interface RemoteTunnelSession {\n    readonly url: string;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'RemoteTunnelState',
+    declaration: 'export type RemoteTunnelState = {\n    status: \'open\';\n    url: string;\n} | {\n    status: \'ended\';\n} | {\n    status: \'failed\';\n    message: string;\n};',
+  },
+  {
     name: 'RequestContext',
     declaration: 'export interface RequestContext {\n    provider: string;\n    model: string;\n    contextWindow?: number;\n}',
   },
@@ -3675,7 +3724,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SaveImageAttachment',
-    declaration: 'export interface SaveImageAttachment {\n    data: Uint8Array;\n    mediaType: ImageMediaType;\n    name?: string;\n}',
+    declaration: 'export interface SaveImageAttachment {\n    data: Uint8Array;\n    mediaType?: ImageMediaType;\n    name?: string;\n}',
   },
   {
     name: 'SaveTextSpill',
@@ -4528,6 +4577,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UserQuestionProvider',
     declaration: 'export interface UserQuestionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
+  },
+  {
+    name: 'VisionObservation',
+    declaration: 'export interface VisionObservation {\n    evidence: string;\n    usage?: {\n        inputTokens: number;\n        outputTokens: number;\n    };\n}',
+  },
+  {
+    name: 'VisionObserveRequest',
+    declaration: 'export interface VisionObserveRequest {\n    attachments: readonly ImageAttachmentRef[];\n    question?: string;\n    maxEvidenceTokens?: number;\n}',
   },
   {
     name: 'WebBootEntry',

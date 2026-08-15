@@ -23,7 +23,7 @@ Arguments: `file_path` (required), `question` (optional). The output carries `pa
 </evidence>
 ```
 
-Execution gates every refusal before any filesystem I/O: non-empty path, image extension, mounted attachment service, accepted media type, then the regular-file read target (session-cwd-relative resolution, `fs/observed` events, byte caps from the attachment limits). The bytes are committed through `attachments.saveImage` (content-addressed, idempotent) before observation, so the evidence references a durable object even when the tool result is later recorded.
+Execution gates every refusal before any filesystem I/O: non-empty path, mounted attachment service, then the regular-file read target (session-cwd-relative resolution, `fs/observed` events, byte caps from the attachment limits). The store's admission detects the image format from the bytes and enforces the deployment media-type allowlist, so the file's extension never determines admission. The bytes are committed through `attachments.saveImage` (content-addressed, idempotent) before observation, so the evidence references a durable object even when the tool result is later recorded.
 
 ## Model Experience
 

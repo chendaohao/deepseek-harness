@@ -75,6 +75,8 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
   // No repository field in the published manifest.
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
+  // qrcode-terminal@0.12.0 ships only the legacy licenses array, no SPDX license field.
+  'qrcode-terminal': { license: 'Apache-2.0', repo: 'https://github.com/gtanner/qrcode-terminal' },
 }
 
 /**

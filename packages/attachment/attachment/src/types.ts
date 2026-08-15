@@ -35,8 +35,8 @@ export interface ImageAttachmentLimits {
 /** Request to validate and durably commit one image. */
 export interface SaveImageAttachment {
   data: Uint8Array
-  /** Caller-declared media type, checked against fully decoded bytes. */
-  mediaType: ImageMediaType
+  /** Caller-declared media type, cross-checked against the decoded bytes when present; absent lets the store detect it. */
+  mediaType?: ImageMediaType
   /** Optional browser/provider display name; it is never interpreted as a path. */
   name?: string
 }

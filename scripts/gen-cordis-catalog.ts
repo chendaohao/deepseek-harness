@@ -154,6 +154,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   timer: 'client-side dynamic-package timer service — packages/extensions/cordis-client-runner/README.md owns the API',
   slots: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the API',
   theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the API',
+  visionBridge: 'not a service: presence marker provided while the vision bridge is mounted, read by host admission to admit images on text-only routes — packages/vision/vision-bridge/README.md owns the contract',
   workspaces: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the API',
 }
 

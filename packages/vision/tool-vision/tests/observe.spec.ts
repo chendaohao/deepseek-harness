@@ -36,7 +36,7 @@ class FakeVision extends VisionService {
   }
 }
 
-/** Attachment store admitting PNG only, for the media-type refusal arm. */
+/** Attachment store with scripted save failures for the propagation arms. */
 class PngOnlyStore extends AttachmentStore {
   readonly imageLimits = {
     maxImageBytes: 1000,
@@ -245,11 +245,12 @@ describe('vision_observe refusals', () => {
     expect(text(result)).toContain('must be a non-empty string')
   })
 
-  it('refuses a non-image extension', async () => {
+  it('refuses non-image bytes through store admission', async () => {
+    await writeFile(join(dir, 'note.txt'), 'not an image')
     const { ctx } = await setup()
     const result = await observe(ctx, { file_path: 'note.txt' }, agentOn())
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('only accepts PNG/JPEG/WebP/GIF paths')
+    expect(text(result)).toContain('Unsupported or malformed image data')
   })
 
   it('refuses a missing file', async () => {
@@ -259,13 +260,19 @@ describe('vision_observe refusals', () => {
     expect(text(result)).toContain('not found')
   })
 
-  it('refuses a mismatched extension and bytes', async () => {
-    // PNG bytes under a .jpg extension: the declared type and the decoded format disagree.
+  it('detects the format from the bytes regardless of the file extension', async () => {
+    // PNG bytes under a .jpg extension and under an extension-less name (the
+    // attachment store's hash-named objects have no extension): the store
+    // detects the real format instead of trusting the path.
     await writeFile(join(dir, 'fake.jpg'), PNG_1X1)
-    const { ctx } = await setup()
-    const result = await observe(ctx, { file_path: 'fake.jpg' }, agentOn())
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('rename the file to match its actual format')
+    await writeFile(join(dir, 'screenshot'), PNG_1X1)
+    const { ctx, vision } = await setup()
+    const jpg = await observe(ctx, { file_path: 'fake.jpg' }, agentOn())
+    expect(jpg.isError).toBe(false)
+    expect(vision.requests[0]!.attachments[0]!.mediaType).toBe('image/png')
+    const bare = await observe(ctx, { file_path: 'screenshot' }, agentOn())
+    expect(bare.isError).toBe(false)
+    expect(vision.requests[1]!.attachments[0]!.mediaType).toBe('image/png')
   })
 
   it('refuses a directory path', async () => {
@@ -291,30 +298,15 @@ describe('vision_observe refusals', () => {
     expect(text(result)).toContain('no attachment service is mounted')
   })
 
-  it('refuses a media type the deployment does not accept', async () => {
-    await writeFile(join(dir, 'red.jpg'), PNG_1X1)
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(LocalFileSystem, { cwd: dir })
-    await ctx.plugin(FsPolicy)
-    // A store that admits PNG only: the declared jpeg type must be refused
-    // before any filesystem I/O.
-    new PngOnlyStore(ctx)
-    new FakeVision(ctx)
-    await ctx.plugin({ name: 'tool-vision', inject: ['tools', 'fs', 'vision', 'attachments'], apply })
-    const result = await observe(ctx, { file_path: 'red.jpg' }, agentOn())
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('not accepted by this deployment')
-  })
-
   it('canonicalizes a parent-traversing session cwd', async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const { ctx } = await setup()
+    // path.join would normalize the parent segment away; keep it in the raw
+    // string so the canonicalization path actually runs.
     const agent = {
       options: {},
       session: {
-        header: { cwd: join(dir, 'sub', '..') },
+        header: { cwd: dir + '/sub/..' },
         requestHeader: () => undefined,
       },
     }
@@ -329,22 +321,25 @@ describe('vision_observe refusals', () => {
     expect(result.isError).toBe(false)
   })
 
-  it('rethrows a non-mismatch attachment failure', async () => {
+  it('propagates attachment failures untouched', async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const ctx = await pngOnlyContext()
     const store = ctx.get('attachments', false) as PngOnlyStore
     store.saveError = new Error('backend exploded')
-    const result = await observe(ctx, { file_path: 'red.png' }, agentOn())
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('backend exploded')
+    const plain = await observe(ctx, { file_path: 'red.png' }, agentOn())
+    expect(plain.isError).toBe(true)
+    expect(text(plain)).toContain('backend exploded')
+    store.saveError = new AttachmentError('disk full', 'STORAGE')
+    const coded = await observe(ctx, { file_path: 'red.png' }, agentOn())
+    expect(coded.isError).toBe(true)
+    expect(text(coded)).toContain('disk full')
   })
 
-  it('rethrows a mismatched-code attachment failure untouched', async () => {
-    await writeFile(join(dir, 'red.png'), PNG_1X1)
-    const ctx = await pngOnlyContext()
-    const result = await observe(ctx, { file_path: 'red.png' }, agentOn())
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('disk full')
+  it('declares vision_observe parallel-safe', async () => {
+    const { ctx } = await setup()
+    expect(ctx.tools.executionMode({
+      signal: testToolSignal, callId: CallId('vision-parallel'), name: 'vision_observe', arguments: { file_path: 'a.png' },
+    })).toEqual({ kind: 'parallel' })
   })
 
   it('renders a committed image without a display name', async () => {

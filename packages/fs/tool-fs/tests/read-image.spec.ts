@@ -1,8 +1,9 @@
 /**
  * The `read_image` tool over the REAL local filesystem and attachment store:
- * extension routing, the strict image-modality gate (every refusal arm),
- * durable commit + image-block rendering, attachment admission failures, and
- * the regression that `read` keeps its text-only contract.
+ * byte-based format detection through store admission, the strict
+ * image-modality gate (every refusal arm), durable commit + image-block
+ * rendering, attachment admission failures, and the regression that `read`
+ * keeps its text-only contract.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -26,7 +27,6 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   applyReadImageTool,
   formatImageReadOutput,
-  imageMediaTypeForPath,
   imageRefFromValue,
 } from '../src/read-image.ts'
 
@@ -151,18 +151,6 @@ function readImage(ctx: Context, args: unknown, agent?: object) {
 function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
 }
-
-describe('imageMediaTypeForPath', () => {
-  it('maps the four extensions case-insensitively and rejects everything else', () => {
-    expect(imageMediaTypeForPath('a.png')).toBe('image/png')
-    expect(imageMediaTypeForPath('a.JPG')).toBe('image/jpeg')
-    expect(imageMediaTypeForPath('b.jpeg')).toBe('image/jpeg')
-    expect(imageMediaTypeForPath('c.webp')).toBe('image/webp')
-    expect(imageMediaTypeForPath('d.Gif')).toBe('image/gif')
-    expect(imageMediaTypeForPath('note.txt')).toBeUndefined()
-    expect(imageMediaTypeForPath('png')).toBeUndefined()
-  })
-})
 
 describe('imageRefFromValue', () => {
   it('re-brands with and without the optional display name', () => {
@@ -298,7 +286,8 @@ describe('strict image-modality gate', () => {
 })
 
 describe('argument and service preconditions', () => {
-  it('rejects an empty path and a non-image extension', async () => {
+  it('rejects an empty path and refuses non-image bytes through store admission', async () => {
+    await writeFile(join(dir, 'notes.txt'), 'not an image')
     const ctx = await setup()
     const empty = await readImage(ctx, { file_path: '   ' }, agentOn('vision-model'))
     expect(empty.isError).toBe(true)
@@ -306,7 +295,7 @@ describe('argument and service preconditions', () => {
 
     const nonImage = await readImage(ctx, { file_path: 'notes.txt' }, agentOn('vision-model'))
     expect(nonImage.isError).toBe(true)
-    expect(text(nonImage)).toContain('only accepts PNG/JPEG/WebP/GIF paths')
+    expect(text(nonImage)).toContain('Unsupported or malformed image data')
   })
 
   it('refuses when no attachment service is mounted', async () => {
@@ -328,45 +317,19 @@ describe('argument and service preconditions', () => {
     expect(text(result)).toContain('no attachment service is mounted')
   })
 
-  it('refuses a media type the deployment does not accept', async () => {
-    /** Store whose deployment accepts JPEG only. */
-    class JpegOnlyStore extends AttachmentStore {
-      readonly imageLimits: ImageAttachmentLimits = Object.freeze({
-        maxImageBytes: 1024,
-        maxImagesPerMessage: 1,
-        maxMessageImageBytes: 1024,
-        maxImagePixels: 100,
-        mediaTypes: Object.freeze(['image/jpeg'] as const),
-      })
-
-      validateImage(_input: SaveImageAttachment): Promise<void> {
-        throw new Error('unreachable: admission refuses before validation')
-      }
-
-      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
-        throw new Error('unreachable: admission refuses before save')
-      }
-
-      readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
-        throw new Error('unreachable in this test')
-      }
-    }
-    const ctx = await setup({ attachments: false })
-    await ctx.plugin(JpegOnlyStore)
-    const result = await readImage(ctx, { file_path: 'red.png' }, agentOn('vision-model'))
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('image/png images are not accepted by this deployment')
-  })
 })
 
 describe('image admission failures', () => {
-  it('explains how to repair a declared/actual media-type mismatch', async () => {
+  it('detects the format from the bytes regardless of the file extension', async () => {
+    // PNG bytes under a .jpg name: the store detects the real format instead
+    // of trusting the path, so the image commits and reads back as PNG.
     await writeFile(join(dir, 'wrong.jpg'), PNG_1X1)
     const ctx = await setup()
     const result = await readImage(ctx, { file_path: 'wrong.jpg' }, agentOn('vision-model'))
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('the .jpg extension declares image/jpeg')
-    expect(text(result)).toContain('rename the file to match its actual format if it is PNG/JPEG/WebP/GIF, or convert it to one of those formats')
+    expect(result.isError).toBe(false)
+    const image = result.content[1] as { type: string; attachment: ImageAttachmentRef }
+    expect(image.attachment.mediaType).toBe('image/png')
+    expect(image.attachment.bytes).toBe(PNG_1X1.length)
   })
 
   it('fails with FS_TOO_LARGE before reading a file past maxImageBytes', async () => {
@@ -423,7 +386,7 @@ describe('image admission failures', () => {
       }
 
       async saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef> {
-        return { attachmentId: AttachmentId('sha256:feed'), mediaType: input.mediaType, bytes: input.data.length, width: 1, height: 1 }
+        return { attachmentId: AttachmentId('sha256:feed'), mediaType: input.mediaType ?? 'image/png', bytes: input.data.length, width: 1, height: 1 }
       }
 
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {

@@ -141,5 +141,5 @@ Vision observation service: turn durable image attachments into text evidence wi
 abstract observe(request: VisionObserveRequest, signal?: AbortSignal): Promise<VisionObservation>
 ```
 
-Source: [`packages/vision/vision/src/index.ts:42`](../../packages/vision/vision/src/index.ts)
+Source: [`packages/vision/vision/src/index.ts:51`](../../packages/vision/vision/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -11,9 +11,9 @@
  * @module @deepseek-ai/dsh-tool-fs/src/read-image
  */
 
-import { basename, extname } from 'node:path'
+import { basename } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -21,15 +21,6 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-fs'
 import { resolveRegularReadTarget } from './read-target.ts'
-
-/** Extensions `read_image` accepts; magic-byte validation at the attachment service stays authoritative. */
-const IMAGE_EXTENSIONS: Readonly<Record<string, ImageMediaType>> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-}
 
 /** The canonical outcome declared by the `read_image` output schema. */
 export interface ImageReadValue {
@@ -42,15 +33,6 @@ export interface ImageReadValue {
     height: number
     name?: string
   }
-}
-
-/**
- * Map a model-supplied path to its declared image media type by extension.
- * @param filePath - the raw `file_path` argument (not yet resolved).
- * @returns the declared media type, or undefined when the path does not claim an image.
- */
-export function imageMediaTypeForPath(filePath: string): ImageMediaType | undefined {
-  return IMAGE_EXTENSIONS[extname(filePath).toLowerCase()]
 }
 
 /**
@@ -164,17 +146,11 @@ export function applyReadImageTool(ctx: Context): void {
       if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
 
       // Every gate runs before any filesystem I/O so a refusal never leaks
-      // partial reads or attachment writes.
-      const mediaType = imageMediaTypeForPath(args.file_path)
-      if (mediaType === undefined) {
-        throw new Error(`cannot read "${args.file_path}": read_image only accepts PNG/JPEG/WebP/GIF paths`)
-      }
+      // partial reads or attachment writes; format and deployment-policy
+      // verification stay with the attachment store's admission.
       const attachments = ctx.get('attachments')
       if (attachments === undefined) {
         throw new Error(`cannot read "${args.file_path}" as an image: no attachment service is mounted`)
-      }
-      if (!attachments.imageLimits.mediaTypes.includes(mediaType)) {
-        throw new Error(`cannot read "${args.file_path}": ${mediaType} images are not accepted by this deployment`)
       }
       await assertImageCapableRoute(ctx, exec, args.file_path)
 
@@ -185,18 +161,10 @@ export function applyReadImageTool(ctx: Context): void {
       const byteCap = Math.min(attachments.imageLimits.maxImageBytes, attachments.imageLimits.maxMessageImageBytes)
       const data = await ctx.fs.readBytes(target, exec.signal, byteCap)
       // Persist before returning: the image block must reference a durably
-      // committed object by the time the tool/result event is appended.
-      let ref: ImageAttachmentRef
-      try {
-        ref = await attachments.saveImage({ data, mediaType, name: basename(target.displayPath) })
-      } catch (error: unknown) {
-        if (!(error instanceof AttachmentError) || error.code !== 'IMAGE_TYPE_MISMATCH') throw error
-        const extension = extname(target.displayPath).toLowerCase()
-        throw new Error(
-          `cannot read "${target.displayPath}": the ${extension} extension declares ${mediaType}, but the bytes use a different image format; rename the file to match its actual format if it is PNG/JPEG/WebP/GIF, or convert it to one of those formats`,
-          { cause: error },
-        )
-      }
+      // committed object by the time the tool/result event is appended. The
+      // store detects the format from the bytes and enforces the deployment
+      // allowlist.
+      const ref = await attachments.saveImage({ data, name: basename(target.displayPath) })
       ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
       const value: ImageReadValue = {
         path: target.displayPath,
