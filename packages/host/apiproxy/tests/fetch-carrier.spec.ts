@@ -297,8 +297,8 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
   }
 }
 
-function client(api: ApiProxy = fakeApi(), timeoutMs?: number): InProcessApiClient {
-  return new InProcessApiClient(toFetchHandler(api), timeoutMs)
+function client(api: ApiProxy = fakeApi(), timeoutMs?: number, deadlineExemptHistory = false): InProcessApiClient {
+  return new InProcessApiClient(toFetchHandler(api), timeoutMs, deadlineExemptHistory)
 }
 
 async function collect<F>(stream: AsyncIterable<RpcRequest<F>>): Promise<RpcRequest<F>[]> {
@@ -506,6 +506,54 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
 
     await expect(execution).rejects.toThrow('connection closed')
     expect(handlerSignal.aborted).toBe(true)
+  })
+
+  it('lets session.history finish after the 30-second default unary deadline', async () => {
+    vi.useFakeTimers()
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
+      const controller = new AbortController()
+      setTimeout(() => {
+        controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      }, milliseconds)
+      return controller.signal
+    })
+    try {
+      const api = fakeApi()
+      api.sessions.history = async (request) => {
+        await new Promise(resolve => setTimeout(resolve, 30_001))
+        return { rpcId: request.rpcId, result: { ok: true, value: { events: [], hasMore: false } } }
+      }
+      const execution = client(api, undefined, true).sessions.history({ sessionId: 's1' as never })
+      const assertion = expect(execution).resolves.toMatchObject({ result: { ok: true } })
+
+      await Promise.all([
+        vi.advanceTimersByTimeAsync(30_001),
+        assertion,
+      ])
+      expect(timeoutSpy).not.toHaveBeenCalled()
+    } finally {
+      timeoutSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps caller aborts on a deadline-exempt session.history', async () => {
+    // The host-side history contract does not forward a signal (unlike
+    // host.pickDirectory); the deadline exemption must still honor the caller
+    // abort at the client carrier — a reconnect's resync kills the stale fetch
+    // even though the server keeps computing the abandoned page.
+    const api = fakeApi()
+    api.sessions.history = async () => {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      return { rpcId: RpcId('late'), result: { ok: true, value: { events: [], hasMore: false } } }
+    }
+    const controller = new AbortController()
+    const execution = client(api, undefined, true).sessions.history({ sessionId: 's1' as never }, controller.signal)
+    const settled = expect(execution).rejects.toThrow('connection closed')
+
+    controller.abort(new Error('connection closed'))
+
+    await settled
   })
 
   it('propagates the carrier Request signal into session.search', async () => {

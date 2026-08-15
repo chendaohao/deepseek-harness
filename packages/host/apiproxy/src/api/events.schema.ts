@@ -63,6 +63,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   // value stays wide: it already passed its unit's own schema on the host,
   // and deep-validating here would import every domain's schema into the carrier.
   z.object({ type: z.literal('session/projection'), sessionId: sessionIdSchema, key: z.string().min(1), value: z.unknown(), seq: z.number().int().nonnegative() }),
+  z.object({ type: z.literal('stream/heartbeat') }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<MuxFrame>
 
@@ -89,5 +90,6 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   // structural contract belongs to the owner package's cordis `Events`
   // declaration — the host validated JSON-safety before forwarding.
   z.object({ type: z.literal('host/remote-event'), event: z.string().min(1), args: z.array(z.unknown()) }),
+  z.object({ type: z.literal('stream/heartbeat') }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HostFrame>

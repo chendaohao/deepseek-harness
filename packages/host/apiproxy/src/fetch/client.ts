@@ -247,8 +247,18 @@ export abstract class AbstractApiClient implements IApiClient {
   private flushScheduled = false
   private readonly envelopeListeners = new Set<(batch: readonly RpcMessage[]) => void>()
 
-  /** @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it. */
-  constructor(protected readonly timeoutMs: number = DEFAULT_TIMEOUT_MS) {}
+  /**
+   * @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it.
+   * @param deadlineExemptHistory - exempt session/subagent history reads from the fixed unary
+   *   deadline (their payloads scale with session content, so the 30s budget cuts page reads on
+   *   slow remote links). Callers of an exempt client must supply their own deadline — the Web
+   *   runtime passes a generation-scoped abort plus a generous cap; consumers that pass no signal
+   *   (the mobile core) keep the default budget by not opting in.
+   */
+  constructor(
+    protected readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    private readonly deadlineExemptHistory = false,
+  ) {}
 
   /** Transport aspect: browser fetch, injected handler.fetch, IPC bridge, ... */
   protected abstract doFetch(input: URL, init?: RequestInit): Promise<Response>
@@ -298,6 +308,11 @@ export abstract class AbstractApiClient implements IApiClient {
   protected mintRpcId(): RpcId {
     // crypto.randomUUID is a Web API (browser + Node ≥19): keeps this base platform-neutral.
     return RpcId(crypto.randomUUID())
+  }
+
+  /** The per-instance history timeout policy: exempt carriers hand the deadline to their caller. */
+  private historyTimeoutPolicy(): UnaryTimeoutPolicy {
+    return this.deadlineExemptHistory ? 'caller-signal-only' : 'default'
   }
 
   /**
@@ -413,7 +428,7 @@ export abstract class AbstractApiClient implements IApiClient {
     list: (payload, signal) => this.callUnary('session.list', payload, signal),
     search: (payload, signal) => this.callUnary('session.search', payload, signal),
     create: (payload, signal) => this.callUnary('session.create', payload, signal),
-    history: (payload, signal) => this.callUnary('session.history', payload, signal),
+    history: (payload, signal) => this.callUnary('session.history', payload, signal, this.historyTimeoutPolicy()),
     models: (payload, signal) => this.callUnary('session.models', payload, signal),
     selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
     rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
@@ -426,7 +441,7 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly subagents: IApiClient['subagents'] = {
     list: (payload, signal) => this.callUnary('subagent.list', payload, signal),
-    history: (payload, signal) => this.callUnary('subagent.history', payload, signal),
+    history: (payload, signal) => this.callUnary('subagent.history', payload, signal, this.historyTimeoutPolicy()),
     prompt: (payload, signal) => this.callUnary('subagent.prompt', payload, signal),
     interrupt: (payload, signal) => this.callUnary('subagent.interrupt', payload, signal),
   }
@@ -518,8 +533,12 @@ export abstract class AbstractApiClient implements IApiClient {
  * in-process injection is this package's own capability (handler and client are both local).
  */
 export class InProcessApiClient extends AbstractApiClient {
-  constructor(private readonly handler: { fetch: typeof fetch }, timeoutMs?: number) {
-    super(timeoutMs)
+  constructor(
+    private readonly handler: { fetch: typeof fetch },
+    timeoutMs?: number,
+    deadlineExemptHistory = false,
+  ) {
+    super(timeoutMs, deadlineExemptHistory)
   }
 
   /**

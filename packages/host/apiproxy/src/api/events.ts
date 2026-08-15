@@ -105,6 +105,14 @@ export type MuxFrame =
    * tail page's projections block.
    */
   | { type: 'session/projection'; sessionId: SessionId; key: string; value: unknown; seq: number }
+  /**
+   * Transport liveness probe sent by the WebSocket downlink while the stream is
+   * quiet, so a client can distinguish a healthy idle connection from one whose
+   * socket died silently (a phone switching mobile data <-> WiFi tears the TCP
+   * leg without any close frame). Business layers ignore it; it is never
+   * logged and never model-visible.
+   */
+  | { type: 'stream/heartbeat' }
   | { type: 'stream/error'; error: RpcError }
 
 /**
@@ -152,4 +160,6 @@ export type HostFrame =
    * per-event frame variant.
    */
   | { type: 'host/remote-event'; event: string; args: JsonValue[] }
+  /** Transport liveness probe — see the mux-stream member of the same name. */
+  | { type: 'stream/heartbeat' }
   | { type: 'stream/error'; error: RpcError }

@@ -58,6 +58,8 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     "    host: !!js ctx.webStartup.host ?? '127.0.0.1'",
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
+    '    remote: !!js ctx.webStartup.remote ?? false',
+    '    remoteReset: !!js ctx.webStartup.remoteReset ?? false',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -97,6 +99,8 @@ describe('web command-line provider', () => {
       host: '127.0.0.1',
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      remote: false,
+      remoteReset: false,
     })
     expect(observed.readerConfig).toEqual(values)
     expect(observed.exits).toEqual([])
@@ -104,18 +108,28 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ trustedHosts: [] })
+    expect(values).toEqual({ trustedHosts: [], remote: false, remoteReset: false })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       port: 3080,
       trustedHosts: [],
+      remote: false,
+      remoteReset: false,
     })
+  })
+
+  it('publishes the remote flags for the remote-access rows', async () => {
+    const { values, observed } = await bootProvider(['--remote', '--remote-reset'])
+    expect(values).toEqual({ trustedHosts: [], remote: true, remoteReset: true })
+    expect(observed.exits).toEqual([])
   })
 
   it('prints its own help and leaves the consumer pending', async () => {
     const { values, observed } = await bootProvider(['--help'])
     expect(observed.out).toContain('dsh --profile web')
     expect(observed.out).toContain('--trusted-host')
+    expect(observed.out).toContain('--remote')
+    expect(observed.out).toContain('--remote-reset')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([0])
