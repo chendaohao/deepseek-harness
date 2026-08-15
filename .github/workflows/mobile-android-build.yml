@@ -66,3 +66,5 @@ jobs:
           name: dsh-mobile-app-debug
           path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          # Personal APK builds: download promptly; the artifact expires after 1 day.
+          retention-days: 1
