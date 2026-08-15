@@ -1,0 +1,68 @@
+name: mobile-android-build
+
+# Build an installable Android APK for apps/mobile (the DSH voice app) from
+# GitHub's hosted runners. Manual trigger: Actions tab -> run workflow, pick
+# the branch. The debug APK lands in the run's artifacts and installs on any
+# Android 8+ device (tested on MIUI 14 / Android 12) without any keystore.
+#
+# For a signed release APK, add your keystore as repo secrets, switch the
+# gradle step to assembleRelease, and point the artifact at the release
+# output; the workflow stays on debug so personal builds need no secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch or ref to build
+        required: false
+        default: master
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref_name }}
+          fetch-depth: 1
+
+      # Pins the pnpm version declared in the root package.json (pnpm@11.7.0).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Metro resolves the app's workspace deps (@deepseek-ai/dsh-client-mobile
+      # and its host-side peers) through their built lib/ outputs.
+      - name: Build library outputs for Metro
+        run: pnpm run build:lib
+
+      # AGP 8 (Expo SDK 57 / RN 0.86) requires JDK 17.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Generates apps/mobile/android from app.json (continuous native
+      # generation; the android/ dir is gitignored).
+      - name: Generate the native Android project
+        working-directory: apps/mobile
+        env:
+          EXPO_NO_INTERACTIVE: '1'
+        run: pnpm exec expo prebuild --platform android --no-install
+
+      - name: Assemble the debug APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-mobile-app-debug
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

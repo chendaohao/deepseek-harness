@@ -8,19 +8,10 @@ CodeGraph integration for dsh sessions.
 
 For every session whose workspace carries a `.codegraph/` index:
 
-1. **Scoped checklist** — the first pre-step batch of that session folds in a
-   `<system-reminder>` frame with the CodeGraph checklist (symbols between
-   `<!-- CODEGRAPH_START -->` / `<!-- CODEGRAPH_END -->`, injected once per
-   session). Workspaces without an index get nothing.
-2. **MCP tools** — a `codegraph serve --mcp` server is spawned lazily (on the
-   first indexed pre-step) and its tools are registered as
-   `mcp__codegraph__codegraph_explore`, `codegraph_node`,
-   `codegraph_search`, etc. DSH's mcp-client sends no `rootUri`, so the
-   server has no default project: agents pass `projectPath` per call (the
-   checklist says so), which opens any indexed project lazily.
+1. **Scoped checklist** — the first pre-step batch of that session folds in a `<system-reminder>` frame with the CodeGraph checklist (symbols between `<!-- CODEGRAPH_START -->` / `<!-- CODEGRAPH_END -->`, injected once per session). Workspaces without an index get nothing.
+2. **MCP tools** — a `codegraph serve --mcp` server is spawned lazily (on the first indexed pre-step) and its tools are registered as `mcp__codegraph__codegraph_explore`, `codegraph_node`, `codegraph_search`, etc. DSH's mcp-client sends no `rootUri`, so the server has no default project: agents pass `projectPath` per call (the checklist says so), which opens any indexed project lazily.
 
-Connection failures are logged and never fatal: agents fall back to the
-`codegraph explore` CLI (also covered by the checklist).
+Connection failures are logged and never fatal: agents fall back to the `codegraph explore` CLI (also covered by the checklist).
 
 ## Configuration
 
