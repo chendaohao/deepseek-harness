@@ -8,16 +8,20 @@
  * @module @deepseek-ai/dsh-client-mobile
  */
 
+import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { MuxFrame, RpcId, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm/types'
+// The plan-mode package augments the session event map with 'plan/mode'.
+import type {} from '@deepseek-ai/dsh-plan-mode'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MobileApiClient } from './client.ts'
 import { MobileConnection } from './connection.ts'
 import { UnauthorizedError } from './errors.ts'
 import { SpeakQueue, type SpeakPort } from './speak-queue.ts'
 import type {
-  ApprovalOutcome, ChatMessage, ConnectionStatus, ListenerStatus, PendingApproval,
-  PendingQuestion, QuestionAnswerItem, SpeechRecognizerPort, SpeechSpeakerPort,
+  ApprovalOutcome, ChatMessage, ConnectionStatus, ListenerStatus, ModelOption,
+  PendingApproval, PendingQuestion, PromptPart, QuestionAnswerItem,
+  SessionSummary, SpeechRecognizerPort, SpeechSpeakerPort, TodoItemView,
   ToolStatusLine, VoiceChatSnapshot,
 } from './types.ts'
 
@@ -33,6 +37,12 @@ export interface VoiceChatOptions {
   language?: string
   /** Speak assistant replies automatically (voice conversation mode). */
   autoSpeak?: boolean
+  /** Start listening automatically after each finished turn. */
+  autoListen?: boolean
+  /** TTS speech rate, 0.5..2.0. */
+  ttsRate?: number
+  /** TTS speech pitch, 0.5..2.0. */
+  ttsPitch?: number
   /** Reuse this session instead of listing/creating one. */
   sessionId?: string
   /** Snapshot sink, called after every mutation. */
@@ -77,11 +87,16 @@ function textOfChunk(chunk: StreamChunk): string | undefined {
   return chunk.type === 'text-delta' ? chunk.text : undefined
 }
 
+/** Image refs carried by a content list (top-level image blocks only). */
+function imageRefsOf(content: readonly ContentBlock[]): ImageAttachmentRef[] {
+  return content.filter(block => block.type === 'image').map(block => block.attachment)
+}
+
 /** First text block nested anywhere in a content list (tool-result blocks recurse). */
 function firstTextBlock(content: readonly ContentBlock[]): string | null {
   for (const block of content) {
     if (block.type === 'text' && block.text !== '') return block.text
-    if (block.type === 'tool-result' && block.content !== undefined) {
+    if (block.type === 'tool-result') {
       const nested = firstTextBlock(block.content)
       if (nested !== null) return nested
     }
@@ -113,6 +128,12 @@ export class VoiceChatController {
   private notice: string | null = null
   private language: string
   private autoSpeak: boolean
+  private autoListen: boolean
+  private ttsRate: number
+  private ttsPitch: number
+  private planActive = false
+  private todos: TodoItemView[] = []
+  private selectedModel: string | null = null
   private sessionId: SessionId | null = null
   private watermark = -1
   private messages: ChatMessage[] = []
@@ -135,23 +156,37 @@ export class VoiceChatController {
     this.onSnapshot = (snapshot) => { options.onSnapshot(snapshot) }
     this.language = options.language ?? DEFAULT_LANGUAGE
     this.autoSpeak = options.autoSpeak ?? true
+    this.autoListen = options.autoListen ?? false
+    this.ttsRate = options.ttsRate ?? 1
+    this.ttsPitch = options.ttsPitch ?? 1
     this.sessionId = options.sessionId === undefined ? null : options.sessionId as SessionId
     this.speakQueue = new SpeakQueue({
       autoSpeak: this.autoSpeak,
       port: this.speakPort(),
       onSpeakingChange: (speaking) => {
         this.speaking = speaking
+        if (!speaking) this.maybeAutoListen()
         this.publish()
       },
     })
   }
 
-  /** The speak port the queue consumes: closes over the live language. */
+  /** The speak port the queue consumes: closes over the live language and TTS settings. */
   private speakPort(): SpeakPort {
     return {
-      speak: (text, onDone, onError) => { this.speaker.speak(text, this.language, onDone, onError) },
+      speak: (text, onDone, onError) => {
+        this.speaker.speak(text, this.language, this.ttsRate, this.ttsPitch, onDone, onError)
+      },
       stop: () => { this.speaker.stop() },
     }
+  }
+
+  /** Start listening after a finished turn when autoListen is on and nothing blocks. */
+  private maybeAutoListen(): void {
+    if (!this.autoListen || this.disposed) return
+    if (this.pendingApproval !== null || this.pendingQuestion !== null) return
+    if (this.speaking || this.turnRunning || this.listener !== 'idle') return
+    this.startListening()
   }
 
   /** Open the stream and rebuild the conversation for the selected session. */
@@ -217,7 +252,7 @@ export class VoiceChatController {
           this.publish()
           return
         }
-        void this.sendPrompt(trimmed)
+        void this.sendPrompt([{ type: 'text', text: trimmed }])
       },
       onError: (message) => {
         if (this.disposed) return
@@ -254,9 +289,14 @@ export class VoiceChatController {
 
   /** Send one text prompt (typed input path). */
   submitText(text: string): void {
-    const trimmed = text.trim()
-    if (trimmed === '' || this.disposed) return
-    void this.sendPrompt(trimmed)
+    if (this.disposed) return
+    void this.sendPrompt([{ type: 'text', text }])
+  }
+
+  /** Send one prompt with text and/or canonical-base64 image parts. */
+  submitContent(parts: readonly PromptPart[]): void {
+    if (this.disposed) return
+    void this.sendPrompt(parts)
   }
 
   /** Stop the running agent turn (barge-in). */
@@ -300,6 +340,144 @@ export class VoiceChatController {
       },
     })
     this.publish()
+  }
+
+  /** Toggle continuous listening: auto-start the mic after each finished turn. */
+  setAutoListen(enabled: boolean): void {
+    this.autoListen = enabled
+    if (enabled) this.maybeAutoListen()
+    this.publish()
+  }
+
+  /** Set the TTS speech rate (0.5..2.0; applies to the next utterance). */
+  setTtsRate(rate: number): void {
+    this.ttsRate = Math.min(2, Math.max(0.5, rate))
+    this.publish()
+  }
+
+  /** Set the TTS speech pitch (0.5..2.0; applies to the next utterance). */
+  setTtsPitch(pitch: number): void {
+    this.ttsPitch = Math.min(2, Math.max(0.5, pitch))
+    this.publish()
+  }
+
+  /** List the host's sessions (empty on failure; a notice reports the error). */
+  async listSessions(): Promise<SessionSummary[]> {
+    try {
+      const listed = await this.client.sessions.list({})
+      if (!listed.result.ok) {
+        this.notice = listed.result.error.message
+        this.publish()
+        return []
+      }
+      return listed.result.value.items.map(item => ({
+        sessionId: String(item.sessionId),
+        updatedAt: item.updatedAt,
+        running: item.running,
+        blank: item.blank,
+      }))
+    } catch (error) {
+      this.handleCarrierError(error, 'session list failed')
+      return []
+    }
+  }
+
+  /** Switch to another session: reset the view and rebuild from its history. */
+  switchSession(sessionId: string): void {
+    if (this.disposed || sessionId === this.sessionId) return
+    this.connection?.stop()
+    this.sessionId = sessionId as SessionId
+    this.watermark = -1
+    this.messages = []
+    this.toolLines = []
+    this.todos = []
+    this.planActive = false
+    this.selectedModel = null
+    this.pendingApproval = null
+    this.pendingQuestion = null
+    this.notice = null
+    this.publish()
+    if (this.connection !== null) this.connection.start()
+  }
+
+  /** Create a new blank session and switch to it. */
+  async createSession(): Promise<SessionSummary | null> {
+    try {
+      const created = await this.client.sessions.create({})
+      if (!created.result.ok) {
+        this.notice = created.result.error.message
+        this.publish()
+        return null
+      }
+      const sessionId = String(created.result.value.sessionId)
+      this.switchSession(sessionId)
+      return { sessionId, updatedAt: Date.now(), running: false, blank: true }
+    } catch (error) {
+      this.handleCarrierError(error, 'session create failed')
+      return null
+    }
+  }
+
+  /** The session's selectable models (empty when the catalog is unavailable). */
+  async listModels(): Promise<ModelOption[]> {
+    if (this.sessionId === null) return []
+    try {
+      const listed = await this.client.sessions.models({ sessionId: this.sessionId })
+      if (!listed.result.ok) {
+        this.notice = listed.result.error.message
+        this.publish()
+        return []
+      }
+      this.selectedModel = listed.result.value.current.model
+      this.publish()
+      return listed.result.value.groups.flatMap(group =>
+        group.models.map(model => ({ id: model.id, name: model.name, provider: group.id })),
+      )
+    } catch (error) {
+      this.handleCarrierError(error, 'model list failed')
+      return []
+    }
+  }
+
+  /** Select the session's model (the host validates catalog membership). */
+  async selectModel(model: ModelOption): Promise<void> {
+    if (this.sessionId === null) return
+    try {
+      const result = await this.client.sessions.selectModel({
+        sessionId: this.sessionId,
+        provider: model.provider,
+        model: model.id,
+      })
+      if (result.result.ok) {
+        this.selectedModel = model.id
+        this.publish()
+      } else {
+        this.notice = result.result.error.message
+        this.publish()
+      }
+    } catch (error) {
+      this.handleCarrierError(error, 'model select failed')
+    }
+  }
+
+  /** Download one durable image as a data URI for rendering. */
+  async downloadImage(attachmentId: string): Promise<string | null> {
+    if (this.sessionId === null) return null
+    try {
+      const result = await this.client.sessions.attachment({
+        sessionId: this.sessionId,
+        attachmentId: attachmentId as AttachmentIdType,
+      })
+      if (!result.result.ok) {
+        this.notice = result.result.error.message
+        this.publish()
+        return null
+      }
+      return 'data:' + result.result.value.attachment.mediaType + ';base64,' + result.result.value.data
+    } catch (error) {
+      this.handleCarrierError(error, 'image load failed')
+      return null
+    }
   }
 
   /** Answer the pending approval (allowed-once or rejected). */
@@ -466,19 +644,25 @@ export class VoiceChatController {
         // the canceled turn.
         if (this.listener === 'processing' && !this.finalizing) this.listener = 'idle'
         this.completeAssistantMessage()
-        if (live) this.speakQueue.flushRemainder()
+        if (live) {
+          this.speakQueue.flushRemainder()
+          this.maybeAutoListen()
+        }
         break
       case 'user/message': {
         const text = textOfContent(event.data.content)
-        if (live) {
+        const images = imageRefsOf(event.data.content)
+        // Image prompts skip the optimistic echo (no local refs to dedupe by);
+        // text-only echoes dedupe against pendingTexts as before.
+        if (live && images.length === 0) {
           const index = this.pendingTexts.indexOf(text)
           if (index !== -1) {
             this.pendingTexts.splice(index, 1)
             break
           }
         }
-        if (text === '') break
-        this.messages = [...this.messages, { kind: 'user', text, seq: event.seq }]
+        if (text === '' && images.length === 0) break
+        this.messages = [...this.messages, { kind: 'user', text, images, seq: event.seq }]
         break
       }
       case 'assistant/chunk': {
@@ -518,6 +702,12 @@ export class VoiceChatController {
         }
         break
       }
+      case 'plan/mode':
+        this.planActive = event.data.active
+        break
+      case 'todo/write':
+        this.todos = event.data.todos.map(todo => ({ content: todo.content, status: todo.status }))
+        break
       default:
         // Unrecognized event types (step boundaries, compaction, context
         // notices, future plugins) do not change the chat view.
@@ -538,35 +728,47 @@ export class VoiceChatController {
     this.messages = [...this.messages.slice(0, -1), { ...last, complete: true }]
   }
 
-  private async sendPrompt(text: string): Promise<void> {
-    /* v8 ignore next -- every caller (onFinal, submitText) guards disposed first */
+  private async sendPrompt(parts: readonly PromptPart[]): Promise<void> {
+    /* v8 ignore next -- every caller (onFinal, submitText, submitContent) guards disposed first */
     if (this.disposed) return
+    const content = parts.flatMap<PromptPart>(part => part.type === 'text'
+      ? (part.text.trim() === '' ? [] : [{ type: 'text', text: part.text.trim() }])
+      : [part])
+    if (content.length === 0) return
+    const text = content
+      .filter((part): part is Extract<PromptPart, { type: 'text' }> => part.type === 'text')
+      .map(part => part.text).join('')
+    const hasImages = content.some(part => part.type === 'image')
     let sessionId = this.sessionId
     if (sessionId === null) {
       sessionId = await this.ensureSession()
       if (sessionId === null) return
     }
-    this.pendingTexts.push(text)
-    this.messages = [...this.messages, { kind: 'user', text, seq: this.watermark + 1 }]
-    this.publish()
+    if (!hasImages) {
+      // Text-only prompts echo verbatim: the optimistic message shows the send
+      // instantly and the live echo dedupes against pendingTexts.
+      this.pendingTexts.push(text)
+      this.messages = [...this.messages, { kind: 'user', text, images: [], seq: this.watermark + 1 }]
+      this.publish()
+    }
     try {
       const timeZone = currentTimeZone()
       const response = await this.client.sessions.prompt({
         sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text }],
+        content,
         ...timeZone === undefined ? {} : { clientTimeZone: timeZone },
       })
       if (!response.result.ok) {
         // No echo will come for a rejected prompt: drop the dedupe entry so a
         // later identical third-party message is not swallowed.
-        this.dropPendingText(text)
+        if (!hasImages) this.dropPendingText(text)
         this.listener = 'idle'
         this.notice = response.result.error.message
         this.publish()
       }
     } catch (error) {
-      this.dropPendingText(text)
+      if (!hasImages) this.dropPendingText(text)
       this.listener = 'idle'
       this.handleCarrierError(error, 'send failed')
     }
@@ -599,6 +801,12 @@ export class VoiceChatController {
       interim: this.interim,
       notice: this.notice,
       autoSpeak: this.autoSpeak,
+      autoListen: this.autoListen,
+      ttsRate: this.ttsRate,
+      ttsPitch: this.ttsPitch,
+      planActive: this.planActive,
+      todos: this.todos,
+      selectedModel: this.selectedModel,
       language: this.language,
       sessionId: this.sessionId ?? '',
     })

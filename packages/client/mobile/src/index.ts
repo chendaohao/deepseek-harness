@@ -22,7 +22,7 @@ export { SpeakQueue, speakableText, splitSentences, type SpeakPort, type SpeakQu
 export { VoiceChatController, type VoiceChatOptions } from './voice-chat.ts'
 export type {
   ApprovalOutcome, ChatMessage, ConnectionStatus, FetchLike, ListenerStatus,
-  PendingApproval, PendingQuestion, PendingQuestionItem, QuestionAnswerItem,
-  RecognizerHandlers, SpeechRecognizerPort, SpeechSpeakerPort, ToolStatusLine,
-  VoiceChatSnapshot,
+  ModelOption, PendingApproval, PendingQuestion, PendingQuestionItem, PromptPart,
+  QuestionAnswerItem, RecognizerHandlers, SessionSummary, SpeechRecognizerPort,
+  SpeechSpeakerPort, TodoItemView, ToolStatusLine, VoiceChatSnapshot,
 } from './types.ts'

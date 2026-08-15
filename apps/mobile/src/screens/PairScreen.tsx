@@ -5,12 +5,13 @@ import { fetch as expoFetch } from 'expo/fetch'
 import {
   PairingError, pairWithHost, type FetchLike, type PairingRecord, type PairingFailure,
 } from '@deepseek-ai/dsh-client-mobile'
+import { useI18n } from '../i18n'
 
-const FAILURE_MESSAGES: Record<PairingFailure, string> = {
-  'invalid-url': '无效的配对链接，请扫描终端打印的二维码',
-  rejected: '主机拒绝了配对，链接可能已过期',
-  'no-cookie': '主机没有返回会话凭证',
-  network: '网络连接失败，请检查网络后重试',
+const FAILURE_KEYS: Record<PairingFailure, 'pairInvalidUrl' | 'pairRejected' | 'pairNoCookie' | 'pairNetwork'> = {
+  'invalid-url': 'pairInvalidUrl',
+  rejected: 'pairRejected',
+  'no-cookie': 'pairNoCookie',
+  network: 'pairNetwork',
 }
 
 /** QR scan + manual URL pairing against the remote-access gate. */
@@ -23,6 +24,7 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
   // scanner stays locked until the user explicitly re-arms it.
   const [scanned, setScanned] = useState(false)
   const scanLocked = useRef(false)
+  const { t } = useI18n()
 
   const handleScan = ({ data }: { data: string }): void => {
     if (scanLocked.current) return
@@ -45,7 +47,7 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
       const record = await pairWithHost(raw, expoFetch as FetchLike)
       onPaired(record)
     } catch (failure) {
-      setError(failure instanceof PairingError ? FAILURE_MESSAGES[failure.failure] : '配对失败')
+      setError(failure instanceof PairingError ? t(FAILURE_KEYS[failure.failure]) : t('pairFailed'))
     } finally {
       setBusy(false)
     }
@@ -53,10 +55,8 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
 
   return (
     <View style={styles.root}>
-      <Text style={styles.title}>连接 DSH 主机</Text>
-      <Text style={styles.hint}>
-        在电脑终端运行 dsh web --remote，扫描打印出的二维码。
-      </Text>
+      <Text style={styles.title}>{t('pairTitle')}</Text>
+      <Text style={styles.hint}>{t('pairHint')}</Text>
       <View style={styles.cameraBox}>
         {permission?.granted ? (
           <CameraView
@@ -68,19 +68,17 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
         ) : (
           <View style={styles.cameraFallback}>
             <Text style={styles.cameraFallbackText}>
-              {permission?.canAskAgain === false
-                ? '相机权限已被拒绝，请在系统设置中开启'
-                : '需要相机权限扫描配对二维码'}
+              {permission?.canAskAgain === false ? t('pairScanFallbackDenied') : t('pairScanFallback')}
             </Text>
             {permission?.canAskAgain !== false ? (
               <Pressable style={styles.button} onPress={() => void requestPermission()}>
-                <Text style={styles.buttonText}>授权相机</Text>
+                <Text style={styles.buttonText}>{t('pairGrantCamera')}</Text>
               </Pressable>
             ) : null}
           </View>
         )}
       </View>
-      <Text style={styles.or}>或手动粘贴配对链接</Text>
+      <Text style={styles.or}>{t('pairOr')}</Text>
       <View style={styles.manualRow}>
         <TextInput
           style={styles.input}
@@ -97,14 +95,14 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
           onPress={() => void tryPair(manualUrl)}
           disabled={busy}
         >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>配对</Text>}
+          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{t('pair')}</Text>}
         </Pressable>
       </View>
       {error !== null ? (
         <View style={styles.errorRow}>
           <Text style={styles.errorText}>{error}</Text>
           <Pressable style={styles.button} onPress={rescan}>
-            <Text style={styles.buttonText}>重新扫描</Text>
+            <Text style={styles.buttonText}>{t('pairRescan')}</Text>
           </Pressable>
         </View>
       ) : null}

@@ -149,10 +149,10 @@ describe.skipIf(MODE === 'record')('web e2e: mobile voice app over the remote tu
     expect(pairing.baseUrl).toBe(FAKE_ORIGIN)
     expect(pairing.cookie).not.toBe('')
 
-    const spoken: { text: string; language: string }[] = []
+    const spoken: { text: string; language: string; rate: number; pitch: number }[] = []
     const speaker: SpeechSpeakerPort = {
-      speak: (text, language, onDone) => {
-        spoken.push({ text, language })
+      speak: (text, language, rate, pitch, onDone) => {
+        spoken.push({ text, language, rate, pitch })
         onDone()
       },
       stop: () => undefined,
@@ -196,7 +196,7 @@ describe.skipIf(MODE === 'record')('web e2e: mobile voice app over the remote tu
     const pairing = await pairWithHost(FAKE_ORIGIN + '/pair/' + ticket, tunnelFetch)
     const spoken: string[] = []
     const speaker: SpeechSpeakerPort = {
-      speak: (text, _language, onDone) => {
+      speak: (text, _language, _rate, _pitch, onDone) => {
         spoken.push(text)
         onDone()
       },

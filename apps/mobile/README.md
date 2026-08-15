@@ -35,12 +35,14 @@ The APK is signed with the platform debug keystore, so it installs side by side 
 
 ## Voice UX
 
-- Tap the microphone to talk; the transcript is sent automatically when you finish (or tap again to end).
+- Press and hold the microphone to talk; release to send. A tap while the agent works stops speech and cancels the turn (barge-in).
+- Continuous listening (auto-start the mic after each reply) is a settings toggle.
 - Replies stream into the chat and are spoken sentence by sentence; code blocks are never read aloud. Replies render as Markdown (code blocks, lists, links) and tool activity appears as expandable inline rows in the conversation flow.
-- Tapping the microphone while the agent is working stops speech and cancels the turn (barge-in).
-- Approvals and agent questions render as inline answer cards.
-- Settings: recognition/reading language (中文/English) and auto-speak toggle.
-- Dark mode follows the system theme; the app icon is the DeepSeek whale mark on black.
+- Send images from the camera or gallery; the agent sees them together with the text, and the message row renders the images.
+- Long-press any message to copy or share it; quick prompt chips offer one-tap starters.
+- Approvals, agent questions, plan-mode banners, and todo lists render as inline panels.
+- The ☰ button lists host sessions (switch or create one); settings pick the session's model, recognition/reading language, TTS rate and pitch, auto-speak, and auto-listen.
+- UI copy follows the device language (中文/English); dark mode follows the system theme; the app icon is the DeepSeek whale mark on black.
 
 ## Checks
 
@@ -49,6 +51,7 @@ The APK is signed with the platform debug keystore, so it installs side by side 
 ## Known Limitations
 
 - **Pairing cookie lives in the device keychain** — the host's 30-day cookie and day-scoped ticket semantics apply: after a tunnel restart or `--remote-reset`, scan a fresh QR.
-- **Tap-to-talk only** — hands-free continuous listening (auto-listen after each reply) is not implemented yet.
+- **No push notifications** — a finished turn only alerts in-app; delivery needs FCM plus host-side webhook cooperation and is deferred.
+- **Image rendering loads per attachment** — message images download through the host's attachment round trip, cached per attachment id.
 - **Speech engines are the platform's own** — quality and availability vary by device and system language packs; no server-side ASR/TTS yet.
 - **expo-speech-recognition tracks Expo SDK 56** while the app is on SDK 57 (the module declares loose peers); watch for the SDK 57 release.

@@ -17,10 +17,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-client-mobile": "workspace:^",
     "expo": "~57.0.12",
     "expo-camera": "~57.0.3",
+    "expo-clipboard": "~57.0.1",
     "expo-haptics": "~57.0.1",
+    "expo-image-manipulator": "~57.0.10",
+    "expo-image-picker": "~57.0.10",
+    "expo-localization": "~57.0.1",
     "expo-secure-store": "~57.0.1",
     "expo-speech": "~57.0.1",
     "expo-speech-recognition": "^56.0.1",

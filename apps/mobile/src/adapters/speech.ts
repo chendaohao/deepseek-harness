@@ -109,9 +109,11 @@ export class DeviceRecognizer implements SpeechRecognizerPort {
 
 /** Device speaker over the platform speech synthesizer. */
 export class DeviceSpeaker implements SpeechSpeakerPort {
-  speak(text: string, language: string, onDone: () => void, onError: (message: string) => void): void {
+  speak(text: string, language: string, rate: number, pitch: number, onDone: () => void, onError: (message: string) => void): void {
     Speech.speak(text, {
       language,
+      rate,
+      pitch,
       onDone,
       onStopped: onDone,
       onError: () => onError('设备朗读失败'),

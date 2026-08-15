@@ -5,9 +5,17 @@
  * @module @deepseek-ai/dsh-client-mobile
  */
 
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+
 /** One chat message in the conversation view. */
 export type ChatMessage =
-  | { readonly kind: 'user'; readonly text: string; readonly seq: number }
+  | {
+    readonly kind: 'user'
+    readonly text: string
+    /** Durable image refs the host saved from the prompt's image parts. */
+    readonly images: readonly ImageAttachmentRef[]
+    readonly seq: number
+  }
   | {
     readonly kind: 'assistant'
     readonly text: string
@@ -57,6 +65,37 @@ export type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'needs
 /** What the microphone loop is doing. */
 export type ListenerStatus = 'idle' | 'listening' | 'processing'
 
+/** One session in the host's session list. */
+export interface SessionSummary {
+  readonly sessionId: string
+  readonly updatedAt: number
+  readonly running: boolean
+  readonly blank: boolean
+}
+
+/** One selectable model in the session's model catalog. */
+export interface ModelOption {
+  readonly id: string
+  readonly name: string
+  readonly provider: string
+}
+
+/** One todo item shown in the flow's todo panel. */
+export interface TodoItemView {
+  readonly content: string
+  readonly status: 'pending' | 'in_progress' | 'completed'
+}
+
+/** One content part of a prompt: text or a canonical-base64 image. */
+export type PromptPart =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+    readonly type: 'image'
+    readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+    readonly data: string
+    readonly name?: string
+  }
+
 /** Snapshot published after every state mutation. */
 export interface VoiceChatSnapshot {
   readonly connection: ConnectionStatus
@@ -74,6 +113,18 @@ export interface VoiceChatSnapshot {
   /** One-shot notice for the user; cleared by acknowledgeNotice(). */
   readonly notice: string | null
   readonly autoSpeak: boolean
+  /** Start listening automatically after each finished turn. */
+  readonly autoListen: boolean
+  /** TTS speech rate, 0.5..2.0. */
+  readonly ttsRate: number
+  /** TTS pitch, 0.5..2.0. */
+  readonly ttsPitch: number
+  /** Plan mode is in force for the current session. */
+  readonly planActive: boolean
+  /** Latest todo/write projection for the current session. */
+  readonly todos: readonly TodoItemView[]
+  /** Last selected model id (memory only; the host's default applies on start). */
+  readonly selectedModel: string | null
   readonly language: string
   readonly sessionId: string
 }
@@ -113,8 +164,16 @@ export interface RecognizerHandlers {
 
 /** Device speech synthesizer, injected by the app (expo-speech). */
 export interface SpeechSpeakerPort {
-  /** Speak one utterance; exactly one of onDone/onError fires per call. */
-  speak(text: string, language: string, onDone: () => void, onError: (message: string) => void): void
+  /**
+   * Speak one utterance with the given rate/pitch; exactly one of onDone/onError fires per call.
+   * @param text - utterance text.
+   * @param language - BCP-47 language tag.
+   * @param rate - speech rate, 0.5..2.0.
+   * @param pitch - speech pitch, 0.5..2.0.
+   * @param onDone - fired when the utterance finishes.
+   * @param onError - fired with a user-visible message when the utterance fails.
+   */
+  speak(text: string, language: string, rate: number, pitch: number, onDone: () => void, onError: (message: string) => void): void
   /** Stop the current utterance immediately (its onDone never fires). */
   stop(): void
 }

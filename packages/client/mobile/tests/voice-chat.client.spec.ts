@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+// The plan-mode package augments the session event map with 'plan/mode'.
+import type {} from '@deepseek-ai/dsh-plan-mode'
 import { MobileApiClient } from '../src/client.ts'
 import { VoiceChatController } from '../src/voice-chat.ts'
 import type {
@@ -17,7 +19,7 @@ interface FakeRecognizer extends SpeechRecognizerPort {
 }
 
 interface FakeSpeaker extends SpeechSpeakerPort {
-  spoken: { text: string; language: string }[]
+  spoken: { text: string; language: string; rate: number; pitch: number }[]
 }
 
 interface Rig {
@@ -35,6 +37,9 @@ interface Rig {
 
 interface RigOptions {
   autoSpeak?: boolean
+  autoListen?: boolean
+  ttsRate?: number
+  ttsPitch?: number
   /** session.list answer: an existing summary id or none. */
   existingSessionId?: string
   /** Preset the session on the controller (default true); false exercises the list-reuse path. */
@@ -56,7 +61,7 @@ function defaultHistory(): unknown[] {
     historyEntry('user/message', 3, userMessageData('历史提问')),
     historyEntry('assistant/chunk', 4, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '历史回答。' } }),
     historyEntry('tool/call', 5, { turn: 1, step: 1, callId: 'call-1', name: 'bash', arguments: '{}' }),
-    historyEntry('tool/result', 6, { turn: 1, step: 1, message: { id: 'r1', role: 'user', content: [{ type: 'tool-result' }], source: { kind: 'tool' } } }, { sourceEventSeqs: [5] }),
+    historyEntry('tool/result', 6, { turn: 1, step: 1, message: { id: 'r1', role: 'user', content: [{ type: 'tool-result', content: [] }], source: { kind: 'tool' } } }, { sourceEventSeqs: [5] }),
     historyEntry('turn/end', 7, { turn: 1, reason: 'done' }),
   ]
 }
@@ -92,8 +97,8 @@ function rig(options: RigOptions = {}): Rig {
   }
   const speaker: FakeSpeaker = {
     spoken: [],
-    speak(text, language, onDone) {
-      this.spoken.push({ text, language })
+    speak(text, language, rate, pitch, onDone) {
+      this.spoken.push({ text, language, rate, pitch })
       onDone()
     },
     stop() { /* the recording queue asserts via its own port state */ },
@@ -104,6 +109,9 @@ function rig(options: RigOptions = {}): Rig {
     recognizer,
     speaker,
     ...options.autoSpeak === undefined ? {} : { autoSpeak: options.autoSpeak },
+    ...options.autoListen === undefined ? {} : { autoListen: options.autoListen },
+    ...options.ttsRate === undefined ? {} : { ttsRate: options.ttsRate },
+    ...options.ttsPitch === undefined ? {} : { ttsPitch: options.ttsPitch },
     ...(options.existingSessionId === undefined || options.preset === false) ? {} : { sessionId: options.existingSessionId },
     onSnapshot: snapshot => snapshots.push(snapshot),
   })
@@ -144,7 +152,7 @@ describe('VoiceChatController', () => {
     await settle(r)
     expect(r.latest().sessionId).toBe('s1')
     expect(r.latest().messages).toEqual([
-      { kind: 'user', text: '历史提问', seq: 3 },
+      { kind: 'user', text: '历史提问', seq: 3, images: [] },
       { kind: 'assistant', text: '历史回答。', complete: true, seq: 4 },
     ])
     expect(r.latest().toolLines).toEqual([
@@ -181,7 +189,7 @@ describe('VoiceChatController', () => {
     expect(r.latest().listener).toBe('listening')
     r.recognizer.final('你好')
     await vi.waitFor(() => { expect(r.latest().listener).toBe('processing') })
-    expect(r.latest().messages.at(-1)).toEqual({ kind: 'user', text: '你好', seq: 8 })
+    expect(r.latest().messages.at(-1)).toEqual({ kind: 'user', text: '你好', seq: 8, images: [] })
     const sent = r.promptBody()
     expect(sent.method).toBe('session.prompt')
     expect(sent.payload).toMatchObject({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: '你好' }] })
@@ -192,7 +200,7 @@ describe('VoiceChatController', () => {
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 11, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '收到' } }) })
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 12, { turn: 2, reason: 'done' }) })
     await vi.waitFor(() => { expect(r.latest().messages.at(-1)).toEqual({ kind: 'assistant', text: '好的，收到', complete: true, seq: 10 }) })
-    expect(r.speaker.spoken).toEqual([{ text: '好的，收到', language: 'zh-CN' }])
+    expect(r.speaker.spoken).toEqual([{ text: '好的，收到', language: 'zh-CN', rate: 1, pitch: 1 }])
     expect(r.latest().turnRunning).toBe(false)
     expect(r.latest().listener).toBe('idle')
     r.controller.dispose()
@@ -419,9 +427,9 @@ describe('VoiceChatController', () => {
     await settle(r)
     let stopped = false
     const original = r.speaker.speak.bind(r.speaker)
-    r.speaker.speak = (text, language, onDone, onError) => {
+    r.speaker.speak = (text, language, rate, pitch, onDone, onError) => {
       if (text === '第一句。') return // stays active until stopped
-      original(text, language, onDone, onError)
+      original(text, language, rate, pitch, onDone, onError)
     }
     r.speaker.stop = () => { stopped = true }
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 8, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '第一句。第二句。' } }) })
@@ -623,7 +631,7 @@ describe('VoiceChatController', () => {
     r.controller.acknowledgeNotice()
     // Nothing new entered the view: the history pair stays untouched.
     expect(r.latest().messages).toEqual([
-      { kind: 'user', text: '历史提问', seq: 3 },
+      { kind: 'user', text: '历史提问', seq: 3, images: [] },
       { kind: 'assistant', text: '历史回答。', complete: true, seq: 4 },
     ])
     expect(r.latest().toolLines.filter(line => line.id === 'call-1')).toHaveLength(1)
@@ -657,7 +665,7 @@ describe('VoiceChatController', () => {
     // A textless nested result keeps the search going; short results stay
     // unbounded (no ellipsis).
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/call', 12, { turn: 2, step: 1, callId: 'call-4', name: 'web', arguments: '{}' }) })
-    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/result', 13, { turn: 2, step: 1, message: { id: 'r6', role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-4', content: [] }, { type: 'text', text: '短结果' }], source: { kind: 'tool' } } }, { sourceEventSeqs: [12] }) })
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/result', 13, { turn: 2, step: 1, message: { id: 'r6', role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-4', content: [] }, { type: 'reasoning', text: '想' }, { type: 'text', text: '短结果' }], source: { kind: 'tool' } } }, { sourceEventSeqs: [12] }) })
     await vi.waitFor(() => {
       const line = r.latest().toolLines.find(line => line.id === 'call-4')
       expect(line?.status).toBe('done')
@@ -698,7 +706,7 @@ describe('VoiceChatController', () => {
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 8, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '发声。' } }) })
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 9, { turn: 2, reason: 'done' }) })
     await vi.waitFor(() => { expect(r.latest().messages.at(-1)).toMatchObject({ kind: 'assistant', text: '发声。', complete: true }) })
-    expect(r.speaker.spoken).toEqual([{ text: '发声。', language: 'zh-CN' }])
+    expect(r.speaker.spoken).toEqual([{ text: '发声。', language: 'zh-CN', rate: 1, pitch: 1 }])
     r.controller.dispose()
   })
 
@@ -709,10 +717,10 @@ describe('VoiceChatController', () => {
     let stopped = false
     const speak = vi.fn()
     const original = r.speaker.speak.bind(r.speaker)
-    r.speaker.speak = (text, language, onDone, onError) => {
+    r.speaker.speak = (text, language, rate, pitch, onDone, onError) => {
       speak(text)
       if (text === '第一句。') return // never completes: still speaking
-      original.call(r.speaker, text, language, onDone, onError)
+      original.call(r.speaker, text, language, rate, pitch, onDone, onError)
     }
     r.speaker.stop = () => { stopped = true }
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 8, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '第一句。第二句。' } }) })
@@ -748,7 +756,7 @@ describe('VoiceChatController', () => {
     await settle(r)
     r.sockets[0]!.push(liveEvent(8, userMessageData('只有用户')))
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 9, { turn: 2, reason: 'cancelled' }) })
-    await vi.waitFor(() => { expect(r.latest().messages.at(-1)).toEqual({ kind: 'user', text: '只有用户', seq: 8 }) })
+    await vi.waitFor(() => { expect(r.latest().messages.at(-1)).toEqual({ kind: 'user', text: '只有用户', seq: 8, images: [] }) })
     expect(r.latest().turnRunning).toBe(false)
     r.controller.dispose()
   })
@@ -771,7 +779,7 @@ describe('VoiceChatController', () => {
     const controller = new VoiceChatController({
       client: new MobileApiClient({ baseUrl: BASE, cookie: 'c1', fetchImpl: fetch.impl, openSocket }),
       recognizer: { available: true, start: async () => undefined, stop: async () => undefined },
-      speaker: { speak: (_t, _l, onDone) => { onDone() }, stop: () => undefined },
+      speaker: { speak: (_t, _l, _rate, _pitch, onDone) => { onDone() }, stop: () => undefined },
       sessionId: 's1',
       onSnapshot: (snapshot) => { snapshots.push(snapshot) },
     })
@@ -836,11 +844,255 @@ describe('VoiceChatController', () => {
     r.controller.dispose()
   })
 
+  it('covers session and model failure paths and disposed guards', async () => {
+    const r = rig()
+    // No-session guards: models and selectModel are no-ops.
+    expect(await r.controller.listModels()).toEqual([])
+    await r.controller.selectModel({ id: 'm', name: 'M', provider: 'p' })
+    // session.list business and transport failures.
+    r.fetch.routes.set('/api/session.list', init => echoServerError(init, 'list sad'))
+    expect(await r.controller.listSessions()).toEqual([])
+    expect(r.latest().notice).toBe('list sad')
+    r.fetch.routes.set('/api/session.list', () => { throw new TypeError('net down') })
+    expect(await r.controller.listSessions()).toEqual([])
+    expect(r.latest().notice).toMatch(/session list failed/)
+    // create failure keeps the session id empty.
+    r.fetch.routes.set('/api/session.create', init => echoServerError(init, 'create sad'))
+    expect(await r.controller.createSession()).toBeNull()
+    expect(r.latest().notice).toBe('create sad')
+    r.fetch.routes.set('/api/session.create', () => { throw new TypeError('net down') })
+    expect(await r.controller.createSession()).toBeNull()
+    expect(r.latest().notice).toMatch(/session create failed/)
+    r.controller.dispose()
+    // A connected controller covers the model failure paths.
+    const r2 = rig({ existingSessionId: 's1' })
+    await settle(r2)
+    r2.fetch.routes.set('/api/session.models', init => echoServerError(init, 'models sad'))
+    expect(await r2.controller.listModels()).toEqual([])
+    expect(r2.latest().notice).toBe('models sad')
+    r2.fetch.routes.set('/api/session.models', () => { throw new TypeError('net down') })
+    expect(await r2.controller.listModels()).toEqual([])
+    expect(r2.latest().notice).toMatch(/model list failed/)
+    r2.fetch.routes.set('/api/session.selectModel', init => echoServerError(init, 'select sad'))
+    await r2.controller.selectModel({ id: 'm', name: 'M', provider: 'p' })
+    expect(r2.latest().notice).toBe('select sad')
+    r2.fetch.routes.set('/api/session.selectModel', () => { throw new TypeError('net down') })
+    await r2.controller.selectModel({ id: 'm', name: 'M', provider: 'p' })
+    expect(r2.latest().notice).toMatch(/model select failed/)
+    // downloadImage: no-session, success, and failure paths.
+    const r3 = rig()
+    expect(await r3.controller.downloadImage('a1')).toBeNull()
+    const r4 = rig({ existingSessionId: 's1' })
+    await settle(r4)
+    r4.fetch.routes.set('/api/session.attachment', init => echoServerResponse(init, {
+      attachment: { attachmentId: 'a1', mediaType: 'image/png', bytes: 10, width: 8, height: 8 },
+      data: 'aGk=',
+    }))
+    expect(await r4.controller.downloadImage('a1')).toBe('data:image/png;base64,aGk=')
+    r4.fetch.routes.set('/api/session.attachment', init => echoServerError(init, 'no such image'))
+    expect(await r4.controller.downloadImage('a1')).toBeNull()
+    expect(r4.latest().notice).toBe('no such image')
+    r4.fetch.routes.set('/api/session.attachment', () => { throw new TypeError('net down') })
+    expect(await r4.controller.downloadImage('a1')).toBeNull()
+    expect(r4.latest().notice).toMatch(/image load failed/)
+    r4.controller.dispose()
+    // Image-prompt failure paths skip the text dedupe entry.
+    r2.fetch.routes.set('/api/session.prompt', init => echoServerError(init, 'prompt sad'))
+    r2.controller.submitContent([{ type: 'image', mediaType: 'image/png', data: 'eA==' }])
+    await vi.waitFor(() => { expect(r2.latest().notice).toBe('prompt sad') })
+    r2.fetch.routes.set('/api/session.prompt', () => { throw new TypeError('net down') })
+    r2.controller.submitContent([{ type: 'image', mediaType: 'image/png', data: 'eA==' }])
+    await vi.waitFor(() => { expect(r2.latest().notice).toMatch(/send failed/) })
+    // Disposed guards on the submit, switch, and content paths.
+    r2.controller.dispose()
+    r2.controller.submitText('迟到')
+    r2.controller.submitContent([{ type: 'text', text: '迟到' }])
+    r2.controller.switchSession('x')
+  })
+
   it('dispose stops recognition and refuses a later connect', async () => {
     const r = rig({ existingSessionId: 's1' })
     await settle(r)
     r.controller.dispose()
     expect(r.recognizer.stopCalls).toBe(1)
     expect(() => { r.controller.connect() }).toThrow(/disposed/)
+  })
+
+  it('sends image prompts without an optimistic echo and projects the echoed images', async () => {
+    const r = rig({ existingSessionId: 's1' })
+    await settle(r)
+    r.controller.submitContent([
+      { type: 'image', mediaType: 'image/png', data: 'aGVsbG8=', name: 'pic.png' },
+      { type: 'text', text: '看看这张图' },
+    ])
+    await vi.waitFor(() => { expect(r.promptBodies()).toHaveLength(1) })
+    // No optimistic user message for image prompts (the echo owns the row).
+    expect(r.latest().messages).toHaveLength(2)
+    const sent = r.promptBody()
+    expect(sent.payload.content).toEqual([
+      { type: 'image', mediaType: 'image/png', data: 'aGVsbG8=', name: 'pic.png' },
+      { type: 'text', text: '看看这张图' },
+    ])
+    // The live echo carries durable image refs; text-only dedupe must not swallow it.
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('user/message', 8, {
+      id: 'm9', role: 'user', content: [
+        { type: 'image', attachment: { attachmentId: 'a1', mediaType: 'image/png', bytes: 10, width: 8, height: 8, name: 'pic.png' } },
+        { type: 'text', text: '看看这张图' },
+      ], source: { kind: 'user' },
+    }) })
+    await vi.waitFor(() => {
+      expect(r.latest().messages.at(-1)).toMatchObject({ kind: 'user', text: '看看这张图', images: [{ attachmentId: 'a1' }] })
+    })
+    r.controller.dispose()
+  })
+
+  it('drops empty prompt parts and image-only texts keep their row', async () => {
+    const r = rig({ existingSessionId: 's1' })
+    await settle(r)
+    r.controller.submitContent([])
+    r.controller.submitContent([{ type: 'text', text: '   ' }])
+    r.controller.submitContent([{ type: 'image', mediaType: 'image/jpeg', data: 'eA==' }])
+    await vi.waitFor(() => { expect(r.promptBodies()).toHaveLength(1) })
+    const sent = r.promptBody()
+    expect(sent.payload.content).toEqual([{ type: 'image', mediaType: 'image/jpeg', data: 'eA==' }])
+    // An image-only echo lands with empty text but keeps the images.
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('user/message', 8, {
+      id: 'm10', role: 'user', content: [
+        { type: 'image', attachment: { attachmentId: 'a2', mediaType: 'image/jpeg', bytes: 5, width: 4, height: 4 } },
+      ], source: { kind: 'user' },
+    }) })
+    await vi.waitFor(() => {
+      expect(r.latest().messages.at(-1)).toMatchObject({ kind: 'user', text: '', images: [{ attachmentId: 'a2' }] })
+    })
+    r.controller.dispose()
+  })
+
+  it('auto-listens after a finished turn when enabled and unblocked', async () => {
+    const r = rig({ existingSessionId: 's1', autoListen: true })
+    await settle(r)
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 8, { turn: 2, reason: 'done' }) })
+    await vi.waitFor(() => { expect(r.recognizer.startCalls).toHaveLength(1) })
+    expect(r.latest().listener).toBe('listening')
+    // The toggle can turn it off mid-flight.
+    r.controller.setAutoListen(false)
+    expect(r.latest().autoListen).toBe(false)
+    // An empty final returns to idle; re-enabling restarts the loop.
+    r.recognizer.final('')
+    await vi.waitFor(() => { expect(r.latest().listener).toBe('idle') })
+    r.controller.setAutoListen(true)
+    await vi.waitFor(() => { expect(r.recognizer.startCalls).toHaveLength(2) })
+    r.controller.dispose()
+  })
+
+  it('skips auto-listen while an approval is pending', async () => {
+    const r = rig({ existingSessionId: 's1', autoListen: true })
+    await settle(r)
+    r.sockets[0]!.push({ type: 'approval/requested', sessionId: 's1', approvalId: 'ap1', toolName: 'bash' }, 'a1')
+    await vi.waitFor(() => { expect(r.latest().pendingApproval).not.toBeNull() })
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 8, { turn: 2, reason: 'done' }) })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(r.recognizer.startCalls).toHaveLength(0)
+    r.controller.dispose()
+  })
+
+  it('defers auto-listen until speech stops', async () => {
+    const r = rig({ existingSessionId: 's1', autoListen: true })
+    await settle(r)
+    const original = r.speaker.speak.bind(r.speaker)
+    r.speaker.speak = (text, language, rate, pitch, onDone, onError) => {
+      if (text === '第一句。') return // stays active until stopped
+      original.call(r.speaker, text, language, rate, pitch, onDone, onError)
+    }
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 8, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '第一句。' } }) })
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 9, { turn: 2, reason: 'done' }) })
+    await vi.waitFor(() => { expect(r.latest().speaking).toBe(true) })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(r.recognizer.startCalls).toHaveLength(0)
+    r.controller.stopSpeaking()
+    await vi.waitFor(() => { expect(r.recognizer.startCalls).toHaveLength(1) })
+    r.controller.dispose()
+  })
+
+  it('applies TTS rate and pitch to utterances and clamps setters', async () => {
+    const r = rig({ existingSessionId: 's1', ttsRate: 0.8, ttsPitch: 1.2 })
+    await settle(r)
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 8, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '快慢。' } }) })
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 9, { turn: 2, reason: 'done' }) })
+    await vi.waitFor(() => {
+      expect(r.speaker.spoken).toEqual([{ text: '快慢。', language: 'zh-CN', rate: 0.8, pitch: 1.2 }])
+    })
+    r.controller.setTtsRate(3)
+    r.controller.setTtsPitch(0.1)
+    expect(r.latest().ttsRate).toBe(2)
+    expect(r.latest().ttsPitch).toBe(0.5)
+    r.controller.dispose()
+  })
+
+  it('lists, switches, and creates sessions', async () => {
+    const r = rig({ existingSessionId: 's1' })
+    await settle(r)
+    r.fetch.routes.set('/api/session.list', init => echoServerResponse(init, {
+      items: [
+        { sessionId: 's1', updatedAt: 1, running: false, blank: false },
+        { sessionId: 's2', updatedAt: 2, running: false, blank: true },
+      ],
+    }))
+    const listed = await r.controller.listSessions()
+    expect(listed.map(item => item.sessionId)).toEqual(['s1', 's2'])
+    // Switching to the same session is a no-op.
+    r.controller.switchSession('s1')
+    expect(r.sockets).toHaveLength(1)
+    // Switching resets the view and restarts the stream for the new session.
+    r.controller.switchSession('s2')
+    await vi.waitFor(() => { expect(r.sockets).toHaveLength(2) })
+    expect(r.latest().sessionId).toBe('s2')
+    expect(r.latest().messages).toEqual([])
+    await vi.waitFor(() => {
+      const historyCall = [...r.fetch.calls].reverse().find(entry => entry.url.endsWith('/api/session.history'))
+      const body = historyCall?.init?.body as string | undefined
+      const parsed = JSON.parse(body ?? '{}') as { payload?: { sessionId?: string } }
+      expect(parsed.payload?.sessionId).toBe('s2')
+    })
+    // Creating switches to the fresh session.
+    r.fetch.routes.set('/api/session.create', init => echoServerResponse(init, { sessionId: 's-new' }))
+    const created = await r.controller.createSession()
+    expect(created?.sessionId).toBe('s-new')
+    await vi.waitFor(() => { expect(r.latest().sessionId).toBe('s-new') })
+    r.controller.dispose()
+  })
+
+  it('lists and selects session models', async () => {
+    const r = rig({ existingSessionId: 's1' })
+    await settle(r)
+    r.fetch.routes.set('/api/session.models', init => echoServerResponse(init, {
+      current: { provider: 'deepseek', model: 'deepseek-chat' },
+      routable: true,
+      groups: [
+        { id: 'deepseek', name: 'DeepSeek', models: [
+          { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+          { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' },
+        ] },
+      ],
+      failures: [],
+    }))
+    const models = await r.controller.listModels()
+    expect(models.map(model => model.id)).toEqual(['deepseek-chat', 'deepseek-reasoner'])
+    expect(r.latest().selectedModel).toBe('deepseek-chat')
+    r.fetch.routes.set('/api/session.selectModel', init => echoServerResponse(init, {
+      selected: { provider: 'deepseek', model: 'deepseek-reasoner' },
+    }))
+    await r.controller.selectModel({ id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', provider: 'deepseek' })
+    expect(r.latest().selectedModel).toBe('deepseek-reasoner')
+    r.controller.dispose()
+  })
+
+  it('folds plan mode and todo projections', async () => {
+    const r = rig({ existingSessionId: 's1' })
+    await settle(r)
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('plan/mode', 8, { active: true }) })
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('todo/write', 9, { todos: [{ content: '做一件事', status: 'pending' }] }) })
+    await vi.waitFor(() => { expect(r.latest().planActive).toBe(true) })
+    expect(r.latest().todos).toEqual([{ content: '做一件事', status: 'pending' }])
+    r.controller.dispose()
   })
 })

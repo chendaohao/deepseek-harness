@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../host/apiproxy"
     },
     {
@@ -16,6 +19,9 @@
     },
     {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../plan/plan-mode"
     },
     {
       "path": "../../../vendor/cordis"

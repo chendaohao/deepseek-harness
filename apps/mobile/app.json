@@ -19,6 +19,13 @@
     },
     "plugins": [
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 DSH 语音访问相册以发送图片",
+          "cameraPermission": "允许 DSH 语音使用相机拍照发送"
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "允许 DSH 语音使用相机扫描配对二维码"
@@ -30,7 +37,8 @@
           "microphonePermission": "允许 DSH 语音使用麦克风将你的语音转为文字",
           "speechRecognitionPermission": "允许 DSH 语音识别你的语音"
         }
-      ]
+      ],
+      "expo-localization"
     ]
   }
 }

@@ -59,7 +59,11 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
 | [`expo`](https://github.com/expo/expo) | MIT |
 | [`expo-camera`](https://github.com/expo/expo) | MIT |
+| [`expo-clipboard`](https://github.com/expo/expo) | MIT |
 | [`expo-haptics`](https://github.com/expo/expo) | MIT |
+| [`expo-image-manipulator`](https://github.com/expo/expo) | MIT |
+| [`expo-image-picker`](https://github.com/expo/expo) | MIT |
+| [`expo-localization`](https://github.com/expo/expo) | MIT |
 | [`expo-secure-store`](https://github.com/expo/expo) | MIT |
 | [`expo-speech`](https://github.com/expo/expo) | MIT |
 | [`expo-speech-recognition`](https://github.com/jamsch/expo-speech-recognition) | MIT |

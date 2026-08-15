@@ -1,0 +1,151 @@
+import { useLocales } from 'expo-localization'
+
+/** UI copy keys for the mobile app; zh-CN default, English fallback. */
+const zh = {
+  connecting: '正在连接…',
+  title: 'DSH 语音',
+  online: '在线',
+  reconnecting: '重连中',
+  needsPairing: '需要重新配对',
+  failed: '连接中断',
+  pairingExpired: '会话凭证已失效，请重新扫码配对',
+  connectionLost: '与主机的连接中断',
+  repair: '重新配对',
+  retry: '重试连接',
+  settings: '设置',
+  sessions: '会话',
+  newSession: '新建会话',
+  noSessions: '暂无其他会话',
+  emptyChat: '说点什么开始对话',
+  micHintIdle: '点击麦克风说话，或输入文字…',
+  micHintListening: '正在聆听…（松开/再点一次结束）',
+  micHintProcessing: '处理中…（点击麦克风打断）',
+  micHintWorking: 'Agent 工作中…',
+  send: '发送',
+  agentLabel: 'DSH',
+  approvalTitle: 'Agent 请求批准工具「{tool}」',
+  allowOnce: '允许一次',
+  reject: '拒绝',
+  languageLabel: '识别与朗读语言',
+  autoSpeakLabel: '自动朗读回复',
+  autoListenLabel: '连续聆听（回复结束后自动开始）',
+  ttsRateLabel: '朗读语速',
+  ttsPitchLabel: '朗读音调',
+  modelLabel: '模型',
+  noModels: '暂无可用模型',
+  repairAction: '断开并重新配对',
+  close: '关闭',
+  copy: '复制',
+  copied: '已复制',
+  share: '分享',
+  planActive: '计划模式中——agent 只做规划，不执行工具',
+  todoTitle: '待办',
+  attachImage: '添加图片',
+  photoPermissionDenied: '需要相册/相机权限，请在系统设置中开启',
+  camera: '拍照',
+  library: '从相册选择',
+  cancel: '取消',
+  quickPrompts: ['帮我写一段代码', '总结这段对话', '翻译成英文', '列一个实施计划'],
+  pairTitle: '连接 DSH 主机',
+  pairHint: '在电脑终端运行 dsh web --remote，扫描打印出的二维码。',
+  pairScanFallback: '需要相机权限扫描配对二维码',
+  pairScanFallbackDenied: '相机权限已被拒绝，请在系统设置中开启',
+  pairGrantCamera: '授权相机',
+  pairOr: '或手动粘贴配对链接',
+  pair: '配对',
+  pairRescan: '重新扫描',
+  pairFailed: '配对失败',
+  pairInvalidUrl: '无效的配对链接，请扫描终端打印的二维码',
+  pairRejected: '主机拒绝了配对，链接可能已过期',
+  pairNoCookie: '主机没有返回会话凭证',
+  pairNetwork: '网络连接失败，请检查网络后重试',
+}
+
+export type I18nKey = keyof typeof zh
+
+const en: Record<I18nKey, string | string[]> = {
+  connecting: 'Connecting…',
+  title: 'DSH Voice',
+  online: 'Online',
+  reconnecting: 'Reconnecting',
+  needsPairing: 'Re-pairing needed',
+  failed: 'Connection lost',
+  pairingExpired: 'Session credential expired, please scan the QR again',
+  connectionLost: 'Lost connection to the host',
+  repair: 'Re-pair',
+  retry: 'Retry',
+  settings: 'Settings',
+  sessions: 'Sessions',
+  newSession: 'New session',
+  noSessions: 'No other sessions',
+  emptyChat: 'Say something to start',
+  micHintIdle: 'Tap the mic to talk, or type…',
+  micHintListening: 'Listening… (release or tap again to finish)',
+  micHintProcessing: 'Processing… (tap the mic to interrupt)',
+  micHintWorking: 'Agent working…',
+  send: 'Send',
+  agentLabel: 'DSH',
+  approvalTitle: 'Agent requests approval for tool "{tool}"',
+  allowOnce: 'Allow once',
+  reject: 'Reject',
+  languageLabel: 'Recognition & reading language',
+  autoSpeakLabel: 'Auto-read replies',
+  autoListenLabel: 'Continuous listening (auto-start after replies)',
+  ttsRateLabel: 'Speech rate',
+  ttsPitchLabel: 'Speech pitch',
+  modelLabel: 'Model',
+  noModels: 'No models available',
+  repairAction: 'Disconnect and re-pair',
+  close: 'Close',
+  copy: 'Copy',
+  copied: 'Copied',
+  share: 'Share',
+  planActive: 'Plan mode — the agent plans only and runs no tools',
+  todoTitle: 'Todo',
+  attachImage: 'Add image',
+  photoPermissionDenied: 'Photo/camera permission is required; enable it in system settings',
+  camera: 'Take photo',
+  library: 'Choose from library',
+  cancel: 'Cancel',
+  quickPrompts: ['Write me some code', 'Summarize this conversation', 'Translate into English', 'Draft an implementation plan'],
+  pairTitle: 'Connect to a DSH host',
+  pairHint: 'Run "dsh web --remote" on your computer and scan the printed QR code.',
+  pairScanFallback: 'Camera permission is required to scan the pairing QR code',
+  pairScanFallbackDenied: 'Camera permission was denied; enable it in system settings',
+  pairGrantCamera: 'Grant camera',
+  pairOr: 'Or paste the pairing link manually',
+  pair: 'Pair',
+  pairRescan: 'Scan again',
+  pairFailed: 'Pairing failed',
+  pairInvalidUrl: 'Invalid pairing link, scan the QR printed by the terminal',
+  pairRejected: 'The host rejected the pairing; the link may have expired',
+  pairNoCookie: 'The host returned no session credential',
+  pairNetwork: 'Network failure, check the connection and retry',
+}
+
+/** Resolve the active dictionary from the device locale (zh* -> zh, else en). */
+function languageOf(code: string): 'zh' | 'en' {
+  return code.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+}
+
+/** The UI copy dictionary for the current device language, reactive to locale changes. */
+export function useI18n(): {
+  lang: 'zh' | 'en'
+  t: (key: I18nKey, vars?: Record<string, string>) => string
+  quickPrompts: readonly string[]
+} {
+  const locales = useLocales()
+  const lang = languageOf(locales[0]?.languageCode ?? '')
+  return {
+    lang,
+    // The quickPrompts key is an array by construction; the dictionary type
+    // keeps the union for string keys, so this single cast is the narrowing.
+    quickPrompts: (lang === 'zh' ? zh.quickPrompts : en.quickPrompts) as readonly string[],
+    t: (key, vars) => {
+      const raw = lang === 'zh' ? zh[key] : en[key]
+      const value = typeof raw === 'string' ? raw : String(raw)
+      if (vars === undefined) return value
+      return value.replace(/\{(\w+)\}/g, (_, name: string) => vars[name] ?? `{${name}}`)
+    },
+  }
+}
