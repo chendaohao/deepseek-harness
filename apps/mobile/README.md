@@ -23,15 +23,15 @@ Then scan the host's pairing QR (or paste the `https://…/pair/<ticket>` URL) a
 
 ## Build an installable APK on GitHub Actions
 
-The repository ships `.github/workflows/mobile-android-build.yml`: run it from the Actions tab (branch input, default `master`). It checks out the workspace, installs with the frozen lockfile, builds every `lib/` output the app imports (`pnpm run build:lib` — `dsh-client-mobile` and its host-side dependencies resolve through `lib/`), generates the native Android project (`expo prebuild`), and assembles the debug APK, which the workflow uploads as an artifact.
+The repository ships `.github/workflows/mobile-android-build.yml`: run it from the Actions tab (branch input, default `master`). It checks out the workspace, installs with the frozen lockfile, builds every `lib/` output the app imports (`pnpm run build:lib` — `dsh-client-mobile` and its host-side dependencies resolve through `lib/`), generates the native Android project (`expo prebuild`), and assembles the release-variant APK, which the workflow uploads as an artifact. The release variant is required: RN's Gradle plugin bundles the JS only for non-debuggable variants, so a debug APK would need a reachable Metro; the Expo-generated template signs the release variant with the platform debug keystore, so no secrets are needed.
 
 On the phone (tested on MIUI 14 / Android 12):
 
-1. Open the run's artifact page and download `dsh-mobile-app-debug.apk` (or enable USB debugging and run `adb install -r app-debug.apk`).
+1. Open the run's artifact page and download the `dsh-mobile-app` artifact (or enable USB debugging and run `adb install -r app-release.apk`).
 2. Open the APK in the file manager; MIUI asks once to allow installs from that source ("安装未知应用").
 3. Start the host with `pnpm dsh web --remote`, scan the printed QR with the app, and talk.
 
-Debug builds are signed with the platform debug keystore, so they install side by side with Expo Go. A release APK needs a signing keystore secret and an `assembleRelease` step; the workflow stays on debug so personal builds need no secrets.
+The APK is signed with the platform debug keystore, so it installs side by side with Expo Go and needs no signing secrets; the generated template keeps minification off by default.
 
 ## Voice UX
 

@@ -2,12 +2,17 @@ name: mobile-android-build
 
 # Build an installable Android APK for apps/mobile (the DSH voice app) from
 # GitHub's hosted runners. Manual trigger: Actions tab -> run workflow, pick
-# the branch. The debug APK lands in the run's artifacts and installs on any
-# Android 8+ device (tested on MIUI 14 / Android 12) without any keystore.
+# the branch. The release-variant APK lands in the run's artifacts and
+# installs on any Android 8+ device (tested on MIUI 14 / Android 12) without
+# any keystore: the Expo-generated template signs the release variant with
+# the platform debug keystore, so personal builds need no secrets.
 #
-# For a signed release APK, add your keystore as repo secrets, switch the
-# gradle step to assembleRelease, and point the artifact at the release
-# output; the workflow stays on debug so personal builds need no secrets.
+# The release variant is required: since RN 0.71 the Gradle plugin skips JS
+# bundling for debuggable variants (react { debuggableVariants }), so a debug
+# APK contains no index.android.bundle and only runs with a reachable Metro.
+# The release variant embeds the bundle (dev=false, Hermes bytecode) and
+# loads it from assets, so the APK works standalone. The template's minify
+# defaults keep the personal build unminified.
 
 on:
   workflow_dispatch:
@@ -56,15 +61,15 @@ jobs:
           EXPO_NO_INTERACTIVE: '1'
         run: pnpm exec expo prebuild --platform android --no-install
 
-      - name: Assemble the debug APK
+      - name: Assemble the release APK
         working-directory: apps/mobile/android
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleRelease
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
-          name: dsh-mobile-app-debug
-          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: dsh-mobile-app
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           # Personal APK builds: download promptly; the artifact expires after 1 day.
           retention-days: 1

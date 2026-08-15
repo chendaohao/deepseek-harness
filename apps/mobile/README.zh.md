@@ -23,15 +23,15 @@ npx expo start      # scan the Expo QR with your phone
 
 ## 在 GitHub Actions 上构建可安装的 APK
 
-仓库自带 `.github/workflows/mobile-android-build.yml`：在 Actions 页签手动运行（可输入分支，默认 `master`）。它会检出工作区、用冻结 lockfile 安装依赖、构建 App 引用的全部 `lib/` 产物（`pnpm run build:lib` —— `dsh-client-mobile` 及其 host 侧依赖都通过 `lib/` 解析）、生成原生 Android 工程（`expo prebuild`）并组装 debug APK，最后把 APK 作为 artifact 上传。
+仓库自带 `.github/workflows/mobile-android-build.yml`：在 Actions 页签手动运行（可输入分支，默认 `master`）。它会检出工作区、用冻结 lockfile 安装依赖、构建 App 引用的全部 `lib/` 产物（`pnpm run build:lib` —— `dsh-client-mobile` 及其 host 侧依赖都通过 `lib/` 解析）、生成原生 Android 工程（`expo prebuild`）并组装 release 变体 APK，最后把 APK 作为 artifact 上传。必须用 release 变体：RN 的 Gradle 插件只为非 debuggable 变体打包 JS bundle，debug APK 需要可连接的 Metro 才能运行；Expo 生成的模板用平台调试密钥为 release 变体签名，无需任何密钥。
 
 在手机上安装（已在 MIUI 14 / Android 12 验证）：
 
-1. 打开该次运行的 artifact 页面，下载 `dsh-mobile-app-debug.apk`（或开启 USB 调试后执行 `adb install -r app-debug.apk`）。
+1. 打开该次运行的 artifact 页面，下载 `dsh-mobile-app` artifact（或开启 USB 调试后执行 `adb install -r app-release.apk`）。
 2. 用文件管理器打开 APK；MIUI 会询问一次是否允许该来源安装（“安装未知应用”）。
 3. 主机上运行 `pnpm dsh web --remote`，用 App 扫描终端打印的二维码，开始对话。
 
-Debug 包使用平台调试密钥签名，可与 Expo Go 并存安装。发布版 APK 需要签名 keystore 密钥与 `assembleRelease` 步骤；该 workflow 保持 debug，个人构建无需任何密钥。
+APK 使用平台调试密钥签名，可与 Expo Go 并存安装，个人构建无需任何签名密钥；生成的模板默认关闭混淆。
 
 ## 语音交互
 
