@@ -144,10 +144,12 @@ describe('VoiceChatController', () => {
     await settle(r)
     expect(r.latest().sessionId).toBe('s1')
     expect(r.latest().messages).toEqual([
-      { kind: 'user', text: '历史提问' },
-      { kind: 'assistant', text: '历史回答。', complete: true },
+      { kind: 'user', text: '历史提问', seq: 3 },
+      { kind: 'assistant', text: '历史回答。', complete: true, seq: 4 },
     ])
-    expect(r.latest().toolLines).toEqual([{ id: 'call-1', name: 'bash', done: true }])
+    expect(r.latest().toolLines).toEqual([
+      { id: 'call-1', name: 'bash', status: 'done', argumentsText: '{}', resultSummary: null, seq: 5 },
+    ])
     expect(r.latest().turnRunning).toBe(false)
     expect(r.speaker.spoken).toEqual([])
     r.controller.dispose()
@@ -179,7 +181,7 @@ describe('VoiceChatController', () => {
     expect(r.latest().listener).toBe('listening')
     r.recognizer.final('你好')
     await vi.waitFor(() => { expect(r.latest().listener).toBe('processing') })
-    expect(r.latest().messages.at(-1)).toEqual({ kind: 'user', text: '你好' })
+    expect(r.latest().messages.at(-1)).toEqual({ kind: 'user', text: '你好', seq: 8 })
     const sent = r.promptBody()
     expect(sent.method).toBe('session.prompt')
     expect(sent.payload).toMatchObject({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: '你好' }] })
@@ -189,7 +191,7 @@ describe('VoiceChatController', () => {
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 10, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '好的，' } }) })
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 11, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '收到' } }) })
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 12, { turn: 2, reason: 'done' }) })
-    await vi.waitFor(() => { expect(r.latest().messages.at(-1)).toEqual({ kind: 'assistant', text: '好的，收到', complete: true }) })
+    await vi.waitFor(() => { expect(r.latest().messages.at(-1)).toEqual({ kind: 'assistant', text: '好的，收到', complete: true, seq: 10 }) })
     expect(r.speaker.spoken).toEqual([{ text: '好的，收到', language: 'zh-CN' }])
     expect(r.latest().turnRunning).toBe(false)
     expect(r.latest().listener).toBe('idle')
@@ -621,10 +623,46 @@ describe('VoiceChatController', () => {
     r.controller.acknowledgeNotice()
     // Nothing new entered the view: the history pair stays untouched.
     expect(r.latest().messages).toEqual([
-      { kind: 'user', text: '历史提问' },
-      { kind: 'assistant', text: '历史回答。', complete: true },
+      { kind: 'user', text: '历史提问', seq: 3 },
+      { kind: 'assistant', text: '历史回答。', complete: true, seq: 4 },
     ])
     expect(r.latest().toolLines.filter(line => line.id === 'call-1')).toHaveLength(1)
+    r.controller.dispose()
+  })
+
+  it('projects tool arguments and bounded result summaries, and marks failed results', async () => {
+    const r = rig({ existingSessionId: 's1' })
+    await settle(r)
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/call', 8, { turn: 2, step: 1, callId: 'call-2', name: 'read', arguments: '{"path":"a.md"}' }) })
+    await vi.waitFor(() => {
+      expect(r.latest().toolLines.find(line => line.id === 'call-2')).toMatchObject({
+        status: 'running', argumentsText: '{"path":"a.md"}', resultSummary: null,
+      })
+    })
+    // Text nested inside the tool-result block feeds the row's summary; long
+    // results are bounded with an ellipsis.
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/result', 9, { turn: 2, step: 1, message: { id: 'r4', role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-2', content: [{ type: 'text', text: '长结果'.repeat(300) }] }], source: { kind: 'tool' } } }, { sourceEventSeqs: [8] }) })
+    await vi.waitFor(() => {
+      const line = r.latest().toolLines.find(line => line.id === 'call-2')
+      expect(line?.status).toBe('done')
+      expect(line?.resultSummary).toMatch(/^长结果/)
+      expect(line?.resultSummary?.endsWith('…')).toBe(true)
+    })
+    // A result carrying an internal failure identity marks the row as error.
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/call', 10, { turn: 2, step: 1, callId: 'call-3', name: 'bash', arguments: '{}' }) })
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/result', 11, { turn: 2, step: 1, error: { name: 'E', code: 'boom' }, message: { id: 'r5', role: 'user', content: [], source: { kind: 'tool' } } }, { sourceEventSeqs: [10] }) })
+    await vi.waitFor(() => {
+      expect(r.latest().toolLines.find(line => line.id === 'call-3')?.status).toBe('error')
+    })
+    // A textless nested result keeps the search going; short results stay
+    // unbounded (no ellipsis).
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/call', 12, { turn: 2, step: 1, callId: 'call-4', name: 'web', arguments: '{}' }) })
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('tool/result', 13, { turn: 2, step: 1, message: { id: 'r6', role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-4', content: [] }, { type: 'text', text: '短结果' }], source: { kind: 'tool' } } }, { sourceEventSeqs: [12] }) })
+    await vi.waitFor(() => {
+      const line = r.latest().toolLines.find(line => line.id === 'call-4')
+      expect(line?.status).toBe('done')
+      expect(line?.resultSummary).toBe('短结果')
+    })
     r.controller.dispose()
   })
 
@@ -710,7 +748,7 @@ describe('VoiceChatController', () => {
     await settle(r)
     r.sockets[0]!.push(liveEvent(8, userMessageData('只有用户')))
     r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 9, { turn: 2, reason: 'cancelled' }) })
-    await vi.waitFor(() => { expect(r.latest().messages.at(-1)).toEqual({ kind: 'user', text: '只有用户' }) })
+    await vi.waitFor(() => { expect(r.latest().messages.at(-1)).toEqual({ kind: 'user', text: '只有用户', seq: 8 }) })
     expect(r.latest().turnRunning).toBe(false)
     r.controller.dispose()
   })

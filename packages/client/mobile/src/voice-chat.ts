@@ -21,11 +21,6 @@ import type {
   ToolStatusLine, VoiceChatSnapshot,
 } from './types.ts'
 
-/** Internal tool line: the public view plus the call event's seq for result joins. */
-interface ToolLine extends ToolStatusLine {
-  readonly seq: number
-}
-
 /** Construction options for one controller. */
 export interface VoiceChatOptions {
   /** The paired wire client. */
@@ -56,6 +51,8 @@ interface PendingQuestionInternal extends PendingQuestion {
 
 const DEFAULT_LANGUAGE = 'zh-CN'
 const HISTORY_PAGE_MESSAGES = 50
+/** Result-text cap kept on the view row's expanded detail. */
+const TOOL_RESULT_SUMMARY_CAP = 300
 
 /** Best-effort IANA zone for non-browser callers; omission stays valid. */
 function currentTimeZone(): string | undefined {
@@ -80,6 +77,25 @@ function textOfChunk(chunk: StreamChunk): string | undefined {
   return chunk.type === 'text-delta' ? chunk.text : undefined
 }
 
+/** First text block nested anywhere in a content list (tool-result blocks recurse). */
+function firstTextBlock(content: readonly ContentBlock[]): string | null {
+  for (const block of content) {
+    if (block.type === 'text' && block.text !== '') return block.text
+    if (block.type === 'tool-result' && block.content !== undefined) {
+      const nested = firstTextBlock(block.content)
+      if (nested !== null) return nested
+    }
+  }
+  return null
+}
+
+/** Bounded first-text summary of a tool result for the row's expanded detail. */
+function summarizeResult(content: readonly ContentBlock[]): string | null {
+  const text = firstTextBlock(content)
+  if (text === null) return null
+  return text.length > TOOL_RESULT_SUMMARY_CAP ? text.slice(0, TOOL_RESULT_SUMMARY_CAP) + '…' : text
+}
+
 /**
  * The voice conversation machine.
  * @param options - client, ports, and behavior flags.
@@ -100,7 +116,7 @@ export class VoiceChatController {
   private sessionId: SessionId | null = null
   private watermark = -1
   private messages: ChatMessage[] = []
-  private toolLines: ToolLine[] = []
+  private toolLines: ToolStatusLine[] = []
   private pendingApproval: PendingApprovalInternal | null = null
   private pendingQuestion: PendingQuestionInternal | null = null
   private speakQueue: SpeakQueue
@@ -462,7 +478,7 @@ export class VoiceChatController {
           }
         }
         if (text === '') break
-        this.messages = [...this.messages, { kind: 'user', text }]
+        this.messages = [...this.messages, { kind: 'user', text, seq: event.seq }]
         break
       }
       case 'assistant/chunk': {
@@ -470,16 +486,23 @@ export class VoiceChatController {
         if (text === undefined || text === '') break
         const last = this.messages[this.messages.length - 1]
         if (last !== undefined && last.kind === 'assistant' && !last.complete) {
-          this.messages = [...this.messages.slice(0, -1), { kind: 'assistant', text: last.text + text, complete: false }]
+          this.messages = [...this.messages.slice(0, -1), { kind: 'assistant', text: last.text + text, complete: false, seq: last.seq }]
         } else {
-          this.messages = [...this.messages, { kind: 'assistant', text, complete: false }]
+          this.messages = [...this.messages, { kind: 'assistant', text, complete: false, seq: event.seq }]
         }
         if (live) this.speakQueue.feed(text)
         break
       }
       case 'tool/call':
         if (!this.toolLines.some(line => line.id === event.data.callId)) {
-          this.toolLines = [...this.toolLines, { id: event.data.callId, name: event.data.name, done: false, seq: event.seq }]
+          this.toolLines = [...this.toolLines, {
+            id: event.data.callId,
+            name: event.data.name,
+            argumentsText: event.data.arguments,
+            status: 'running',
+            resultSummary: null,
+            seq: event.seq,
+          }]
         }
         break
       case 'tool/result': {
@@ -487,7 +510,11 @@ export class VoiceChatController {
         // join the host's own view backscan uses.
         const callSeq = event.sourceEventSeqs?.[0]
         if (callSeq !== undefined) {
-          this.toolLines = this.toolLines.map(line => line.seq === callSeq ? { ...line, done: true } : line)
+          this.toolLines = this.toolLines.map(line => line.seq === callSeq ? {
+            ...line,
+            status: event.data.error !== undefined ? 'error' : 'done',
+            resultSummary: summarizeResult(event.data.message.content),
+          } : line)
         }
         break
       }
@@ -520,7 +547,7 @@ export class VoiceChatController {
       if (sessionId === null) return
     }
     this.pendingTexts.push(text)
-    this.messages = [...this.messages, { kind: 'user', text }]
+    this.messages = [...this.messages, { kind: 'user', text, seq: this.watermark + 1 }]
     this.publish()
     try {
       const timeZone = currentTimeZone()
@@ -564,7 +591,7 @@ export class VoiceChatController {
       turnRunning: this.turnRunning,
       speaking: this.speaking,
       messages: this.messages,
-      toolLines: this.toolLines.map(({ id, name, done }) => ({ id, name, done })),
+      toolLines: this.toolLines,
       pendingApproval: this.pendingApproval === null
         ? null
         : { approvalId: this.pendingApproval.approvalId, toolName: this.pendingApproval.toolName },

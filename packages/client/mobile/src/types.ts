@@ -7,17 +7,29 @@
 
 /** One chat message in the conversation view. */
 export type ChatMessage =
-  | { readonly kind: 'user'; readonly text: string }
-  | { readonly kind: 'assistant'; readonly text: string; readonly complete: boolean }
+  | { readonly kind: 'user'; readonly text: string; readonly seq: number }
+  | {
+    readonly kind: 'assistant'
+    readonly text: string
+    readonly complete: boolean
+    /** Event seq of the message's first chunk; orders the message in the flow. */
+    readonly seq: number
+  }
 
-/** One tool activity line shown while the agent works. */
+/** One tool activity row shown in the conversation flow (web-style inline row). */
 export interface ToolStatusLine {
   /** Tool call id echoed across the matching call/result events. */
   readonly id: string
   /** Tool name, e.g. "bash". */
   readonly name: string
-  /** Whether the matching result has arrived. */
-  readonly done: boolean
+  /** 'running' while the tool works; 'done' on success; 'error' when the result reports a failure. */
+  readonly status: 'running' | 'done' | 'error'
+  /** Raw arguments JSON exactly as the model produced them. */
+  readonly argumentsText: string
+  /** First text block of the result, bounded for the row's expanded detail; null while running. */
+  readonly resultSummary: string | null
+  /** Event seq of the tool/call; orders the row in the flow and joins the result. */
+  readonly seq: number
 }
 
 /** A pending approval the user must answer for the agent to continue. */

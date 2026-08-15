@@ -36,10 +36,11 @@ The APK is signed with the platform debug keystore, so it installs side by side 
 ## Voice UX
 
 - Tap the microphone to talk; the transcript is sent automatically when you finish (or tap again to end).
-- Replies stream into the chat and are spoken sentence by sentence; code blocks are never read aloud.
+- Replies stream into the chat and are spoken sentence by sentence; code blocks are never read aloud. Replies render as Markdown (code blocks, lists, links) and tool activity appears as expandable inline rows in the conversation flow.
 - Tapping the microphone while the agent is working stops speech and cancels the turn (barge-in).
 - Approvals and agent questions render as inline answer cards.
 - Settings: recognition/reading language (中文/English) and auto-speak toggle.
+- Dark mode follows the system theme; the app icon is the DeepSeek whale mark on black.
 
 ## Checks
 

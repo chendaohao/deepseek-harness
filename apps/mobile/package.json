@@ -20,12 +20,15 @@
     "@deepseek-ai/dsh-client-mobile": "workspace:^",
     "expo": "~57.0.12",
     "expo-camera": "~57.0.3",
+    "expo-haptics": "~57.0.1",
     "expo-secure-store": "~57.0.1",
     "expo-speech": "~57.0.1",
     "expo-speech-recognition": "^56.0.1",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.2"
+    "react-native": "0.86.2",
+    "react-native-marked": "^8.1.1",
+    "react-native-svg": "15.15.4"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

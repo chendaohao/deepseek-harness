@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-mobile-voice-app.md
-2026-08-14-mobile-voice-app.md: 0da5e75d7fcb76fe245ea2deced1dbedc49e864a
-2026-08-14-mobile-voice-app.zh.md: 402aa3943b1694b88a40ad26e81fcbb59e581cc3
+2026-08-14-mobile-voice-app.md: 538d64798b47241123d3f86de10a672a8de01e8b
+2026-08-14-mobile-voice-app.zh.md: 9ef8fbe95f5d45f5bb671baa45bede86e6e32b11
