@@ -84,3 +84,19 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Mobile web: pull the icon cluster together so the row reads as one tight
+   control group; 28px touch targets are unchanged. */
+@media (max-width: 640px) {
+  .actions {
+    gap: 2px;
+  }
+
+  .timeStart {
+    padding-right: 6px;
+  }
+
+  .timeEnd {
+    padding-left: 6px;
+  }
+}

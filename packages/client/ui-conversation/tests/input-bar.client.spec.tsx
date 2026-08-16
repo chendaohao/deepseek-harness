@@ -927,6 +927,33 @@ describe('running and lock semantics', () => {
     expect(measured!.offset).toBe(textarea.value.length - 1)
   })
 
+  it('a session switch on a touch-primary device reveals the caret without taking focus', () => {
+    // A gesture-less focus would pop the virtual keyboard over a user who only
+    // switched session, so touch-primary devices skip the focus while the
+    // draft-scrollport reveal — the effect's other half — still runs.
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true, addEventListener: () => {}, removeEventListener: () => {},
+    }) as unknown as MediaQueryList))
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const { view, textarea, props } = bench({ draft: 'line\n'.repeat(40) })
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
+    onTestFinished(() => { Range.prototype.getBoundingClientRect = ZERO_RECT })
+    scroll.getBoundingClientRect = () => ({ top: 100, bottom: 436 }) as DOMRect
+    Object.defineProperty(scroll, 'clientHeight', { value: 336, configurable: true })
+    Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
+    Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
+    Range.prototype.getBoundingClientRect = () => ({ top: 500, bottom: 524 }) as DOMRect
+    mirror.style.lineHeight = '24px'
+    const focused: (boolean | undefined)[] = []
+    textarea.focus = (options?: FocusOptions) => { focused.push(options?.preventScroll) }
+    // jsdom does not replicate the value swap's caret-to-end move; seed it.
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+    act(() => { view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />) })
+    expect(focused).toEqual([])
+    expect(scroll.scrollTop).toBe(112) // the reveal ran: (524 + 24) - 436
+  })
+
   it('a persisted draft adopted after mount gets its caret revealed too', () => {
     // ConversationSession seeds the stored draft in its own mount effect, which
     // runs after this component's: the first reveal measures an empty mirror,

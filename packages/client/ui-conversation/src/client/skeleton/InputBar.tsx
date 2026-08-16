@@ -203,6 +203,14 @@ export function InputBar({
     revealCaret(caret ?? el.value.length)
   }
 
+  // Touch-primary inputs (no hover) skip the unlock focus: a gesture-less
+  // textarea focus pops the virtual keyboard over a user who only switched
+  // session (or just loaded the page). The keyboard continuity this effect
+  // exists for is a fine-pointer concern; the reveal still runs, since it
+  // moves only the draft's own scrollport, never the transcript.
+  const touchPrimary = useRef(typeof window.matchMedia === 'function'
+    ? window.matchMedia('(hover: none)').matches
+    : false)
   // Unlock (mount / session switch) returns focus to the box, and owns the
   // reveal that comes with it. `preventScroll` because this focus is ours, not
   // a gesture: the textarea is as tall as the draft, so the browser's reveal
@@ -215,7 +223,7 @@ export function InputBar({
   useEffect(() => {
     const el = inputRef.current
     if (locked || el === null) return
-    el.focus({ preventScroll: true })
+    if (!touchPrimary.current) el.focus({ preventScroll: true })
     revealSelectionFocus(el)
   }, [locked, sessionId])
 

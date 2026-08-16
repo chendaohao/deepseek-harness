@@ -7,3 +7,10 @@
 .actions {
   margin-left: -6px;
 }
+
+/* Mobile web: tail actions hug the turn end. */
+@media (max-width: 640px) {
+  .root {
+    gap: 10px;
+  }
+}
