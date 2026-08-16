@@ -20,6 +20,12 @@ import type { ComposerBlocks } from './input/blocks.ts'
 import type { DraftAttachmentId, SessionInputResolver } from './input/contract.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
+/** The staged agent-preset gate the seat plugin publishes as `agentPresetSeat`. */
+export interface PresetSeatGate {
+  /** Resolve once a staged preset is applied, dropped, or unservable. */
+  pendingApply(): Promise<void>
+}
+
 /**
  * The outward conversation face (`ctx.conversation`): the scope-addressed
  * verbs and the input registry other plugins may reach — and exactly what a
@@ -97,6 +103,7 @@ export class ConversationController extends Service implements IConversation {
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
+  private readonly presetGate: (() => PresetSeatGate | undefined) | undefined
   private disposed = false
 
   /**
@@ -104,12 +111,18 @@ export class ConversationController extends Service implements IConversation {
    * registers itself and follows that fiber's lifetime).
    * @param config - carries the SessionInputResolver and composer-block registry
    * constructed by the plugin apply (the same instances the slot inject
-   * factories close over).
+   * factories close over), plus the optional staged-preset gate.
    */
-  constructor(ctx: Context, config: { input: SessionInputResolver; blocks: ComposerBlocks }) {
+  constructor(ctx: Context, config: {
+    input: SessionInputResolver
+    blocks: ComposerBlocks
+    /** Resolve the seat's pending-apply gate lazily (the seat registers later). */
+    presetGate?: () => PresetSeatGate | undefined
+  }) {
     super(ctx, 'conversation')
     this.input = config.input
     this.blocks = config.blocks
+    this.presetGate = config.presetGate
     ctx.effect(() => () => {
       this.disposed = true
       for (const url of this.createdImageUrls) revokePreview(url)
@@ -121,6 +134,18 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /**
+   * Wait out a staged agent-preset apply before the prompt leaves. The host
+   * locks a started session's preset, so a pick made on the hero just before
+   * the first send must land first or the session keeps its creation preset.
+   * A no-op when the seat plugin is absent, has no stage, or already applied.
+   * @returns once the staged pick is applied, dropped, or unservable.
+   */
+  private async settlePreset(): Promise<void> {
+    const gate = this.presetGate?.()
+    if (gate !== undefined) await gate.pendingApply()
+  }
+
+  /**
    * Send a prompt into the scoped session. Business failures also land in the
    * session snapshot's promptError (object-layer state); the rejection here
    * exists for caller choreography (the composer restores the draft on it).
@@ -128,6 +153,7 @@ export class ConversationController extends Service implements IConversation {
    */
   async send(text: string): Promise<void> {
     const session = this.scopedSession('send')
+    await this.settlePreset()
     const result = await session.prompt([{ type: 'text', text }], 'queue')
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
   }
@@ -149,6 +175,9 @@ export class ConversationController extends Service implements IConversation {
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.sendSession: one or more draft images are no longer available')
     }
+    // Dispatch the staged-preset apply before the (slower) image admission so
+    // the select races ahead of the prompt on the host side.
+    await this.settlePreset()
     const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file))
     const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
     const result = await session.prompt(content, mode)

@@ -163,8 +163,9 @@ describe('conversation slot inject API', () => {
     actions.setDraft('hello')
     actions.submit()
     expect(state.getSnapshot().draft).toBe('')
-    await Promise.resolve()
-    expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
+    await vi.waitFor(() => {
+      expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
+    })
     // Failure: restored (draft still empty when the rejection lands).
     b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b', details: { reason: 'b' } } })
     actions.setDraft('retry me')
