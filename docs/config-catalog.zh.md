@@ -2582,6 +2582,42 @@ export interface Config {
 
 来源：[`packages/lsp/tool-lsp/src/index.ts:58`](../packages/lsp/tool-lsp/src/index.ts)
 
+<a id="deepseek-aidsh-tool-opencode-usage"></a>
+
+## `@deepseek-ai/dsh-tool-opencode-usage`
+
+Requires: `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Plugin configuration: acquisition mode, credential sources, and request budget. */
+export interface Config {
+  /** Register the tool. Defaults to true. */
+  enabled?: boolean
+  /** Acquisition mode. Defaults to 'auto' (api key, then dashboard scrape). */
+  mode?: UsageMode | 'auto'
+  /** Explicit OpenCode Go api key (highest-precedence api-key source). */
+  apiKey?: string
+  /** Environment variable holding the api key. Defaults to 'OPENCODE_GO_API_KEY'. */
+  apiKeyEnv?: string
+  /** Fall back to the opencode runtime auth store (auth.json). Defaults to true. */
+  readOpencodeAuth?: boolean
+  /** Workspace id for the dashboard scrape. */
+  workspaceId?: string
+  /** auth cookie for the dashboard scrape. */
+  authCookie?: string
+  /** API origin. Defaults to https://opencode.ai. */
+  baseUrl?: string
+  /** Cooperative request timeout (ms). Defaults to 15000. */
+  timeoutMs?: number
+}
+
+/** Query acquisition mode reported in the canonical result. */
+export type UsageMode = 'api-key' | 'web'
+```
+
+来源：[`packages/integrations/tool-opencode-usage/src/index.ts:37`](../packages/integrations/tool-opencode-usage/src/index.ts)
+
+
 <a id="deepseek-aidsh-tool-pwsh"></a>
 
 ## `@deepseek-ai/dsh-tool-pwsh`

@@ -189,6 +189,7 @@
     { "path": "./packages/skill/skill-badge" },
     { "path": "./packages/skill/skill-filesystem" },
     { "path": "./packages/skill/tool-skill" },
+    { "path": "./packages/integrations/tool-opencode-usage" },
     { "path": "./packages/interaction/tool-ask-user" },
     { "path": "./packages/codegraph/codegraph" },
     { "path": "./packages/context/agent-instructions" },

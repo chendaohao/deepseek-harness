@@ -61,6 +61,7 @@ import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolOpencodeUsage from '@deepseek-ai/dsh-tool-opencode-usage'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
@@ -580,6 +581,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-opencode-usage',
+    dir: 'tool-opencode-usage',
+    source: 'packages/integrations/tool-opencode-usage/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'OpenCode Go credentials at execution time'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // Schema harvest needs no network: readOpencodeAuth stays off so the
+      // catalog run never touches the developer machine's opencode auth.json.
+      await ctx.plugin(ToolOpencodeUsage, { readOpencodeAuth: false })
+    },
+    note:
+      'opencode_usage queries the OpenCode Go subscription through either the bearer api-key endpoint or a cookie-authenticated dashboard scrape; the mode argument and config decide acquisition, and missing credentials fail at execution time with a structured error.',
   },
 ]
 

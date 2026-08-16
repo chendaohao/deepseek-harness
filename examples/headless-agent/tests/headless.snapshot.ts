@@ -47,6 +47,9 @@ const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const settlementScenarioDir = join(snapshotsDir, 'subagent-settlement')
 const settlementConfigPath = fileURLToPath(new URL('../subagent-settlement.cordis.snapshot.yml', import.meta.url))
+const opencodeUsageScenarioDir = join(snapshotsDir, 'opencode-usage')
+const opencodeUsageExpected = join(opencodeUsageScenarioDir, 'session.expected.jsonl')
+const opencodeUsageConfigPath = fileURLToPath(new URL('../opencode-usage.cordis.snapshot.yml', import.meta.url))
 const startupFailureConfigPath = fileURLToPath(new URL('./fixtures/startup-activation-error/cordis.yml', import.meta.url))
 const startupFailureExpected = join(snapshotsDir, 'startup-activation-error', 'stderr.expected.txt')
 const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
@@ -110,6 +113,38 @@ async function deepseekDefaultsServer(): Promise<DeepSeekDefaultsServer> {
     requests,
     close: () => new Promise(resolve => server.close(() => { resolve() })),
   }
+}
+
+/** The fixed stub port the opencode-usage scenario config points at. */
+const OPENCODE_USAGE_STUB_PORT = 39871
+
+/** Serve the canned OpenCode Go usage payload on the scenario's fixed port. */
+async function opencodeUsageStubServer(): Promise<{ close(): Promise<void> }> {
+  const server = createServer((_request: IncomingMessage, response: ServerResponse) => {
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({
+      usage: {
+        rolling: { status: 'ok', percent: 6, resetsAt: '2026-08-16T04:06:35.215Z' },
+        weekly: { status: 'ok', percent: 67, resetsAt: '2026-08-17T00:00:00.215Z' },
+        monthly: { status: 'ok', percent: 59, resetsAt: '2026-08-22T10:15:52.215Z' },
+      },
+    }))
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(OPENCODE_USAGE_STUB_PORT, '127.0.0.1', resolve)
+  })
+  return { close: () => new Promise(resolve => server.close(() => { resolve() })) }
+}
+
+/**
+ * Replace the tool's live queriedAt (canonical value and rendered text) with a
+ * stable sentinel so the persisted log compares across runs.
+ */
+function normalizeOpencodeUsage(content: string): string {
+  return content
+    .replace(/"queriedAt":"[^"]+"/g, '"queriedAt":"SNAPSHOT_QUERIED_AT"')
+    .replace(/usage via api-key at [\dTZ:.-]+:/g, 'usage via api-key at SNAPSHOT_QUERIED_AT:')
 }
 
 function parseJsonl(content: string): JsonObject[] {
@@ -642,6 +677,57 @@ describe('headless stream-json snapshots', () => {
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(advancedStreamExpected, normalized)
     expect(normalized).toBe(await readFile(advancedStreamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('runs one opencode_usage round trip through the one-shot app (keyless stub)', async () => {
+    const server = await opencodeUsageStubServer()
+    try {
+      // First refresh generates the fixture; later runs compare against it.
+      let expected: string
+      try {
+        expected = await readFile(opencodeUsageExpected, 'utf8')
+      } catch (error) {
+        if (!refreshing) throw error
+        expected = ''
+      }
+      const result = await runLoaderSmoke({
+        label: 'opencode usage headless stream-json snapshot',
+        tempDirPrefix: 'headless-snapshot-opencode-usage-',
+        binScript,
+        libBinScript: binScript,
+        configPath: opencodeUsageConfigPath,
+        binArgs: [opencodeUsageConfigPath, 'Query the OpenCode Go subscription usage and report the result.'],
+        tsconfigPath,
+        env: {
+          DSH_SNAPSHOT: 'replay',
+          NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+        },
+        inspect: async (cwd) => {
+          const logs = await persistedLogs(cwd)
+          expect(logs).toHaveLength(1)
+          const log = logs[0]
+          if (log === undefined) throw new Error('headless snapshot did not persist its session')
+          const context = contextFromLogs([log.content])
+          const actual = normalizeOpencodeUsage(scrubRequestHeaders(normalizeSessionLog(log.content, context)))
+          if (refreshing) {
+            // First refresh generates the fixture; the replayed comparison below
+            // would be trivially equal by construction, so skip it.
+            await mkdir(opencodeUsageScenarioDir, { recursive: true })
+            await writeFile(opencodeUsageExpected, actual)
+          } else {
+            expected = normalizeOpencodeUsage(expected)
+            expect(actual).toBe(expected)
+          }
+          expect(actual).toContain('opencode_usage')
+          expect(actual).toContain('OPENCODE_USAGE_OK')
+        },
+      })
+
+      expect(result.stderr).toBe('')
+      expect(result.stdout).toContain('OPENCODE_USAGE_OK rolling=6 weekly=67 monthly=59')
+    } finally {
+      await server.close()
+    }
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('replays persisted goal tools through the one-shot app', async () => {

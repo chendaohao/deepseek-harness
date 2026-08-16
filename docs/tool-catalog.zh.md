@@ -42,6 +42,7 @@
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
+| `@deepseek-ai/dsh-tool-opencode-usage` | `opencode_usage` | `ctx.tools`、`ctx.systemPrompt`、`OpenCode Go credentials at execution time` | `tool/call`、`tool/result` | - | opencode_usage 通过 bearer api-key 端点或 cookie 认证的 dashboard 抓取查询 OpenCode Go 订阅；模式参数与配置决定获取方式，凭证缺失在执行期以结构化错误失败。 |
 
 <a id="deepseek-aidsh-tool-ask-user"></a>
 
@@ -1908,3 +1909,32 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 来源：[`packages/web/tool-web/src/index.ts`](../packages/web/tool-web/src/index.ts)
 
 web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。
+
+<a id="deepseek-aidsh-tool-opencode-usage"></a>
+
+## `@deepseek-ai/dsh-tool-opencode-usage`
+
+### `opencode_usage`
+
+查询 OpenCode Go 订阅用量：5 小时滚动、本周、本月窗口的已用百分比与重置时间。当用户询问 OpenCode Go 配额、用量或限制时使用。未指定模式时优先 api-key 获取，回退 dashboard 抓取。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "description": "Acquisition mode: 'api-key' uses the bearer key endpoint, 'web' scrapes the workspace dashboard, 'auto' prefers the api key and falls back to the dashboard.",
+      "enum": [
+        "auto",
+        "api-key",
+        "web"
+      ]
+    }
+  }
+}
+```
+
+来源：[\`packages/integrations/tool-opencode-usage/src/index.ts\`](../packages/integrations/tool-opencode-usage/src/index.ts)
+
+opencode_usage 通过 bearer api-key 端点或 cookie 认证的 dashboard 抓取查询 OpenCode Go 订阅；模式参数与配置决定获取方式，凭证缺失在执行期以结构化错误失败。

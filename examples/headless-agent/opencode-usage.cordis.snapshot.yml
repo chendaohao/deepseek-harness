@@ -1,0 +1,46 @@
+# Keyless replay scenario for the opencode_usage tool. Includes the base
+# cordis.yml directly (a config patch cannot target an entry behind a nested
+# include) and restates the overlay: the DeepSeek adapter is disabled and a
+# scripted keyless adapter (opencode-usage-mock-llm.mjs) drives one
+# opencode_usage tool round trip. The tool's baseUrl points at the local stub
+# server (fixed port) that the snapshot test starts, so no opencode.ai traffic
+# ever leaves the machine.
+- id: base
+  name: '@deepseek-ai/cordis-plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - id: llm-deepseek
+        name: '@deepseek-ai/dsh-llm-deepseek'
+        disabled: true
+      - id: agent-spine
+        name: '@deepseek-ai/dsh-agent-spine-demo'
+        config:
+          agents:
+            - id: main
+              provider: cli-mock-usage
+              model: cli-mock-usage
+              cwd: !!js process.cwd()
+          workspaceContext:
+            maxBytes: 65536
+          tools:
+            mode: native
+          persona: |
+            You are headless-agent, a coding assistant powered by the {{model}} model.
+      - id: persistence
+        name: '@deepseek-ai/dsh-session-persistence-jsonl'
+        config:
+          root: './.sessions'
+          # Replay fixtures are raw JSONL; the whole-config patch must restate
+          # the compression choice or the default zstd frames hide the logs.
+          compression: none
+      - insert:
+          - id: opencode-usage-mock-llm
+            name: './opencode-usage-mock-llm.mjs'
+          - id: tool-opencode-usage
+            name: '@deepseek-ai/dsh-tool-opencode-usage'
+            config:
+              # The snapshot test starts a stub OpenCode Go server on this port.
+              baseUrl: 'http://127.0.0.1:39871'
+              apiKey: sk-snapshot
+              readOpencodeAuth: false
