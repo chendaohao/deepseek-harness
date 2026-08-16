@@ -101,7 +101,10 @@ it('hot-reloads a real client-plugin source edit without refreshing the page', a
     ))
     const baseUrl = await waitForOutput(host, /dsh web: (http:\/\/[^\s]+)/, 'built dsh web')
     browser = await chromium.launch()
-    const page = await browser.newPage()
+    // The scenario asserts the English hero headline; without a pinned locale
+    // a localized host hands the page its own ambient language and the text
+    // never renders (the rest of the lane pins through newEnglishPage).
+    const page = await browser.newPage({ locale: 'en-US' })
     const pageErrors: string[] = []
     page.on('pageerror', error => pageErrors.push(String(error)))
     await page.goto(baseUrl, { waitUntil: 'load' })
