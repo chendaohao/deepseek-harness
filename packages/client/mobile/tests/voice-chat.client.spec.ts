@@ -245,6 +245,45 @@ describe('VoiceChatController', () => {
     r.controller.dispose()
   })
 
+  it('dedupes the echoed user message when it arrives through a history refetch', async () => {
+    const r = rig({ existingSessionId: 's1' })
+    await settle(r)
+    r.controller.submitText('断线前发的')
+    await vi.waitFor(() => { expect(r.latest().messages.some(message => message.kind === 'user' && message.text === '断线前发的')).toBe(true) })
+    // The echo lands in the log, but the live stream never delivers it: the
+    // reconnect's history refetch replays it instead.
+    r.historyRoute(() => ({
+      events: [...defaultHistory(), historyEntry('user/message', 8, userMessageData('断线前发的'))],
+      hasMore: false,
+    }))
+    r.sockets[0]!.close()
+    await vi.waitFor(() => { expect(r.sockets).toHaveLength(2) })
+    await vi.waitFor(() => { expect(r.latest().connection).toBe('online') })
+    const historyCalls = () => r.fetch.calls.filter(entry => entry.url.endsWith('/api/session.history')).length
+    await vi.waitFor(() => { expect(historyCalls()).toBe(2) })
+    await vi.waitFor(() => { expect(r.latest().messages.filter(message => message.kind === 'user' && message.text === '断线前发的')).toHaveLength(1) })
+    // The consumed dedupe entry no longer swallows a later identical third-party message.
+    r.sockets[1]!.push(liveEvent(9, userMessageData('断线前发的')))
+    await vi.waitFor(() => { expect(r.latest().messages.filter(message => message.kind === 'user' && message.text === '断线前发的')).toHaveLength(2) })
+    r.controller.dispose()
+  })
+
+  it('switching sessions drops in-flight optimistic dedupe entries', async () => {
+    const r = rig({ existingSessionId: 's1' })
+    await settle(r)
+    r.controller.submitText('换会话前的')
+    // The new session's history carries a message with the same text; it must
+    // render rather than be swallowed as an echo of the abandoned send.
+    r.historyRoute(() => ({
+      events: [historyEntry('user/message', 1, userMessageData('换会话前的'))],
+      hasMore: false,
+    }))
+    r.controller.switchSession('s2')
+    await vi.waitFor(() => { expect(r.latest().sessionId).toBe('s2') })
+    await vi.waitFor(() => { expect(r.latest().messages.some(message => message.kind === 'user' && message.text === '换会话前的')).toBe(true) })
+    r.controller.dispose()
+  })
+
   it('barge-in: taking the mic cancels a running turn; a second tap is ignored', async () => {
     const r = rig({ existingSessionId: 's1' })
     await settle(r)
@@ -733,6 +772,19 @@ describe('VoiceChatController', () => {
     r.controller.dispose()
   })
 
+  it('keeps continuous listening after toggling autoSpeak', async () => {
+    const r = rig({ existingSessionId: 's1', autoListen: true })
+    await settle(r)
+    r.controller.setAutoSpeak(false)
+    r.controller.setAutoSpeak(true)
+    // A spoken turn completes: the rebuilt queue's speaking-complete hook
+    // must restart the mic exactly like the constructor's did.
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('assistant/chunk', 8, { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '讲完了。' } }) })
+    r.sockets[0]!.push({ type: 'session/event', sessionId: 's1', event: sessionEvent('turn/end', 9, { turn: 2, reason: 'done' }) })
+    await vi.waitFor(() => { expect(r.latest().listener).toBe('listening') })
+    r.controller.dispose()
+  })
+
   it('stops active speech through the speak port on barge-in', async () => {
     const r = rig({ existingSessionId: 's1' })
     await settle(r)
@@ -1107,11 +1159,13 @@ describe('VoiceChatController', () => {
     const models = await r.controller.listModels()
     expect(models.map(model => model.id)).toEqual(['deepseek-chat', 'deepseek-reasoner'])
     expect(r.latest().selectedModel).toBe('deepseek-chat')
+    expect(r.latest().selectedModelProvider).toBe('deepseek')
     r.fetch.routes.set('/api/session.selectModel', init => echoServerResponse(init, {
       selected: { provider: 'deepseek', model: 'deepseek-reasoner' },
     }))
     await r.controller.selectModel({ id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', provider: 'deepseek' })
     expect(r.latest().selectedModel).toBe('deepseek-reasoner')
+    expect(r.latest().selectedModelProvider).toBe('deepseek')
     r.controller.dispose()
   })
 

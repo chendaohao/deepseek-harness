@@ -9,7 +9,7 @@
 // without a portal.
 
 import { cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { FocusEventHandler, MouseEventHandler, MutableRefObject, ReactElement, Ref } from 'react'
+import type { FocusEventHandler, MouseEventHandler, MutableRefObject, PointerEventHandler, ReactElement, Ref } from 'react'
 import css from './Tooltip.module.css'
 
 /** Bubble placement relative to the anchor. */
@@ -20,6 +20,7 @@ interface AnchorProps {
   ref?: Ref<HTMLElement> | undefined
   onMouseEnter?: MouseEventHandler | undefined
   onMouseLeave?: MouseEventHandler | undefined
+  onPointerDown?: PointerEventHandler | undefined
   onFocus?: FocusEventHandler | undefined
   onBlur?: FocusEventHandler | undefined
 }
@@ -188,6 +189,18 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
         ref: mergedRef,
         onMouseEnter: (e) => { children.props.onMouseEnter?.(e); triggers.current.hover = true; showAfterHoverDelay() },
         onMouseLeave: (e) => { children.props.onMouseLeave?.(e); triggers.current.hover = false; cancelShow(); setPos(null) },
+        onPointerDown: (e) => {
+          children.props.onPointerDown?.(e)
+          // Coarse devices get the bubble on the press itself: a tap-triggered
+          // mouseenter fires once (the first tap) — later taps on the same
+          // anchor keep the sticky-hover state and never re-fire it, so
+          // without this the bubble would stop showing after the first
+          // auto-dismiss.
+          if (!coarse.current) return
+          triggers.current.hover = true
+          cancelShow()
+          show()
+        },
         onFocus: (e) => { children.props.onFocus?.(e); triggers.current.focus = true; cancelShow(); show() },
         onBlur: (e) => { children.props.onBlur?.(e); triggers.current.focus = false; hide() },
       })}

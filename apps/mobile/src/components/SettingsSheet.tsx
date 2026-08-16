@@ -18,6 +18,7 @@ export interface SettingsSnapshot {
   ttsPitch: number
   language: string
   selectedModel: string | null
+  selectedModelProvider: string | null
 }
 
 /** The controller surface the sheet reads. */
@@ -66,7 +67,8 @@ export function SettingsSheet({ visible, snapshot, controller, host, theme, t, o
           ) : (
             <View style={styles.modelList}>
               {models.map((model) => {
-                const active = snapshot.selectedModel === model.id
+                // Provider-scoped match: two providers may advertise the same model id.
+                const active = snapshot.selectedModel === model.id && snapshot.selectedModelProvider === model.provider
                 return (
                   <Pressable
                     key={model.provider + '/' + model.id}

@@ -28,7 +28,7 @@ Status: implemented
 
 ## 后果
 
-- 公开视图词汇增长（`SessionSummary`、`ModelOption`、`TodoItemView`、`PromptPart`、speaker 的 rate/pitch）；`SpeechSpeakerPort.speak` 签名变化，所有调用方一并更新。
+- 公开视图词汇增长（`SessionSummary`、`ModelOption`、`TodoItemView`、`PromptPart`、speaker 的 rate/pitch，以及后来的 `selectedModelProvider`）；`SpeechSpeakerPort.speak` 签名变化，所有调用方一并更新。
 - 图片提示词刻意跳过乐观回显：用户消息行在宿主回显时出现（本地没有可去重的引用）。
 - 计划模式类型依赖 plan-mode 包的声明合并：`dsh-client-mobile` 新增 `dsh-plan-mode`（纯类型）与 `dsh-attachment`（类型）依赖。
 - 100% 覆盖门禁覆盖全部新分支（图片失败路径、会话/模型失败、守卫）。

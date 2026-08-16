@@ -28,7 +28,7 @@ The UI-alignment pass ([mobile chat UI note](2026-08-16-mobile-chat-ui-web-align
 
 ## Consequences
 
-- The public view vocabulary grew (`SessionSummary`, `ModelOption`, `TodoItemView`, `PromptPart`, speaker rate/pitch); `SpeechSpeakerPort.speak` changed signature and its callers were updated together.
+- The public view vocabulary grew (`SessionSummary`, `ModelOption`, `TodoItemView`, `PromptPart`, speaker rate/pitch, and later `selectedModelProvider`); `SpeechSpeakerPort.speak` changed signature and its callers were updated together.
 - Image prompts deliberately skip the optimistic echo: the user message row appears when the host echoes it (no local refs to dedupe by).
 - Plan-mode typing requires the plan-mode package's augmentation: `dsh-client-mobile` depends on `dsh-plan-mode` (type-only) and `dsh-attachment` (types).
 - The 100% coverage gate covers every new branch (image failure paths, session/model failures, guards).

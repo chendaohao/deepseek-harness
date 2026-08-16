@@ -360,6 +360,33 @@ describe('Tooltip', () => {
     }
   })
 
+  it('shows on press for coarse devices, including after the auto-dismiss (second tap)', () => {
+    vi.useFakeTimers()
+    const mql = { matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }
+    vi.stubGlobal('matchMedia', vi.fn(() => mql))
+    try {
+      render(
+        <Tooltip label="Timing details" delayMs={500}>
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      const anchor = screen.getByText('anchor')
+      // First tap: the press shows the bubble immediately (no dwell on touch).
+      fireEvent.pointerDown(anchor)
+      expect(screen.getByRole('tooltip').textContent).toBe('Timing details')
+      // Auto-dismiss after the read period.
+      act(() => { vi.advanceTimersByTime(3000) })
+      expect(screen.queryByRole('tooltip')).toBeNull()
+      // Second tap: the sticky-hover state never re-fires mouseenter, so the
+      // press path must bring the bubble back.
+      fireEvent.pointerDown(anchor)
+      expect(screen.getByRole('tooltip').textContent).toBe('Timing details')
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('dismisses an open bubble when the device crosses into coarse input', () => {
     let change: (() => void) | undefined
     const mql = {

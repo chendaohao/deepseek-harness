@@ -113,6 +113,17 @@ describe('SpeakQueue', () => {
     expect(spoken).toEqual(['前面。', '后面'])
   })
 
+  it('never speaks an open fence body even when it carries sentence-ending punctuation', () => {
+    const { port, spoken, doneHandlers } = recordingPort()
+    const queue = new SpeakQueue({ autoSpeak: true, port })
+    queue.feed('说完了。下面看代码：\x60\x60\x60python\nprint("你好。世界")\n')
+    expect(spoken).toEqual(['说完了。下面看代码：'])
+    queue.feed('x = 1\n\x60\x60\x60代码结束。')
+    queue.flushRemainder()
+    doneHandlers[0]!()
+    expect(spoken).toEqual(['说完了。下面看代码：', '代码结束。'])
+  })
+
   it('speaks the prose before a fence opener even mid-sentence', () => {
     const { port, spoken, doneHandlers } = recordingPort()
     const queue = new SpeakQueue({ autoSpeak: true, port })
@@ -156,6 +167,7 @@ describe('SpeakQueue', () => {
     const { port, spoken } = recordingPort()
     const queue = new SpeakQueue({ autoSpeak: true, port })
     queue.feed('')
+    queue.feed(' \n ')
     queue.feed('\x60\x60\x60')
     queue.flushRemainder()
     expect(spoken).toEqual([])

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Image, Pressable, Share, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -46,7 +46,7 @@ export function MessageBubble({ message, theme, t, loadImage }: {
         {message.kind === 'user' && message.images.length > 0 ? (
           <View style={styles.images}>
             {message.images.map((image, index) => (
-              <MessageImage key={image.attachmentId + String(index)} attachment={image} theme={theme} loadImage={loadImage} />
+              <MessageImage key={image.attachmentId + String(index)} attachment={image} theme={theme} t={t} loadImage={loadImage} />
             ))}
           </View>
         ) : null}
@@ -59,27 +59,41 @@ export function MessageBubble({ message, theme, t, loadImage }: {
   )
 }
 
-/** One durable image attachment, downloaded once and cached per id. */
-function MessageImage({ attachment, theme, loadImage }: {
+/** One durable image attachment, downloaded once per id; a failed load stays failed for the row's lifetime. */
+function MessageImage({ attachment, theme, t, loadImage }: {
   attachment: ImageAttachmentRef
   theme: Theme
+  t: Translate
   loadImage(attachmentId: string): Promise<string | null>
 }) {
   const [uri, setUri] = useState<string | null>(() => imageCache.get(attachment.attachmentId) ?? null)
+  const [failed, setFailed] = useState(false)
+  // The parent re-renders on every snapshot publish and recreates its inline
+  // loader closure; the ref keeps this effect anchored to the attachment id
+  // alone, so one row downloads exactly once instead of once per render (a
+  // failure loop would otherwise retry the round trip forever).
+  const loaderRef = useRef(loadImage)
+  loaderRef.current = loadImage
   useEffect(() => {
+    if (uri !== null || failed) return
     let alive = true
-    void loadImage(attachment.attachmentId).then((data) => {
-      if (alive && data !== null) {
+    void loaderRef.current(attachment.attachmentId).then((data) => {
+      if (!alive) return
+      if (data !== null) {
         imageCache.set(attachment.attachmentId, data)
         setUri(data)
+      } else {
+        setFailed(true)
       }
     })
     return () => { alive = false }
-  }, [attachment.attachmentId, loadImage])
+  }, [attachment.attachmentId, uri, failed])
   if (uri === null) {
     return (
       <View style={[styles.imageLoading, { backgroundColor: theme.codeBg }]}>
-        <ActivityIndicator color={theme.accent} />
+        {failed
+          ? <Text style={[styles.imageFailed, { color: theme.textMuted }]}>{t('imageLoadFailed')}</Text>
+          : <ActivityIndicator color={theme.accent} />}
       </View>
     )
   }
@@ -100,4 +114,5 @@ const styles = StyleSheet.create({
     width: 180, height: 180, borderRadius: metrics.radiusMd,
     alignItems: 'center', justifyContent: 'center',
   },
+  imageFailed: { fontSize: 12, paddingHorizontal: 12, textAlign: 'center' },
 })

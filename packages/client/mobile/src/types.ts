@@ -139,6 +139,8 @@ export interface VoiceChatSnapshot {
   readonly todos: readonly TodoItemView[]
   /** Last selected model id (memory only; the host's default applies on start). */
   readonly selectedModel: string | null
+  /** Provider route of the last selected model; absent when no model is selected. */
+  readonly selectedModelProvider: string | null
   readonly language: string
   readonly sessionId: string
 }

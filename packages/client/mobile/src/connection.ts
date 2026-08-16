@@ -29,10 +29,20 @@ export interface MobileConnectionOptions {
   backoffStepMs?: number
   /** Attempt budget per stream lifetime; reset on a successful open. */
   maxAttempts?: number
+  /**
+   * Idle watchdog: when a generation delivers no frame for this long, its
+   * stream is aborted and the loop reconnects. The host heartbeat resets the
+   * timer while the stream is quiet, so a firing watchdog means a silently
+   * dead transport (a phone switching mobile data <-> WiFi can tear its socket
+   * without any close event). 0 disables the watchdog.
+   */
+  idleTimeoutMs?: number
 }
 
 const DEFAULT_BACKOFF_STEP_MS = 500
 const DEFAULT_MAX_ATTEMPTS = 5
+/** Matches the web ConnectionController default; the host heartbeat (15s) keeps live streams from ever reaching it. */
+const DEFAULT_IDLE_TIMEOUT_MS = 45_000
 
 /** The mux stream opener plus its reconnect loop. */
 export class MobileConnection {
@@ -40,6 +50,7 @@ export class MobileConnection {
   private readonly callbacks: MobileConnectionCallbacks
   private readonly backoffStepMs: number
   private readonly maxAttempts: number
+  private readonly idleTimeoutMs: number
   private stopped = false
   private pumpActive = false
   private generation = 0
@@ -55,6 +66,7 @@ export class MobileConnection {
     this.callbacks = options.callbacks
     this.backoffStepMs = options.backoffStepMs ?? DEFAULT_BACKOFF_STEP_MS
     this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS
+    this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
   }
 
   /** Begin pumping the stream (no-op while a pump is already running). */
@@ -95,7 +107,7 @@ export class MobileConnection {
     const generation = this.generation
     this.pumpActive = true
     try {
-      await this.pumpLoop()
+      await this.pumpLoop(generation)
     } finally {
       // Only a pump of the current generation owns the flag: stop() then
       // start() may have spawned a newer pump whose liveness this exit must
@@ -104,33 +116,61 @@ export class MobileConnection {
     }
   }
 
-  private async pumpLoop(): Promise<void> {
+  private async pumpLoop(generation: number): Promise<void> {
     while (!this.stopped) {
       const controller = new AbortController()
       this.aborter = controller
+      let idleTimer: ReturnType<typeof setTimeout> | undefined
+      const clearIdle = (): void => {
+        if (idleTimer === undefined) return
+        clearTimeout(idleTimer)
+        idleTimer = undefined
+      }
+      // Every frame (host heartbeats included) re-arms the watchdog; its
+      // firing aborts this generation's stream, which the downlink surfaces
+      // as a normal stream end and the shared retry path picks up.
+      const touchIdle = (): void => {
+        if (this.idleTimeoutMs <= 0) return
+        clearIdle()
+        idleTimer = setTimeout(() => { controller.abort() }, this.idleTimeoutMs)
+      }
       try {
         for await (const envelope of this.client.events.mux({}, controller.signal, () => {
           // A readable stream resets the budget: the host reopens its tunnel
           // with the same policy, so a success on either side restarts both.
           this.attempts = 0
           this.publish('online')
+          touchIdle()
         })) {
+          touchIdle()
           this.callbacks.onFrame(envelope)
         }
-        if (this.isStopped()) return
-        if (!await this.scheduleRetry(new Error('the mux stream ended'))) return
+        clearIdle()
+        if (this.isStopped() || generation !== this.generation) return
+        if (!await this.scheduleRetry(new Error('the mux stream ended'), generation)) return
       } catch (error) {
         // The downlink swallows malformed frames; this catch only sees
         // transport-level throws (e.g. a missing WebSocket implementation).
-        /* v8 ignore next -- the throw happens synchronously on the pull, so stop() can never land between it and this guard */
-        if (this.isStopped()) return
-        if (!await this.scheduleRetry(error)) return
+        clearIdle()
+        // v8 ignore next -- the throw lands synchronously on the pull; stop()
+        // and superseding start() both abort before the generator can resume
+        if (this.isStopped() || generation !== this.generation) return
+        if (!await this.scheduleRetry(error, generation)) return
+      } finally {
+        clearIdle()
       }
     }
   }
 
-  /** Whether the pump should try again (false = budget spent, stopped, or superseded). */
-  private async scheduleRetry(cause: unknown): Promise<boolean> {
+  /**
+   * Whether the pump should try again (false = budget spent, stopped, or
+   * superseded by a newer pump). The generation passed in is the pump's own
+   * snapshot: a dying pump that resumes after stop() -> start() must not
+   * adopt the fresh pump's generation and keep competing with it. Callers
+   * re-check the generation before the backoff; the post-await check covers
+   * a supersession that lands while the pump sleeps.
+   */
+  private async scheduleRetry(cause: unknown, generation: number): Promise<boolean> {
     this.attempts += 1
     if (this.attempts > this.maxAttempts) {
       console.error('[client-mobile] mux stream retries exhausted:', cause)
@@ -139,7 +179,6 @@ export class MobileConnection {
     }
     this.publish('reconnecting')
     const delay = this.backoffStepMs * this.attempts
-    const generation = this.generation
     await new Promise<void>((resolve) => {
       setTimeout(resolve, delay)
     })

@@ -18,7 +18,7 @@ const FAILURE_KEYS: Record<PairingFailure, I18nKey> = {
 }
 
 /** QR scan + manual URL pairing against the remote-access gate. */
-export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void }) {
+export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void | Promise<void> }) {
   const [permission, requestPermission] = useCameraPermissions()
   const [manualUrl, setManualUrl] = useState('')
   const [busy, setBusy] = useState(false)
@@ -54,7 +54,14 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
       const deviceName = Device.modelName ?? Device.deviceName
       const record = await pairWithHost(raw, expoFetch as FetchLike,
         deviceName === null ? {} : { deviceName })
-      onPaired(record)
+      // Persistence (keychain) failures surface here instead of rejecting the
+      // handler's promise: the host already paired, so re-pairing is the
+      // recovery and the message must say the save failed, not the pairing.
+      try {
+        await onPaired(record)
+      } catch {
+        setError(t('pairPersistFailed'))
+      }
     } catch (failure) {
       setError(failure instanceof PairingError ? t(FAILURE_KEYS[failure.failure]) : t('pairFailed'))
     } finally {

@@ -15,7 +15,7 @@ interface Rig {
 }
 
 /** A connection whose socket factory records one scriptable socket per attempt, auto-opened on a microtask. */
-function rig(maxAttempts?: number): Rig {
+function rig(options: { maxAttempts?: number; idleTimeoutMs?: number } = {}): Rig {
   const socketRig = socketFactoryRig()
   const sockets: SocketMock[] = []
   const statuses: ConnectionStatus[] = []
@@ -34,7 +34,7 @@ function rig(maxAttempts?: number): Rig {
       onStatus: (status) => { statuses.push(status) },
       onFrame: (envelope) => { frames.push(envelope.payload) },
     },
-    ...maxAttempts === undefined ? {} : { maxAttempts },
+    ...options,
   })
   return { connection, sockets, frames, statuses, freshSocket: () => sockets[sockets.length - 1]! }
 }
@@ -128,6 +128,52 @@ describe('MobileConnection', () => {
     errors.mockRestore()
   })
 
+  it('reconnects when the stream stays quiet past the idle watchdog', async () => {
+    vi.useFakeTimers()
+    const r = rig({ idleTimeoutMs: 45_000 })
+    r.connection.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(r.sockets).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(45_000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(r.statuses).toContain('reconnecting')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(r.sockets).toHaveLength(2)
+    r.connection.stop()
+  })
+
+  it('delivered frames keep the idle watchdog at bay', async () => {
+    vi.useFakeTimers()
+    const r = rig({ idleTimeoutMs: 45_000 })
+    r.connection.start()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let index = 0; index < 3; index++) {
+      r.freshSocket().push({ type: 'stream/heartbeat' }, 'f' + String(index))
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(44_000)
+    }
+    expect(r.sockets).toHaveLength(1)
+    expect(r.statuses).not.toContain('reconnecting')
+    // Quiet past the deadline: the watchdog fires and the loop reconnects.
+    await vi.advanceTimersByTimeAsync(45_000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(r.statuses).toContain('reconnecting')
+    r.connection.stop()
+  })
+
+  it('a disabled idle watchdog never aborts a quiet stream', async () => {
+    vi.useFakeTimers()
+    const r = rig({ idleTimeoutMs: 0 })
+    r.connection.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(r.sockets).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(120_000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(r.sockets).toHaveLength(1)
+    expect(r.statuses).not.toContain('reconnecting')
+    r.connection.stop()
+  })
+
   it('ignores a second start while the pump is already running', async () => {
     const r = rig()
     r.connection.start()
@@ -159,6 +205,25 @@ describe('MobileConnection', () => {
     await new Promise((resolve) => { setTimeout(resolve, 20) })
     expect(r.sockets).toHaveLength(1)
     expect(r.statuses).not.toContain('reconnecting')
+  })
+
+  it('a pump superseded by stop-then-start does not open a competing stream', async () => {
+    vi.useFakeTimers()
+    const r = rig()
+    r.connection.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(r.sockets).toHaveLength(1)
+    // End the stream, then restart before the dying pump resumes: it must not
+    // adopt the fresh generation and keep reconnecting beside the new pump.
+    r.freshSocket().close()
+    r.connection.stop()
+    r.connection.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(r.sockets).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(r.sockets).toHaveLength(2)
+    expect(r.statuses).not.toContain('reconnecting')
+    r.connection.stop()
   })
 
   it('restarts with a fresh budget after stop and start', async () => {

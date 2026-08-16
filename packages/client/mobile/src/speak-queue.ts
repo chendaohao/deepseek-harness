@@ -122,6 +122,10 @@ export class SpeakQueue {
     if (!this.options.autoSpeak || delta === '') return
     this.buffer += delta
     this.drainFences()
+    // An unclosed fence leaves only its body in the buffer; sentence-splitting
+    // it would read code aloud whenever the body carries sentence-ending
+    // punctuation (e.g. a "。" inside a string or comment). Wait for the closer.
+    if (this.inFence) return
     const sentences = splitSentences(this.buffer, this.maxChunkLength)
     const complete = sentences.slice(0, -1)
     this.buffer = sentences[sentences.length - 1] ?? ''

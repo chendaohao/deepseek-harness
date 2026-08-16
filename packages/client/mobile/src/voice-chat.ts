@@ -136,6 +136,7 @@ export class VoiceChatController {
   private planActive = false
   private todos: TodoItemView[] = []
   private selectedModel: string | null = null
+  private selectedProvider: string | null = null
   private sessionId: SessionId | null = null
   private watermark = -1
   private messages: ChatMessage[] = []
@@ -162,8 +163,13 @@ export class VoiceChatController {
     this.ttsRate = options.ttsRate ?? 1
     this.ttsPitch = options.ttsPitch ?? 1
     this.sessionId = options.sessionId === undefined ? null : options.sessionId as SessionId
-    this.speakQueue = new SpeakQueue({
-      autoSpeak: this.autoSpeak,
+    this.speakQueue = this.buildSpeakQueue(this.autoSpeak)
+  }
+
+  /** Build the queue with the live callbacks; shared by construction and toggles. */
+  private buildSpeakQueue(autoSpeak: boolean): SpeakQueue {
+    return new SpeakQueue({
+      autoSpeak,
       port: this.speakPort(),
       onSpeakingChange: (speaking) => {
         this.speaking = speaking
@@ -345,14 +351,9 @@ export class VoiceChatController {
   setAutoSpeak(enabled: boolean): void {
     if (!enabled) this.speakQueue.clear()
     this.autoSpeak = enabled
-    this.speakQueue = new SpeakQueue({
-      autoSpeak: enabled,
-      port: this.speakPort(),
-      onSpeakingChange: (speaking) => {
-        this.speaking = speaking
-        this.publish()
-      },
-    })
+    // The rebuilt queue carries the same speaking-complete hook (which also
+    // drives autoListen), so continuous listening survives a toggle.
+    this.speakQueue = this.buildSpeakQueue(enabled)
     this.publish()
   }
 
@@ -429,9 +430,14 @@ export class VoiceChatController {
     this.todos = []
     this.planActive = false
     this.selectedModel = null
+    this.selectedProvider = null
     this.pendingApproval = null
     this.pendingQuestion = null
     this.notice = null
+    // The view resets with the session; an in-flight optimistic echo belongs
+    // to the abandoned session and must not dedupe away a new session's
+    // identical-looking message.
+    this.pendingTexts = []
     this.publish()
     if (this.connection !== null) this.connection.start()
   }
@@ -471,6 +477,7 @@ export class VoiceChatController {
         return []
       }
       this.selectedModel = listed.result.value.current.model
+      this.selectedProvider = listed.result.value.current.provider
       this.publish()
       return listed.result.value.groups.flatMap(group =>
         group.models.map(model => ({ id: model.id, name: model.name, provider: group.id })),
@@ -495,6 +502,7 @@ export class VoiceChatController {
       })
       if (result.result.ok) {
         this.selectedModel = model.id
+        this.selectedProvider = model.provider
         this.publish()
       } else {
         this.notice = result.result.error.message
@@ -722,8 +730,10 @@ export class VoiceChatController {
         const text = textOfContent(event.data.content)
         const images = imageRefsOf(event.data.content)
         // Image prompts skip the optimistic echo (no local refs to dedupe by);
-        // text-only echoes dedupe against pendingTexts as before.
-        if (live && images.length === 0) {
+        // text-only echoes dedupe against pendingTexts whether they arrive
+        // live or through a post-reconnect history refetch — without the
+        // history-side dedupe the same turn would render twice.
+        if (images.length === 0) {
           const index = this.pendingTexts.indexOf(text)
           if (index !== -1) {
             this.pendingTexts.splice(index, 1)
@@ -881,6 +891,7 @@ export class VoiceChatController {
       planActive: this.planActive,
       todos: this.todos,
       selectedModel: this.selectedModel,
+      selectedModelProvider: this.selectedProvider,
       language: this.language,
       sessionId: this.sessionId ?? '',
     })
