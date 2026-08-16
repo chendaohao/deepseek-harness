@@ -100,6 +100,25 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
   // BOTH clear (hovering away from a focused anchor must not drop it).
   const triggers = useRef({ hover: false, focus: false })
 
+  // Coarse primary inputs (touch) cannot hover away: a tap-triggered bubble
+  // sticks open until the next tap elsewhere, so auto-dismiss it after a
+  // short read period (mobile gets the label, then it clears itself).
+  const COARSE_DISMISS_MS = 3000
+  const coarse = useRef(typeof window.matchMedia === 'function'
+    ? window.matchMedia('(hover: none)').matches
+    : false)
+  const coarseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelCoarse = useCallback(() => {
+    if (coarseTimer.current === null) return
+    clearTimeout(coarseTimer.current)
+    coarseTimer.current = null
+  }, [])
+  const dismiss = useCallback(() => {
+    cancelCoarse()
+    triggers.current = { hover: false, focus: false }
+    setPos(null)
+  }, [cancelCoarse])
+
   // Disabling mid-hover (e.g. clicking a rail control expands the sidebar)
   // must drop an already-visible bubble: no mouseleave fires.
   const cancelShow = useCallback(() => {
@@ -113,8 +132,8 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
       triggers.current = { hover: false, focus: false }
       setPos(null)
     }
-    return cancelShow
-  }, [cancelShow, disabled])
+    return () => { cancelShow(); cancelCoarse() }
+  }, [cancelCoarse, cancelShow, disabled])
 
   const show = () => {
     if (disabled) return
@@ -126,6 +145,12 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
     // where this anchor's position demands it.
     setPlacement(side)
     setPos({ x: side === 'right' ? r.right + 10 : r.left + r.width / 2, top: r.top, bottom: r.bottom })
+    // Coarse devices arm the read-period dismiss; a mouse hover on a
+    // hover-capable device leaves dismissal to leave/blur as before.
+    if (coarse.current) {
+      cancelCoarse()
+      coarseTimer.current = setTimeout(dismiss, COARSE_DISMISS_MS)
+    }
   }
   const showAfterHoverDelay = () => {
     cancelShow()
@@ -140,8 +165,22 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
   }
   const hide = () => {
     cancelShow()
+    cancelCoarse()
     if (!triggers.current.hover && !triggers.current.focus) setPos(null)
   }
+
+  // A device crossing into coarse input (e.g. a foldable flipping to touch)
+  // must not leave a hover bubble stranded: dismiss and re-evaluate.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia('(hover: none)')
+    const update = (): void => {
+      coarse.current = mq.matches
+      if (mq.matches) dismiss()
+    }
+    mq.addEventListener('change', update)
+    return () => { mq.removeEventListener('change', update) }
+  }, [dismiss])
 
   return (
     <>

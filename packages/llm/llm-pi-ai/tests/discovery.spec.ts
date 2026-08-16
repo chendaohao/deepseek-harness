@@ -128,6 +128,81 @@ describe('draft-provider model discovery', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  it('reads an Anthropic listing with the key and version headers it authenticates by', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({
+        data: [
+          { type: 'model', id: 'claude-opus-4', display_name: 'Claude Opus 4' },
+          { type: 'model', id: 'claude-sonnet-4' },
+        ],
+        has_more: false,
+      }),
+    })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', {
+      baseURL: `${server.url}/v1`,
+      api: 'anthropic-messages',
+      apiKey: 'probe-key',
+    })
+
+    expect(models).toEqual([
+      { id: 'claude-opus-4', name: 'Claude Opus 4' },
+      { id: 'claude-sonnet-4' },
+    ])
+    expect(server.paths).toEqual(['/v1/models?limit=100'])
+    expect(server.headers[0]?.['x-api-key']).toBe('probe-key')
+    expect(server.headers[0]?.['anthropic-version']).toBe('2023-06-01')
+    expect(server.headers[0]?.authorization).toBeUndefined()
+  })
+
+  it('follows Anthropic pagination until the listing ends', async () => {
+    const requests: string[] = []
+    const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+      const url = new URL(request.url ?? '', 'http://127.0.0.1')
+      requests.push(url.searchParams.get('after') ?? '(none)')
+      const page = url.searchParams.get('after') === null ? 0 : 1
+      const body = page === 0
+        ? JSON.stringify({ data: [{ id: 'page-one' }], has_more: true, last_id: 'cursor-1' })
+        : JSON.stringify({ data: [{ id: 'page-two' }], has_more: false })
+      response.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': String(Buffer.byteLength(body)),
+      })
+      response.end(body)
+    })
+    servers.push(server)
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('no port')
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', {
+      baseURL: `http://127.0.0.1:${address.port}`,
+      api: 'anthropic-messages',
+      apiKey: 'probe-key',
+    })
+
+    expect(models).toEqual([{ id: 'page-one' }, { id: 'page-two' }])
+    expect(requests).toEqual(['(none)', 'cursor-1'])
+  })
+
+  it('refuses a listing that paginates past the ceiling', async () => {
+    // has_more forever: the loop must stop instead of hanging or growing
+    // unbounded, and the refusal must say why rather than truncating silently.
+    const server = await listingServer({
+      body: JSON.stringify({ data: [{ id: 'm' }], has_more: true, last_id: 'again' }),
+    })
+    const ctx = await harness()
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', {
+      baseURL: server.url,
+      api: 'anthropic-messages',
+      apiKey: 'probe-key',
+    })).rejects.toThrow(/paginates past the 20-page listing ceiling/)
+    expect(server.paths).toHaveLength(20)
+  })
+
   it('keeps a deployment path instead of resolving it away', async () => {
     const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
     const ctx = await harness()
@@ -260,7 +335,7 @@ describe('draft-provider model discovery', () => {
       .rejects.toMatchObject({ code: 'DISCOVERY_FAILED' })
   })
 
-  it.each(['anthropic-messages', 'azure-openai-responses', 'openai-codex-responses', 'google-generative-ai'])(
+  it.each(['azure-openai-responses', 'openai-codex-responses', 'google-generative-ai'])(
     'says it cannot interrogate %s rather than guessing a shape',
     async (api) => {
       // Azure authenticates with an `api-key` header and an `api-version`

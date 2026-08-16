@@ -10,6 +10,9 @@
     - button "插件":
       - img
       - text: 插件
+    - button "远程访问":
+      - img
+      - text: 远程访问
     - button "Agent 预设":
       - img
       - text: Agent 预设

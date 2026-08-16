@@ -24,7 +24,9 @@
 }
 
 .source {
-  flex: none;
+  /* Shrinkable: on narrow viewports the producer name must ellipsize inside
+     the disclosure row instead of hard-clipping at the row's overflow edge. */
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);

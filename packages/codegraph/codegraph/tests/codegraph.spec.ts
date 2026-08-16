@@ -149,15 +149,38 @@ describe('dsh-codegraph', () => {
     await mount(ctx)
     const agent = stubAgent(cwd)
 
-    await drivePreStep(ctx, agent)
+    const first = await drivePreStep(ctx, agent)
+    const checklist = first.messages.find(message => message.source.kind === codegraph.INSTRUCTION_SOURCE_KIND)!
+    agent.session.append('user/message', checklist, { surfaceOp: 'append' })
     mcpMocks.connections[0]!.resolveReady({ error: new Error('boom') })
     await new Promise(resolve => setTimeout(resolve, 10))
 
     const second = await drivePreStep(ctx, agent)
-    expect(second.messages.some(message => message.source.kind === codegraph.INSTRUCTION_SOURCE_KIND)).toBe(true)
+    expect(second.messages.some(message => message.source.kind === codegraph.INSTRUCTION_SOURCE_KIND)).toBe(false)
     expect(mcpMocks.connections.length).toBe(1)
 
     await ctx.fiber.dispose()
     expect(mcpMocks.connections[0]!.handle.dispose).toHaveBeenCalled()
+  })
+
+  it('restarts a failed connection on the next session\'s first pre-step', async () => {
+    const cwd = await tempWorkspace(true)
+    const ctx = new Context()
+    await mount(ctx)
+
+    const firstAgent = stubAgent(cwd)
+    await drivePreStep(ctx, firstAgent)
+    mcpMocks.connections[0]!.resolveReady({ error: new Error('boom') })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mcpMocks.connections.length).toBe(1)
+
+    const secondAgent = stubAgent(cwd)
+    await drivePreStep(ctx, secondAgent)
+    expect(mcpMocks.connections.length).toBe(2)
+    expect(mcpMocks.connections[0]!.handle.dispose).toHaveBeenCalled()
+    expect(mcpMocks.connections[1]!.config).toMatchObject({ serverName: 'codegraph' })
+
+    await ctx.fiber.dispose()
+    expect(mcpMocks.connections[1]!.handle.dispose).toHaveBeenCalled()
   })
 })

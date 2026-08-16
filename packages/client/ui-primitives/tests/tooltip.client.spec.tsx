@@ -338,6 +338,52 @@ describe('Tooltip', () => {
     expect(callbackRef).toHaveBeenCalledWith(screen.getByText('anchor'))
   })
 
+  it('auto-dismisses after a short read period on coarse-pointer devices', () => {
+    vi.useFakeTimers()
+    const mql = { matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }
+    vi.stubGlobal('matchMedia', vi.fn(() => mql))
+    try {
+      render(
+        <Tooltip label="Timing details">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      expect(screen.getByRole('tooltip').textContent).toBe('Timing details')
+      act(() => { vi.advanceTimersByTime(2999) })
+      expect(screen.queryByRole('tooltip')).not.toBeNull()
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(screen.queryByRole('tooltip')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('dismisses an open bubble when the device crosses into coarse input', () => {
+    let change: (() => void) | undefined
+    const mql = {
+      matches: false,
+      addEventListener: vi.fn((_type: string, cb: () => void) => { change = cb }),
+      removeEventListener: vi.fn(),
+    }
+    vi.stubGlobal('matchMedia', vi.fn(() => mql))
+    try {
+      render(
+        <Tooltip label="Timing details">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      expect(screen.getByRole('tooltip')).toBeTruthy()
+      mql.matches = true
+      act(() => { change?.() })
+      expect(screen.queryByRole('tooltip')).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('drops an already-visible bubble when disabled flips mid-hover', () => {
     const { rerender } = render(
       <Tooltip label="Rail">

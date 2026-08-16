@@ -469,6 +469,26 @@
   transform: translate(-50%, -50%) scale(0.72);
 }
 
+/* Narrow viewports wrap the composer toolbar: the attach/access/plan
+   controls keep the first row while the model + effort seat, context meter,
+   and primary action take their own second row, so the model name and
+   thinking-level label stop fighting the same pixels. */
+@media (max-width: 640px) {
+  .row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .tools {
+    flex: 1 1 auto;
+  }
+
+  .trailing {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+}
+
 .chipInvalid {
   background: rgba(216, 97, 97, 0.2);
   text-decoration: line-through;

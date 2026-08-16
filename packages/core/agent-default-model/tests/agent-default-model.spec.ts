@@ -95,4 +95,56 @@ describe('AgentDefaultModelConfig', () => {
     expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'p', model: 'm' })
     await ctx.fiber.dispose()
   })
+
+  it('remembers and forgets one model route effort without disturbing the default', async () => {
+    const bench = await boot()
+    await bench.defaultModel.rememberEffort('acme-gateway', 'acme-large', 'max')
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('max')
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-small')).toBeUndefined()
+    expect(bench.defaultModel.currentSelection()).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-v4-flash',
+    })
+
+    await bench.defaultModel.forgetEffort('acme-gateway', 'acme-large')
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBeUndefined()
+    // Unsetting an absent route is already satisfied, not an error.
+    await bench.defaultModel.forgetEffort('acme-gateway', 'acme-small')
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('keeps each model route memory across a default-selection save', async () => {
+    const bench = await boot()
+    await bench.defaultModel.rememberEffort('acme-gateway', 'acme-large', 'max')
+    await bench.defaultModel.rememberEffort('acme-gateway', 'acme-small', 'high')
+
+    // The default write replaces the whole section; the per-model memory has
+    // to survive it, and a selection carrying no effort must not wipe it.
+    await bench.defaultModel.saveSelection({ provider: 'acme-gateway', model: 'acme-plain' })
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('max')
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-small')).toBe('high')
+
+    // An explicit level re-keys the route it was chosen on.
+    await bench.defaultModel.rememberEffort('acme-gateway', 'acme-large', 'off')
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('off')
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('reads a hand-written reasoningEfforts section from the settings document', async () => {
+    const bench = await boot()
+    await bench.settingsFiber.ctx.settings.replace(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, {
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      reasoningEfforts: { 'acme-gateway/acme-large': 'max' },
+    })
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('max')
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('keeps no memory when no settings provider is mounted', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentDefaultModelConfig, { provider: 'p', model: 'm' })
+    await ctx.agentDefaultModel.rememberEffort('p', 'm', 'max')
+    expect(ctx.agentDefaultModel.rememberedEffort('p', 'm')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
 })

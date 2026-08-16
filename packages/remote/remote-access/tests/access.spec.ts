@@ -72,8 +72,8 @@ afterEach(async () => {
   root = undefined
 })
 
-async function boot(config: { enabled?: boolean; resetSecret?: boolean } = {}): Promise<void> {
-  await context!.plugin(RemoteAccess, { enabled: true, resetSecret: false, ...config })
+async function boot(config: { enabled?: boolean; resetSecret?: boolean; wsCompression?: boolean } = {}): Promise<void> {
+  await context!.plugin(RemoteAccess, { enabled: true, resetSecret: false, wsCompression: true, ...config })
 }
 
 interface RawResponse {
@@ -268,6 +268,61 @@ describe('loader settlement', () => {
     settle()
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(tunnel.openPorts).toHaveLength(0)
+  })
+
+  it('binds one device per pairing and lists it through the Remote service', async () => {
+    await boot()
+    const proxyPort = tunnel.openPorts[0]!
+    const secret = await readSecret()
+    const ticket = pairingTicket(secret, Date.now())
+    // Two pairings: an explicit phone name and a browser User-Agent.
+    await rawRequest(proxyPort, '/pair/' + ticket + '?name=' + encodeURIComponent('Pixel 8'), {
+      host: 'fake.tunnel.example', 'user-agent': 'Expo/57 android',
+    })
+    const browserPair = await rawRequest(proxyPort, '/pair/' + ticket, {
+      host: 'fake.tunnel.example', 'user-agent': 'Mozilla/5.0 (Macintosh) Chrome/126',
+    })
+    expect(browserPair.status).toBe(302)
+    const gateway = context!.get('remoteAccessDevices') as {
+      list(): { devices: { deviceId: string; label: string; expiresAt: number }[] }
+      unbind(deviceId: string): { removed: boolean }
+    }
+    const listed = gateway.list()
+    // Same-millisecond pairings tie on lastUsedAt: assert membership, not order.
+    expect(listed.devices.map(device => device.label).sort()).toEqual(['Mozilla/5.0 (Macintosh) Chrome/126', 'Pixel 8'])
+    expect(listed.devices[0]!.expiresAt).toBeGreaterThan(Date.now())
+    // The browser cookie relays; the phone cookie relays.
+    const browserCookie = String(browserPair.headers['set-cookie']).split(';')[0]!
+    expect((await rawRequest(proxyPort, '/echo', { host: 'x', cookie: browserCookie })).status).toBe(200)
+    // Unbinding the browser device drops it from the list and gates its cookie.
+    const browserId = listed.devices.find(device => device.label === 'Mozilla/5.0 (Macintosh) Chrome/126')!.deviceId
+    expect(gateway.unbind(browserId)).toEqual({ removed: true })
+    expect(gateway.list().devices.map(device => device.deviceId)).not.toContain(browserId)
+    expect((await rawRequest(proxyPort, '/echo', { host: 'x', cookie: browserCookie })).status).toBe(401)
+    // The registry file persists under the harness home beside the secret.
+    const file = JSON.parse(await readFile(join(root!, 'secrets', 'remote-devices.json'), 'utf8')) as { devices: unknown[] }
+    expect(file.devices).toHaveLength(1)
+  })
+
+  it('resetSecret clears every binding with the rotated secret', async () => {
+    await boot()
+    const proxyPort = tunnel.openPorts[0]!
+    const secret = await readSecret()
+    const ticket = pairingTicket(secret, Date.now())
+    const paired = await rawRequest(proxyPort, '/pair/' + ticket + '?name=Phone', { host: 'fake.tunnel.example' })
+    const cookie = String(paired.headers['set-cookie']).split(';')[0]!
+    await context!.fiber.dispose()
+    // Re-boot with reset: the rotated secret invalidates the cookie and the
+    // registry starts empty.
+    context = new Context()
+    unprovideWebServer = context.provide('webServer', { port: targetPort, host: '127.0.0.1' })
+    context.provide('remoteTunnel', tunnel)
+    context.provide('shellEnv', { register: shellEnvRegister })
+    await boot({ resetSecret: true })
+    const rotatedPort = tunnel.openPorts[tunnel.openPorts.length - 1]!
+    expect((await rawRequest(rotatedPort, '/echo', { host: 'x', cookie })).status).toBe(401)
+    const gateway = context.get('remoteAccessDevices') as { list(): { devices: unknown[] } }
+    expect(gateway.list().devices).toEqual([])
   })
 })
 

@@ -23,6 +23,7 @@
 }
 
 .sidebarCol {
+  grid-column: 1;
   min-width: 0;
   overflow: hidden;
   background: var(--dsw-specific-sidebar-fill);
@@ -30,6 +31,7 @@
 }
 
 .centerCol {
+  grid-column: 2;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -37,6 +39,7 @@
 }
 
 .detailsCol {
+  grid-column: 3;
   min-width: 0;
   overflow: hidden;
   border-left: 1px solid var(--dsw-alias-border-l2);
@@ -116,4 +119,52 @@
 
 .overlayLayer > * {
   pointer-events: auto;
+}
+/* Narrow overlays: the expanded sidebar drawer and the details panel overlay
+   the center instead of squeezing its track. The grid keeps their closed
+   tracks (0px while open — AppFrame writes the template), so the center stays
+   at full viewport width; the drawer rides z-30 above the scrim (z-24) and
+   above the shell overlay layer (z-20). */
+.frame[data-narrow-drawer] .sidebarCol {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  box-shadow: var(--dsw-shadow-lv3);
+  animation: drawer-in var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.frame[data-narrow-details] .detailsCol {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  box-shadow: var(--dsw-shadow-lv3);
+  animation: drawer-in-right var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.narrowScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 24;
+  background: rgb(0 0 0 / 0.35);
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes drawer-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame[data-narrow-drawer] .sidebarCol,
+  .frame[data-narrow-details] .detailsCol {
+    animation: none;
+  }
 }

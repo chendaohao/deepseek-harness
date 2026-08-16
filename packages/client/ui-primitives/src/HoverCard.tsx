@@ -8,7 +8,7 @@
 // traversal already treats it as inside — one pair of wrapper handlers covers
 // anchor and card alike.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { writeClipboard } from './clipboard.ts'
@@ -181,8 +181,12 @@ export function HoverCard({
     <span
       ref={rootRef}
       className={css.root}
-      onPointerEnter={() => {
+      onPointerEnter={(e: ReactPointerEvent<HTMLSpanElement>) => {
         if (disabled) return
+        // A coarse primary input (touch) opens the card on tap and can never
+        // leave it, so the preview would stick open over the UI; hover
+        // previews are a pointer affordance only.
+        if (e.pointerType === 'touch') return
         // Coming back inside during the grace (the gap, or the card itself)
         // keeps the current card rather than restarting the dwell.
         cancelClose()

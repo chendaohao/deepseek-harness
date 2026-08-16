@@ -6,14 +6,18 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { once } from 'node:events'
 import { createServer, request as httpRequest, type Server } from 'node:http'
+import { join } from 'node:path'
 import { connect, createServer as createNetServer, type AddressInfo, type Server as NetServer, type Socket } from 'node:net'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import WebSocket, { WebSocketServer, type RawData } from 'ws'
 import { PAIR_REQUIRED_PAGE, createAccessPolicy, type AccessPolicy } from '../src/policy.ts'
 import { pairingTicket } from '../src/secret.ts'
+import { DeviceRegistry } from '../src/devices.ts'
 import { createRemoteProxy, internals as proxyInternals, type RemoteProxyHandle } from '../src/proxy.ts'
 
 let target: Server | undefined
@@ -21,10 +25,12 @@ let targetPort = 0
 let proxy: RemoteProxyHandle | undefined
 let policy: AccessPolicy
 let receivedBodies: string[]
+let registryRoot: string | undefined
 const savedInternals = { ...proxyInternals }
 
 beforeEach(async () => {
   receivedBodies = []
+  registryRoot = await mkdtemp(join(tmpdir(), 'dsh-remote-proxy-'))
   target = createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (chunk) => { chunks.push(chunk as Buffer) })
@@ -43,10 +49,14 @@ beforeEach(async () => {
   })
   await new Promise<void>((resolve) => { target!.listen(0, '127.0.0.1', resolve) })
   targetPort = (target.address() as AddressInfo).port
-  policy = { authorize: () => true, handlePairing: () => false }
+  policy = { authorize: () => ({ admitted: true }), handlePairing: () => false }
 })
 
 afterEach(async () => {
+  if (registryRoot !== undefined) {
+    await rm(registryRoot, { recursive: true, force: true })
+    registryRoot = undefined
+  }
   proxyInternals.maxPayload = savedInternals.maxPayload
   proxyInternals.pendingMaxBytes = savedInternals.pendingMaxBytes
   proxyInternals.backlogMaxBytes = savedInternals.backlogMaxBytes
@@ -97,7 +107,7 @@ describe('HTTP relaying', () => {
   })
 
   it('answers 401 with the pairing page when the policy refuses', async () => {
-    const proxy = await startProxy({ authorize: () => false })
+    const proxy = await startProxy({ authorize: () => ({ admitted: false }) })
     const response = await rawRequest(proxy.port, '/', { host: 'fake.tunnel.example' })
     expect(response.status).toBe(401)
     expect(response.headers['content-type']).toContain('text/html')
@@ -106,7 +116,7 @@ describe('HTTP relaying', () => {
 
   it('owns pair paths through the policy without forwarding', async () => {
     const proxy = await startProxy({
-      authorize: () => true,
+      authorize: () => ({ admitted: true }),
       handlePairing: (_req, res, pathname) => {
         if (pathname === '/pair/AAAA') {
           res.writeHead(302, { location: '/' })
@@ -216,15 +226,10 @@ describe('WebSocket relaying', () => {
     proxy = await createRemoteProxy({
       targetPort: echoPort,
       policy: {
-        authorize: req => req.headers['x-authorized'] === 'yes',
+        authorize: req => (req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }),
         handlePairing: () => false,
       },
     })
-    const textOf = (data: RawData): string => {
-      if (Array.isArray(data)) return Buffer.concat(data).toString('utf8')
-      if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('utf8')
-      return data.toString('utf8')
-    }
     const received = new Promise<string>((resolve) => {
       const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port), { headers: { 'x-authorized': 'yes' } })
       // Delay the frame until the upstream handshake completes, so the relay's open path is deterministic.
@@ -240,12 +245,29 @@ describe('WebSocket relaying', () => {
     await expect(rejected).resolves.toEqual({ code: 401 })
   })
 
+  it('teardown terminates live relayed clients and upstream pairs', async () => {
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+    })
+    const opened = new Promise<void>((resolve) => {
+      const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port))
+      client.on('open', () => { resolve() })
+    })
+    await opened
+    await new Promise(resolve => setTimeout(resolve, 150))
+    // Closing with a live downstream client and upstream pair exercises the
+    // terminate loops in close().
+    await proxy.close()
+  })
+
   it('buffers frames that precede the upstream handshake and flushes them on open', async () => {
     const upstream = await delayedUpgradeServer()
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: upstream.port,
-      policy: { authorize: req => req.headers['x-authorized'] === 'yes', handlePairing: () => false },
+      policy: { authorize: req => (req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }), handlePairing: () => false },
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port), { headers: { 'x-authorized': 'yes' } })
     await new Promise<void>((resolve) => { client.on('open', () => { resolve() }) })
@@ -266,7 +288,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: deadPort,
-      policy: { authorize: req => req.headers['x-authorized'] === 'yes', handlePairing: () => false },
+      policy: { authorize: req => (req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }), handlePairing: () => false },
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port), { headers: { 'x-authorized': 'yes' } })
     const closed = new Promise<void>((resolve) => { client.on('close', () => { resolve() }) })
@@ -278,7 +300,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: echoPort,
-      policy: { authorize: req => req.headers['x-authorized'] === 'yes', handlePairing: () => false },
+      policy: { authorize: req => (req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }), handlePairing: () => false },
     })
     const echoClosed = new Promise<void>((resolve) => {
       wss!.once('connection', (socket) => { socket.on('close', () => { resolve() }) })
@@ -304,7 +326,7 @@ describe('WebSocket relaying', () => {
     proxy = await createRemoteProxy({
       targetPort: blackholePort,
       policy: {
-        authorize: req => req.headers['x-authorized'] === 'yes',
+        authorize: req => (req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }),
         handlePairing: () => false,
       },
     })
@@ -324,7 +346,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: echoPort,
-      policy: { authorize: req => req.headers['x-authorized'] === 'yes', handlePairing: () => false },
+      policy: { authorize: req => (req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }), handlePairing: () => false },
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port), { headers: { 'x-authorized': 'yes' } })
     const closed = new Promise<number>((resolve) => { client.on('close', (code) => { resolve(code) }) })
@@ -342,7 +364,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: upstream.port,
-      policy: { authorize: () => true, handlePairing: () => false },
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port))
     const closed = new Promise<void>((resolve) => { client.on('close', () => { resolve() }) })
@@ -351,6 +373,63 @@ describe('WebSocket relaying', () => {
     client.send('after')
     await closed
     await upstream.close()
+  })
+
+  it('negotiates permessage-deflate on the downstream leg when wsCompression is enabled', async () => {
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+      wsCompression: true,
+    })
+    const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port))
+    const opened = new Promise<string>((resolve, reject) => {
+      client.on('open', () => { resolve(client.extensions) })
+      client.on('error', reject)
+    })
+    await expect(opened).resolves.toContain('permessage-deflate')
+    client.close()
+  })
+
+  it('leaves the downstream leg uncompressed by default and when disabled', async () => {
+    for (const wsCompression of [undefined, false]) {
+      await proxy?.close()
+      proxy = await createRemoteProxy({
+        targetPort: echoPort,
+        policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+        ...(wsCompression === undefined ? {} : { wsCompression }),
+      })
+      const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port))
+      const opened = new Promise<string>((resolve, reject) => {
+        client.on('open', () => { resolve(client.extensions) })
+        client.on('error', reject)
+      })
+      await expect(opened).resolves.not.toContain('permessage-deflate')
+      client.close()
+    }
+  })
+
+  it('shrinks downstream wire bytes for compressible payloads and preserves them', async () => {
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+      wsCompression: true,
+    })
+    // A transparent byte counter between the client and the proxy stands in
+    // for the tunnel: every byte of the downstream leg passes through it.
+    const counted = { bytes: 0 }
+    const counter = await byteCountingRelay(proxy.port, counted)
+    try {
+      const payload = ('{"type":"stream/heartbeat","value":"' + 'x'.repeat(1024) + '"}\n').repeat(64)
+      const plain = await roundTripBytes(counter.port, payload, { perMessageDeflate: false }, counted)
+      const compressed = await roundTripBytes(counter.port, payload, { perMessageDeflate: true }, counted)
+      expect(compressed.echoed).toBe(payload)
+      expect(plain.echoed).toBe(payload)
+      expect(compressed.bytes).toBeLessThan(plain.bytes / 4)
+    } finally {
+      await counter.close()
+    }
   })
 })
 
@@ -367,7 +446,8 @@ describe('teardown', () => {
 describe('createAccessPolicy integration', () => {
   it('lets a paired cookie through the real proxy to the target', async () => {
     const secret = randomBytes(32)
-    const realPolicy = createAccessPolicy(secret, { now: () => Date.now() })
+    const devices = await DeviceRegistry.load(join(registryRoot!, 'devices.json'))
+    const realPolicy = createAccessPolicy(secret, { devices, now: () => Date.now() })
     await proxy?.close()
     proxy = await createRemoteProxy({ targetPort, policy: realPolicy })
     const ticket = pairingTicket(secret, Date.now())
@@ -379,6 +459,55 @@ describe('createAccessPolicy integration', () => {
     expect(unpaired.status).toBe(401)
     const paired = await rawRequest(proxy.port, '/', { host: 'fake.tunnel.example', cookie })
     expect(paired.status).toBe(201)
+    await devices.flush()
+  })
+
+  it('echoes the gate cookie refresh beside the target set-cookie on a day rollover', async () => {
+    const secret = randomBytes(32)
+    let now = Date.UTC(2026, 7, 14, 23, 59, 0)
+    const devices = await DeviceRegistry.load(join(registryRoot!, 'devices.json'))
+    const realPolicy = createAccessPolicy(secret, { devices, now: () => now })
+    await proxy?.close()
+    let cookies: string[] = ['target=1; Path=/']
+    const upstream = createServer((req, res) => {
+      // /bare answers with no set-cookie: the refresh rides alone.
+      // /multi answers with an array-shaped set-cookie beside the refresh.
+      if (req.url === '/bare') {
+        res.writeHead(200)
+        res.end()
+        return
+      }
+      if (req.url === '/multi') cookies = ['target=1; Path=/', 'target=2; Path=/']
+      res.writeHead(200, { 'set-cookie': cookies.length === 1 ? cookies[0] : cookies })
+      res.end()
+    })
+    await new Promise<void>((resolve) => { upstream.listen(0, '127.0.0.1', resolve) })
+    proxy = await createRemoteProxy({ targetPort: (upstream.address() as AddressInfo).port, policy: realPolicy })
+    const ticket = pairingTicket(secret, now)
+    const pair = await rawRequest(proxy.port, '/pair/' + ticket + '?name=Test%20Phone', { host: 'fake.tunnel.example' })
+    const cookieHeader = pair.headers['set-cookie']
+    const cookie = (Array.isArray(cookieHeader) ? (cookieHeader[0] ?? '') : cookieHeader ?? '').split(';')[0]!
+    // Same UTC day: no refresh echo.
+    const sameDay = await rawRequest(proxy.port, '/', { host: 'fake.tunnel.example', cookie })
+    expect(sameDay.headers['set-cookie']).toEqual(['target=1; Path=/'])
+    // Next UTC day: the refresh rides along, keeping the browser cookie alive.
+    now = Date.UTC(2026, 7, 15, 0, 0, 30)
+    const nextDay = await rawRequest(proxy.port, '/', { host: 'fake.tunnel.example', cookie })
+    expect(nextDay.headers['set-cookie']).toEqual(['target=1; Path=/', cookie + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000'])
+    // A response with no target set-cookie carries the refresh alone.
+    const bare = await rawRequest(proxy.port, '/bare', { host: 'fake.tunnel.example', cookie })
+    expect(bare.headers['set-cookie']).toBeUndefined()
+    // An array-shaped target set-cookie merges with the refresh after it
+    // (one more day rollover re-arms the refresh).
+    now = Date.UTC(2026, 7, 16, 0, 0, 30)
+    const multi = await rawRequest(proxy.port, '/multi', { host: 'fake.tunnel.example', cookie })
+    expect(multi.headers['set-cookie']).toEqual(['target=1; Path=/', 'target=2; Path=/', cookie + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000'])
+    // The bare path with a due refresh emits only the refresh cookie.
+    now = Date.UTC(2026, 7, 17, 0, 0, 30)
+    const bareRefresh = await rawRequest(proxy.port, '/bare', { host: 'fake.tunnel.example', cookie })
+    expect(bareRefresh.headers['set-cookie']).toEqual([cookie + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000'])
+    await devices.flush()
+    await new Promise<void>((resolve) => { upstream.close(() => { resolve() }) })
   })
 })
 
@@ -448,4 +577,70 @@ async function delayedUpgradeServer(): Promise<{ port: number; received: Promise
       await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
     },
   }
+}
+
+/** UTF-8 text of one ws message payload. */
+function textOf(data: RawData): string {
+  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8')
+  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('utf8')
+  return data.toString('utf8')
+}
+
+/**
+ * A transparent TCP relay that counts every byte in both directions — the
+ * stand-in for the tunnel on the downstream leg.
+ * @param targetPort - the proxy port to relay into.
+ * @param counted - the running byte counter.
+ * @returns its own port, the count sink, and teardown.
+ */
+async function byteCountingRelay(targetPort: number, counted: { bytes: number }): Promise<{ port: number; close: () => Promise<void> }> {
+  const sockets = new Set<Socket>()
+  const server = createNetServer((downstream) => {
+    sockets.add(downstream)
+    downstream.on('close', () => { sockets.delete(downstream) })
+    const upstream = connect(targetPort, '127.0.0.1')
+    sockets.add(upstream)
+    upstream.on('close', () => { sockets.delete(upstream) })
+    downstream.on('data', (chunk) => { counted.bytes += chunk.length })
+    upstream.on('data', (chunk) => { counted.bytes += chunk.length })
+    downstream.pipe(upstream)
+    upstream.pipe(downstream)
+  })
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
+  return {
+    port: (server.address() as AddressInfo).port,
+    close: async () => {
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
+    },
+  }
+}
+
+/**
+ * One WebSocket round trip through the byte counter: send the payload, wait
+ * for the echo, close, and report the bytes the downstream leg carried.
+ * @param port - the byte-counting relay port.
+ * @param payload - the text frame to send.
+ * @param options - client compression setting.
+ * @param counted - the running byte counter.
+ * @returns the echoed payload and the delta of counted bytes for this trip.
+ */
+async function roundTripBytes(
+  port: number,
+  payload: string,
+  options: { perMessageDeflate: boolean },
+  counted: { bytes: number },
+): Promise<{ bytes: number; echoed: string }> {
+  const before = counted.bytes
+  const client = new WebSocket('ws://127.0.0.1:' + String(port), options)
+  const echoed = new Promise<string>((resolve, reject) => {
+    client.on('open', () => { client.send(payload) })
+    client.on('message', (data) => { resolve(textOf(data)) })
+    client.on('error', reject)
+  })
+  const text = await echoed
+  client.close()
+  // Let the close handshake pass the counter before reading the delta.
+  await sleepMs(50)
+  return { bytes: counted.bytes - before, echoed: text }
 }

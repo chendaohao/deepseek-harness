@@ -7,11 +7,11 @@
  * @module @deepseek-ai/dsh-remote-access/proxy
  */
 
-import { createServer, request as httpRequest, type IncomingMessage, type OutgoingHttpHeaders, type ServerResponse } from 'node:http'
+import { createServer, request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type OutgoingHttpHeaders, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer, type RawData } from 'ws'
-import { PAIR_REQUIRED_PAGE, type AccessPolicy } from './policy.ts'
+import { PAIR_REQUIRED_PAGE, type AccessPolicy, type AuthorizeResult } from './policy.ts'
 
 /** Header names never relayed across a proxy hop. */
 const HOP_BY_HOP = new Set([
@@ -42,6 +42,24 @@ export const internals = {
   backlogMaxBytes: WS_BACKLOG_MAX_BYTES,
 }
 
+/**
+ * Merge the gate's cookie refresh into relayed response headers, keeping any
+ * set-cookie the target itself produced.
+ * @param headers - the target's response headers.
+ * @param verdict - the admission verdict carrying the refresh, if due.
+ * @returns headers safe for writeHead.
+ */
+function withCookieRefresh(
+  headers: IncomingHttpHeaders,
+  verdict: AuthorizeResult,
+): IncomingHttpHeaders {
+  if (verdict.cookieRefresh === undefined) return headers
+  // Client-side response headers always carry set-cookie as an array (node
+  // guarantees it), so the refresh appends after the target's own cookies.
+  const merged: string[] = [...headers['set-cookie'] ?? [], verdict.cookieRefresh]
+  return { ...headers, 'set-cookie': merged }
+}
+
 /** Byte length of one ws message payload. */
 function payloadBytes(data: RawData): number {
   /* v8 ignore next -- node ws delivers single Buffers, never fragmented arrays */
@@ -67,6 +85,12 @@ export interface RemoteProxyOptions {
   targetHost?: string
   /** The access policy every request and upgrade passes through. */
   policy: AccessPolicy
+  /**
+   * Compress relayed WebSocket frames with permessage-deflate on the
+   * downstream (tunnel-facing) leg. Clients that do not offer the extension
+   * transparently negotiate none. Defaults to false.
+   */
+  wsCompression?: boolean
 }
 
 /**
@@ -78,13 +102,20 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
   const { targetPort, targetHost = '127.0.0.1', policy } = options
   const upstreamSockets = new Set<Duplex>()
   const upstreamClients = new Set<WebSocket>()
-  const wss = new WebSocketServer({ noServer: true, maxPayload: internals.maxPayload })
+  // Only the downstream leg crosses the tunnel, so compression belongs there;
+  // the loopback leg stays plaintext (zlib on a loopback hop buys nothing).
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: internals.maxPayload,
+    perMessageDeflate: options.wsCompression === true ? {} : false,
+  })
 
   const handle = (req: IncomingMessage, res: ServerResponse): void => {
     /* v8 ignore next -- node:http always sets url on server requests */
     const rawPath = new URL(req.url ?? '/', 'http://x').pathname
     if (policy.handlePairing(req, res, rawPath)) return
-    if (!policy.authorize(req)) {
+    const verdict = policy.authorize(req)
+    if (!verdict.admitted) {
       res.writeHead(401, {
         'content-type': 'text/html; charset=utf-8',
         'content-length': String(Buffer.byteLength(PAIR_REQUIRED_PAGE)),
@@ -92,10 +123,10 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       res.end(PAIR_REQUIRED_PAGE)
       return
     }
-    relay(req, res)
+    relay(req, res, verdict)
   }
 
-  const relay = (req: IncomingMessage, res: ServerResponse): void => {
+  const relay = (req: IncomingMessage, res: ServerResponse, verdict: AuthorizeResult): void => {
     const headers: OutgoingHttpHeaders = {}
     for (const [name, value] of Object.entries(req.headers)) {
       /* v8 ignore next -- parsed header values are strings or arrays, never undefined */
@@ -114,7 +145,7 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       headers,
     }, (proxyRes) => {
       /* v8 ignore next -- a parsed response always carries a status code */
-      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers)
+      res.writeHead(proxyRes.statusCode ?? 502, withCookieRefresh(proxyRes.headers, verdict))
       proxyRes.pipe(res)
     })
     proxyReq.on('error', (error) => {
@@ -152,13 +183,17 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
   server.on('upgrade', (req, socket, head) => {
     upstreamSockets.add(socket)
     socket.on('close', () => { upstreamSockets.delete(socket) })
-    if (!policy.authorize(req)) {
+    // Upgrades carry no response to echo a cookie refresh onto; the next
+    // plain request issues it (the refresh piggybacks a day rollover only).
+    if (!policy.authorize(req).admitted) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
       return
     }
     wss.handleUpgrade(req, socket, head, (downstream) => {
+      // The loopback leg never compresses: the target answers plaintext and
+      // the downstream leg (the only tunnel hop) already negotiated its own.
       /* v8 ignore next -- node:http always sets url on server upgrade requests */
-      const upstream = new WebSocket('ws://' + targetHost + ':' + String(targetPort) + (req.url ?? ''))
+      const upstream = new WebSocket('ws://' + targetHost + ':' + String(targetPort) + (req.url ?? ''), { perMessageDeflate: false })
       upstreamClients.add(upstream)
       upstream.on('close', () => { upstreamClients.delete(upstream) })
       const pending: { data: RawData; isBinary: boolean }[] = []

@@ -353,11 +353,27 @@ describe('VoiceChatController', () => {
     await settle(r)
     r.sockets[0]!.push({ type: 'approval/requested', sessionId: 's1', approvalId: 'ap1', toolName: 'bash' }, 'a1')
     await vi.waitFor(() => { expect(r.latest().pendingApproval).toEqual({ approvalId: 'ap1', toolName: 'bash' }) })
+    // A frame carrying justification and the gated call projects both through.
+    r.sockets[0]!.push({
+      type: 'approval/requested', sessionId: 's1', approvalId: 'ap2', toolName: 'bash',
+      callId: 'call-9', reason: '需要运行构建',
+    }, 'a2')
+    await vi.waitFor(() => {
+      expect(r.latest().pendingApproval).toEqual({ approvalId: 'ap2', toolName: 'bash', callId: 'call-9', reason: '需要运行构建' })
+    })
+    r.controller.answerApproval('ap2', 'rejected')
+    await vi.waitFor(() => { expect(r.latest().pendingApproval).toBeNull() })
+    const rejection = r.fetch.calls.find(entry => entry.url.endsWith('/api/respond'))!
+    expect(JSON.parse(rejection.init?.body as string) as Record<string, unknown>).toMatchObject({ rpcId: 'a2' })
+    r.sockets[0]!.push({ type: 'approval/requested', sessionId: 's1', approvalId: 'ap1', toolName: 'bash' }, 'a1')
+    await vi.waitFor(() => { expect(r.latest().pendingApproval).toEqual({ approvalId: 'ap1', toolName: 'bash' }) })
     r.controller.answerApproval('other', 'allowed-once')
-    expect(r.fetch.calls.filter(entry => entry.url.endsWith('/api/respond'))).toHaveLength(0)
+    // A wrong approvalId sends nothing: the ap2 rejection is still the only respond.
+    expect(r.fetch.calls.filter(entry => entry.url.endsWith('/api/respond'))).toHaveLength(1)
     r.controller.answerApproval('ap1', 'allowed-once')
     await vi.waitFor(() => { expect(r.latest().pendingApproval).toBeNull() })
-    const respond = r.fetch.calls.find(entry => entry.url.endsWith('/api/respond'))!
+    await vi.waitFor(() => { expect(r.fetch.calls.filter(entry => entry.url.endsWith('/api/respond'))).toHaveLength(2) })
+    const respond = r.fetch.calls.filter(entry => entry.url.endsWith('/api/respond')).at(-1)!
     const body = JSON.parse(respond.init?.body as string) as { rpcId: string }
     expect(body).toMatchObject({
       type: 'client-response', rpcId: 'a1',
@@ -374,24 +390,31 @@ describe('VoiceChatController', () => {
     r.sockets[0]!.push({
       type: 'question/requested', sessionId: 's1',
       questions: [
-        { id: 'q1', question: '真的？', options: [{ label: '是' }, { label: '否' }] },
+        {
+          id: 'q1', question: '真的？', header: '确认', detail: '请选择', multiSelect: true,
+          options: [{ label: '是', description: '确认执行' }, { label: '否' }],
+        },
         { id: 'q2', question: '再说？' },
       ],
     }, 'q1')
     await vi.waitFor(() => { expect(r.latest().pendingQuestion).toMatchObject({
       questionRpcId: 'q1',
       questions: [
-        { id: 'q1', question: '真的？', options: [{ label: '是' }, { label: '否' }] },
-        { id: 'q2', question: '再说？', options: [] },
+        {
+          id: 'q1', question: '真的？', header: '确认', detail: '请选择', multiSelect: true,
+          options: [{ label: '是', description: '确认执行' }, { label: '否' }],
+        },
+        { id: 'q2', question: '再说？', multiSelect: false, options: [] },
       ],
     }) })
-    r.controller.answerQuestion('q1', [{ id: 'q1', selected: ['是'] }])
+    // A multi-select answer carries every selected label in one item.
+    r.controller.answerQuestion('q1', [{ id: 'q1', selected: ['是', '否'] }])
     await vi.waitFor(() => { expect(r.latest().pendingQuestion).toBeNull() })
     const respond = r.fetch.calls.find(entry => entry.url.endsWith('/api/respond'))!
     const body = JSON.parse(respond.init?.body as string) as { rpcId: string }
     expect(body).toMatchObject({
       type: 'client-response', rpcId: 'q1',
-      result: { ok: true, value: { sessionId: 's1', answer: { answers: [{ id: 'q1', selected: ['是'] }] } } },
+      result: { ok: true, value: { sessionId: 's1', answer: { answers: [{ id: 'q1', selected: ['是', '否'] }] } } },
     })
     r.sockets[0]!.push({ type: 'question/resolved', sessionId: 's1', questionRpcId: 'q1', outcome: 'answered' })
     await vi.waitFor(() => { expect(r.latest().pendingQuestion).toBeNull() })
@@ -1033,12 +1056,18 @@ describe('VoiceChatController', () => {
     await settle(r)
     r.fetch.routes.set('/api/session.list', init => echoServerResponse(init, {
       items: [
-        { sessionId: 's1', updatedAt: 1, running: false, blank: false },
-        { sessionId: 's2', updatedAt: 2, running: false, blank: true },
+        {
+          sessionId: 's1', updatedAt: 1, running: false, blank: false, cwd: '/home/me/proj',
+          projections: { asOfSeq: 4, values: { title: '重构会话' } },
+        },
+        { sessionId: 's2', updatedAt: 2, running: false, blank: true, projections: { asOfSeq: -1, values: { title: null } } },
       ],
     }))
     const listed = await r.controller.listSessions()
     expect(listed.map(item => item.sessionId)).toEqual(['s1', 's2'])
+    // Title and cwd project through; an unlanded (null) title stays absent.
+    expect(listed[0]).toMatchObject({ title: '重构会话', cwd: '/home/me/proj' })
+    expect(listed[1]).toEqual({ sessionId: 's2', updatedAt: 2, running: false, blank: true })
     // Switching to the same session is a no-op.
     r.controller.switchSession('s1')
     expect(r.sockets).toHaveLength(1)

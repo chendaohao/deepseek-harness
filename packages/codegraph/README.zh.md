@@ -8,4 +8,4 @@ CodeGraph 集成插件：为工作区带有 `.codegraph/` 索引的会话注入�
 |---|---|---|
 | [`codegraph/`](codegraph/README.md) | 定向 CodeGraph 清单 + 惰性启动的 `codegraph serve --mcp` 连接 | — |
 
-对非索引工作区该插件完全惰性：无消息、无服务器、无工具。MCP 连接失败时会话回退到 `codegraph explore` CLI（见 [codegraph README](codegraph/README.md)）。
+对非索引工作区该插件完全惰性：无消息、无服务器、无工具。MCP 连接失败时会话回退到 `codegraph explore` CLI，连接会在下一个会话的第一个带索引 pre-step 重启（见 [codegraph README](codegraph/README.md)）。

@@ -1,8 +1,9 @@
 /**
  * Pairing-secret file handling and the HMAC ticket/cookie vocabulary of the
  * remote-access capability. The master secret never appears in a URL: the
- * pairing ticket and the session cookie are HMAC-SHA256 derivations, and the
- * ticket rotates with the UTC day while the cookie carries its own expiry day.
+ * pairing ticket rotates with the UTC day, and the session cookie carries one
+ * opaque per-device identity whose HMAC binds it to the secret; expiry lives
+ * in the device registry, not in the cookie.
  * @module @deepseek-ai/dsh-remote-access/secret
  */
 
@@ -10,19 +11,24 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { lstatSync, unlinkSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { Branded } from '@deepseek-ai/dsh-brand'
 
 /** Master-secret length in bytes. */
 const SECRET_BYTES = 32
-/** Days a minted cookie stays valid. */
+/** Opaque identity of one bound device, carried by the v2 session cookie. */
+export type DeviceId = Branded<'RemoteDeviceId'>
+/** Cookie Max-Age in days: the browser-side refresh cadence; server-side expiry lives in the registry. */
 export const COOKIE_MAX_AGE_DAYS = 30
-/** Cookie lifetime in seconds, for the Max-Age attribute. */
+/** Cookie Max-Age in seconds, for the Set-Cookie attribute. */
 export const COOKIE_MAX_AGE_SECONDS = COOKIE_MAX_AGE_DAYS * 86_400
 /** Session-cookie name shared by minting and verification. */
 export const COOKIE_NAME = 'dsh_remote'
 /** HMAC domain separator for pairing tickets. */
 const TICKET_CONTEXT = 'dsh-remote-ticket:v1:'
 /** HMAC domain separator for session cookies. */
-const COOKIE_CONTEXT = 'dsh-remote-cookie:v1:'
+const COOKIE_CONTEXT = 'dsh-remote-cookie:v2:'
+/** Accepted device-id spelling in a v2 cookie: URL-safe token. */
+const deviceIdPattern = /^[A-Za-z0-9_-]+$/
 /** Milliseconds per UTC day; tickets rotate with the day index. */
 const DAY_MS = 86_400_000
 
@@ -57,34 +63,35 @@ export function verifyTicket(secret: Buffer, ticket: string, now: number): boole
 }
 
 /**
- * Mint a session-cookie value plus its expiry day.
+ * Mint one device binding's session cookie: v2.<deviceId>.<mac>, with a
+ * fresh random device identity for the registry.
  * @param secret - the master pairing secret.
- * @param now - current time; expiry counts from its day index.
- * @returns the cookie value and the day it expires.
+ * @returns the cookie value and the minted device id.
  */
-export function mintCookie(secret: Buffer, now: number): { value: string; expiresDay: number } {
-  const expiresDay = dayIndex(now) + COOKIE_MAX_AGE_DAYS
-  const value = 'v1.' + String(expiresDay) + '.' + base64Url(hmac(secret, COOKIE_CONTEXT, String(expiresDay)).subarray(0, 24))
-  return { value, expiresDay }
+export function mintCookie(secret: Buffer): { value: string; deviceId: DeviceId } {
+  const deviceId = base64Url(randomBytes(16)) as DeviceId
+  const value = 'v2.' + deviceId + '.' + base64Url(hmac(secret, COOKIE_CONTEXT, deviceId).subarray(0, 24))
+  return { value, deviceId }
 }
 
 /**
- * Verify a session-cookie value: format, expiry, and HMAC, in constant time.
+ * Verify a v2 session-cookie value and recover its device identity: format
+ * and HMAC, in constant time. Expiry is the registry's call, not the cookie's.
  * @param secret - the master pairing secret.
  * @param value - the presented cookie value, if any.
- * @param now - current time; the expiry day must not have passed.
- * @returns true only for an unexpired, untampered cookie.
+ * @returns the bound device id, or null for absent, malformed, or tampered values.
  */
-export function verifyCookie(secret: Buffer, value: string | undefined, now: number): boolean {
-  if (value === undefined) return false
+export function verifyCookie(secret: Buffer, value: string | undefined): DeviceId | null {
+  if (value === undefined) return null
   const parts = value.split('.')
-  if (parts.length !== 3 || parts[0] !== 'v1') return false
-  const expiresDay = Number(parts[1])
+  if (parts.length !== 3 || parts[0] !== 'v2') return null
+  /* v8 ignore next -- a three-part value always has an element at index 1 */
+  const deviceId = parts[1] ?? ''
   /* v8 ignore next -- a three-part value always has an element at index 2 */
   const mac = parts[2] ?? ''
-  if (!Number.isInteger(expiresDay) || expiresDay < dayIndex(now)) return false
-  const expected = hmac(secret, COOKIE_CONTEXT, String(expiresDay)).subarray(0, 24)
-  return constantTimeEqual(Buffer.from(mac, 'base64url'), expected)
+  if (deviceId === '' || deviceId.length > 64 || !deviceIdPattern.test(deviceId)) return null
+  const expected = hmac(secret, COOKIE_CONTEXT, deviceId).subarray(0, 24)
+  return constantTimeEqual(Buffer.from(mac, 'base64url'), expected) ? deviceId as DeviceId : null
 }
 
 /**

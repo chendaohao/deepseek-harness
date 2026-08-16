@@ -89,6 +89,17 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Narrow viewports anchor the menu to the trigger's left edge: right
+   alignment would extend the card under the sidebar rail, where the center
+   column's overflow clips it (the clipped strip shows the rail instead of
+   the menu). */
+@media (max-width: 640px) {
+  .menu {
+    left: 0;
+    right: auto;
+  }
+}
+
 .status,
 .empty {
   padding: 10px;

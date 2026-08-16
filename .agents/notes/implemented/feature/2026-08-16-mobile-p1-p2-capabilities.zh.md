@@ -14,7 +14,7 @@ Status: implemented
 
 - **图片附件。** `session.prompt` 本就接受图片内容部件（规范 base64；宿主校验、保存并把持久化 `ImageAttachmentRef` 回显）。`submitContent(parts)` 发送文字+图片提示词，且不做纯文字式的乐观回显；实时 `user/message` 回显把图片引用投影到消息行，`downloadImage` 经 `session.attachment` 拉取为 data URI（App 内按附件 id 缓存）。输入区新增选择器（相机/相册，expo-image-picker + expo-image-manipulator，JPEG ≤1600px）。
 - **语音交互。** 麦克风按住说话（按下聆听、松开发送）、点按打断；连续聆听（`autoListen`）在每轮回复结束后自动重启麦克风，除非有审批/提问待决或仍在朗读；TTS 语速与音调（0.5..2.0，夹取）经 speaker 端口流入 expo-speech。
-- **会话。** `sessions.list` / `sessions.create` + 新的 `switchSession`（重置视图并重启流，历史重取重建新会话）；头部 ☰ 按钮打开会话面板。
+- **会话。** `sessions.list` / `sessions.create` + 新的 `switchSession`（重置视图并重启流，历史重取重建新会话）；头部按钮打开会话面板（[易用性改进](2026-08-16-mobile-ui-ergonomics-pass.md)后为带标题的抽屉）。
 - **模型选择。** `session.models`（目录 + `current`）与 `session.selectModel`；设置面板列出会话模型并记住最近选择（内存态）。
 - **计划/待办面板。** 客户端折叠 `plan/mode`（经 plan-mode 包的 SessionEventMap 声明合并获得类型）与 `todo/write` 进快照；UI 渲染计划横幅与待办面板。
 - **i18n。** 一套小号中/英词典（`useI18n`，expo-localization 的 `useLocales`）替换配对页与聊天页的全部硬编码文案；快捷指令 chips 出自同一词典。

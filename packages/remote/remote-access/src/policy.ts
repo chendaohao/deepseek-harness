@@ -1,11 +1,13 @@
 /**
  * Request policy of the remote-access proxy: the authorization gate (a valid
- * session cookie only), the /pair/<ticket> exchange with its failure budget
- * keyed by client address, and the friendly HTML pages unpaired visitors see.
+ * session cookie whose device binding is inside its inactivity window), the
+ * /pair/<ticket> exchange with its failure budget keyed by client address,
+ * and the friendly HTML pages unpaired visitors see.
  * @module @deepseek-ai/dsh-remote-access/policy
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { DeviceRegistry, labelOf } from './devices.ts'
 import { COOKIE_MAX_AGE_SECONDS, COOKIE_NAME, mintCookie, verifyCookie, verifyTicket } from './secret.ts'
 
 /** Default pairing-attempt budget per address per window. */
@@ -42,18 +44,30 @@ const PAIR_RATE_LIMITED_PAGE = [
   '</main></body></html>',
 ].join('')
 
+/** One gate verdict: admission plus the cookie echo due on the response. */
+export interface AuthorizeResult {
+  /** Whether the request may reach the proxied target. */
+  admitted: boolean
+  /**
+   * A Set-Cookie header value re-issuing the presented cookie with a fresh
+   * Max-Age, due on the first admitted request of each UTC day; browsers cap
+   * cookie lifetimes client-side while the registry owns real expiry.
+   */
+  readonly cookieRefresh?: string
+}
+
 /** Decisions the proxy asks of the access policy for every request. */
 export interface AccessPolicy {
   /**
-   * Whether the request may reach the proxied target: only a valid session
-   * cookie admits it. There is no Host- or address-based shortcut: behind the
-   * tunnel every connection arrives from the loopback address and the Host
-   * header is client-controlled, so loopback-shaped Hosts are as remote as
-   * any other.
+   * Gate one request: only a valid session cookie whose device binding is
+   * inside its 30-day inactivity window admits it, and admission slides the
+   * window. There is no Host- or address-based shortcut: behind the tunnel
+   * every connection arrives from the loopback address and the Host header is
+   * client-controlled, so loopback-shaped Hosts are as remote as any other.
    * @param req - incoming HTTP request.
-   * @returns true to forward, false to answer 401 with the pairing page.
+   * @returns the verdict; unadmitted requests answer 401 with the pairing page.
    */
-  authorize(req: IncomingMessage): boolean
+  authorize(req: IncomingMessage): AuthorizeResult
   /**
    * Answer a pairing request at /pair/<ticket>; never forwards.
    * @param req - incoming HTTP request.
@@ -73,25 +87,38 @@ interface AttemptWindow {
 }
 
 /**
- * Build the default access policy for one master secret.
+ * Build the default access policy for one master secret and device registry.
  * @param secret - the master pairing secret.
- * @param options - test-replaceable rate bounds and time/address sources.
+ * @param options - the device registry plus test-replaceable rate bounds and time/address sources.
  * @returns the policy object the proxy consults per request.
  */
 export function createAccessPolicy(secret: Buffer, options: {
+  devices: DeviceRegistry
   pairMaxAttempts?: number
   pairWindowMs?: number
   now?: () => number
   clientAddress?: (req: IncomingMessage) => string | undefined
-} = {}): AccessPolicy {
+}): AccessPolicy {
+  const devices = options.devices
   const maxAttempts = options.pairMaxAttempts ?? PAIR_MAX_ATTEMPTS
   const windowMs = options.pairWindowMs ?? PAIR_WINDOW_MS
   const now = options.now ?? Date.now
   const clientAddress = options.clientAddress ?? (req => req.socket.remoteAddress)
   const windows = new Map<string, AttemptWindow>()
 
-  const authorize = (req: IncomingMessage): boolean =>
-    verifyCookie(secret, cookieValue(req.headers.cookie), now())
+  const authorize = (req: IncomingMessage): AuthorizeResult => {
+    const presented = cookieValue(req.headers.cookie)
+    if (presented === undefined) return { admitted: false }
+    const deviceId = verifyCookie(secret, presented)
+    if (deviceId === null) return { admitted: false }
+    const touch = devices.touch(deviceId, now())
+    if (!touch.admitted) return { admitted: false }
+    if (!touch.dayRolled) return { admitted: true }
+    return {
+      admitted: true,
+      cookieRefresh: COOKIE_NAME + '=' + presented + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=' + String(COOKIE_MAX_AGE_SECONDS),
+    }
+  }
 
   const handlePairing = (req: IncomingMessage, res: ServerResponse, pathname: string): boolean => {
     if (!pathname.startsWith('/pair/')) return false
@@ -113,7 +140,8 @@ export function createAccessPolicy(secret: Buffer, options: {
       return true
     }
     windows.delete(address)
-    const { value } = mintCookie(secret, now())
+    const { value, deviceId } = mintCookie(secret)
+    devices.bind(deviceId, pairingLabel(req), now())
     res.writeHead(302, {
       location: '/',
       'set-cookie': COOKIE_NAME + '=' + value + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=' + String(COOKIE_MAX_AGE_SECONDS),
@@ -138,6 +166,28 @@ export function createAccessPolicy(secret: Buffer, options: {
   }
 
   return { authorize, handlePairing }
+}
+
+/**
+ * The label of a new binding: the pairing URL's ?name= parameter, else the
+ * User-Agent prefix (devices and browsers identify themselves here).
+ * @param req - the pairing request.
+ * @returns the bounded display label.
+ */
+function pairingLabel(req: IncomingMessage): string {
+  let name: string | undefined
+  try {
+    name = new URL(req.url ?? '/', 'http://pairing.invalid').searchParams.get('name') ?? undefined
+  } catch {
+    name = undefined
+  }
+  const rawAgent: unknown = req.headers['user-agent']
+  const firstAgent = typeof rawAgent === 'string'
+    ? rawAgent
+    : Array.isArray(rawAgent) && typeof rawAgent[0] === 'string'
+      ? rawAgent[0]
+      : undefined
+  return labelOf(name, firstAgent)
 }
 
 /**

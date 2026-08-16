@@ -336,9 +336,39 @@ currentSelection(): ModelSelection
  * @returns fulfillment after the optional settings write settles.
  */
 async saveSelection(next: ModelSelection): Promise<void>
+
+/**
+ * One model route's explicitly chosen reasoning effort, or `undefined` when
+ * the user never chose one (the model default applies).
+ * @param provider - the route the choice was made on.
+ * @param model - the provider-owned model id the choice was made for.
+ * @returns the remembered effort identifier.
+ */
+rememberedEffort(provider: string, model: string): string | undefined
+
+/**
+ * Record an explicitly chosen reasoning effort for one model route. A
+ * deployment without a settings provider keeps the composition entry, which
+ * carries no memory; the write is then a no-op.
+ * @param provider - the route the user chose on.
+ * @param model - the provider-owned model id the user chose for.
+ * @param effort - the adapter-owned effort identifier that was validated.
+ * @returns fulfillment after the optional settings write settles.
+ */
+async rememberEffort(provider: string, model: string, effort: string): Promise<void>
+
+/**
+ * Clear one model route's remembered effort, for an explicit provider-default
+ * choice. A deployment without a settings provider keeps the composition
+ * entry, which carries no memory; the write is then a no-op.
+ * @param provider - the route whose choice is being cleared.
+ * @param model - the provider-owned model id whose choice is being cleared.
+ * @returns fulfillment after the optional settings write settles.
+ */
+async forgetEffort(provider: string, model: string): Promise<void>
 ```
 
-Source: [`packages/core/agent-default-model/src/index.ts:64`](../../packages/core/agent-default-model/src/index.ts)
+Source: [`packages/core/agent-default-model/src/index.ts:77`](../../packages/core/agent-default-model/src/index.ts)
 
 <a id="ctxagentloop--agentloop"></a>
 

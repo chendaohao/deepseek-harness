@@ -67,12 +67,14 @@ async function bench() {
     },
     selectModel: (payload: { provider: string; model: string; reasoningEffort?: string }) => {
       calls.select += 1
+      // The Host resolves a plain switch to the model default (or its
+      // remembered effort); the fake mirrors the default side of that.
+      const reasoning = GROUPS[0]?.models.find(model => model.id === payload.model)?.reasoning
+      const effort = payload.reasoningEffort ?? reasoning?.defaultEffort
       current = {
         provider: payload.provider,
         model: payload.model,
-        ...payload.reasoningEffort === undefined
-          ? {}
-          : { reasoningEffort: payload.reasoningEffort },
+        ...effort === undefined ? {} : { reasoningEffort: effort },
       }
       return Promise.resolve({ result: { ok: true as const, value: { selected: current } } })
     },

@@ -11,7 +11,7 @@
  * resizes are driven through the ResizeObserver stub.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
@@ -294,26 +294,75 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
   })
 
-  it('narrow toggle re-expands over the squeezed center and back', () => {
+  it('narrow toggle opens the overlay drawer over the full-width center and back', () => {
     frameWidth = 980
-    const { frame, instance } = mountFrame()
+    const { frame, instance, slotCalls } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([280, 0])
+    // The expanded sidebar is a drawer: the grid keeps a zero sidebar track,
+    // the center concedes nothing, the slot renders wide at the drawer width,
+    // and a scrim sits behind the overlay.
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(frame.hasAttribute('data-narrow-drawer')).toBe(true)
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
-    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: false, width: 280 })
+    const scrim = frame.querySelector('[class*="narrowScrim"]')
+    expect(scrim).toBeTruthy()
+    // Narrow overlays are never drag-resized.
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+    // Tapping the scrim closes the drawer back to the rail.
+    act(() => { fireEvent.click(scrim!) })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-narrow-drawer')).toBe(false)
+    expect(frame.querySelector('[class*="narrowScrim"]')).toBeNull()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([0, 0])
     act(() => { instance.actions.toggleSidebar() })
     expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
   })
 
   it('a wide-closed preference re-expands at the contract default while narrow', () => {
     frameWidth = 1920
-    const { frame, instance } = mountFrame()
+    const { frame, instance, slotCalls } = mountFrame()
     act(() => { instance.actions.toggleSidebar() }) // close while wide: preference 0
     frameWidth = 980
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([280, 0])
+    // The drawer opens at the contract default over the full-width center.
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: false, width: 280 })
     expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
+  })
+
+  it('narrow drawer auto-closes when the current session changes (a pick inside the drawer)', () => {
+    frameWidth = 980
+    const { frame, instance, rerenderFrame } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.hasAttribute('data-narrow-drawer')).toBe(true)
+    // Picking the same session keeps the drawer (no session change).
+    act(() => { rerenderFrame() })
+    expect(frame.hasAttribute('data-narrow-drawer')).toBe(true)
+    // Picking another session closes it back to the rail.
+    selectedSession.current = 's-other' as SessionId
+    act(() => { rerenderFrame() })
+    expect(frame.hasAttribute('data-narrow-drawer')).toBe(false)
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+  })
+
+  it('narrow details opens as a right-hand overlay over the full-width center', () => {
+    frameWidth = 980
+    const { frame, instance, getByTestId } = mountFrame()
+    act(() => { instance.actions.openDetails() })
+    // The details preference is honored as an overlay: zero grid track, panel
+    // width inline on the column, scrim behind it, center concedes nothing.
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-narrow-details')).toBe(true)
+    const column = getByTestId('details-content').parentElement as HTMLElement
+    expect(column.style.width).toBe('360px')
+    expect(frame.querySelector('[class*="narrowScrim"]')).toBeTruthy()
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+    act(() => { instance.actions.closeDetails() })
+    expect(frame.hasAttribute('data-narrow-details')).toBe(false)
+    expect(frame.querySelector('[class*="narrowScrim"]')).toBeNull()
   })
 
   it('shrinking across the breakpoint auto-collapses; re-widening restores the drag width', () => {

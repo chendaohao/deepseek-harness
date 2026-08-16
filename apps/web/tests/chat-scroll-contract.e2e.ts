@@ -262,10 +262,26 @@ async function loadedFlowRows(page: Page): Promise<number> {
   return page.locator('[data-chat-flow-key]').count()
 }
 
+/** Mirrors ui-layout's SIDEBAR_AUTO_COLLAPSE: below this the sidebar is a narrow rail and the expanded state is an overlay drawer. */
+const NARROW_BREAKPOINT = 1024
+
 async function openSeed(page: Page, fixture: ChatScrollFixture, tailMarker?: string): Promise<void> {
+  // The narrow drawer auto-closes after a session pick and its collapse
+  // crossfade keeps the wide search surface mounted for ~150ms; a search
+  // arriving in that window would read the stale expanded button and never
+  // expand the settled rail. Wait for the settled rail control (the
+  // drawer-less search button carries no aria-expanded) or an open drawer.
+  if ((page.viewportSize()?.width ?? 0) < NARROW_BREAKPOINT) {
+    await page.waitForFunction(() => {
+      const frame = document.querySelector('[class*="_frame"]')
+      if (frame?.getAttribute('data-narrow-drawer') === 'true') return true
+      return document.querySelector('button[aria-label="Search sessions"]:not([aria-expanded])') !== null
+    }, undefined, { timeout: 5_000 })
+  }
   // Search collapsed into a header action; expand it before filling.
   const searchButton = page.getByRole('button', { name: 'Search sessions' })
-  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
+  const expandedAttr = await searchButton.getAttribute('aria-expanded')
+  if (expandedAttr !== 'true') await searchButton.click()
   const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
   // Cold summaries initially show the temporary workspace basename, so the
   // persisted first-prompt marker is the stable user-facing identity. The
@@ -658,8 +674,11 @@ describe('web e2e: long Chat scroll contract', () => {
       await world.page.getByLabel('Trajectory timeline').waitFor({ timeout: 30_000 })
       await world.page.setViewportSize({ width: 700, height: 900 })
       // The narrow breakpoint auto-collapses the sidebar. Re-open it because
-      // this scenario switches sessions while pinning the narrow Chat scroll owner.
+      // this scenario switches sessions while pinning the narrow Chat scroll owner;
+      // the narrow expanded sidebar is an overlay drawer, so dismiss it again
+      // before interacting with the center column.
       await world.page.getByRole('button', { name: 'Open sidebar', exact: true }).click()
+      await world.page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click()
       await world.page.getByRole('tab', { name: 'Chat', exact: true }).click()
       await nextPaint(world.page)
       await expectSameFlowTop(world.page, sessionAnchor)

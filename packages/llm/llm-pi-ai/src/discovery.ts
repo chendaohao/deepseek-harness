@@ -13,11 +13,12 @@
  * metadata the surface offers for adoption. `settings.yaml` remains the only
  * thing that decides what a route serves.
  *
- * Only OpenAI-compatible protocols are interrogated. Their listing is the one
- * shape a gateway, a self-hosted server, and the official endpoints all agree
- * on, which is the case this action exists for; every other protocol reports
- * that it cannot be interrogated so the surface falls back to hand-entry
- * rather than guessing a response shape.
+ * Only protocols with a readable listing are interrogated: the OpenAI-compatible
+ * `GET /models` shape with bearer auth — the one a gateway, a self-hosted
+ * server, and the official endpoints all agree on — and the Anthropic Messages
+ * listing, which speaks the same path with `x-api-key` and version headers.
+ * Every other protocol reports that it cannot be interrogated so the surface
+ * falls back to hand-entry rather than guessing a response shape.
  *
  * @module dsh-llm-pi-ai/discovery
  */
@@ -27,18 +28,72 @@ import type { LlmDiscoveredModel, LlmModelDiscoveryRequest } from '@deepseek-ai/
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 import { catalogModels } from './catalog.ts'
 
+/** One interrogatable protocol's listing facts. */
+interface ListingProtocol {
+  /**
+   * The listing URL for one page: the endpoint base joined with the listing
+   * path, plus the continuation cursor for the pages after the first. The
+   * base is treated as a prefix rather than a URL to resolve against, so a
+   * deployment path such as `https://gateway.example/openai/v1` keeps its
+   * segments instead of losing them to `URL` resolution.
+   */
+  listingUrl(baseURL: string, after?: string): string
+  /** Auth headers for one listing request; empty when probing unauthenticated. */
+  headers(apiKey: string | undefined): Record<string, string>
+  /**
+   * The next-page cursor one reply carries, or `undefined` at its last page.
+   * @throws LlmError when the reply announces more pages without the cursor
+   *   that would fetch them.
+   */
+  continuation(body: unknown): string | undefined
+}
+
+/** One page of an OpenAI-compatible `GET /models` reply: the whole listing. */
+const OPENAI_LISTING: ListingProtocol = {
+  listingUrl: baseURL => `${baseURL.replace(/\/+$/, '')}/models`,
+  headers: apiKey => apiKey === undefined ? {} : { authorization: `Bearer ${apiKey}` },
+  continuation: () => undefined,
+}
+
 /**
- * Protocols whose model listing this module can read: the two that speak
- * OpenAI's `GET /models` shape with bearer auth. Azure is absent despite its
- * OpenAI lineage — it authenticates with an `api-key` header and requires an
- * `api-version` query — and Codex authenticates through OAuth; guessing at
+ * Anthropic's `GET /models` listing: pages of 100 under `has_more`/`last_id`,
+ * authenticated with the key header the Messages API itself uses.
+ */
+const ANTHROPIC_LISTING: ListingProtocol = {
+  listingUrl: (baseURL, after) => {
+    const base = `${baseURL.replace(/\/+$/, '')}/models?limit=100`
+    return after === undefined ? base : `${base}&after=${encodeURIComponent(after)}`
+  },
+  headers: apiKey => ({
+    ...apiKey === undefined ? {} : { 'x-api-key': apiKey },
+    // The listing is served by the Messages API, so it answers under the
+    // same version header every request to that API carries.
+    'anthropic-version': '2023-06-01',
+  }),
+  continuation: (body) => {
+    const reply = body as { has_more?: unknown; last_id?: unknown } | null
+    if (reply?.has_more !== true) return undefined
+    const cursor = reply.last_id
+    if (typeof cursor === 'string' && cursor.length > 0) return cursor
+    throw new LlmError(
+      "the endpoint answered has_more without a last_id; enter this provider's models by hand",
+      'DISCOVERY_FAILED',
+    )
+  },
+}
+
+/**
+ * Protocols whose model listing this module can read. Azure is absent despite
+ * its OpenAI lineage — it authenticates with an `api-key` header and requires
+ * an `api-version` query — and Codex authenticates through OAuth; guessing at
  * either would report an authentication failure as a provider with no models.
  * pi-ai's remaining protocols are absent for the same reason.
  */
-const LISTABLE_PROTOCOLS: ReadonlySet<string> = new Set([
-  'openai-completions',
-  'openai-responses',
-])
+const LISTABLE_PROTOCOLS: Readonly<Record<string, ListingProtocol>> = {
+  'openai-completions': OPENAI_LISTING,
+  'openai-responses': OPENAI_LISTING,
+  'anthropic-messages': ANTHROPIC_LISTING,
+}
 
 /**
  * Endpoint replies larger than this are refused. The endpoint is whatever URL
@@ -49,7 +104,14 @@ const LISTABLE_PROTOCOLS: ReadonlySet<string> = new Set([
  */
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
-/** One entry of an OpenAI-compatible `GET /models` reply. */
+/**
+ * Ceiling on listing pages followed. Each Anthropic page asks for 100
+ * entries, so this bound only trips on a catalog that keeps answering
+ * `has_more` — a broken or hostile gateway — never on a real one.
+ */
+const MAX_LISTING_PAGES = 20
+
+/** One entry of a discoverable listing reply. */
 interface ListingEntry {
   id?: unknown
   /** Common gateway extensions; absent from the official listings. */
@@ -75,16 +137,6 @@ function label(...candidates: readonly unknown[]): string | undefined {
     if (typeof candidate === 'string' && candidate.length > 0) return candidate
   }
   return undefined
-}
-
-/**
- * Join the endpoint base with the listing path. The base is treated as a
- * prefix rather than a URL to resolve against, so a deployment path such as
- * `https://gateway.example/openai/v1` keeps its segments instead of losing
- * them to `URL` resolution.
- */
-function listingUrl(baseURL: string): string {
-  return `${baseURL.replace(/\/+$/, '')}/models`
 }
 
 /**
@@ -131,9 +183,9 @@ async function readBounded(response: Response, url: string): Promise<string> {
 }
 
 /**
- * Read one OpenAI-compatible listing reply. Entries without a usable id are
- * skipped rather than failing the whole interrogation: a single malformed row
- * should not deny the user the rest of a working endpoint's catalog.
+ * Read one listing reply. Entries without a usable id are skipped rather than
+ * failing the whole interrogation: a single malformed row should not deny the
+ * user the rest of a working endpoint's catalog.
  */
 function readListing(body: unknown): LlmDiscoveredModel[] {
   const data = (body as { data?: unknown } | null)?.data
@@ -181,6 +233,51 @@ function usableProbeKey(raw: string): string {
 }
 
 /**
+ * One GET of a listing page: reach the endpoint, refuse a non-2xx, read under
+ * the byte ceiling, and parse the JSON. Cancellation surfaces as `ABORTED`
+ * whether it lands before or during the body read, and a 401/403 alone points
+ * at the credential.
+ */
+async function fetchListing(url: string, headers: Record<string, string>, signal?: AbortSignal): Promise<unknown> {
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: { accept: 'application/json', ...attributionHeaders(), ...headers },
+      ...signal === undefined ? {} : { signal },
+    })
+  } catch (error: unknown) {
+    if (signal?.aborted) {
+      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
+    }
+    throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
+  }
+  if (!response.ok) {
+    throw new LlmError(
+      `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
+      'DISCOVERY_FAILED',
+    )
+  }
+  let text: string
+  try {
+    text = await readBounded(response, url)
+  } catch (error: unknown) {
+    // Cancellation during the body read rejects with the abort reason, which
+    // may be any value; the caller gets the same coded failure it would have
+    // for a cancellation before the request went out.
+    if (signal?.aborted) {
+      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
+    }
+    throw error
+  }
+  try {
+    return JSON.parse(text)
+  } catch (error: unknown) {
+    throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
+  }
+}
+
+/**
  * Interrogate one draft provider endpoint for the models it advertises.
  * @param request - the endpoint, protocol, and one-shot credential to use.
  * @param storedApiKey - the credential the named route already stored, asked
@@ -223,13 +320,13 @@ export async function discoverModels(
   // when the endpoint speaks something else (an Anthropic gateway answers 401,
   // which reads as a credential problem), and hand-entry remains the way out.
   const api = request.api ?? 'openai-completions'
-  if (!LISTABLE_PROTOCOLS.has(api)) {
+  const protocol = LISTABLE_PROTOCOLS[api]
+  if (protocol === undefined) {
     throw new LlmError(
       `pi-ai protocol "${api}" has no model listing this build can read; enter this provider's models by hand`,
       'DISCOVERY_UNSUPPORTED',
     )
   }
-  const url = listingUrl(request.baseURL)
   // A key typed into the form wins: it is the one the user is testing, and it
   // may be the replacement for exactly the stored key that is failing. The
   // stored one is only asked for here, past the catalog short-circuit and the
@@ -239,46 +336,20 @@ export async function discoverModels(
   // relies on the provider's own ambient discovery is meant to be asked.
   const supplied = request.apiKey ?? await storedApiKey?.()
   const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
-  let response: Response
-  try {
-    response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-        ...apiKey === undefined ? {} : { authorization: `Bearer ${apiKey}` },
-        ...attributionHeaders(),
-      },
-      ...request.signal === undefined ? {} : { signal: request.signal },
-    })
-  } catch (error: unknown) {
-    if (request.signal?.aborted) {
-      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
+  const models: LlmDiscoveredModel[] = []
+  let url = protocol.listingUrl(request.baseURL)
+  for (let page = 0; ; page++) {
+    const body = await fetchListing(url, protocol.headers(apiKey), request.signal)
+    models.push(...readListing(body))
+    const after = protocol.continuation(body)
+    if (after === undefined) break
+    if (page + 1 >= MAX_LISTING_PAGES) {
+      throw new LlmError(
+        `the endpoint paginates past the ${MAX_LISTING_PAGES}-page listing ceiling; enter this provider's models by hand`,
+        'DISCOVERY_FAILED',
+      )
     }
-    throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
+    url = protocol.listingUrl(request.baseURL, after)
   }
-  if (!response.ok) {
-    throw new LlmError(
-      `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
-      'DISCOVERY_FAILED',
-    )
-  }
-  let text: string
-  try {
-    text = await readBounded(response, url)
-  } catch (error: unknown) {
-    // Cancellation during the body read rejects with the abort reason, which
-    // may be any value; the caller gets the same coded failure it would have
-    // for a cancellation before the request went out.
-    if (request.signal?.aborted) {
-      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
-    }
-    throw error
-  }
-  let body: unknown
-  try {
-    body = JSON.parse(text)
-  } catch (error: unknown) {
-    throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
-  }
-  return readListing(body)
+  return models
 }

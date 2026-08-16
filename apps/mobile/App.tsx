@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, StatusBar, StyleSheet, Text, View } from 'react-native'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import type { PairingRecord } from '@deepseek-ai/dsh-client-mobile'
 import { clearPairing, loadPairing, savePairing } from './src/adapters/pairing-store'
 import { ChatScreen } from './src/screens/ChatScreen'
@@ -24,32 +25,34 @@ export default function App() {
   }, [])
 
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="dark-content" />
-      {stage === 'loading' ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" />
-          <Text style={styles.loading}>正在读取配对信息…</Text>
-        </View>
-      ) : stage === 'pair' ? (
-        <PairScreen
-          onPaired={async (next) => {
-            await savePairing(next)
-            setRecord(next)
-            setStage('chat')
-          }}
-        />
-      ) : record !== null ? (
-        <ChatScreen
-          record={record}
-          onRepair={() => {
-            void clearPairing()
-            setRecord(null)
-            setStage('pair')
-          }}
-        />
-      ) : null}
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.root}>
+        <StatusBar barStyle="dark-content" />
+        {stage === 'loading' ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" />
+            <Text style={styles.loading}>正在读取配对信息…</Text>
+          </View>
+        ) : stage === 'pair' ? (
+          <PairScreen
+            onPaired={async (next) => {
+              await savePairing(next)
+              setRecord(next)
+              setStage('chat')
+            }}
+          />
+        ) : record !== null ? (
+          <ChatScreen
+            record={record}
+            onRepair={() => {
+              void clearPairing()
+              setRecord(null)
+              setStage('pair')
+            }}
+          />
+        ) : null}
+      </View>
+    </SafeAreaProvider>
   )
 }
 

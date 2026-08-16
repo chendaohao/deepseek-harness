@@ -100,7 +100,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/agent-default-model/src/index.ts:41`](../packages/core/agent-default-model/src/index.ts)
+Source: [`packages/core/agent-default-model/src/index.ts:49`](../packages/core/agent-default-model/src/index.ts)
 
 <a id="deepseek-aidsh-agent-instructions"></a>
 
@@ -1464,16 +1464,23 @@ Source: [`packages/shell/pwsh-sandbox/src/index.ts:40`](../packages/shell/pwsh-s
 Requires: `remoteTunnel` · `webServer` · `shellEnv`
 
 ```ts config-catalog
-/** Plugin config: activation plus secret rotation. */
+/** Plugin config: activation, secret rotation, and tunnel-leg compression. */
 export interface Config {
   /** Whether the proxy, gate, and tunnel run at all; false leaves the plugin inert. */
   enabled: boolean
   /** Rotate the persisted pairing secret before opening the tunnel. */
   resetSecret: boolean
+  /**
+   * Compress relayed WebSocket frames with permessage-deflate on the public
+   * tunnel leg. Clients that do not offer the extension transparently
+   * negotiate none; disable only on CPU-constrained hosts, where inflate
+   * pressure outweighs the bandwidth saving.
+   */
+  wsCompression: boolean
 }
 ```
 
-Source: [`packages/remote/remote-access/src/index.ts:37`](../packages/remote/remote-access/src/index.ts)
+Source: [`packages/remote/remote-access/src/index.ts:41`](../packages/remote/remote-access/src/index.ts)
 
 <a id="deepseek-aidsh-remote-tunnel"></a>
 
@@ -3148,6 +3155,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-settings-models` ([`packages/client/ui-settings-models/src/index.ts`](../packages/client/ui-settings-models/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` ([`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugins` ([`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings-remote` ([`packages/client/ui-settings-remote/src/index.ts`](../packages/client/ui-settings-remote/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-sidebar` ([`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-skill` ([`packages/client/ui-skill/src/index.ts`](../packages/client/ui-skill/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-subagent` ([`packages/client/ui-subagent/src/index.ts`](../packages/client/ui-subagent/src/index.ts))

@@ -35,14 +35,15 @@ The APK is signed with the platform debug keystore, so it installs side by side 
 
 ## Voice UX
 
-- Press and hold the microphone to talk; release to send. A tap while the agent works stops speech and cancels the turn (barge-in).
+- Press and hold the microphone to talk; release to send. While the agent works the mic key becomes an explicit stop button (stops speech and cancels the turn).
 - Continuous listening (auto-start the mic after each reply) is a settings toggle.
-- Replies stream into the chat and are spoken sentence by sentence; code blocks are never read aloud. Replies render as Markdown (code blocks, lists, links) and tool activity appears as expandable inline rows in the conversation flow.
-- Send images from the camera or gallery; the agent sees them together with the text, and the message row renders the images.
-- Long-press any message to copy or share it; quick prompt chips offer one-tap starters.
-- Approvals, agent questions, plan-mode banners, and todo lists render as inline panels.
-- The ☰ button lists host sessions (switch or create one); settings pick the session's model, recognition/reading language, TTS rate and pitch, auto-speak, and auto-listen.
-- UI copy follows the device language (中文/English); dark mode follows the system theme; the app icon is the DeepSeek whale mark on black.
+- Replies stream into the chat and are spoken sentence by sentence; code blocks are never read aloud. Replies render as Markdown — block code carries a language label and a copy button — and tool activity appears as expandable inline rows showing the command or file being worked on, with one-tap command copy in the expanded detail.
+- The empty conversation is a hero with starter prompts; the list auto-scrolls only while you sit near the bottom, and a back-to-bottom button appears once you scroll up.
+- Send images from the camera or gallery; the agent sees them together with the text, and the message row renders the images. Long-press any message to copy or share it.
+- The header shows the current session's title and connection state; the sessions drawer lists host sessions with title, workspace folder, age, and running state — switch or create one there.
+- Approvals show the model's justification and the gated command; agent questions support multi-select and option descriptions; plan-mode banners and a collapsible todo checklist render as inline panels.
+- Settings pick the session's model, recognition/reading language, TTS rate and pitch, auto-speak, and auto-listen, and show the paired host.
+- UI copy follows the device language (中文/English); dark mode follows the system theme; the layout respects notch safe areas; the app icon is the DeepSeek whale mark on black.
 
 ## Checks
 
@@ -50,7 +51,7 @@ The APK is signed with the platform debug keystore, so it installs side by side 
 
 ## Known Limitations
 
-- **Pairing cookie lives in the device keychain** — the host's 30-day cookie and day-scoped ticket semantics apply: after a tunnel restart or `--remote-reset`, scan a fresh QR.
+- **Pairing cookie lives in the device keychain** — the host's sliding 30-day inactivity window and day-scoped ticket semantics apply: a device unused for 30 consecutive days auto-unbinds (any use refreshes the window), and after `--remote-reset` scan a fresh QR. Pairing sends the phone's model name so the host's Settings → Remote Access page lists it by name.
 - **No push notifications** — a finished turn only alerts in-app; delivery needs FCM plus host-side webhook cooperation and is deferred.
 - **Image rendering loads per attachment** — message images download through the host's attachment round trip, cached per attachment id.
 - **Speech engines are the platform's own** — quality and availability vary by device and system language packs; no server-side ASR/TTS yet.

@@ -90,8 +90,12 @@ export class ModelDirectory {
    * updates the shared current; failure surfaces on the store and throws so
    * each entry's own retry surface engages.
    * @param selection - provider, provider-owned model id, and optional adapter-owned effort.
+   * @param explicitEffort - whether the effort dimension was explicitly
+   *   exercised: an effort-pane pick, including an explicit provider default
+   *   (a selection carrying no effort). A plain model switch leaves it unset
+   *   so the host restores any remembered effort for the picked route.
  */
-  async select(selection: ModelSelection): Promise<void> {
+  async select(selection: ModelSelection, explicitEffort = false): Promise<void> {
     this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'selecting'; s.error = null })
@@ -102,6 +106,11 @@ export class ModelDirectory {
       ...selection.reasoningEffort === undefined
         ? {}
         : { reasoningEffort: selection.reasoningEffort },
+      // An omitted effort only means provider default when the effort pane
+      // said so; the host must not mistake it for a model switch.
+      ...(!explicitEffort || selection.reasoningEffort !== undefined)
+        ? {}
+        : { reasoningEffortExplicit: true },
     })
     if (this.disposed || generation !== this.generation) {
       if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)

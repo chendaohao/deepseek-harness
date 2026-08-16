@@ -142,6 +142,8 @@ export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
 
   let connection: ConnectionHandle | undefined
+  /** Error from the first connection attempt; cleared when a restart happens. */
+  let readyError: unknown
 
   const ensureConnection = (): void => {
     if (connection !== undefined) return
@@ -159,11 +161,29 @@ export function apply(ctx: Context, config: Config): void {
     connection = handle
     void handle.ready.then((outcome: { error?: unknown }) => {
       if (outcome.error !== undefined) {
-        ctx.logger.warn('codegraph: MCP connection failed (%o); agents fall back to the codegraph CLI', outcome.error)
+        readyError = outcome.error
+        ctx.logger.warn('codegraph: MCP connection failed (%o); sessions fall back to the codegraph CLI', outcome.error)
       }
     }).catch((error: unknown) => {
-      ctx.logger.warn('codegraph: MCP connection error (%o); agents fall back to the codegraph CLI', error)
+      readyError = error
+      ctx.logger.warn('codegraph: MCP connection error (%o); sessions fall back to the codegraph CLI', error)
     })
+  }
+
+  /**
+   * Discard a connection whose first attempt failed. The mcp-client
+   * supervisor gives up permanently once its reconnect budget is exhausted,
+   * so without a restart every later session would inherit a dead connection
+   * (no MCP tools) until the plugin reloads. Runs at most once per session:
+   * only the first indexed pre-step of a session (the one folding the
+   * checklist) triggers it, and only when an earlier attempt already failed.
+   */
+  const restartFailedConnection = (): void => {
+    if (connection === undefined || readyError === undefined) return
+    const dead = connection
+    connection = undefined
+    readyError = undefined
+    void dead.dispose().catch(() => {})
   }
 
   ctx.effect(() => () => {
@@ -180,6 +200,7 @@ export function apply(ctx: Context, config: Config): void {
     const cwd = agent.session.header.cwd ?? process.cwd()
     const indexed = await hasCodegraphIndex(cwd, signal)
     if (!indexed) return decision
+    if (visibleChecklist(agent) === undefined) restartFailedConnection()
     ensureConnection()
     if (visibleChecklist(agent) !== undefined) return decision
     if (decision.kind !== 'enter') return decision

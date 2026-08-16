@@ -8,6 +8,7 @@
 
 - `ctx.agentDefaultModel.currentSelection()` 返回一份独立的 `{ provider, model, reasoningEffort? }` 选择，供新创建的 Agent 使用。
 - `ctx.agentDefaultModel.saveSelection(selection)` 保存完整的用户选择。未挂载设置提供方时，此调用不执行任何操作，组合配置项仍为当前值。
+- `rememberedEffort(provider, model)`、`rememberEffort(provider, model, effort)` 与 `forgetEffort(provider, model)` 读写按模型记忆的推理强度：以 `provider/model` 为键、显式选择的推理强度存放在该 Settings 分节中。切回有记忆的路由时恢复其选择；显式选择「提供方默认」则清除记忆。挂载设置提供方时，记忆可跨默认选择写入与刷新存活；未挂载时这些调用不执行任何操作，所有路由都回答 `undefined`。
 
 该服务不校验目录成员关系。提供方路由可以服务未在目录中公布的模型；实际发起模型请求的消费方负责可用性诊断。
 

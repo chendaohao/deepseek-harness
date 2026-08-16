@@ -64,6 +64,9 @@ export function ModelSelect(
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const id = useId()
 
+  // A model pick names the route alone: the host restores the user's
+  // remembered effort for it when one exists, or falls back to the model
+  // default — naming the default here would overwrite the memory every switch.
   const choices = useMemo(() => state.groups.flatMap(group =>
     group.models.map(model => ({
       group,
@@ -71,9 +74,6 @@ export function ModelSelect(
       selection: {
         provider: group.id,
         model: model.id,
-        ...model.reasoning?.defaultEffort === undefined
-          ? {}
-          : { reasoningEffort: model.reasoning.defaultEffort },
       } satisfies ModelSelection,
     }))), [state.groups])
   const selectedIndex = state.current === null
@@ -198,8 +198,10 @@ export function ModelSelect(
       model: state.current.model,
       ...effort === undefined ? {} : { reasoningEffort: effort },
     }
+    // Explicit, even for the provider-default row: an omitted effort here
+    // must clear the remembered one, not read as a plain model switch.
     lastActionRef.current = 'select'
-    void select(selection).then(settleSelection)
+    void select(selection, true).then(settleSelection)
   }
 
   const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')

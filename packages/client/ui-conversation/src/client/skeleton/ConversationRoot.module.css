@@ -132,6 +132,27 @@
   display: none;
 }
 
+/* Narrow viewports move the utility cluster to its own row below the
+   title: the title keeps the full first line instead of conceding to an
+   off-screen squeeze. The cluster's content-sized base makes the
+   full-basis utilities overflow the first line, so it wraps instead of
+   stealing the title's row (a zero base would let both share line one). */
+@media (max-width: 560px) {
+  .titleRow {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .titleCluster {
+    flex: 1 1 auto;
+  }
+
+  .headerUtilities {
+    margin-left: 0;
+    flex: 0 0 100%;
+  }
+}
+
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */
 .tabs {
   position: relative;

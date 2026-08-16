@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-web-gui-narrow-drawer.md
+2026-08-16-web-gui-narrow-drawer.md: 83dca69b386162881791f07bbbabc56b196380cd
+2026-08-16-web-gui-narrow-drawer.zh.md: 85d6f9f7327bae0f96db86ba44508f64757762b3

@@ -8,6 +8,7 @@ The plugin config requires `{ provider, model }`. That composition entry is the 
 
 - `ctx.agentDefaultModel.currentSelection()` returns a detached `{ provider, model, reasoningEffort? }` selection for a newly created Agent.
 - `ctx.agentDefaultModel.saveSelection(selection)` saves the complete user selection. Without a settings provider it is a no-op and the composition entry remains current.
+- `rememberedEffort(provider, model)`, `rememberEffort(provider, model, effort)`, and `forgetEffort(provider, model)` read and write the per-model effort memory: explicitly chosen reasoning efforts keyed by `provider/model` in the Settings section. A model switch back to a remembered route restores its choice; an explicit provider-default pick clears it. The memory survives default-selection writes and reloads where a settings provider is mounted; without one the calls are no-ops and every route answers `undefined`.
 
 The service does not validate catalog membership. A provider route may serve an unadvertised model, and the consumer that actually opens a model request owns availability diagnostics.
 

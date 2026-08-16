@@ -60,6 +60,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`expo`](https://github.com/expo/expo) | MIT |
 | [`expo-camera`](https://github.com/expo/expo) | MIT |
 | [`expo-clipboard`](https://github.com/expo/expo) | MIT |
+| [`expo-device`](https://github.com/expo/expo) | MIT |
 | [`expo-haptics`](https://github.com/expo/expo) | MIT |
 | [`expo-image-manipulator`](https://github.com/expo/expo) | MIT |
 | [`expo-image-picker`](https://github.com/expo/expo) | MIT |
@@ -93,6 +94,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`react-dom`](https://github.com/facebook/react) | MIT |
 | [`react-native`](https://github.com/react/react-native) | MIT |
 | [`react-native-marked`](https://github.com/gmsgowtham/react-native-marked) | MIT |
+| [`react-native-safe-area-context`](https://github.com/AppAndFlow/react-native-safe-area-context) | MIT |
 | [`react-native-svg`](https://github.com/react-native-community/react-native-svg) | MIT |
 | [`sharp`](https://github.com/lovell/sharp) | Apache-2.0 |
 | [`shiki`](https://github.com/shikijs/shiki) | MIT |

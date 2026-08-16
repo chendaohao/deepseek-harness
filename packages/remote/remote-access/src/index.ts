@@ -17,8 +17,10 @@ import type { RemoteTunnelSession } from '@deepseek-ai/dsh-remote-tunnel'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-shell-env'
 import { ensurePairingSecret, pairingTicket } from './secret.ts'
+import { DeviceRegistry } from './devices.ts'
 import { createAccessPolicy } from './policy.ts'
 import { createRemoteProxy, type RemoteProxyHandle } from './proxy.ts'
+import { RemoteAccessGateway } from './remote-gateway.ts'
 
 /** Restart attempts after an unexpected tunnel exit before giving up. */
 const RESTART_MAX = 5
@@ -32,18 +34,28 @@ export const internals = {
 }
 /** Relative pairing path prefix the QR encodes. */
 const PAIR_PATH = '/pair/'
+/** Registry file of bound devices, beside the pairing secret. */
+const DEVICES_PATH = ['secrets', 'remote-devices.json'] as const
 
-/** Plugin config: activation plus secret rotation. */
+/** Plugin config: activation, secret rotation, and tunnel-leg compression. */
 export interface Config {
   /** Whether the proxy, gate, and tunnel run at all; false leaves the plugin inert. */
   enabled: boolean
   /** Rotate the persisted pairing secret before opening the tunnel. */
   resetSecret: boolean
+  /**
+   * Compress relayed WebSocket frames with permessage-deflate on the public
+   * tunnel leg. Clients that do not offer the extension transparently
+   * negotiate none; disable only on CPU-constrained hosts, where inflate
+   * pressure outweighs the bandwidth saving.
+   */
+  wsCompression: boolean
 }
 
 export const Config: z<Config> = z.object({
   enabled: z.boolean().default(false),
   resetSecret: z.boolean().default(false),
+  wsCompression: z.boolean().default(true),
 })
 
 /**
@@ -55,6 +67,7 @@ export class RemoteAccess extends Service {
   static Config = Config
 
   private secret: Buffer | undefined
+  private devices: DeviceRegistry | undefined
   private proxy: RemoteProxyHandle | undefined
   private session: RemoteTunnelSession | undefined
   private disposed = false
@@ -72,15 +85,30 @@ export class RemoteAccess extends Service {
     if (!this.config.enabled) return
     // Resolved at init: the harness home must reflect the live environment.
     this.secret = await ensurePairingSecret(dshHomePath('secrets', 'remote-pair'), this.config.resetSecret)
-    const policy = createAccessPolicy(this.secret)
+    // Secret rotation invalidates every cookie wholesale: the stale bindings go with it.
+    this.devices = await DeviceRegistry.load(dshHomePath(...DEVICES_PATH), {
+      reset: this.config.resetSecret,
+      /* v8 ignore next -- the sink fires only on a host fs failure the composition test cannot stage deterministically */
+      onWriteError: (error) => {
+        this.ctx.logger.error('remote-access: device registry write failed: %s', error instanceof Error ? error.message : String(error))
+      },
+    })
+    this.ctx.plugin(RemoteAccessGateway, { registry: this.devices })
+    const policy = createAccessPolicy(this.secret, { devices: this.devices })
     // The webserver binds either the loopback address or the all-interfaces
     // wildcard; only the wildcard needs mapping to a connectable destination.
     const targetHost = this.ctx.webServer.host === '0.0.0.0' ? '127.0.0.1' : this.ctx.webServer.host
-    this.proxy = await createRemoteProxy({ targetPort: this.ctx.webServer.port, targetHost, policy })
+    this.proxy = await createRemoteProxy({
+      targetPort: this.ctx.webServer.port,
+      targetHost,
+      policy,
+      wsCompression: this.config.wsCompression,
+    })
     this.ctx.effect(() => async () => {
       this.disposed = true
       await this.session?.close()
       await this.proxy?.close()
+      await this.devices?.flush()
     }, 'remoteAccess.dispose')
     this.registerShellEnv()
     this.ctx.on('remote-tunnel/state', (state) => {

@@ -56,13 +56,32 @@ describe('extractSessionCookie', () => {
 describe('pairWithHost', () => {
   it('pairs through a manual-redirect GET and returns base URL plus cookie', async () => {
     const calls: RequestInit[] = []
-    const impl: FetchLike = async (_input, init) => {
+    const urls: string[] = []
+    const impl: FetchLike = async (input, init) => {
       calls.push(init ?? {})
+      urls.push(String(input))
       return new Response(null, { status: 302, headers: { 'set-cookie': 'dsh_remote=abc123; HttpOnly; Secure; SameSite=Strict' } })
     }
     await expect(pairWithHost('https://fake-slug.trycloudflare.com/pair/t1', impl))
       .resolves.toEqual({ baseUrl: 'https://fake-slug.trycloudflare.com', cookie: 'abc123' })
     expect(calls[0]?.redirect).toBe('manual')
+    expect(urls[0]).toBe('https://fake-slug.trycloudflare.com/pair/t1')
+  })
+
+  it('labels the binding with a bounded, collapsed device name', async () => {
+    const urls: string[] = []
+    const impl: FetchLike = async (input) => {
+      urls.push(String(input))
+      return new Response(null, { status: 302, headers: { 'set-cookie': 'dsh_remote=x; Path=/' } })
+    }
+    await pairWithHost('https://host.example/pair/t1', impl, { deviceName: '  Pixel   8 Pro  ' })
+    expect(urls[0]).toBe('https://host.example/pair/t1?name=Pixel%208%20Pro')
+    // Over-long names cap at 64 characters; absent names add no query.
+    await pairWithHost('https://host.example/pair/t1', impl, { deviceName: 'x'.repeat(100) })
+    expect(urls[1]?.endsWith('name=' + 'x'.repeat(64))).toBe(true)
+    expect(urls[1]?.includes('x'.repeat(65))).toBe(false)
+    await pairWithHost('https://host.example/pair/t1', impl)
+    expect(urls[2]).toBe('https://host.example/pair/t1')
   })
 
   it('reports rejected when the gate answers a non-redirect status', async () => {

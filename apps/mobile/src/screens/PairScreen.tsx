@@ -1,13 +1,16 @@
 import { useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { fetch as expoFetch } from 'expo/fetch'
+import * as Device from 'expo-device'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   PairingError, pairWithHost, type FetchLike, type PairingRecord, type PairingFailure,
 } from '@deepseek-ai/dsh-client-mobile'
-import { useI18n } from '../i18n'
+import { useTheme } from '../theme'
+import { useI18n, type I18nKey } from '../i18n'
 
-const FAILURE_KEYS: Record<PairingFailure, 'pairInvalidUrl' | 'pairRejected' | 'pairNoCookie' | 'pairNetwork'> = {
+const FAILURE_KEYS: Record<PairingFailure, I18nKey> = {
   'invalid-url': 'pairInvalidUrl',
   rejected: 'pairRejected',
   'no-cookie': 'pairNoCookie',
@@ -24,6 +27,9 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
   // scanner stays locked until the user explicitly re-arms it.
   const [scanned, setScanned] = useState(false)
   const scanLocked = useRef(false)
+  const theme = useTheme()
+  const scheme = useColorScheme()
+  const insets = useSafeAreaInsets()
   const { t } = useI18n()
 
   const handleScan = ({ data }: { data: string }): void => {
@@ -44,7 +50,10 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
     setBusy(true)
     setError(null)
     try {
-      const record = await pairWithHost(raw, expoFetch as FetchLike)
+      // The model name labels this binding in the host's device list.
+      const deviceName = Device.modelName ?? Device.deviceName
+      const record = await pairWithHost(raw, expoFetch as FetchLike,
+        deviceName === null ? {} : { deviceName })
       onPaired(record)
     } catch (failure) {
       setError(failure instanceof PairingError ? t(FAILURE_KEYS[failure.failure]) : t('pairFailed'))
@@ -54,10 +63,10 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
   }
 
   return (
-    <View style={styles.root}>
-      <Text style={styles.title}>{t('pairTitle')}</Text>
-      <Text style={styles.hint}>{t('pairHint')}</Text>
-      <View style={styles.cameraBox}>
+    <View style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 24 }]}>
+      <Text style={[styles.title, { color: theme.text }]}>{t('pairTitle')}</Text>
+      <Text style={[styles.hint, { color: theme.textMuted }]}>{t('pairHint')}</Text>
+      <View style={[styles.cameraBox, { backgroundColor: scheme === 'dark' ? '#05070a' : '#111' }]}>
         {permission?.granted ? (
           <CameraView
             style={styles.camera}
@@ -67,42 +76,62 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
           />
         ) : (
           <View style={styles.cameraFallback}>
-            <Text style={styles.cameraFallbackText}>
+            <Text style={[styles.cameraFallbackText, { color: theme.textMuted }]}>
               {permission?.canAskAgain === false ? t('pairScanFallbackDenied') : t('pairScanFallback')}
             </Text>
             {permission?.canAskAgain !== false ? (
-              <Pressable style={styles.button} onPress={() => void requestPermission()}>
-                <Text style={styles.buttonText}>{t('pairGrantCamera')}</Text>
+              <Pressable
+                style={({ pressed }) => [styles.button, { backgroundColor: theme.accent }, pressed ? { opacity: 0.85 } : null]}
+                onPress={() => { void requestPermission() }}
+                accessibilityRole="button"
+                accessibilityLabel={t('pairGrantCamera')}
+              >
+                <Text style={[styles.buttonText, { color: theme.textInverse }]}>{t('pairGrantCamera')}</Text>
               </Pressable>
             ) : null}
           </View>
         )}
       </View>
-      <Text style={styles.or}>{t('pairOr')}</Text>
+      <Text style={[styles.or, { color: theme.textMuted }]}>{t('pairOr')}</Text>
       <View style={styles.manualRow}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { borderColor: theme.border, color: theme.text }]}
           value={manualUrl}
           onChangeText={setManualUrl}
           placeholder="https://…/pair/…"
+          placeholderTextColor={theme.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
           editable={!busy}
         />
         <Pressable
-          style={[styles.button, busy ? styles.buttonDisabled : null]}
-          onPress={() => void tryPair(manualUrl)}
+          style={({ pressed }) => [
+            styles.button,
+            { backgroundColor: theme.accent },
+            busy ? styles.buttonDisabled : null,
+            pressed ? { opacity: 0.85 } : null,
+          ]}
+          onPress={() => { void tryPair(manualUrl) }}
           disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={t('pair')}
         >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{t('pair')}</Text>}
+          {busy ? <ActivityIndicator color={theme.textInverse} /> : (
+            <Text style={[styles.buttonText, { color: theme.textInverse }]}>{t('pair')}</Text>
+          )}
         </Pressable>
       </View>
       {error !== null ? (
         <View style={styles.errorRow}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable style={styles.button} onPress={rescan}>
-            <Text style={styles.buttonText}>{t('pairRescan')}</Text>
+          <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.button, { backgroundColor: theme.accent }, pressed ? { opacity: 0.85 } : null]}
+            onPress={rescan}
+            accessibilityRole="button"
+            accessibilityLabel={t('pairRescan')}
+          >
+            <Text style={[styles.buttonText, { color: theme.textInverse }]}>{t('pairRescan')}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -111,25 +140,25 @@ export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, padding: 24, paddingTop: 72, gap: 16 },
+  root: { flex: 1, padding: 24, gap: 16 },
   title: { fontSize: 24, fontWeight: '600', textAlign: 'center' },
-  hint: { color: '#666', textAlign: 'center', lineHeight: 22 },
-  cameraBox: { height: 280, borderRadius: 16, overflow: 'hidden', backgroundColor: '#111' },
+  hint: { textAlign: 'center', lineHeight: 22 },
+  cameraBox: { height: 280, borderRadius: 16, overflow: 'hidden' },
   camera: { flex: 1 },
   cameraFallback: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 16 },
-  cameraFallbackText: { color: '#bbb', textAlign: 'center' },
-  or: { color: '#666', textAlign: 'center' },
+  cameraFallbackText: { textAlign: 'center' },
+  or: { textAlign: 'center' },
   manualRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   input: {
-    flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 10,
+    flex: 1, borderWidth: 1, borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15,
   },
   button: {
-    backgroundColor: '#2563eb', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 12,
+    borderRadius: 10, paddingHorizontal: 20, paddingVertical: 12,
     alignItems: 'center', justifyContent: 'center',
   },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontWeight: '600' },
+  buttonText: { fontWeight: '600' },
   errorRow: { alignItems: 'center', gap: 10 },
-  errorText: { color: '#b91c1c', textAlign: 'center' },
+  errorText: { textAlign: 'center' },
 })

@@ -22,6 +22,7 @@
     "expo": "~57.0.12",
     "expo-camera": "~57.0.3",
     "expo-clipboard": "~57.0.1",
+    "expo-device": "~57.0.1",
     "expo-haptics": "~57.0.1",
     "expo-image-manipulator": "~57.0.10",
     "expo-image-picker": "~57.0.10",
@@ -33,6 +34,7 @@
     "react": "19.2.3",
     "react-native": "0.86.2",
     "react-native-marked": "^8.1.1",
+    "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4"
   },
   "devDependencies": {

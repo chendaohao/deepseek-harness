@@ -44,13 +44,23 @@ export interface ToolStatusLine {
 export interface PendingApproval {
   readonly approvalId: string
   readonly toolName: string
+  /** Model-authored justification carried by the approval frame; absent when the model wrote none. */
+  readonly reason?: string
+  /** Id of the tool call this approval gates; joins ToolStatusLine.id so the card can show the command. */
+  readonly callId?: string
 }
 
 /** One question inside a pending ask_user_question batch. */
 export interface PendingQuestionItem {
   readonly id: string
   readonly question: string
-  readonly options: readonly { readonly label: string }[]
+  /** Short heading the model asked to show above the question. */
+  readonly header?: string
+  /** Supporting detail rendered under the question text. */
+  readonly detail?: string
+  /** Whether several options may be selected at once (the answer then carries them together). */
+  readonly multiSelect: boolean
+  readonly options: readonly { readonly label: string; readonly description?: string }[]
 }
 
 /** A pending question batch the agent asked through ask_user_question. */
@@ -71,6 +81,10 @@ export interface SessionSummary {
   readonly updatedAt: number
   readonly running: boolean
   readonly blank: boolean
+  /** Current normalized title (the 'title' projection the host lists); absent while none has landed. */
+  readonly title?: string
+  /** Session working directory as the host recorded it; absent when unrecorded. */
+  readonly cwd?: string
 }
 
 /** One selectable model in the session's model catalog. */

@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { VISION_BRIDGE_SERVICE } from '@deepseek-ai/dsh-vision'
-import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, createUserMessage, freezeMessage, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, isJsonValue } from '@deepseek-ai/dsh-session'
@@ -650,6 +650,25 @@ export interface ApiProxyDefaults {
    * and undoing it because storage failed would be the worse outcome.
    */
   saveDefaultModelSelection?: (selection: ModelSelection) => Promise<void>
+  /**
+   * One model route's explicitly chosen reasoning effort, or `undefined` when
+   * the user never chose one. The gateway plugin always passes one; a
+   * deployment without the service answers `undefined` and a plain model
+   * switch keeps the adapter default.
+   */
+  rememberedEffort?: (provider: string, model: string) => string | undefined | Promise<string | undefined>
+  /**
+   * Record an explicitly chosen reasoning effort for one model route. Absent
+   * or declining like `saveDefaultModelSelection`: the switch still applies
+   * to its own session, only the memory is lost.
+   */
+  rememberEffort?: (provider: string, model: string, effort: string) => Promise<void>
+  /**
+   * Clear one model route's remembered effort, for an explicit provider-default
+   * choice. Absent like `saveDefaultModelSelection`: the provider default
+   * applies to the session either way, only a stale memory survives.
+   */
+  forgetEffort?: (provider: string, model: string) => Promise<void>
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
   /** Native open-with-default-application; injectable for carrier tests. */
@@ -2281,18 +2300,67 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async selectModel(request) {
-        const { sessionId, provider, model, reasoningEffort } = request.payload
+        const { sessionId, provider, model, reasoningEffort, reasoningEffortExplicit } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         return serializeImageAdmission(found.agent, async () => {
           try {
-            const resolved = await ctx.llm.resolveCallConfig({
-              provider,
-              model,
-              ...reasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
-            })
+            // Memory writes are best-effort like the default-selection save:
+            // the switch applies to this session either way, and a read-only
+            // settings provider must not make model switching fail.
+            const rememberEffort = async (provider: string, model: string, effort: string): Promise<void> => {
+              try {
+                await defaults.rememberEffort?.(provider, model, effort)
+              } catch (error: unknown) {
+                ctx.logger.warn(
+                  `api-proxy: the effort choice applies to this session but was not remembered: ${String(error)}`,
+                )
+              }
+            }
+            const forgetEffort = async (provider: string, model: string): Promise<void> => {
+              try {
+                await defaults.forgetEffort?.(provider, model)
+              } catch (error: unknown) {
+                ctx.logger.warn(
+                  `api-proxy: the effort choice applies to this session but was not forgotten: ${String(error)}`,
+                )
+              }
+            }
+            // A plain model switch is resolved by the adapter default first,
+            // then by the remembered effort for that exact route when one
+            // exists and the model still offers it. An explicit effort — a
+            // level pick or the provider default — is honored as sent and
+            // updates the memory; validation is the resolve below either way.
+            let resolved = await ctx.llm.resolveCallConfig({ provider, model })
+            if (reasoningEffort !== undefined) {
+              resolved = await ctx.llm.resolveCallConfig({
+                provider,
+                model,
+                reasoningEffort: ReasoningEffortId(reasoningEffort),
+              })
+              await rememberEffort(resolved.provider, resolved.model, String(resolved.reasoningEffort))
+            } else if (reasoningEffortExplicit === true) {
+              await forgetEffort(resolved.provider, resolved.model)
+            } else {
+              const remembered = await defaults.rememberedEffort?.(resolved.provider, resolved.model)
+              if (remembered !== undefined && remembered !== resolved.reasoningEffort) {
+                try {
+                  resolved = await ctx.llm.resolveCallConfig({
+                    provider,
+                    model,
+                    reasoningEffort: ReasoningEffortId(remembered),
+                  })
+                } catch (error) {
+                  // The route stopped offering the remembered level since it
+                  // was chosen; the adapter default stands and the stale
+                  // memory is dropped. Only that refusal falls through — any
+                  // other failure (a dead adapter, a broken catalog) is the
+                  // selection's failure too.
+                  if (!(error instanceof LlmError && error.code === 'UNSUPPORTED_REASONING_EFFORT')) throw error
+                  await forgetEffort(resolved.provider, resolved.model)
+                }
+              }
+            }
             const pendingImage = [...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep]
               .some(message => contentHasImage(message.content))
             if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {

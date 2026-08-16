@@ -510,6 +510,107 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('restores a remembered effort on plain switches and records or clears explicit ones', async () => {
+    const { ctx, sessionId } = await harness()
+    const memory = new Map<string, string>()
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      rememberedEffort: (provider, model) => memory.get(`${provider}/${model}`),
+      rememberEffort: (provider, model, effort) => {
+        memory.set(`${provider}/${model}`, effort)
+        return Promise.resolve()
+      },
+      forgetEffort: (provider, model) => {
+        memory.delete(`${provider}/${model}`)
+        return Promise.resolve()
+      },
+      cwd: '/tmp',
+    })
+
+    // An explicit level is validated, recorded, and applied.
+    const explicit = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+    })))
+    expect(explicit.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+    })
+    expect(memory.get('deepseek-official/deepseek-reasoner')).toBe('max')
+
+    // A plain switch to a route without a memory keeps that model's default.
+    const plain = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
+    })))
+    expect(plain.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high',
+    })
+
+    // Switching back restores the remembered effort without the client re-sending it.
+    const restored = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner',
+    })))
+    expect(restored.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+    })
+
+    // An explicit provider default applies the model default and clears the memory.
+    const cleared = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffortExplicit: true,
+    })))
+    expect(cleared.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'high',
+    })
+    expect(memory.has('deepseek-official/deepseek-reasoner')).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('falls back to the adapter default when the remembered effort is no longer offered', async () => {
+    const { ctx, sessionId } = await harness()
+    const forgotten: string[] = []
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      // Stale: 'medium' was never one of the advertised efforts.
+      rememberedEffort: () => 'medium',
+      forgetEffort: (provider, model) => {
+        forgotten.push(`${provider}/${model}`)
+        return Promise.resolve()
+      },
+      cwd: '/tmp',
+    })
+
+    const selected = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
+    })))
+    expect(selected.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high',
+    })
+    expect(forgotten).toEqual(['deepseek-official/deepseek-chat'])
+    await ctx.fiber.dispose()
+  })
+
+  it('still switches when the effort memory is not writable', async () => {
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      rememberEffort: () => Promise.reject(new Error('read-only document')),
+      forgetEffort: () => Promise.reject(new Error('read-only document')),
+      cwd: '/tmp',
+    })
+
+    const selected = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+    })))
+    expect(selected.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+    })
+    const cleared = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffortExplicit: true,
+    })))
+    expect(cleared.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'high',
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('refuses a prompt no adapter can route, and reports it on the directory', async () => {
     const { ctx, sessionId } = await harness()
     const api = createApiProxy(ctx, {

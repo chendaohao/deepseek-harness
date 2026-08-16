@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
+import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT } from './columns.ts'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
 
@@ -29,8 +29,12 @@ function CenterColumn(props: { children?: ReactNode }) {
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
-function DetailsColumn(props: { children?: ReactNode }) {
-  return <div className={css.detailsCol}>{props.children}</div>
+function DetailsColumn(props: { width?: number; children?: ReactNode }) {
+  return (
+    <div className={css.detailsCol} style={props.width !== undefined ? { width: props.width } : undefined}>
+      {props.children}
+    </div>
+  )
 }
 
 /**
@@ -139,7 +143,33 @@ export function AppFrame({
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  // Narrow viewports turn the expanded sidebar into an overlay drawer and the
+  // details panel into a right-hand overlay: the grid keeps their closed
+  // tracks so the center never concedes, and the overlays ride above it
+  // (AppFrame.module.css data-narrow-* rules). The concession solver only
+  // sees closed preferences in that state, so it cannot zero out an overlay
+  // the user explicitly opened.
+  const drawerOpen = narrow && panels.narrowExpanded
+  // The narrow drawer closes when the user picks a session: the session list
+  // and search live inside it, and keeping it up would cover the conversation
+  // they just opened. The override survives nothing else — re-widening or a
+  // manual close resets the ref, so the next session pick closes again.
+  const lastDrawerSession = useRef(detailsSession)
+  useEffect(() => {
+    if (!narrow || !panels.narrowExpanded) {
+      lastDrawerSession.current = detailsSession
+      return
+    }
+    if (lastDrawerSession.current !== detailsSession) {
+      actions.toggleSidebar()
+    }
+    lastDrawerSession.current = detailsSession
+  }, [actions, narrow, panels.narrowExpanded, detailsSession])
+  const detailsPreference = detailsSession === undefined ? 0 : panels.details
+  const detailsOpen = narrow && detailsPreference > 0
+  const drawerWidth = Math.max(SIDEBAR_COLLAPSED, Math.min(sidebarPreference, viewport - 64))
+  const detailsWidth = Math.min(detailsPreference, viewport - 24)
+  const cols = computeColumns(viewport, drawerOpen ? 0 : sidebarPreference, detailsOpen ? 0 : detailsPreference)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -165,20 +195,35 @@ export function AppFrame({
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
+      style={{ gridTemplateColumns: `${drawerOpen ? 0 : cols.sidebar}px minmax(0, 1fr) ${detailsOpen ? 0 : cols.details}px` }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
+      data-narrow-drawer={drawerOpen || undefined}
+      data-narrow-details={detailsOpen || undefined}
       data-dragging={dragging || undefined}
     >
-      <div className={css.sidebarCol}>
+      {/* One scrim behind whichever narrow overlay is up; tapping it closes
+          both (the drawer by flipping its override, details by preference). */}
+      {(drawerOpen || detailsOpen) && (
+        <div
+          className={css.narrowScrim}
+          aria-hidden
+          onClick={() => {
+            if (drawerOpen) actions.toggleSidebar()
+            if (detailsOpen) actions.closeDetails()
+          }}
+        />
+      )}
+      <div className={css.sidebarCol} style={drawerOpen ? { width: drawerWidth } : undefined}>
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the mounted slot at the compact-rail width, and the
             component sees its rendered state as owner params decided here
             (collapsed follows the resolved rail, so a derived auto-collapse
-            renders the rail UI too). */}
+            renders the rail UI too). The narrow drawer reports wide and its
+            overlay width, so the rail toggle and session list render wide. */}
         {renderSlot('sidebar', {
-          collapsed: sidebarCollapsed,
-          width: cols.sidebar,
+          collapsed: drawerOpen ? false : sidebarCollapsed,
+          width: drawerOpen ? drawerWidth : cols.sidebar,
         })}
       </div>
       <>
@@ -188,14 +233,15 @@ export function AppFrame({
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
         <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-        <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
+        <DetailsColumn {...(detailsOpen ? { width: detailsWidth } : {})}>{renderSlot('details', {})}</DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>
-      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
+      {/* The collapsed rail is fixed-width: no resize handle while closed.
+          Narrow overlays are never drag-resized. */}
+      {!narrow && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {!narrow && cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

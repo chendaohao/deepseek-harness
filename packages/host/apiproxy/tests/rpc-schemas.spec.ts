@@ -231,6 +231,12 @@ describe('sessions domain schemas', () => {
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     }).reasoningEffort).toBe('max')
+    expect(sessionSelectModelRequestSchema.parse({
+      sessionId: 's1',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-pro',
+      reasoningEffortExplicit: true,
+    }).reasoningEffortExplicit).toBe(true)
     expect(sessionSelectModelValueSchema.parse({
       selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
     }).selected.reasoningEffort).toBe('max')

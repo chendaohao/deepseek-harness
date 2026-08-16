@@ -79,15 +79,9 @@ function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | u
   for (const group of state.groups) {
     for (const model of group.models) {
       if (rowId(group.id, model.id) !== id) continue
-      const sameRoute = state.current?.provider === group.id && state.current.model === model.id
-      const reasoningEffort = sameRoute
-        ? state.current?.reasoningEffort ?? model.reasoning?.defaultEffort
-        : model.reasoning?.defaultEffort
-      return {
-        provider: group.id,
-        model: model.id,
-        ...reasoningEffort === undefined ? {} : { reasoningEffort },
-      }
+      // A plain model selection: the host restores the user's remembered
+      // effort for the route, or falls back to the model default.
+      return { provider: group.id, model: model.id }
     }
   }
   return undefined
@@ -166,8 +160,8 @@ export function apply(ctx: ClientContext): void {
           load: () => {
             if (available) directory.load().catch(() => { /* surfaced on the store */ })
           },
-          select: (selection: ModelSelection) => available
-            ? directory.select(selection).then(() => true, () => false)
+          select: (selection: ModelSelection, explicitEffort?: boolean) => available
+            ? directory.select(selection, explicitEffort).then(() => true, () => false)
             : Promise.resolve(false),
         }
       },

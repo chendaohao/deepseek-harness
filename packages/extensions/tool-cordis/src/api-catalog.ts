@@ -98,6 +98,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'next', description: 'resolved selection accepted by an entry point.' }],
         returns: 'fulfillment after the optional settings write settles.',
       },
+      {
+        signature: 'rememberedEffort(provider: string, model: string): string | undefined',
+        description: 'One model route\'s explicitly chosen reasoning effort, or `undefined` when the user never chose one (the model default applies).',
+        parameters: [{ name: 'provider', description: 'the route the choice was made on.' }, { name: 'model', description: 'the provider-owned model id the choice was made for.' }],
+        returns: 'the remembered effort identifier.',
+      },
+      {
+        signature: 'async rememberEffort(provider: string, model: string, effort: string): Promise<void>',
+        description: 'Record an explicitly chosen reasoning effort for one model route. A deployment without a settings provider keeps the composition entry, which carries no memory; the write is then a no-op.',
+        parameters: [{ name: 'provider', description: 'the route the user chose on.' }, { name: 'model', description: 'the provider-owned model id the user chose for.' }, { name: 'effort', description: 'the adapter-owned effort identifier that was validated.' }],
+        returns: 'fulfillment after the optional settings write settles.',
+      },
+      {
+        signature: 'async forgetEffort(provider: string, model: string): Promise<void>',
+        description: 'Clear one model route\'s remembered effort, for an explicit provider-default choice. A deployment without a settings provider keeps the composition entry, which carries no memory; the write is then a no-op.',
+        parameters: [{ name: 'provider', description: 'the route whose choice is being cleared.' }, { name: 'model', description: 'the provider-owned model id whose choice is being cleared.' }],
+        returns: 'fulfillment after the optional settings write settles.',
+      },
     ],
   },
   {

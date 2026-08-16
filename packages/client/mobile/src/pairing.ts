@@ -50,7 +50,18 @@ export function parsePairingUrl(raw: string): ParsedPairingUrl {
   return { baseUrl: url.origin, ticket }
 }
 
-/** Extract the `dsh_remote` cookie value from a pairing response's headers. */
+/** Collapse and cap a device name for the pairing query (empty when absent). */
+function sanitizeDeviceName(raw: string | undefined): string {
+  if (raw === undefined) return ''
+  const collapsed = raw.split(/[\s\u00a0]+/).filter(part => part !== '').join(' ')
+  return collapsed.length > 64 ? collapsed.slice(0, 64) : collapsed
+}
+
+/**
+ * Extract the `dsh_remote` cookie value from a pairing response's headers.
+ * @param headers - the response headers (getSetCookie when present).
+ * @returns the cookie value, or undefined when the response carries none.
+ */
 export function extractSessionCookie(headers: { getSetCookie?: () => string[]; get?(name: string): string | null }): string | undefined {
   const values = headers.getSetCookie !== undefined
     ? headers.getSetCookie()
@@ -67,13 +78,16 @@ export function extractSessionCookie(headers: { getSetCookie?: () => string[]; g
  * host owns the failure budget, so retrying here could lock the app out.
  * @param raw - the scanned or pasted pairing URL.
  * @param fetchImpl - the injected fetch (redirects must stay manual).
+ * @param options - optional device name the host labels the binding with (kept to 64 characters).
  * @returns the base URL and session cookie to persist.
  */
-export async function pairWithHost(raw: string, fetchImpl: FetchLike): Promise<PairingRecord> {
+export async function pairWithHost(raw: string, fetchImpl: FetchLike, options: { deviceName?: string } = {}): Promise<PairingRecord> {
   const { baseUrl, ticket } = parsePairingUrl(raw)
+  const name = sanitizeDeviceName(options.deviceName)
+  const query = name === '' ? '' : '?name=' + encodeURIComponent(name)
   let response: Response
   try {
-    response = await fetchImpl(`${baseUrl}/pair/${ticket}`, { redirect: 'manual' })
+    response = await fetchImpl(`${baseUrl}/pair/${ticket}${query}`, { redirect: 'manual' })
   } catch (error) {
     throw new PairingError('network', String(error))
   }

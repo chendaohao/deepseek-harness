@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  COOKIE_MAX_AGE_DAYS, COOKIE_NAME, dayIndex, ensurePairingSecret, mintCookie, pairingTicket, verifyCookie, verifyTicket,
+  COOKIE_NAME, ensurePairingSecret, mintCookie, pairingTicket, verifyCookie, verifyTicket,
 } from '../src/secret.ts'
 
 const DAY_MS = 86_400_000
@@ -157,24 +157,28 @@ describe('pairing tickets', () => {
 })
 
 describe('session cookies', () => {
-  it('round-trips through verifyCookie', () => {
+  it('mints a v2 device cookie that round-trips through verifyCookie', () => {
     const secret = randomBytes(32)
-    const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const { value } = mintCookie(secret, now)
-    expect(value).toMatch(/^v1\.\d+\.[A-Za-z0-9_-]{32}$/)
-    expect(verifyCookie(secret, value, now)).toBe(true)
-    expect(verifyCookie(secret, value, now + COOKIE_MAX_AGE_DAYS * DAY_MS - 1)).toBe(true)
+    const { value, deviceId } = mintCookie(secret)
+    expect(value).toMatch(/^v2\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{32}$/)
+    expect(verifyCookie(secret, value)).toBe(deviceId)
+    // Each minting is a distinct device.
+    expect(mintCookie(secret).deviceId).not.toBe(deviceId)
   })
 
-  it('rejects expiry, tampering, and malformed values', () => {
+  it('rejects tampering, malformed values, oversized ids, and foreign secrets', () => {
     const secret = randomBytes(32)
-    const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const { value } = mintCookie(secret, now)
-    expect(verifyCookie(secret, value, now + (COOKIE_MAX_AGE_DAYS + 1) * DAY_MS)).toBe(false)
-    expect(verifyCookie(secret, undefined, now)).toBe(false)
-    expect(verifyCookie(secret, 'garbage', now)).toBe(false)
-    expect(verifyCookie(secret, 'v1.' + String(dayIndex(now) + 1) + '.AAAA', now)).toBe(false)
-    expect(verifyCookie(randomBytes(32), value, now)).toBe(false)
+    const { value } = mintCookie(secret)
+    expect(verifyCookie(secret, undefined)).toBeNull()
+    expect(verifyCookie(secret, 'garbage')).toBeNull()
+    expect(verifyCookie(secret, 'v2.AAAA')).toBeNull()
+    // The v1 shape (expiry-day cookie) is gone wholesale.
+    expect(verifyCookie(secret, 'v1.20677.AAAA')).toBeNull()
+    // A tampered mac fails in constant time.
+    expect(verifyCookie(secret, value.slice(0, -2) + 'AA')).toBeNull()
+    // An id longer than the accepted bound fails before the HMAC.
+    expect(verifyCookie(secret, 'v2.' + 'a'.repeat(65) + '.' + value.split('.')[2]!)).toBeNull()
+    expect(verifyCookie(randomBytes(32), value)).toBeNull()
     expect(COOKIE_NAME).toBe('dsh_remote')
   })
 })

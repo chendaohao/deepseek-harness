@@ -24,6 +24,9 @@
       "path": "../../plan/plan-mode"
     },
     {
+      "path": "../../session/session-title"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {

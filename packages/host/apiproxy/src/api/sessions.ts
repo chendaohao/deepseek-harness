@@ -291,13 +291,18 @@ export interface SessionsApi {
   /**
    * Selects the complete model selection for this session. Exact model metadata
    * validates an optional reasoning effort, while catalog membership remains
-   * advisory. Session-backed subagents reject with `agent-busy`.
+   * advisory. A selection naming no effort is a plain model switch and restores
+   * the user's remembered effort for that exact route when one exists;
+   * `reasoningEffortExplicit` with no effort means the user picked the
+   * provider default and clears it. Session-backed subagents reject with
+   * `agent-busy`.
    */
   selectModel(request: RpcRequest<{
     sessionId: SessionId
     provider: string
     model: string
     reasoningEffort?: string
+    reasoningEffortExplicit?: boolean
   }>):
   Promise<RpcResponse<{ selected: ModelSelection }>>
 

@@ -13,6 +13,8 @@ import type { MuxFrame, RpcId, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm/types'
 // The plan-mode package augments the session event map with 'plan/mode'.
 import type {} from '@deepseek-ai/dsh-plan-mode'
+// The title package augments the projection map with the 'title' key list rows read.
+import type {} from '@deepseek-ai/dsh-session-title/client'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MobileApiClient } from './client.ts'
 import { MobileConnection } from './connection.ts'
@@ -287,13 +289,19 @@ export class VoiceChatController {
     })
   }
 
-  /** Send one text prompt (typed input path). */
+  /**
+   * Send one text prompt (typed input path).
+   * @param text - the prompt text to send.
+   */
   submitText(text: string): void {
     if (this.disposed) return
     void this.sendPrompt([{ type: 'text', text }])
   }
 
-  /** Send one prompt with text and/or canonical-base64 image parts. */
+  /**
+   * Send one prompt with text and/or canonical-base64 image parts.
+   * @param parts - the ordered content parts of the prompt.
+   */
   submitContent(parts: readonly PromptPart[]): void {
     if (this.disposed) return
     void this.sendPrompt(parts)
@@ -321,13 +329,19 @@ export class VoiceChatController {
     this.publish()
   }
 
-  /** Switch the ASR/TTS language (applies from the next utterance). */
+  /**
+   * Switch the ASR/TTS language (applies from the next utterance).
+   * @param language - BCP-47 tag, e.g. "zh-CN".
+   */
   setLanguage(language: string): void {
     this.language = language
     this.publish()
   }
 
-  /** Toggle automatic speaking of assistant replies. */
+  /**
+   * Toggle automatic speaking of assistant replies.
+   * @param enabled - whether replies are spoken.
+   */
   setAutoSpeak(enabled: boolean): void {
     if (!enabled) this.speakQueue.clear()
     this.autoSpeak = enabled
@@ -342,26 +356,38 @@ export class VoiceChatController {
     this.publish()
   }
 
-  /** Toggle continuous listening: auto-start the mic after each finished turn. */
+  /**
+   * Toggle continuous listening: auto-start the mic after each finished turn.
+   * @param enabled - whether the mic auto-restarts.
+   */
   setAutoListen(enabled: boolean): void {
     this.autoListen = enabled
     if (enabled) this.maybeAutoListen()
     this.publish()
   }
 
-  /** Set the TTS speech rate (0.5..2.0; applies to the next utterance). */
+  /**
+   * Set the TTS speech rate (0.5..2.0; applies to the next utterance).
+   * @param rate - speech rate, clamped to 0.5..2.0.
+   */
   setTtsRate(rate: number): void {
     this.ttsRate = Math.min(2, Math.max(0.5, rate))
     this.publish()
   }
 
-  /** Set the TTS speech pitch (0.5..2.0; applies to the next utterance). */
+  /**
+   * Set the TTS speech pitch (0.5..2.0; applies to the next utterance).
+   * @param pitch - speech pitch, clamped to 0.5..2.0.
+   */
   setTtsPitch(pitch: number): void {
     this.ttsPitch = Math.min(2, Math.max(0.5, pitch))
     this.publish()
   }
 
-  /** List the host's sessions (empty on failure; a notice reports the error). */
+  /**
+   * List the host's sessions (empty on failure; a notice reports the error).
+   * @returns the session summaries, newest first; empty on failure.
+   */
   async listSessions(): Promise<SessionSummary[]> {
     try {
       const listed = await this.client.sessions.list({})
@@ -370,19 +396,29 @@ export class VoiceChatController {
         this.publish()
         return []
       }
-      return listed.result.value.items.map(item => ({
-        sessionId: String(item.sessionId),
-        updatedAt: item.updatedAt,
-        running: item.running,
-        blank: item.blank,
-      }))
+      return listed.result.value.items.map((item) => {
+        // The projection values arrive as unknown over the wire (the record
+        // schema stays wide); the title key is the one this view consumes.
+        const title = item.projections?.values.title
+        return {
+          sessionId: String(item.sessionId),
+          updatedAt: item.updatedAt,
+          running: item.running,
+          blank: item.blank,
+          ...(item.cwd === undefined || item.cwd === '' ? {} : { cwd: item.cwd }),
+          ...(typeof title === 'string' && title !== '' ? { title } : {}),
+        }
+      })
     } catch (error) {
       this.handleCarrierError(error, 'session list failed')
       return []
     }
   }
 
-  /** Switch to another session: reset the view and rebuild from its history. */
+  /**
+   * Switch to another session: reset the view and rebuild from its history.
+   * @param sessionId - the session to switch to.
+   */
   switchSession(sessionId: string): void {
     if (this.disposed || sessionId === this.sessionId) return
     this.connection?.stop()
@@ -400,7 +436,10 @@ export class VoiceChatController {
     if (this.connection !== null) this.connection.start()
   }
 
-  /** Create a new blank session and switch to it. */
+  /**
+   * Create a new blank session and switch to it.
+   * @returns the created summary, or null when creation fails.
+   */
   async createSession(): Promise<SessionSummary | null> {
     try {
       const created = await this.client.sessions.create({})
@@ -418,7 +457,10 @@ export class VoiceChatController {
     }
   }
 
-  /** The session's selectable models (empty when the catalog is unavailable). */
+  /**
+   * The session's selectable models (empty when the catalog is unavailable).
+   * @returns the flattened catalog; empty on failure.
+   */
   async listModels(): Promise<ModelOption[]> {
     if (this.sessionId === null) return []
     try {
@@ -439,7 +481,10 @@ export class VoiceChatController {
     }
   }
 
-  /** Select the session's model (the host validates catalog membership). */
+  /**
+   * Select the session's model (the host validates catalog membership).
+   * @param model - the catalog entry to select.
+   */
   async selectModel(model: ModelOption): Promise<void> {
     if (this.sessionId === null) return
     try {
@@ -460,7 +505,11 @@ export class VoiceChatController {
     }
   }
 
-  /** Download one durable image as a data URI for rendering. */
+  /**
+   * Download one durable image as a data URI for rendering.
+   * @param attachmentId - the durable image reference id.
+   * @returns the data URI, or null when the download fails.
+   */
   async downloadImage(attachmentId: string): Promise<string | null> {
     if (this.sessionId === null) return null
     try {
@@ -480,7 +529,11 @@ export class VoiceChatController {
     }
   }
 
-  /** Answer the pending approval (allowed-once or rejected). */
+  /**
+   * Answer the pending approval (allowed-once or rejected).
+   * @param approvalId - the approval being answered.
+   * @param outcome - the decision to send.
+   */
   answerApproval(approvalId: string, outcome: ApprovalOutcome): void {
     const pending = this.pendingApproval
     if (pending === null || pending.approvalId !== approvalId || this.sessionId === null) return
@@ -508,7 +561,11 @@ export class VoiceChatController {
     })
   }
 
-  /** Answer the pending question batch. */
+  /**
+   * Answer the pending question batch.
+   * @param questionRpcId - the pending batch's rpc id.
+   * @param answers - one answer item per answered question.
+   */
   answerQuestion(questionRpcId: string, answers: readonly QuestionAnswerItem[]): void {
     const pending = this.pendingQuestion
     if (pending === null || pending.questionRpcId !== questionRpcId || this.sessionId === null) return
@@ -595,7 +652,13 @@ export class VoiceChatController {
       return
     }
     if (frame.type === 'approval/requested' && frame.sessionId === this.sessionId) {
-      this.pendingApproval = { frameRpcId: envelope.rpcId, approvalId: String(frame.approvalId), toolName: frame.toolName }
+      this.pendingApproval = {
+        frameRpcId: envelope.rpcId,
+        approvalId: String(frame.approvalId),
+        toolName: frame.toolName,
+        ...(frame.reason === undefined || frame.reason === '' ? {} : { reason: frame.reason }),
+        ...(frame.callId === undefined || frame.callId === '' ? {} : { callId: frame.callId }),
+      }
       this.publish()
       return
     }
@@ -611,7 +674,13 @@ export class VoiceChatController {
         questions: frame.questions.map(question => ({
           id: question.id,
           question: question.question,
-          options: question.options?.map(option => ({ label: option.label })) ?? [],
+          ...(question.header === undefined || question.header === '' ? {} : { header: question.header }),
+          ...(question.detail === undefined || question.detail === '' ? {} : { detail: question.detail }),
+          multiSelect: question.multiSelect ?? false,
+          options: question.options?.map(option => ({
+            label: option.label,
+            ...(option.description === undefined || option.description === '' ? {} : { description: option.description }),
+          })) ?? [],
         })),
       }
       this.publish()
@@ -796,7 +865,12 @@ export class VoiceChatController {
       toolLines: this.toolLines,
       pendingApproval: this.pendingApproval === null
         ? null
-        : { approvalId: this.pendingApproval.approvalId, toolName: this.pendingApproval.toolName },
+        : {
+          approvalId: this.pendingApproval.approvalId,
+          toolName: this.pendingApproval.toolName,
+          ...(this.pendingApproval.reason === undefined ? {} : { reason: this.pendingApproval.reason }),
+          ...(this.pendingApproval.callId === undefined ? {} : { callId: this.pendingApproval.callId }),
+        },
       pendingQuestion: this.pendingQuestion,
       interim: this.interim,
       notice: this.notice,

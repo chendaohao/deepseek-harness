@@ -260,6 +260,9 @@ export const sessionSelectModelRequestSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   reasoningEffort: z.string().min(1).optional(),
+  // True with no reasoningEffort: the user explicitly picked the provider
+  // default, which clears the host's remembered effort for this exact route.
+  reasoningEffortExplicit: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.selectModel'>>>
 
 /** session.selectModel response value. */
