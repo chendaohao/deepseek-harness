@@ -97,6 +97,15 @@ export function apply(ctx: ClientContext): void {
   // render and simply hides the button while no flow exists.
   let creatorDraft: (() => void) | undefined
 
+  // The conversation send path awaits a staged pick through this root-level
+  // service (read structurally via ctx.get, never imported): the seat itself
+  // lives in the conversation scope below and wires its pendingApply here, so
+  // a first prompt dispatched right after a chip pick composes the preset
+  // before the turn instead of racing the list-change apply and losing to the
+  // host's blank-session lock. A collapsed flow resets the wiring to a no-op.
+  const seatGate: { pendingApply(): Promise<void> } = { pendingApply: () => Promise.resolve() }
+  ctx.provide('agentPresetSeat', seatGate)
+
   // The new-session chip and the header label: one controller, because the
   // staged choice belongs to the flow rather than to any one session.
   ctx.inject(['slots', 'conversation', 'sessions', 'workspaces'], (scope: ClientContext) => {
@@ -114,6 +123,7 @@ export function apply(ctx: ClientContext): void {
     }, (sessionId, agentPreset) => {
       scope.sessions.noteAgentPreset(sessionId as never, agentPreset)
     })
+    seatGate.pendingApply = () => seat.pendingApply()
 
     const seatInjected = (): AgentPresetSeatInjected => ({
       hooks: { agentPresetSeat: seat.store },
@@ -181,6 +191,9 @@ export function apply(ctx: ClientContext): void {
         presetSelected()
         rosterReaders.delete(readRoster)
         creatorDraft = undefined
+        // The seat died with this scope: the root-level gate returns to its
+        // no-op so the send path never awaits a dead controller.
+        seatGate.pendingApply = () => Promise.resolve()
         chip()
         label()
       }

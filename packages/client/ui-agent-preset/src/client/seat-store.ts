@@ -62,6 +62,14 @@ export class AgentPresetSeatController {
   /** Set while a pick is waiting for a session; cleared once applied. */
   private staged: string | undefined
 
+  /**
+   * Single-flight apply: the session list publishes several updates in one
+   * tick (creation, projection, title), and each fires the list-change
+   * applier — coalescing onto one in-flight RPC keeps a blank-session apply
+   * to exactly one select instead of one per list update.
+   */
+  private applying: Promise<void> | null = null
+
   constructor(
     private readonly api: Pick<IApiClient, 'agentPresets'>,
     /** The session the hero is about to hand over to, when there is one. */
@@ -146,9 +154,12 @@ export class AgentPresetSeatController {
    *
    * Called both by `select()` and by whoever observes the current session
    * changing, because the session may appear either before or after the pick.
+   * Calls made while an apply is in flight coalesce onto it and re-check the
+   * stage afterward, so a pick staged mid-flight still lands.
    * @returns once the switch settled, or immediately when there is nothing to do.
    */
   async apply(): Promise<void> {
+    while (this.applying !== null) await this.applying
     const staged = this.staged
     const session = this.currentSession()
     if (staged === undefined || session === undefined) return
@@ -159,19 +170,61 @@ export class AgentPresetSeatController {
       return
     }
     this.set({ busy: true, error: null })
+    const run = this.runApply(staged, session)
+    this.applying = run
+    try {
+      await run
+    } finally {
+      // Single-flight: no other apply can have started while this one owned
+      // the flag (the while-loop gate above admits exactly one), so the flag
+      // always belongs to this run at settlement.
+      this.applying = null
+    }
+  }
+
+  /**
+   * Resolve once no staged pick awaits application: the in-flight apply (if
+   * any) has settled, and a stage that survived it has been applied or found
+   * unservable. The conversation send path awaits this before dispatching a
+   * prompt, so a pick made just before the first send composes the session
+   * before its first turn instead of racing it (the host locks a started
+   * session's preset). Terminates even when no session exists to apply to —
+   * the stage then stays for the list-change applier.
+   * @returns once the staged pick is applied, dropped, or unservable.
+   */
+  async pendingApply(): Promise<void> {
+    for (;;) {
+      if (this.applying !== null) {
+        await this.applying
+        continue
+      }
+      if (this.staged === undefined) return
+      const before = this.staged
+      await this.apply()
+      // apply() consumes a stage it serves (applied or dropped); a stage that
+      // survived means no session exists to serve it yet, so the caller may
+      // proceed — the list-change applier owns that case.
+      if (this.staged === before) return
+    }
+  }
+
+  /** Dispatch and settle one select RPC for the staged preset. */
+  private async runApply(staged: string, session: SeatSessionSummary): Promise<void> {
     try {
       const response = await this.api.agentPresets.select({ sessionId: session.id, agentPreset: staged })
-      this.staged = undefined
+      // Only this pick is spent: a newer stage set while the RPC was in
+      // flight belongs to the next apply and must survive this completion.
+      if (this.staged === staged) this.staged = undefined
       if (!response.result.ok) {
-        this.set({ busy: false, error: response.result.error.message, current: this.fallback })
+        this.set({ busy: false, error: response.result.error.message, current: this.staged ?? this.fallback })
         return
       }
       // Consumed: the next new session opens on the deployment default again.
-      this.set({ busy: false, current: response.result.value.agentPreset })
+      this.set({ busy: false, current: this.staged ?? response.result.value.agentPreset })
       this.onApplied?.(session.id, response.result.value.agentPreset)
     } catch (error) {
-      this.staged = undefined
-      this.set({ busy: false, error: messageOf(error), current: this.fallback })
+      if (this.staged === staged) this.staged = undefined
+      this.set({ busy: false, error: messageOf(error), current: this.staged ?? this.fallback })
     }
   }
 }

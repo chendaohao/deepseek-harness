@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-16-hero-preset-pick-races-the-first-send.md
+2026-08-16-hero-preset-pick-races-the-first-send.md: ca7137a7d81ceb5c0f5723ef57e1e9c0956a14cf
+2026-08-16-hero-preset-pick-races-the-first-send.zh.md: 4005fdb152d944e5a4acef8d6b8f30644b0e65d2

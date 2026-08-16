@@ -535,6 +535,43 @@ describe('ui-agent-preset apply', () => {
     conversation()
   })
 
+  it('publishes the seat gate the send path reads and resets it on disposal', async () => {
+    const { ctx, slots, calls } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const state: {
+      current?: string
+      byId: Record<string, { id: string; blank: boolean; agentPreset?: string }>
+    } = { byId: {} }
+    const sessions = sessionsDouble(state)
+    ctx.provide('sessions', sessions as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply })
+    await fiber.await()
+
+    const gate = ctx.get('agentPresetSeat') as { pendingApply(): Promise<void> } | undefined
+    expect(gate).toBeDefined()
+
+    // The gate routes into the seat: a stage the list-change applier has not
+    // served yet is applied by the gate itself once the session appears —
+    // which is what keeps the first prompt behind a hero-chip pick.
+    const chip = (slots.entries('conversation.hero.agentPreset')[0]!
+      .inject as unknown as () => AgentPresetSeatInjected)()
+    await chip.load()
+    await chip.select('minimal')
+    expect(calls).not.toContain('select:minimal')
+    state.current = 's1'
+    state.byId['s1'] = { id: 's1', blank: true, agentPreset: 'standard' }
+    await gate!.pendingApply()
+    expect(calls).toContain('select:minimal')
+
+    // A collapsed flow resets the gate to a no-op that always settles.
+    await fiber.dispose()
+    await gate!.pendingApply()
+    conversation()
+  })
+
   it('keeps the applied composition when the roster load lands late', async () => {
     const { ctx, slots, calls } = await bench()
     declareRoot(slots)
@@ -578,5 +615,19 @@ describe('ui-agent-preset apply', () => {
     // section hides its button rather than staging into nowhere.
     const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
     expect(section.startCreatorDraft).toBeUndefined()
+  })
+
+  it('answers the seat gate with a no-op while the conversation flow is absent', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+
+    await ctx.plugin({ inject: [...inject], apply }).await()
+
+    // The gate service is provided from apply time, so the send path can read
+    // it before any conversation scope wires the seat; the initial wiring is a
+    // no-op that always settles.
+    const gate = ctx.get('agentPresetSeat') as { pendingApply(): Promise<void> } | undefined
+    expect(gate).toBeDefined()
+    await gate!.pendingApply()
   })
 })

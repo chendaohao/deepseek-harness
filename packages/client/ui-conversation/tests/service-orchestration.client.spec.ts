@@ -11,9 +11,13 @@ import type { QueuedMessage, SessionFace } from '@deepseek-ai/dsh-client-runtime
 import { ComposerBlockRegistry } from '../src/client/input/blocks.ts'
 import { InputHub } from '../src/client/input/hub.ts'
 import { ConversationController, UnsupportedImageMediaTypeError } from '../src/client/service.ts'
+import type { PresetSeatGate } from '../src/client/service.ts'
 import { zh } from '../src/client/locales.ts'
 
-async function bench(readAttachment?: SessionFace['readAttachment']) {
+async function bench(
+  readAttachment?: SessionFace['readAttachment'],
+  presetGate?: () => PresetSeatGate | undefined,
+) {
   const runtime = await SlotTestRuntime.create()
   const prompt = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const updateQueue = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
@@ -29,6 +33,7 @@ async function bench(readAttachment?: SessionFace['readAttachment']) {
   const fiber = runtime.ctx.plugin(ConversationController, {
     input: hub,
     blocks: new ComposerBlockRegistry(),
+    ...presetGate === undefined ? {} : { presetGate },
   })
   await fiber.await()
   const root = runtime.ctx.get('conversation') as ConversationController
@@ -48,6 +53,29 @@ describe('ConversationController', () => {
     expect(b.updateQueue).toHaveBeenCalledWith('item-1', { kind: 'remove' })
     expect(b.cancel).toHaveBeenCalledOnce()
     expect(b.loadOlder).toHaveBeenCalledOnce()
+    await b.runtime.dispose()
+  })
+
+  it('holds the prompt until a staged preset apply settles', async () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const pendingApply = vi.fn(() => held)
+    const b = await bench(undefined, () => ({ pendingApply }))
+    const sending = b.scoped.send('hello')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(b.prompt).not.toHaveBeenCalled()
+    release()
+    await sending
+    expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
+    expect(pendingApply).toHaveBeenCalledOnce()
+    await b.runtime.dispose()
+  })
+
+  it('sends straight through when the seat plugin is absent', async () => {
+    const b = await bench(undefined, () => undefined)
+    await b.scoped.send('hello')
+    expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
     await b.runtime.dispose()
   })
 
