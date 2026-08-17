@@ -29,7 +29,7 @@ export interface SettingsSheetController {
 
 /** Settings bottom sheet: model, language, voice, and the paired host. */
 export function SettingsSheet({ visible, snapshot, controller, host, theme, t, onClose, onLanguage, onAutoSpeak,
-  onAutoListen, onTtsRate, onTtsPitch, onRepair }: {
+  onAutoListen, onTtsRate, onTtsPitch, onRepair, onManageDevices }: {
   visible: boolean
   snapshot: SettingsSnapshot
   controller: SettingsSheetController
@@ -43,6 +43,8 @@ export function SettingsSheet({ visible, snapshot, controller, host, theme, t, o
   onTtsRate(rate: number): void
   onTtsPitch(pitch: number): void
   onRepair(): void
+  /** Open the bound-device management screen. */
+  onManageDevices(): void
 }) {
   const [models, setModels] = useState<ModelOption[]>([])
   useEffect(() => {
@@ -144,6 +146,18 @@ export function SettingsSheet({ visible, snapshot, controller, host, theme, t, o
             accessibilityLabel={t('repairAction')}
           >
             <Text style={[styles.repairText, { color: theme.danger }]}>{t('repairAction')}</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.repairButton,
+              { borderColor: theme.border },
+              pressed ? { backgroundColor: theme.surfaceMuted } : null,
+            ]}
+            onPress={() => { onManageDevices(); onClose() }}
+            accessibilityRole="button"
+            accessibilityLabel={t('devicesManage')}
+          >
+            <Text style={[styles.repairText, { color: theme.text }]}>{t('devicesManage')}</Text>
           </Pressable>
           <Pressable style={styles.closeRow} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('close')}>
             <Text style={[styles.closeText, { color: theme.textMuted }]}>{t('close')}</Text>

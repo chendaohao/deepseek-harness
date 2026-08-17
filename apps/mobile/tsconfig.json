@@ -5,8 +5,6 @@
     "noEmit": true
   },
   "include": [
-    "index.ts",
-    "App.tsx",
     "src",
     "tests"
   ]

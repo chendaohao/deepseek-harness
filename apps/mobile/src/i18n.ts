@@ -80,6 +80,18 @@ const zh = {
   pairRejected: '主机拒绝了配对，链接可能已过期',
   pairNoCookie: '主机没有返回会话凭证',
   pairNetwork: '网络连接失败，请检查网络后重试',
+  devicesTitle: '设备绑定',
+  devicesHint: '本机与主机的配对凭证保存在系统安全存储中；绑定设备超过 30 天未使用会自动解绑，每次使用都会刷新计时。',
+  devicesDevice: '本机设备',
+  devicesHost: '主机地址',
+  devicesBound: '已绑定',
+  devicesExpiryHint: '30 天未使用自动解绑，使用中自动续期',
+  devicesRepair: '重新配对',
+  devicesUnbind: '解绑本机',
+  devicesUnbindConfirmTitle: '解绑设备',
+  devicesUnbindConfirmBody: '解绑后需要重新扫码才能连接主机，确定继续吗？',
+  devicesManage: '管理绑定设备',
+  devicesUnknown: '未知设备',
 }
 
 export type I18nKey = keyof typeof zh
@@ -163,6 +175,18 @@ const en: Record<I18nKey, string | string[]> = {
   pairRejected: 'The host rejected the pairing; the link may have expired',
   pairNoCookie: 'The host returned no session credential',
   pairNetwork: 'Network failure, check the connection and retry',
+  devicesTitle: 'Device binding',
+  devicesHint: 'The pairing credential for this host lives in the system secure store; a bound device unused for 30 days is unbound automatically, and every use refreshes the timer.',
+  devicesDevice: 'This device',
+  devicesHost: 'Host address',
+  devicesBound: 'Bound',
+  devicesExpiryHint: 'Auto-unbind after 30 days idle; refreshed by use',
+  devicesRepair: 'Re-pair',
+  devicesUnbind: 'Unbind this device',
+  devicesUnbindConfirmTitle: 'Unbind device',
+  devicesUnbindConfirmBody: 'After unbinding you must scan the QR code again to connect; continue?',
+  devicesManage: 'Manage binding',
+  devicesUnknown: 'Unknown device',
 }
 
 /** Resolve the active dictionary from the device locale (zh* -> zh, else en). */

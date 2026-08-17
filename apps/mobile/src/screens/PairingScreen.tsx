@@ -18,7 +18,7 @@ const FAILURE_KEYS: Record<PairingFailure, I18nKey> = {
 }
 
 /** QR scan + manual URL pairing against the remote-access gate. */
-export function PairScreen({ onPaired }: { onPaired(record: PairingRecord): void | Promise<void> }) {
+export function PairingScreen({ onPaired }: { onPaired(record: PairingRecord): void | Promise<void> }) {
   const [permission, requestPermission] = useCameraPermissions()
   const [manualUrl, setManualUrl] = useState('')
   const [busy, setBusy] = useState(false)

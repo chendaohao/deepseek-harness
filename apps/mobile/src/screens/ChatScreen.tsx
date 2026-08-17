@@ -60,7 +60,12 @@ const CONNECTION_DOT: Record<ConnectionStatus, keyof Theme> = {
 }
 
 /** The paired host chat screen: voice conversation with text and image input. */
-export function ChatScreen({ record, onRepair }: { record: PairingRecord; onRepair(): void }) {
+export function ChatScreen({ record, onRepair, onManageDevices }: {
+  record: PairingRecord
+  onRepair(): void
+  /** Open the bound-device management screen. */
+  onManageDevices(): void
+}) {
   const { controller, snapshot } = useVoiceController(record)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
@@ -476,6 +481,7 @@ export function ChatScreen({ record, onRepair }: { record: PairingRecord; onRepa
         onTtsRate={(rate) => { controller.setTtsRate(rate) }}
         onTtsPitch={(pitch) => { controller.setTtsPitch(pitch) }}
         onRepair={onRepair}
+        onManageDevices={onManageDevices}
       />
     </KeyboardAvoidingView>
   )

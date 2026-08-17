@@ -3,6 +3,8 @@
     "name": "DSH 语音",
     "slug": "dsh-mobile-voice",
     "version": "0.1.0",
+    "main": "expo-router/entry",
+    "scheme": "dshvoice",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
@@ -38,7 +40,8 @@
           "speechRecognitionPermission": "允许 DSH 语音识别你的语音"
         }
       ],
-      "expo-localization"
+      "expo-localization",
+      "expo-router"
     ]
   }
 }

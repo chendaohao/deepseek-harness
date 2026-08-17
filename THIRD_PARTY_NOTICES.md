@@ -65,6 +65,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`expo-image-manipulator`](https://github.com/expo/expo) | MIT |
 | [`expo-image-picker`](https://github.com/expo/expo) | MIT |
 | [`expo-localization`](https://github.com/expo/expo) | MIT |
+| [`expo-router`](https://github.com/expo/expo) | MIT |
 | [`expo-secure-store`](https://github.com/expo/expo) | MIT |
 | [`expo-speech`](https://github.com/expo/expo) | MIT |
 | [`expo-speech-recognition`](https://github.com/jamsch/expo-speech-recognition) | MIT |
@@ -95,6 +96,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`react-native`](https://github.com/react/react-native) | MIT |
 | [`react-native-marked`](https://github.com/gmsgowtham/react-native-marked) | MIT |
 | [`react-native-safe-area-context`](https://github.com/AppAndFlow/react-native-safe-area-context) | MIT |
+| [`react-native-screens`](https://github.com/software-mansion/react-native-screens) | MIT |
 | [`react-native-svg`](https://github.com/react-native-community/react-native-svg) | MIT |
 | [`sharp`](https://github.com/lovell/sharp) | Apache-2.0 |
 | [`shiki`](https://github.com/shikijs/shiki) | MIT |
