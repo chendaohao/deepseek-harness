@@ -391,6 +391,7 @@ const reference = [
   ...pairedPages(([
     ['adding-a-package.md', '新增 Package', 'Adding a package'],
     ['adding-a-tool.md', '新增 Tool', 'Adding a tool'],
+    ['adding-a-typert-remote.md', '新增 Typert Remote', 'Adding a Typert Remote'],
     ['adding-an-llm-adapter.md', '新增 LLM Adapter', 'Adding an LLM adapter'],
     ['extension-cookbook.md', '扩展模式', 'Extension patterns'],
   ] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
@@ -407,7 +408,7 @@ const reference = [
     label: { root: '新增 Conversation Node', en: 'Adding a Conversation Node' },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '开发手册', en: 'Cookbook' },
-    order: 4,
+    order: 5,
   }]),
 ]
 
