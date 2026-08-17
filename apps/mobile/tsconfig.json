@@ -7,6 +7,7 @@
   "include": [
     "index.ts",
     "App.tsx",
-    "src"
+    "src",
+    "tests"
   ]
 }

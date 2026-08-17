@@ -11,6 +11,11 @@ expo-env.d.ts
 ios/
 android/
 
+# Source lib layer: re-included from the root `lib/` build-output ignore so
+# the transport/API sources stay trackable (an ignored src/lib was invisible
+# to git and any ignored-file cleanup wiped it silently).
+!src/lib/
+
 # Metro
 .metro-health-check*
 

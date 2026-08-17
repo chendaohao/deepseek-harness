@@ -2,34 +2,29 @@ import { useEffect, useRef, useState } from 'react'
 import {
   VoiceChatController, type PairingRecord, type VoiceChatSnapshot,
 } from '@deepseek-ai/dsh-client-mobile'
-import { DeviceRecognizer, DeviceSpeaker } from './adapters/speech'
-import { createClient } from './adapters/transport'
+import { VoiceStore } from './state/voice'
 
 /**
- * React binding for the voice controller: one controller per pairing record,
- * created and disposed with the host screen, publishing snapshots into state.
+ * React binding for the voice store: one store per pairing record, created
+ * and disposed with the host screen, publishing snapshots into state.
  */
 export function useVoiceController(record: PairingRecord): {
   controller: VoiceChatController | null
   snapshot: VoiceChatSnapshot | null
 } {
   const [snapshot, setSnapshot] = useState<VoiceChatSnapshot | null>(null)
-  const controllerRef = useRef<VoiceChatController | null>(null)
+  const storeRef = useRef<VoiceStore | null>(null)
 
   useEffect(() => {
-    const controller = new VoiceChatController({
-      client: createClient(record),
-      recognizer: new DeviceRecognizer(),
-      speaker: new DeviceSpeaker(),
-      onSnapshot: setSnapshot,
-    })
-    controllerRef.current = controller
-    controller.connect()
+    const store = new VoiceStore(record)
+    store.subscribe(() => setSnapshot(store.snapshot))
+    store.connect()
+    storeRef.current = store
     return () => {
-      controller.dispose()
-      controllerRef.current = null
+      store.dispose()
+      storeRef.current = null
     }
   }, [record])
 
-  return { controller: controllerRef.current, snapshot }
+  return { controller: storeRef.current?.controller ?? null, snapshot }
 }
