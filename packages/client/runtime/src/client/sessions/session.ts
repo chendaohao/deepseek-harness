@@ -427,10 +427,10 @@ export class Session implements SessionFace {
     this.events = []
     this.views = []
     this.baseSeq = 0
-    // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
-    // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
-    this.pending.clear()
-    this.pendingRev++
+    // Pending waits survive resync on purpose: the disconnect that preceded it
+    // already dropped them (handleDisconnected), and the new generation's
+    // mux-open replay re-mints every still-pending request before onConnected
+    // fires — clearing here would wipe the wait the user still needs to answer.
     this.subscribedLastSeq = null
     this.liveBuffer = []
     this.notifier.markDirty()
@@ -512,6 +512,22 @@ export class Session implements SessionFace {
       default:
         return // stream/error never reaches Session (Controller converges it); unknown frames ignored (documented default)
     }
+  }
+
+  /**
+   * Reconnect teardown: drop this generation's pending waits. The next
+   * mux-open baseline replay re-adds every still-pending request with its
+   * live rpcId, so a wait resolved while disconnected — which sends no
+   * resolved frame — must not survive into the new generation as an
+   * unanswerable card. Runs at disconnect, before any next-generation frame
+   * arrives; resync (onConnected) no longer clears pending, because the
+   * replay has already re-minted by then.
+   */
+  handleDisconnected(): void {
+    if (this.pending.size === 0) return
+    this.pending.clear()
+    this.pendingRev++
+    this.notifier.markDirty()
   }
 
   /**

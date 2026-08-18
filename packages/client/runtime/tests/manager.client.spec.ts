@@ -1025,6 +1025,21 @@ describe('pending-interaction list status', () => {
     const session = manager.get(S1)
     expect(session.getSnapshot().pending).toEqual([])
   })
+
+  it('generation death clears instantiated per-session waits and the replay re-mints them', () => {
+    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
+    const session = manager.get(S1)
+    manager.handleMuxEnvelope({ rpcId: 'rq' as never, payload: { type: 'question/requested', sessionId: S1, questions: [] } })
+    expect(session.getSnapshot().pending).toHaveLength(1)
+    // Generation death clears the wait the user could no longer answer…
+    manager.handleDisconnected()
+    expect(session.getSnapshot().pending).toEqual([])
+    // …and the next stream's mux-open replay (which precedes onConnected)
+    // re-mints the still-pending request so the card comes back.
+    manager.handleMuxEnvelope({ rpcId: 'rq' as never, payload: { type: 'question/requested', sessionId: S1, questions: [] } })
+    expect(session.getSnapshot().pending).toHaveLength(1)
+  })
 })
 
 describe('completed reminder', () => {

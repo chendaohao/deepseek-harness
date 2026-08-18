@@ -644,6 +644,15 @@ describe('pending interactions', () => {
       .toThrow('already settled')
     expect(api.callsOf('respond')).toEqual([])
   })
+
+  it('drops pending waits on disconnect so the next mux-open replay re-adds still-pending ones', () => {
+    const { session } = makeSession()
+    session.handleMuxEnvelope('rq1' as never, { type: 'question/requested', sessionId: SID, questions: [] })
+    session.handleMuxEnvelope('ra1' as never, { type: 'approval/requested', sessionId: SID, approvalId: 'ap1' as never, toolName: 'rm' })
+    expect(session.getSnapshot().pending.map(p => p.kind).sort()).toEqual(['approval', 'question'])
+    session.handleDisconnected()
+    expect(session.getSnapshot().pending).toEqual([])
+  })
 })
 
 describe('remaining branches', () => {
@@ -917,7 +926,7 @@ describe('remaining branches', () => {
 })
 
 describe('resync', () => {
-  it('rebuilds the window and clears pending; cold instances no-op', async () => {
+  it('rebuilds the window and preserves pending; cold instances no-op', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
     await session.open()
@@ -926,12 +935,33 @@ describe('resync', () => {
     await session.resync()
     const snapshot = session.getSnapshot()
     expect(snapshot.openState).toBe('open')
-    expect(snapshot.pending).toEqual([]) // baseline replay re-sends still-pending frames
+    // resync no longer drops pending: the preceding disconnect cleared it, and
+    // the next mux-open replay re-mints still-pending requests before resync runs.
+    expect(snapshot.pending).toHaveLength(1)
+    expect(snapshot.pending[0]).toMatchObject({ kind: 'approval', key: 'a:ra' })
     expect(snapshot.nodes).toHaveLength(4)
 
     const cold = makeSession()
     await cold.session.resync()
     expect(cold.api.calls).toEqual([]) // never opened: no traffic
+  })
+
+  it('keeps a pending question whose reconnect replay was delivered before resync (stream-open precedes onConnected)', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    // Reconnect: the host's mux-open baseline replay re-sends the still-pending
+    // question while the readiness handshake is still in flight — before
+    // onConnected fires. resync() then runs and must not wipe the re-minted wait,
+    // or the question card vanishes until the next full page load.
+    session.handleMuxEnvelope('rq-reconnect' as never, {
+      type: 'question/requested', sessionId: SID, questions: [],
+    })
+    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')])
+    await session.resync()
+    const snapshot = session.getSnapshot()
+    expect(snapshot.pending).toHaveLength(1)
+    expect(snapshot.pending[0]).toMatchObject({ kind: 'question', key: 'q:rq-reconnect' })
   })
 
   it('re-mints a replayed requested frame as a fresh wait with the same key (old reference superseded)', async () => {

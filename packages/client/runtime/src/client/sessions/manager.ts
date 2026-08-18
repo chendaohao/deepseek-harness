@@ -877,13 +877,11 @@ export class SessionManager {
 
   /**
    * The moment a connection generation dies (before any next-generation frame
-   * can arrive — onConnected waits for the readiness handshake while replayed
-   * frames flow from stream open, so clearing there would race the replay):
-   * drop generation-scoped live state. Interactions resolved while disconnected
-   * send no frame, so stale statuses and buffered answerable frames must not
-   * survive into the next generation — mux-open replay re-adds every still-pending
-   * request with its live rpcId.
-  */
+   * can arrive): drop generation-scoped live state. Interactions resolved while
+   * disconnected send no frame, so stale statuses, buffered answerable frames,
+   * and per-session pending waits must not survive into the next generation —
+   * the mux-open replay re-adds every still-pending request with its live rpcId.
+   */
   handleDisconnected(): void {
     if (this.pendingInteractions.size > 0) {
       this.pendingInteractions.clear()
@@ -896,6 +894,7 @@ export class SessionManager {
       if (kept.length === 0) this.pendingBuffers.delete(sessionId)
       else this.pendingBuffers.set(sessionId, kept)
     }
+    for (const session of this.sessions.values()) session.handleDisconnected()
   }
 
   /** After each connection generation: refresh the session baseline and rebuild opened windows. */
