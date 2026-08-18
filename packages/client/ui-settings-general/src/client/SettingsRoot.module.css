@@ -215,6 +215,56 @@
   overflow-y: auto;
 }
 
+/* Narrow viewports stack the settings shell: the fixed 188px nav rail
+   becomes a horizontal strip above the content, so the content column keeps
+   the full panel width instead of a sliver (the panel itself already clamps
+   to the viewport via max-width). */
+@media (max-width: 640px) {
+  .panel {
+    flex-direction: column;
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+  }
+
+  .nav {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 12px 0;
+  }
+
+  .navTitle {
+    flex: none;
+  }
+
+  /* The content column's height is now the flex main axis (the panel is
+     stacked); without a zero minimum it refuses to shrink below its
+     content and blows the panel open — the options area then has no
+     overflow to scroll. */
+  .content {
+    min-height: 0;
+  }
+
+  .navList {
+    flex-direction: row;
+    min-width: 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .navCell {
+    flex: none;
+    height: 34px;
+    padding: 4px 12px;
+  }
+
+  .options {
+    padding: 0 16px 16px;
+  }
+}
+
 /* Visually-hidden text seat (close button accessible name from slot content). */
 .hiddenLabel {
   position: absolute;
