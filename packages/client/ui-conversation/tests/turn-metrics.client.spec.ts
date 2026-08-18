@@ -1,4 +1,4 @@
-// Per-turn latency/throughput fold and the footer figure formatters.
+// Per-turn latency fold and the footer figure formatters.
 
 import { describe, expect, it } from 'vitest'
 import type { AssistantMessageNode, ConversationNode, UserMessageNode } from '@deepseek-ai/dsh-client-runtime/client'
@@ -64,7 +64,7 @@ describe('assistantStepReading', () => {
 })
 
 describe('deriveTurnMetrics', () => {
-  it('takes ttft from the lowest step and throughput over all sampled steps', () => {
+  it('takes ttft from the lowest step', () => {
     const nodes: ConversationNode[] = [
       user(1),
       // Out of step order on purpose: the lowest step owns the ttft slot.
@@ -79,8 +79,7 @@ describe('deriveTurnMetrics', () => {
         usage: { outputTokens: 40 },
       }),
     ]
-    // 100 tokens over 5s of decode.
-    expect(deriveTurnMetrics(nodes).get(1)).toEqual({ ttftMs: 1_200, tokensPerSecond: 20 })
+    expect(deriveTurnMetrics(nodes).get(1)).toEqual({ ttftMs: 1_200 })
   })
 
   it('emits ttft without throughput when no step carries usage', () => {
@@ -91,19 +90,7 @@ describe('deriveTurnMetrics', () => {
     expect(deriveTurnMetrics(nodes).get(1)).toEqual({ ttftMs: 900 })
   })
 
-  it('emits throughput without ttft when only a later step is recorded', () => {
-    const nodes = [
-      assistant({ seq: 2, turn: 1, step: 1 }),
-      assistant({
-        seq: 4, turn: 1, step: 2,
-        timing: { stepStartTime: 10_000, firstTokenTime: 10_500, completedTime: 12_500 },
-        usage: { outputTokens: 30 },
-      }),
-    ]
-    expect(deriveTurnMetrics(nodes).get(1)).toEqual({ tokensPerSecond: 15 })
-  })
-
-  it('omits turns with no readings and zero-decode throughput', () => {
+  it('omits turns with no recorded ttft', () => {
     const nodes = [
       assistant({ seq: 2, turn: 1, step: 1 }),
       assistant({
@@ -131,8 +118,8 @@ describe('deriveTurnMetrics', () => {
       }),
     ]
     const metrics = deriveTurnMetrics(nodes)
-    expect(metrics.get(1)).toEqual({ ttftMs: 400, tokensPerSecond: 10 })
-    expect(metrics.get(2)).toEqual({ ttftMs: 100, tokensPerSecond: 50 })
+    expect(metrics.get(1)).toEqual({ ttftMs: 400 })
+    expect(metrics.get(2)).toEqual({ ttftMs: 100 })
   })
 })
 

@@ -6,7 +6,7 @@ import {
   IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { formatLatencySeconds, formatMessageClock, formatRunDuration, formatTokensPerSecond } from './message-chrome.ts'
+import { formatLatencySeconds, formatMessageClock, formatRunDuration } from './message-chrome.ts'
 import { useCalendarDay } from './use-calendar-day.ts'
 import css from './MessageIconActions.module.css'
 
@@ -19,8 +19,6 @@ export interface MessageIconActionsProps {
   runMs?: number | undefined
   /** Turn first-step TTFT in ms, appended as `· TTFT 1.2s`; omitted when unrecorded. */
   ttftMs?: number | undefined
-  /** Turn decode throughput, appended as `· 34 tok/s`; omitted when unrecorded. */
-  tokensPerSecond?: number | undefined
   /** Clock before icons (user) or after (assistant). */
   clock: 'start' | 'end'
   /** Fork the session at this message; omission hides the branch action. */
@@ -44,7 +42,7 @@ export interface MessageIconActionsProps {
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, className,
+  text, time, runMs, ttftMs, clock, onBranch, branchUnavailable = false, className,
   extraActions, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
@@ -95,14 +93,6 @@ export function MessageIconActions({
           <span className={css.runTimeDot} aria-hidden>·</span>
           {' '}
           {t('message.ttft', { seconds: formatLatencySeconds(ttftMs) })}
-        </>
-      )}
-      {tokensPerSecond !== undefined && (
-        <>
-          {' '}
-          <span className={css.runTimeDot} aria-hidden>·</span>
-          {' '}
-          {t('message.tokensPerSecond', { tps: formatTokensPerSecond(tokensPerSecond) })}
         </>
       )}
     </span>

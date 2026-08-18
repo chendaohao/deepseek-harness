@@ -252,7 +252,6 @@ export function chatSnapshotFixture(input: {
         || preceding?.kind !== 'assistant-step'
         || (preceding.data as ReturnType<typeof assistantData>).finalNode.seq !== closing.finalNode.seq,
       ...metrics?.ttftMs === undefined ? {} : { ttftMs: metrics.ttftMs },
-      ...metrics?.tokensPerSecond === undefined ? {} : { tokensPerSecond: metrics.tokensPerSecond },
     }
     dataStore.set('turn-tail', tailData)
     nodes.push({

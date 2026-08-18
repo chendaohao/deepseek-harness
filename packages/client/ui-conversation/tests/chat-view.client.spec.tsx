@@ -668,16 +668,14 @@ describe('ChatView', () => {
     expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
   })
 
-  it('the settled footer appends first-step ttft and turn decode throughput', () => {
+  it('the settled footer appends first-step ttft but no decode throughput', () => {
     const first: AssistantMessageNode = {
       kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [{ kind: 'text', text: 'mid' }],
       timing: { stepStartTime: 1_000, firstTokenTime: 2_200, completedTime: 5_200 },
-      usage: { outputTokens: 40 },
     }
     const second: AssistantMessageNode = {
       kind: 'assistant', seq: 16, time: 16_000, turn: 1, step: 2, blocks: [{ kind: 'text', text: 'final' }],
       timing: { stepStartTime: 10_000, firstTokenTime: 10_200, completedTime: 12_200 },
-      usage: { outputTokens: 60 },
     }
     const h = makeHarness({
       nodes: [user(1, 'hi'), first, second],
@@ -685,10 +683,10 @@ describe('ChatView', () => {
       turnEnds: new Map([[1, 20]]),
     })
     const view = render(<h.ChatView {...h.props} />)
-    // First-step ttft (1.2s) plus 100 tokens over 5s of decode.
+    // First-step ttft (1.2s); decode throughput stays in StatsLine.
     expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
     expect(view.getAllByText(/首 token 1\.2秒/)).toHaveLength(1)
-    expect(view.getAllByText(/20 tok\/s/)).toHaveLength(1)
+    expect(view.queryByText(/tok\/s/)).toBeNull()
   })
 
   it('withholds ttft and throughput while the turn is still running', () => {
