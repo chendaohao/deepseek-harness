@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import qrcode from 'qrcode-terminal'
 import RemoteAccess, { internals } from '../src/index.ts'
-import { pairingTicket } from '../src/secret.ts'
 
 vi.mock('qrcode-terminal', () => ({
   default: { generate: vi.fn((text: string, _options: unknown, done: (qr: string) => void) => { done('QR:' + text) }) },
@@ -33,6 +32,12 @@ function fakeTunnel() {
   }
 }
 
+interface FakeWebServer {
+  port: number
+  host: string
+  register: ReturnType<typeof vi.fn>
+}
+
 let root: string | undefined
 let context: Context | undefined
 let target: Server | undefined
@@ -42,6 +47,7 @@ let saved: typeof internals
 let logSpy: ReturnType<typeof vi.spyOn>
 let shellEnvRegister: ReturnType<typeof vi.fn<(contributor: unknown) => () => void>>
 let unprovideWebServer: () => void
+let fakeWebServer: FakeWebServer
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'dsh-remote-access-'))
@@ -52,7 +58,8 @@ beforeEach(async () => {
   await new Promise<void>((resolve) => { target!.listen(0, '127.0.0.1', resolve) })
   targetPort = (target.address() as AddressInfo).port
   context = new Context()
-  unprovideWebServer = context.provide('webServer', { port: targetPort, host: '127.0.0.1' })
+  fakeWebServer = { port: targetPort, host: '127.0.0.1', register: vi.fn(() => () => {}) }
+  unprovideWebServer = context.provide('webServer', fakeWebServer)
   context.provide('remoteTunnel', tunnel)
   shellEnvRegister = vi.fn<(contributor: unknown) => () => void>(() => () => {})
   context.provide('shellEnv', { register: shellEnvRegister })
@@ -98,12 +105,33 @@ async function readSecret(): Promise<Buffer> {
   return readFile(join(root!, 'secrets', 'remote-pair'))
 }
 
+/** The most recent printed pair URL, or its one-time token. */
+function lastPairUrl(): string {
+  const matches = logSpy.mock.calls
+    .map((call: unknown[]) => String(call[0]))
+    .filter((line: string) => line.startsWith('dsh web remote: '))
+  const last = matches[matches.length - 1]
+  if (last === undefined) throw new Error('no pair URL was printed')
+  return last.slice('dsh web remote: '.length)
+}
+function pairToken(): string {
+  return lastPairUrl().split('/pair/')[1]!
+}
+
+/** The registered /remote control-plane route the service mounts on the webserver. */
+function controlRoute(): { path: string; handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void } {
+  const route = fakeWebServer.register.mock.calls[0]?.[0]
+  if (route === undefined) throw new Error('no control plane route registered')
+  return route as never
+}
+
 describe('disabled', () => {
   it('registers nothing and starts nothing', async () => {
     await boot({ enabled: false })
     expect(tunnel.open).not.toHaveBeenCalled()
     expect(logSpy).not.toHaveBeenCalled()
     expect(shellEnvRegister).not.toHaveBeenCalled()
+    expect(fakeWebServer.register).not.toHaveBeenCalled()
   })
 })
 
@@ -112,13 +140,11 @@ describe('enabled', () => {
     await boot()
     const proxyPort = tunnel.openPorts[0]!
     expect(proxyPort).toBeGreaterThan(0)
-    const secret = await readSecret()
-    const ticket = pairingTicket(secret, Date.now())
-    const pairUrl = 'https://fake-slug.trycloudflare.com/pair/' + ticket
-    expect(logSpy).toHaveBeenCalledWith('dsh web remote: ' + pairUrl)
+    const pairUrl = lastPairUrl()
+    expect(pairUrl).toMatch(/^https:\/\/fake-slug\.trycloudflare\.com\/pair\/[A-Za-z0-9_-]{20,60}$/)
     expect((qrcode.generate as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(pairUrl, { small: true }, expect.any(Function))
     expect(logSpy).toHaveBeenCalledWith('QR:' + pairUrl)
-    // Every request needs the pairing cookie — loopback-shaped Hosts included,
+    // Every request needs the device cookie — loopback-shaped Hosts included,
     // because behind the tunnel all connections arrive from the loopback
     // address and the Host header is client-controlled.
     const loopbackUnpaired = await rawRequest(proxyPort, '/echo', { host: '127.0.0.1' })
@@ -127,7 +153,7 @@ describe('enabled', () => {
     expect(spoofedUnpaired.status).toBe(401)
     const unpaired = await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example' })
     expect(unpaired.status).toBe(401)
-    const paired = await rawRequest(proxyPort, '/pair/' + ticket, { host: 'fake.tunnel.example' })
+    const paired = await rawRequest(proxyPort, '/pair/' + pairToken(), { host: 'fake.tunnel.example' })
     expect(paired.status).toBe(302)
     const cookie = String(paired.headers['set-cookie']).split(';')[0]!
     const withCookie = await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })
@@ -139,6 +165,29 @@ describe('enabled', () => {
     expect(contributor.resolve({})).toEqual({ DSH_REMOTE_URL: 'https://fake-slug.trycloudflare.com' })
   })
 
+  it('revokes a device through the desktop-only control plane', async () => {
+    await boot()
+    const proxyPort = tunnel.openPorts[0]!
+    const route = controlRoute()
+    expect(route.path).toBe('/remote')
+    const paired = await rawRequest(proxyPort, '/pair/' + pairToken(), { host: 'fake.tunnel.example' })
+    expect(paired.status).toBe(302)
+    const cookie = String(paired.headers['set-cookie']).split(';')[0]!
+    const deviceId = cookie.split('=')[1]!.split('.')[1]!
+    const withCookie = await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })
+    expect(withCookie.status).toBe(200)
+    // Desktop-side revoke (no x-dsh-proxied marker) removes the device.
+    const revokeRes = { writeHead: vi.fn(), end: vi.fn() }
+    route.handler({ url: '/remote/devices/' + deviceId, method: 'POST', headers: {} } as never, revokeRes as never)
+    expect(revokeRes.writeHead).toHaveBeenCalledWith(200, expect.anything())
+    const denied = await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })
+    expect(denied.status).toBe(401)
+    // A tunnel-shaped (marked) request to the control plane is refused outright.
+    const proxiedRes = { writeHead: vi.fn(), end: vi.fn() }
+    route.handler({ url: '/remote/state', method: 'GET', headers: { 'x-dsh-proxied': '1' } } as never, proxiedRes as never)
+    expect(proxiedRes.writeHead).toHaveBeenCalledWith(403, expect.anything())
+  })
+
   it('restarts the tunnel after an unexpected exit and reprints the URL', async () => {
     internals.restartBackoffBaseMs = 1
     await boot()
@@ -146,9 +195,7 @@ describe('enabled', () => {
     tunnel.setUrl('https://replacement-slug.trycloudflare.com')
     context!.emit('remote-tunnel/state', { status: 'ended' })
     await expect.poll(() => tunnel.openPorts.length, { timeout: 2_000 }).toBe(2)
-    const secret = await readSecret()
-    const ticket = pairingTicket(secret, Date.now())
-    expect(logSpy).toHaveBeenCalledWith('dsh web remote: https://replacement-slug.trycloudflare.com/pair/' + ticket)
+    expect(lastPairUrl()).toBe('https://replacement-slug.trycloudflare.com/pair/' + pairToken())
     const contributor = shellEnvRegister.mock.calls[0]?.[0] as { resolve: (execution: unknown) => Record<string, string> }
     expect(contributor.resolve({})).toEqual({ DSH_REMOTE_URL: 'https://replacement-slug.trycloudflare.com' })
   })
@@ -174,12 +221,11 @@ describe('enabled', () => {
 
   it('maps the wildcard webserver bind to the loopback relay target', async () => {
     unprovideWebServer()
-    context!.provide('webServer', { port: targetPort, host: '0.0.0.0' })
+    fakeWebServer = { port: targetPort, host: '0.0.0.0', register: vi.fn(() => () => {}) }
+    context!.provide('webServer', fakeWebServer)
     await boot()
     const proxyPort = tunnel.openPorts[0]!
-    const secret = await readSecret()
-    const ticket = pairingTicket(secret, Date.now())
-    const paired = await rawRequest(proxyPort, '/pair/' + ticket, { host: 'fake.tunnel.example' })
+    const paired = await rawRequest(proxyPort, '/pair/' + pairToken(), { host: 'fake.tunnel.example' })
     expect(paired.status).toBe(302)
     const cookie = String(paired.headers['set-cookie']).split(';')[0]!
     const relayed = await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })
@@ -270,4 +316,3 @@ describe('loader settlement', () => {
     expect(tunnel.openPorts).toHaveLength(0)
   })
 })
-

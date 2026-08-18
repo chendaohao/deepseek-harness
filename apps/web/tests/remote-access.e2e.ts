@@ -1,8 +1,6 @@
 // Keyless remote-access lane: the pairing gate, the 401 pairing page, and the
 // full browser pairing flow through the fake tunnel fixture — no network, no
 // real cloudflared, no model calls.
-import { createHmac } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,15 +9,6 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
-
-// Mirrored from packages/remote/remote-access/src/secret.ts (pairingTicket):
-// the lane cannot import package internals across project roots, and a drift
-// between the two derivations fails this scenario loudly at pairing time.
-function pairingTicket(secret: Buffer, now: number): string {
-  const dayIndex = Math.floor(now / 86_400_000)
-  return createHmac('sha256', secret).update('dsh-remote-ticket:v1:').update(String(dayIndex))
-    .digest().subarray(0, 16).toString('base64url')
-}
 
 const MODE = webSnapshotMode()
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -59,7 +48,7 @@ describe.skipIf(MODE === 'record')('web e2e: remote access pairing', () => {
   let browser: Browser
   let page: Page
   let logSpy: MockInstance<(message?: unknown, ...args: unknown[]) => void>
-  let ticket: string
+  let token: string
 
   beforeAll(async () => {
     process.env.DSH_REMOTE_FIXTURE_BIN = FIXTURE_BIN
@@ -68,8 +57,19 @@ describe.skipIf(MODE === 'record')('web e2e: remote access pairing', () => {
     scaffold = await launchWebScaffold({
       extraOverlayPath: join(REPO_ROOT, 'apps/web/tests/remote-access.overlay.yml'),
     })
-    const secret = await readFile(join(scaffold.harnessHome, 'secrets', 'remote-pair'))
-    ticket = pairingTicket(secret, Date.now())
+    // The printed URL carries the one-time pairing token; wait for the tunnel
+    // to open and extract it, exactly as a terminal user would read the QR.
+    const logged = (): string[] => logSpy.mock.calls.map(call => String(call[0]))
+    const prefix = 'dsh web remote: https://' + FAKE_HOST + '/pair/'
+    const deadline = Date.now() + 15_000
+    let pairLine: string | undefined
+    while (Date.now() < deadline) {
+      pairLine = logged().find(line => line.startsWith(prefix))
+      if (pairLine !== undefined) break
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+    if (pairLine === undefined) throw new Error('pairing URL was not printed')
+    token = pairLine.split('/pair/')[1]!
   }, 120_000)
 
   afterAll(async () => {
@@ -82,8 +82,8 @@ describe.skipIf(MODE === 'record')('web e2e: remote access pairing', () => {
 
   it('prints the pairing URL line and a QR block on the terminal', async () => {
     const logged = (): string[] => logSpy.mock.calls.map(call => String(call[0]))
-    const printedLine = 'dsh web remote: https://' + FAKE_HOST + '/pair/' + ticket
-    await expect.poll(() => logged().includes(printedLine), { timeout: 15_000 }).toBe(true)
+    const printedLine = 'dsh web remote: https://' + FAKE_HOST + '/pair/' + token
+    expect(logged().includes(printedLine)).toBe(true)
     expect(logged().some(line => /[█▀▄]{8,}/.test(line))).toBe(true)
   })
 
@@ -106,11 +106,11 @@ describe.skipIf(MODE === 'record')('web e2e: remote access pairing', () => {
       await saveFailureShot(page, 'remote-access-step1')
       throw new Error('pair page did not appear; url: ' + page.url() + '; content: ' + (await page.content()).slice(0, 1200), { cause: error })
     }
-    // A wrong ticket stays on the pairing page.
+    // A wrong token stays on the pairing page.
     await page.goto(FAKE_ORIGIN + '/pair/AAAA', { waitUntil: 'load' })
     await pairHeading().waitFor({ state: 'visible', timeout: 15_000 })
-    // The correct day-scoped ticket pairs: 302 to /, then the app boots.
-    await page.goto(FAKE_ORIGIN + '/pair/' + ticket, { waitUntil: 'load' })
+    // The correct one-time token pairs: 302 to /, then the app boots.
+    await page.goto(FAKE_ORIGIN + '/pair/' + token, { waitUntil: 'load' })
     try {
       await page.waitForSelector('#root', { timeout: 30_000 })
     } catch (error) {

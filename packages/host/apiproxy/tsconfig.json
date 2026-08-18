@@ -96,6 +96,12 @@
       "path": "../../extensions/cordis-host-runner"
     },
     {
+      "path": "../../remote/remote-access"
+    },
+    {
+      "path": "../../remote/remote-tunnel"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

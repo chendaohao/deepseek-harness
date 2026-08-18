@@ -22,6 +22,9 @@ const HOP_BY_HOP = new Set([
 /** Browser-trust markers normalized away: the main server must see a loopback-shaped request. */
 const BROWSER_TRUST_HEADERS = new Set(['origin', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest', 'sec-fetch-user'])
 
+/** Marker added to every relayed request so the main server can tell tunnel traffic apart. */
+export const PROXIED_HEADER = 'x-dsh-proxied'
+
 /** WebSocket handshake headers, relayed only by the upgrade path. */
 const WEBSOCKET_HEADERS = new Set(['sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol', 'sec-websocket-extensions'])
 
@@ -101,10 +104,11 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       /* v8 ignore next -- parsed header values are strings or arrays, never undefined */
       if (value === undefined) continue
       const lower = name.toLowerCase()
-      if (lower === 'host' || HOP_BY_HOP.has(lower) || BROWSER_TRUST_HEADERS.has(lower) || WEBSOCKET_HEADERS.has(lower)) continue
+      if (lower === 'host' || HOP_BY_HOP.has(lower) || BROWSER_TRUST_HEADERS.has(lower) || WEBSOCKET_HEADERS.has(lower) || lower === PROXIED_HEADER) continue
       headers[name] = value
     }
     headers.host = targetHost + ':' + String(targetPort)
+    headers[PROXIED_HEADER] = '1'
     headers.connection = 'close'
     const proxyReq = httpRequest({
       host: targetHost,

@@ -2,13 +2,16 @@
  * @deepseek-ai/dsh-remote-access — the remote-access consumer of the
  * remote-tunnel capability for the dsh Web GUI. When enabled (the shipped
  * row derives it from the --remote flag), it owns the pairing secret, the
- * loopback reverse proxy with its pairing gate, the /pair/<ticket> exchange,
- * the tunnel lifecycle with restart on child exit, and the terminal URL +
- * QR-code surface. It registers DSH_REMOTE_URL through the shell-env seam.
+ * revocable device registry, the loopback reverse proxy with its pairing gate,
+ * the /pair/<token> exchange, the tunnel lifecycle with restart on child exit,
+ * the terminal URL + QR-code surface, and the desktop-only /remote/* control
+ * plane the in-GUI panel drives. It registers DSH_REMOTE_URL through the
+ * shell-env seam.
  * @module @deepseek-ai/dsh-remote-access
  */
 
 import { setTimeout as sleepMs } from 'node:timers/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -16,9 +19,10 @@ import qrcode from 'qrcode-terminal'
 import type { RemoteTunnelSession } from '@deepseek-ai/dsh-remote-tunnel'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-shell-env'
-import { ensurePairingSecret, pairingTicket } from './secret.ts'
+import { ensurePairingSecret } from './secret.ts'
 import { createAccessPolicy } from './policy.ts'
-import { createRemoteProxy, type RemoteProxyHandle } from './proxy.ts'
+import { createRemoteProxy, PROXIED_HEADER, type RemoteProxyHandle } from './proxy.ts'
+import { DeviceRegistry } from './devices.ts'
 
 /** Restart attempts after an unexpected tunnel exit before giving up. */
 const RESTART_MAX = 5
@@ -37,7 +41,7 @@ const PAIR_PATH = '/pair/'
 export interface Config {
   /** Whether the proxy, gate, and tunnel run at all; false leaves the plugin inert. */
   enabled: boolean
-  /** Rotate the persisted pairing secret before opening the tunnel. */
+  /** Rotate the persisted pairing secret and revoke every device before opening the tunnel. */
   resetSecret: boolean
 }
 
@@ -47,8 +51,9 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * The remote-access Service (ctx key remoteAccess): pairing gate, reverse
- * proxy, tunnel lifecycle, and the URL/QR presentation of the capability.
+ * The remote-access Service (ctx key remoteAccess): pairing gate, device
+ * registry, reverse proxy, tunnel lifecycle, and the URL/QR + control-plane
+ * presentation of the capability.
  */
 export class RemoteAccess extends Service {
   static inject = ['remoteTunnel', 'webServer', 'shellEnv']
@@ -57,6 +62,7 @@ export class RemoteAccess extends Service {
   private secret: Buffer | undefined
   private proxy: RemoteProxyHandle | undefined
   private session: RemoteTunnelSession | undefined
+  private devices: DeviceRegistry | undefined
   private disposed = false
   private restarts = 0
 
@@ -72,13 +78,27 @@ export class RemoteAccess extends Service {
     if (!this.config.enabled) return
     // Resolved at init: the harness home must reflect the live environment.
     this.secret = await ensurePairingSecret(dshHomePath('secrets', 'remote-pair'), this.config.resetSecret)
-    const policy = createAccessPolicy(this.secret)
+    this.devices = new DeviceRegistry(dshHomePath('secrets', 'remote-roster.json'))
+    await this.devices.load()
+    if (this.config.resetSecret) {
+      this.devices.revokeAll()
+      await this.persistDevices()
+    }
+    // Wire the emitter before the proxy starts serving: a pairing can register
+    // a device as soon as the gate accepts traffic.
+    this.devices.onChange = (structural) => {
+      this.emitDeviceChange()
+      if (structural) void this.persistDevices()
+    }
+    const policy = createAccessPolicy(this.secret, this.devices)
     // The webserver binds either the loopback address or the all-interfaces
     // wildcard; only the wildcard needs mapping to a connectable destination.
     const targetHost = this.ctx.webServer.host === '0.0.0.0' ? '127.0.0.1' : this.ctx.webServer.host
     this.proxy = await createRemoteProxy({ targetPort: this.ctx.webServer.port, targetHost, policy })
+    this.registerControlPlane()
     this.ctx.effect(() => async () => {
       this.disposed = true
+      if (this.devices !== undefined) this.devices.onChange = undefined
       await this.session?.close()
       await this.proxy?.close()
     }, 'remoteAccess.dispose')
@@ -125,17 +145,15 @@ export class RemoteAccess extends Service {
     }
   }
 
-  /** Print the pairing URL line plus its terminal QR code. */
+  /** Print the pairing URL line plus its terminal QR code (one-time token). */
   private printPairUrl(url: string): void {
-    const secret = this.secret
-    /* v8 ignore next -- printPairUrl only runs after init stored the secret */
-    if (secret === undefined) return
-    const pairUrl = url + PAIR_PATH + pairingTicket(secret, Date.now())
+    if (this.devices === undefined) return
+    const token = this.devices.issueToken(Date.now())
+    const pairUrl = url + PAIR_PATH + token
     console.log('dsh web remote: ' + pairUrl)
     qrcode.generate(pairUrl, { small: true }, (qr) => { console.log(qr) })
   }
 
-  /** Register the DSH_REMOTE_URL shell-env fact, present only while a session is live. */
   /** Whether the owning fiber disposed this service. */
   private isDisposed(): boolean {
     return this.disposed
@@ -150,7 +168,97 @@ export class RemoteAccess extends Service {
       resolve: () => this.session === undefined ? {} : { DSH_REMOTE_URL: this.session.url },
     })
   }
+
+  /** Desktop-only control plane backing the in-GUI remote panel; tunnel traffic is refused. */
+  private registerControlPlane(): void {
+    this.ctx.effect(
+      () => this.ctx.webServer.register({ kind: 'prefix', path: '/remote', handler: this.handleControl.bind(this) }),
+      'remote-access: control plane',
+    )
+  }
+
+  private handleControl(req: IncomingMessage, res: ServerResponse): void {
+    if (req.headers[PROXIED_HEADER] !== undefined) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('forbidden')
+      return
+    }
+    const rawPath = new URL(req.url ?? '/', 'http://x').pathname
+    if (req.method === 'GET' && rawPath === '/remote/state') return this.respondState(res)
+    if (req.method === 'GET' && rawPath === '/remote/devices') return this.respondDevices(res)
+    if (req.method === 'POST' && rawPath === '/remote/pair/issue') return this.issuePair(res)
+    if (req.method === 'POST' && rawPath === '/remote/stop') return this.stopAll(res)
+    if (req.method === 'POST' && rawPath.startsWith('/remote/devices/')) {
+      return this.revokeDevice(decodeURIComponent(rawPath.slice('/remote/devices/'.length)), res)
+    }
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+    res.end('not found')
+  }
+
+  private respondState(res: ServerResponse): void {
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({
+      tunnelUrl: this.session?.url ?? null,
+      tunnelStatus: this.session === undefined ? 'down' : 'open',
+      devices: this.devices?.snapshot() ?? [],
+    }))
+  }
+
+  private respondDevices(res: ServerResponse): void {
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({ devices: this.devices?.snapshot() ?? [] }))
+  }
+
+  private issuePair(res: ServerResponse): void {
+    const url = this.session?.url
+    if (url === undefined) {
+      res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('tunnel unavailable')
+      return
+    }
+    if (this.devices === undefined) {
+      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('device store unavailable')
+      return
+    }
+    const token = this.devices.issueToken(Date.now())
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({ url: url + PAIR_PATH + token }))
+  }
+
+  private stopAll(res: ServerResponse): void {
+    this.devices?.revokeAll()
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    res.end('{}')
+  }
+
+  private revokeDevice(deviceId: string, res: ServerResponse): void {
+    const removed = this.devices?.revoke(deviceId) ?? false
+    if (!removed) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('not found')
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    res.end('{}')
+  }
+
+  private emitDeviceChange(): void {
+    try {
+      this.ctx.emit('remote/devices/change', this.devices?.snapshot() ?? [])
+    } catch (error) {
+      // A throwing listener must not abort the proxy request path that fired it.
+      this.ctx.logger.error(error)
+    }
+  }
+
+  private async persistDevices(): Promise<void> {
+    try {
+      await this.devices?.persist()
+    } catch (error) {
+      this.ctx.logger.error('remote-access: could not persist the device registry: %s', error instanceof Error ? error.message : String(error))
+    }
+  }
 }
 
 export default RemoteAccess
-

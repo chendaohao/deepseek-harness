@@ -209,6 +209,15 @@
     - id: ui-settings-models
       name: '@deepseek-ai/dsh-client-ui-settings-models'
 
+    # Desktop mobile-remote-control trigger beside Settings in the sidebar
+    # foot; the row stays inert (host-side gate alongside remote-access) until
+    # `--remote` enables it. The /m mobile surface is a later phase.
+    - id: client-ui-remote
+      name: '@deepseek-ai/dsh-client-ui-remote'
+      inject: [webStartup]
+      config:
+        enabled: !!js ctx.webStartup.remote ?? false
+
     - id: ui-settings-plugin-inventory
       name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
 

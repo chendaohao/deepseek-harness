@@ -13,7 +13,7 @@ import { setTimeout as sleepMs } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import WebSocket, { WebSocketServer, type RawData } from 'ws'
 import { PAIR_REQUIRED_PAGE, createAccessPolicy, type AccessPolicy } from '../src/policy.ts'
-import { pairingTicket } from '../src/secret.ts'
+import { DeviceRegistry } from '../src/devices.ts'
 import { createRemoteProxy, internals as proxyInternals, type RemoteProxyHandle } from '../src/proxy.ts'
 
 let target: Server | undefined
@@ -36,6 +36,7 @@ beforeEach(async () => {
         host: req.headers.host,
         origin: req.headers.origin ?? null,
         secFetchSite: req.headers['sec-fetch-site'] ?? null,
+        xProxied: req.headers['x-dsh-proxied'] ?? null,
         body: Buffer.concat(chunks).toString('utf8'),
       }))
       receivedBodies.push(Buffer.concat(chunks).toString('utf8'))
@@ -77,13 +78,14 @@ function rawRequest(port: number, path: string, headers: Record<string, string>,
 }
 
 describe('HTTP relaying', () => {
-  it('relays method, path, and body, normalizing host and browser-trust headers', async () => {
+  it('relays method, path, and body, normalizing host, browser-trust headers, and the proxy marker', async () => {
     const proxy = await startProxy()
     const response = await rawRequest(proxy.port, '/api/echo?q=1', {
       host: 'fake.tunnel.example',
       origin: 'https://fake.tunnel.example',
       'sec-fetch-site': 'cross-site',
       'x-extra': 'kept',
+      'x-dsh-proxied': 'spoofed',
     }, 'hello')
     expect(response.status).toBe(201)
     expect(response.headers['x-proxied']).toBe('yes')
@@ -93,6 +95,9 @@ describe('HTTP relaying', () => {
     expect(echoed.host).toBe('127.0.0.1:' + String(targetPort))
     expect(echoed.origin).toBeNull()
     expect(echoed.secFetchSite).toBeNull()
+    // An inbound marker is stripped and the proxy stamps its own, so the main
+    // server can tell tunnel-originated traffic apart from desktop loopback.
+    expect(echoed.xProxied).toBe('1')
     expect(echoed.body).toBe('hello')
   })
 
@@ -365,13 +370,14 @@ describe('teardown', () => {
 })
 
 describe('createAccessPolicy integration', () => {
-  it('lets a paired cookie through the real proxy to the target', async () => {
+  it('pairs a one-time token through the real proxy; revoking the device then kills the cookie', async () => {
     const secret = randomBytes(32)
-    const realPolicy = createAccessPolicy(secret, { now: () => Date.now() })
+    const devices = new DeviceRegistry(undefined)
+    const realPolicy = createAccessPolicy(secret, devices, { now: () => Date.now() })
     await proxy?.close()
     proxy = await createRemoteProxy({ targetPort, policy: realPolicy })
-    const ticket = pairingTicket(secret, Date.now())
-    const pair = await rawRequest(proxy.port, '/pair/' + ticket, { host: 'fake.tunnel.example' })
+    const token = devices.issueToken(Date.now())
+    const pair = await rawRequest(proxy.port, '/pair/' + token, { host: 'fake.tunnel.example' })
     expect(pair.status).toBe(302)
     const cookieHeader = pair.headers['set-cookie']
     const cookie = (Array.isArray(cookieHeader) ? (cookieHeader[0] ?? '') : cookieHeader ?? '').split(';')[0]!
@@ -379,6 +385,13 @@ describe('createAccessPolicy integration', () => {
     expect(unpaired.status).toBe(401)
     const paired = await rawRequest(proxy.port, '/', { host: 'fake.tunnel.example', cookie })
     expect(paired.status).toBe(201)
+    // The consumed token cannot pair again; revoking the device ends the cookie.
+    const reused = await rawRequest(proxy.port, '/pair/' + token, { host: 'fake.tunnel.example' })
+    expect(reused.status).toBe(401)
+    const deviceId = cookie.split('=')[1]!.split('.')[1]!
+    devices.revoke(deviceId)
+    const denied = await rawRequest(proxy.port, '/', { host: 'fake.tunnel.example', cookie })
+    expect(denied.status).toBe(401)
   })
 })
 

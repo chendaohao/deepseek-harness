@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  COOKIE_MAX_AGE_DAYS, COOKIE_NAME, dayIndex, ensurePairingSecret, mintCookie, pairingTicket, verifyCookie, verifyTicket,
+  COOKIE_MAX_AGE_DAYS, COOKIE_NAME, dayIndex, ensurePairingSecret, mintCookie, verifyCookie,
 } from '../src/secret.ts'
 
 const DAY_MS = 86_400_000
+const DEVICE_ID = 'aAbB09_-cCdD12_ef'
 let root: string | undefined
 
 // The race arms below exercise the module's fs calls; everything else runs the real implementations.
@@ -136,46 +137,42 @@ describe('ensurePairingSecret', () => {
   })
 })
 
-describe('pairing tickets', () => {
-  it('derives deterministically and verifies within the same UTC day', () => {
-    const secret = randomBytes(32)
-    const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const ticket = pairingTicket(secret, now)
-    expect(ticket).toMatch(/^[A-Za-z0-9_-]{20,30}$/)
-    expect(verifyTicket(secret, ticket, now)).toBe(true)
-    expect(verifyTicket(secret, ticket, now + 3_600_000)).toBe(true)
-  })
-
-  it('rotates with the day index and rejects tampering', () => {
-    const secret = randomBytes(32)
-    const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const ticket = pairingTicket(secret, now)
-    expect(verifyTicket(secret, ticket, now + DAY_MS)).toBe(false)
-    expect(verifyTicket(secret, 'AAAA', now)).toBe(false)
-    expect(verifyTicket(randomBytes(32), ticket, now)).toBe(false)
+describe('dayIndex', () => {
+  it('scopes by the UTC day', () => {
+    expect(dayIndex(0)).toBe(0)
+    expect(dayIndex(DAY_MS - 1)).toBe(0)
+    expect(dayIndex(DAY_MS)).toBe(1)
+    expect(dayIndex(Date.UTC(2026, 7, 14, 12, 0, 0))).toBe(dayIndex(Date.UTC(2026, 7, 14, 0, 0, 0)))
   })
 })
 
-describe('session cookies', () => {
-  it('round-trips through verifyCookie', () => {
+describe('device cookies', () => {
+  it('round-trips the admitted device id through verifyCookie', () => {
     const secret = randomBytes(32)
     const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const { value } = mintCookie(secret, now)
-    expect(value).toMatch(/^v1\.\d+\.[A-Za-z0-9_-]{32}$/)
-    expect(verifyCookie(secret, value, now)).toBe(true)
-    expect(verifyCookie(secret, value, now + COOKIE_MAX_AGE_DAYS * DAY_MS - 1)).toBe(true)
+    const { value } = mintCookie(secret, DEVICE_ID, now)
+    expect(value).toMatch(/^v2\.[A-Za-z0-9_-]+\.[0-9]+\.[A-Za-z0-9_-]{32}$/)
+    expect(verifyCookie(secret, value, now)).toBe(DEVICE_ID)
+    expect(verifyCookie(secret, value, now + COOKIE_MAX_AGE_DAYS * DAY_MS - 1)).toBe(DEVICE_ID)
   })
 
-  it('rejects expiry, tampering, and malformed values', () => {
+  it('binds the mac to the device id, so swapping ids invalidates the cookie', () => {
     const secret = randomBytes(32)
     const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const { value } = mintCookie(secret, now)
-    expect(verifyCookie(secret, value, now + (COOKIE_MAX_AGE_DAYS + 1) * DAY_MS)).toBe(false)
-    expect(verifyCookie(secret, undefined, now)).toBe(false)
-    expect(verifyCookie(secret, 'garbage', now)).toBe(false)
-    expect(verifyCookie(secret, 'v1.' + String(dayIndex(now) + 1) + '.AAAA', now)).toBe(false)
-    expect(verifyCookie(randomBytes(32), value, now)).toBe(false)
+    const { value } = mintCookie(secret, DEVICE_ID, now)
+    const swapped = value.replace(DEVICE_ID, 'aAbB09_-cCdD12_ff')
+    expect(verifyCookie(secret, swapped, now)).toBeUndefined()
+  })
+
+  it('rejects expiry, tampering, malformed values, and a wrong secret', () => {
+    const secret = randomBytes(32)
+    const now = Date.UTC(2026, 7, 14, 12, 0, 0)
+    const { value } = mintCookie(secret, DEVICE_ID, now)
+    expect(verifyCookie(secret, value, now + (COOKIE_MAX_AGE_DAYS + 1) * DAY_MS)).toBeUndefined()
+    expect(verifyCookie(secret, undefined, now)).toBeUndefined()
+    expect(verifyCookie(secret, 'garbage', now)).toBeUndefined()
+    expect(verifyCookie(secret, 'v2.' + DEVICE_ID + '.' + String(dayIndex(now) + 1) + '.AAAA', now)).toBeUndefined()
+    expect(verifyCookie(randomBytes(32), value, now)).toBeUndefined()
     expect(COOKIE_NAME).toBe('dsh_remote')
   })
 })
-

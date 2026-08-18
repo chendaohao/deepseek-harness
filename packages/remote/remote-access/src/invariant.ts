@@ -15,10 +15,10 @@ export const name = 'remote-access-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the owned relationships (secret-derived tickets and
- * cookies, the gate matrix, proxy header normalization, and tunnel/restart
- * lifecycle) are exercised by unit tests and the keyless browser e2e; the
- * service emits no event stream a companion could observe.
+ * No runtime invariant: the owned relationships (one-time pairing tokens,
+ * device-scoped cookies, the gate matrix, proxy header normalization, and
+ * tunnel/restart lifecycle) are exercised by unit tests and the keyless
+ * browser e2e; the service emits no event stream a companion could observe.
  */
 const install: InvariantInstaller = () => {}
 

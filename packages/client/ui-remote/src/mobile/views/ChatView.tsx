@@ -1,0 +1,559 @@
+/**
+ * Chat level: one session. Loads the history tail page on open, appends pages
+ * upward (loadOlder), folds live `session/event` frames in as they arrive, and
+ * sends prompts through `session.prompt`. Rendering derives only from the
+ * history pulls and live frames — no local model-visible state.
+ *
+ * Small-screen parity with the desktop fold: reasoning text hides behind a
+ * collapsed "深度思考" disclosure, tool calls behind a collapsed tool
+ * disclosure, very long assistant text collapses with an explicit expand
+ * toggle, and a toolbar above the composer carries the model picker as a
+ * bottom sheet. The header rename affordance calls `session.rename`.
+ */
+
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { ModelSelection, SessionModels } from '../api.ts'
+import { history as fetchHistory, models, prompt, renameSession, selectModel } from '../api.ts'
+import type { EventsClient, SessionEventFrame } from '../events.ts'
+import { foldEvents, type RenderMessage, type ToolCallInfo, type WireEvent } from '../messages.ts'
+import { ThemeToggle } from '../ThemeToggle.tsx'
+import { errorText, formatTime, staleHostHint, type SessionView } from './App.tsx'
+
+/** Props for the chat view. */
+export interface ChatViewProps {
+  session: SessionView
+  /** The page-lifetime live-event client (undefined before the first effect tick). */
+  events?: EventsClient | undefined
+  onBack: () => void
+}
+
+/** Extract the raw event from one history entry (the fold consumes events only). */
+function eventOf(entry: { event: WireEvent }): WireEvent {
+  return entry.event
+}
+
+/** First non-empty line of reasoning text (the collapsed summary). */
+function firstMeaningfulLine(text: string): string {
+  const trimmed = text.trim()
+  if (trimmed === '') return ''
+  const newline = trimmed.indexOf('\n')
+  return newline === -1 ? trimmed : trimmed.slice(0, newline)
+}
+
+/** Latest non-empty line of a streaming reasoning buffer. */
+function lastLine(text: string): string {
+  const trimmed = text.trimEnd()
+  if (trimmed === '') return ''
+  const newline = trimmed.lastIndexOf('\n')
+  const line = newline === -1 ? trimmed : trimmed.slice(newline + 1)
+  return line.trim() === '' ? '' : line
+}
+
+/**
+ * Render one session's chat.
+ * @param props - the session, the live-event client, and the back action.
+ * @returns the chat surface.
+ */
+export function ChatView({ session, events, onBack }: ChatViewProps) {
+  const [messages, setMessages] = useState<RenderMessage[]>([])
+  const [hasOlder, setHasOlder] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState(session.title)
+  const [renameError, setRenameError] = useState<string | undefined>(undefined)
+  const [currentModel, setCurrentModel] = useState<ModelSelection | undefined>(undefined)
+  const [sheet, setSheet] = useState<'model' | null>(null)
+  const [title, setTitle] = useState(session.title)
+  const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
+  const pendingRef = useRef(false)
+
+  // Tail page on open (content loads only when the session is opened).
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(undefined)
+    setMessages([])
+    void fetchHistory(session.sessionId).then(
+      (result) => {
+        if (cancelled) return
+        if (result.ok) {
+          setMessages(foldEvents(result.value.events.map(eventOf)))
+          setHasOlder(result.value.hasMore)
+        } else {
+          setError(errorText(result.error))
+        }
+        setLoading(false)
+      },
+      (reason: unknown) => {
+        if (cancelled) return
+        setError(errorText(reason))
+        setLoading(false)
+      },
+    )
+    // Best-effort current-model label for the toolbar chip; the sheet always
+    // re-reads a fresh directory on open.
+    void models(session.sessionId).then(
+      (result) => {
+        if (!cancelled && result.ok) setCurrentModel(result.value.current)
+      },
+      () => { /* chip falls back to a plain label */ },
+    )
+    return () => { cancelled = true }
+  }, [session.sessionId])
+
+  // Live frames: fold session events for this session in as they arrive.
+  useEffect(() => {
+    if (events === undefined) return
+    return events.onFrame((frame: SessionEventFrame) => {
+      if (frame.sessionId !== session.sessionId) return
+      setMessages(previous => foldEvents([frame.event], previous))
+    })
+  }, [events, session.sessionId])
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (el === undefined) return
+    el.scrollTop = el.scrollHeight
+  }, [])
+
+  // Keep the newest content visible (initial tail, live chunks, finalization).
+  const lastMessageKeyRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const last = messages[messages.length - 1]
+    if (last === undefined) return
+    const key = `${last.seq}:${last.pending === true ? 'p' : 'f'}`
+    if (key === lastMessageKeyRef.current) return
+    lastMessageKeyRef.current = key
+    scrollToBottom()
+  }, [messages, scrollToBottom])
+
+  /** Load one older page and prepend it (host page boundaries never cut a message). */
+  const loadOlder = useCallback(() => {
+    if (pendingRef.current) return
+    pendingRef.current = true
+    setLoading(true)
+    const first = messages[0]
+    if (first === undefined) {
+      pendingRef.current = false
+      setLoading(false)
+      return
+    }
+    void fetchHistory(session.sessionId, first.seq).then(
+      (result) => {
+        pendingRef.current = false
+        setLoading(false)
+        if (result.ok) {
+          const older = foldEvents(result.value.events.map(eventOf))
+          setMessages(previous => [...older, ...previous])
+          setHasOlder(result.value.hasMore)
+        } else {
+          setError(errorText(result.error))
+        }
+      },
+      (reason: unknown) => {
+        pendingRef.current = false
+        setLoading(false)
+        setError(errorText(reason))
+      },
+    )
+  }, [session.sessionId, messages])
+
+  /** Send the drafted prompt (the echoed user/message arrives over the live stream). */
+  const send = useCallback(() => {
+    const text = input.trim()
+    if (text === '' || sending) return
+    setSending(true)
+    void prompt(session.sessionId, text).then(
+      (result) => {
+        setSending(false)
+        if (result.ok) setInput('')
+        else setError(errorText(result.error))
+      },
+      (reason: unknown) => {
+        setSending(false)
+        setError(errorText(reason))
+      },
+    )
+  }, [input, sending, session.sessionId])
+
+  /** Commit the rename and update the header title. */
+  const commitRename = useCallback(() => {
+    const titleValue = renameValue.trim()
+    if (titleValue === '' || titleValue === title) {
+      setRenaming(false)
+      return
+    }
+    setRenameError(undefined)
+    void renameSession(session.sessionId, titleValue).then(
+      (result) => {
+        if (result.ok) {
+          setTitle(result.value.title)
+          setRenameValue(result.value.title)
+          setRenaming(false)
+        } else {
+          setRenameError(errorText(result.error))
+        }
+      },
+      () => {
+        setRenameError('重命名失败')
+      },
+    )
+  }, [renameValue, title, session.sessionId])
+
+  const modelLabel = currentModel?.model ?? '模型'
+
+  return (
+    <div className="chat">
+      <header className="mobile-header">
+        <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+        <h1 className="mobile-title mobile-titleInline">{renaming ? '重命名会话' : title}</h1>
+        <button
+          type="button"
+          className="mobile-rename"
+          aria-label="重命名会话"
+          onClick={() => { setRenaming(value => !value); setRenameValue(title); setRenameError(undefined) }}
+        >
+          ✎
+        </button>
+        <ThemeToggle />
+      </header>
+      {renaming && (
+        <div className="rename-row">
+          <input
+            type="text"
+            className="rename-input"
+            value={renameValue}
+            placeholder="输入新标题…"
+            onChange={(event) => { setRenameValue(event.target.value) }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') { event.preventDefault(); commitRename() }
+              if (event.key === 'Escape') setRenaming(false)
+            }}
+          />
+          <button type="button" className="rename-save" onClick={() => { commitRename() }}>
+            保存
+          </button>
+        </div>
+      )}
+      {renameError !== undefined && <p className="mobile-error mobile-pad">{renameError}</p>}
+      {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
+      <div className="chat-scroll" ref={(ref) => { scrollRef.current = ref ?? undefined }}>
+        {hasOlder && (
+          <button type="button" className="chat-load-older" disabled={loading} onClick={() => { loadOlder() }}>
+            {loading ? '加载中…' : '加载更早的消息'}
+          </button>
+        )}
+        {messages.map(message => <MessageRow key={message.id} message={message} />)}
+        {loading && messages.length === 0 && <p className="chat-typing">加载中…</p>}
+        {!loading && messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
+      </div>
+      <div className="chat-tools">
+        <button type="button" className="chat-chip" onClick={() => { setSheet('model') }} aria-haspopup="dialog">
+          <span className="chat-chip-label">模型</span>
+          <span className="chat-chip-value">{modelLabel}</span>
+          <span className="chat-chip-chevron" aria-hidden>›</span>
+        </button>
+      </div>
+      <div className="chat-inputbar">
+        <textarea
+          className="chat-input"
+          rows={1}
+          value={input}
+          placeholder="输入消息，Enter 发送…"
+          enterKeyHint="send"
+          onChange={(event) => { setInput(event.target.value) }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              send()
+            }
+          }}
+        />
+        <button type="button" className="chat-send" disabled={sending || input.trim() === ''} onClick={() => { send() }}>
+          {sending ? '发送中…' : '发送'}
+        </button>
+      </div>
+      {sheet === 'model' && (
+        <ModelSheet
+          sessionId={session.sessionId}
+          current={currentModel}
+          onCurrent={(selection) => { setCurrentModel(selection) }}
+          onClose={() => { setSheet(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── message rows ─────────────────────────────────────────────────────── */
+
+/** One rendered message row (user bubble or assistant bubble with folds). */
+function MessageRow({ message }: { message: RenderMessage }) {
+  return (
+    <div className={`chat-msg chat-msg-${message.kind}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}`}>
+      {message.kind === 'assistant' && message.reasoning !== undefined && message.reasoning !== '' && (
+        <ReasoningDisclosure text={message.reasoning} pending={message.pending === true} />
+      )}
+      {message.kind === 'assistant' && message.tools !== undefined && message.tools.length > 0 && (
+        <ToolDisclosure tools={message.tools} />
+      )}
+      <CollapsibleText text={message.text} />
+      {message.failed === true && <span className="chat-msg-failtag">本次回复失败</span>}
+      <span className="chat-msg-time">{formatTime(message.time)}</span>
+    </div>
+  )
+}
+
+/** Collapsed-by-default reasoning disclosure. */
+function ReasoningDisclosure({ text, pending }: { text: string; pending: boolean }) {
+  const [open, setOpen] = useState(false)
+  const summary = pending ? lastLine(text) : firstMeaningfulLine(text)
+  return (
+    <div className={`chat-disclosure chat-reasoning${open ? ' chat-disclosure-open' : ''}`} data-pending={pending || undefined}>
+      <button
+        type="button"
+        className="chat-disclosure-head"
+        aria-expanded={open}
+        onClick={() => { setOpen(value => !value) }}
+      >
+        <span className="chat-disclosure-caret" aria-hidden>›</span>
+        <span className="chat-disclosure-label">{pending ? '思考中…' : '深度思考'}</span>
+        {!open && <span className="chat-disclosure-summary">{summary}</span>}
+      </button>
+      {open && <div className="chat-disclosure-body">{text}</div>}
+    </div>
+  )
+}
+
+/** Collapsed-by-default tool-call disclosure: summary row + expandable details. */
+function ToolDisclosure({ tools }: { tools: ToolCallInfo[] }) {
+  const [open, setOpen] = useState(false)
+  const names = [...new Set(tools.map(tool => tool.name))].join(' / ')
+  return (
+    <div className={`chat-disclosure chat-tools${open ? ' chat-disclosure-open' : ''}`}>
+      <button
+        type="button"
+        className="chat-disclosure-head"
+        aria-expanded={open}
+        onClick={() => { setOpen(value => !value) }}
+      >
+        <span className="chat-disclosure-caret" aria-hidden>›</span>
+        <span className="chat-disclosure-label">工具</span>
+        {!open && <span className="chat-disclosure-summary">{names}</span>}
+        <span className="chat-disclosure-count">{tools.length} 次</span>
+      </button>
+      {open && (
+        <div className="chat-disclosure-body chat-tools-body">
+          {tools.map((tool, index) => (
+            <div className="chat-tool-item" key={`${tool.callId}-${index}`}>
+              <span className="chat-tool-name">{tool.name}</span>
+              {tool.arguments !== undefined && <pre className="chat-tool-args">{tool.arguments}</pre>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const LONG_TEXT_LIMIT = 1600
+const LONG_TEXT_PREVIEW = 800
+
+/** Long assistant text collapses behind an explicit expand toggle. */
+function CollapsibleText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  if (text.length <= LONG_TEXT_LIMIT) {
+    return <span className="chat-msg-text">{text}</span>
+  }
+  const shown = open ? text : text.slice(0, LONG_TEXT_PREVIEW)
+  return (
+    <span className="chat-msg-text">
+      {shown}{!open ? '…' : ''}
+      <button type="button" className="chat-msg-toggle" onClick={() => { setOpen(value => !value) }}>
+        {open ? '收起' : `展开全文（${text.length} 字）`}
+      </button>
+    </span>
+  )
+}
+
+/* ── bottom sheet ─────────────────────────────────────────────────────── */
+
+/** Shared bottom-sheet chrome (backdrop + slide-up panel). */
+function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(event) => { event.stopPropagation() }}
+      >
+        <div className="sheet-handle" aria-hidden />
+        <div className="sheet-title">{title}</div>
+        <div className="sheet-body">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+/** The model + thinking-effort picker (fresh advisory directory per open). */
+function ModelSheet({ sessionId, current, onCurrent, onClose }: {
+  sessionId: string
+  current: ModelSelection | undefined
+  onCurrent: (selection: ModelSelection) => void
+  onClose: () => void
+}) {
+  const [state, setState] = useState<{ status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: SessionModels }>({ status: 'loading' })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  const load = useCallback(() => {
+    setState({ status: 'loading' })
+    void models(sessionId).then(
+      (result) => {
+        if (result.ok) setState({ status: 'ready', data: result.value })
+        else setState({ status: 'error', message: errorText(result.error) })
+      },
+      () => { setState({ status: 'error', message: '模型目录加载失败' }) },
+    )
+  }, [sessionId])
+
+  useEffect(() => { load() }, [load])
+
+  /** Select model/effort and close on success (one-shot action per sheet). */
+  const apply = useCallback((selection: ModelSelection) => {
+    if (busy) return
+    setBusy(true)
+    setError(undefined)
+    void selectModel(sessionId, selection).then(
+      (result) => {
+        setBusy(false)
+        if (result.ok) {
+          onCurrent(result.value)
+          onClose()
+        } else {
+          setError(errorText(result.error))
+        }
+      },
+      () => {
+        setBusy(false)
+        setError('切换模型失败')
+      },
+    )
+  }, [busy, sessionId, onCurrent, onClose])
+
+  if (state.status === 'loading') {
+    return (
+      <Sheet title="模型与思考强度" onClose={onClose}>
+        <div className="sheet-status">正在加载模型目录…</div>
+      </Sheet>
+    )
+  }
+  if (state.status === 'error') {
+    return (
+      <Sheet title="模型与思考强度" onClose={onClose}>
+        <div className="sheet-status sheet-status-error">
+          <span>{state.message}</span>
+          {staleHostHint(state.message) !== undefined && <span className="sheet-hint">{staleHostHint(state.message)}</span>}
+          <button type="button" className="chat-load-older" onClick={load}>重试</button>
+        </div>
+      </Sheet>
+    )
+  }
+
+  const { data } = state
+  const selected = current ?? data.current
+  const choices = data.groups.flatMap(group => group.models.map(model => ({ group, model })))
+  const currentChoice = choices.find(choice => choice.group.id === selected.provider && choice.model.id === selected.model)
+  const reasoning = currentChoice?.model.reasoning
+  const effectiveEffort = selected.reasoningEffort ?? reasoning?.defaultEffort
+  const effortChoices: { key: string; effort: string | undefined; label: string; description?: string }[] =
+    reasoning === undefined
+      ? []
+      : [
+        ...(reasoning.defaultEffort === undefined
+          ? [{ key: 'provider-default', effort: undefined as string | undefined, label: '跟随模型默认' }]
+          : []),
+        ...reasoning.efforts.map(effort => ({
+          key: `effort:${effort.id}`,
+          effort: effort.id as string | undefined,
+          label: effort.name,
+          ...(effort.description !== undefined ? { description: effort.description } : {}),
+        })),
+      ]
+
+  return (
+    <Sheet title="模型与思考强度" onClose={onClose}>
+      {error !== undefined && <p className="sheet-error">{error}</p>}
+      {error !== undefined && staleHostHint(error) !== undefined && <p className="sheet-hint">{staleHostHint(error)}</p>}
+      {data.failures.map(failure => (
+        <p className="sheet-error" key={failure.id}>{failure.name}: {failure.message}</p>
+      ))}
+      {data.groups.length === 0 && choices.length === 0 && (
+        <div className="sheet-status">没有可用的模型</div>
+      )}
+      {data.groups.map(group => (
+        <div className="sheet-section" key={group.id}>
+          <div className="sheet-section-title">{group.name}</div>
+          {group.models.map((model) => {
+            const isSelected = selected.provider === group.id && selected.model === model.id
+            return (
+              <button
+                type="button"
+                key={model.id}
+                className={`sheet-option${isSelected ? ' sheet-option-selected' : ''}`}
+                disabled={busy}
+                onClick={() => {
+                  apply({
+                    provider: group.id,
+                    model: model.id,
+                    ...(model.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: model.reasoning.defaultEffort }),
+                  })
+                }}
+              >
+                <span className="sheet-option-copy">
+                  <span className="sheet-option-title">{model.name}</span>
+                  {model.description !== undefined && <span className="sheet-option-desc">{model.description}</span>}
+                </span>
+                {isSelected && <span className="sheet-option-check" aria-hidden>√</span>}
+              </button>
+            )
+          })}
+        </div>
+      ))}
+      {effortChoices.length > 0 && (
+        <div className="sheet-section">
+          <div className="sheet-section-title">思考强度</div>
+          {effortChoices.map((choice) => {
+            const isSelected = effectiveEffort === choice.effort
+            return (
+              <button
+                type="button"
+                key={choice.key}
+                className={`sheet-option${isSelected ? ' sheet-option-selected' : ''}`}
+                disabled={busy}
+                onClick={() => {
+                  apply({
+                    provider: selected.provider,
+                    model: selected.model,
+                    ...(choice.effort !== undefined ? { reasoningEffort: choice.effort } : {}),
+                  })
+                }}
+              >
+                <span className="sheet-option-copy">
+                  <span className="sheet-option-title">{choice.label}</span>
+                  {choice.description !== undefined && <span className="sheet-option-desc">{choice.description}</span>}
+                </span>
+                {isSelected && <span className="sheet-option-check" aria-hidden>√</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </Sheet>
+  )
+}

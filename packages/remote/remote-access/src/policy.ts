@@ -1,19 +1,20 @@
 /**
- * Request policy of the remote-access proxy: the authorization gate (a valid
- * session cookie only), the /pair/<ticket> exchange with its failure budget
+ * Request policy of the remote-access proxy: the authorization gate (a live
+ * device cookie only), the /pair/<token> exchange with its failure budget
  * keyed by client address, and the friendly HTML pages unpaired visitors see.
  * @module @deepseek-ai/dsh-remote-access/policy
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { COOKIE_MAX_AGE_SECONDS, COOKIE_NAME, mintCookie, verifyCookie, verifyTicket } from './secret.ts'
+import { COOKIE_MAX_AGE_SECONDS, COOKIE_NAME, mintCookie, verifyCookie } from './secret.ts'
+import type { DeviceRegistry } from './devices.ts'
 
 /** Default pairing-attempt budget per address per window. */
 const PAIR_MAX_ATTEMPTS = 10
 /** Default rate-limit window for pairing attempts. */
 const PAIR_WINDOW_MS = 600_000
-/** Accepted pairing-ticket spelling: URL-safe token, bounded length. */
-const TICKET_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+/** Accepted pairing-token spelling: URL-safe token, bounded length. */
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
 /** Page an unpaired or unauthenticated visitor receives instead of the app. */
 export const PAIR_REQUIRED_PAGE = [
@@ -24,8 +25,8 @@ export const PAIR_REQUIRED_PAGE = [
   'align-items:center;justify-content:center;background:#f5f5f4;color:#1c1917">',
   '<main style="max-width:30em;padding:2em">',
   '<h1 style="font-size:1.4em">需要配对</h1>',
-  '<p>此页面是 <code>dsh web --remote</code> 开启的远程入口。请在电脑终端扫描打印的二维码完成配对后再访问。</p>',
-  '<p>若二维码已过期或已轮换，请回到终端重新运行 <code>dsh web --remote</code> 获取新的二维码。</p>',
+  '<p>此页面是 <code>dsh web --remote</code> 开启的远程入口。请在电脑端打开远程控制面板扫码，或直接访问配对链接完成配对后再访问。</p>',
+  '<p>若二维码已过期，请在电脑端远程控制面板重新扫码。</p>',
   '</main></body></html>',
 ].join('')
 
@@ -45,17 +46,17 @@ const PAIR_RATE_LIMITED_PAGE = [
 /** Decisions the proxy asks of the access policy for every request. */
 export interface AccessPolicy {
   /**
-   * Whether the request may reach the proxied target: only a valid session
-   * cookie admits it. There is no Host- or address-based shortcut: behind the
-   * tunnel every connection arrives from the loopback address and the Host
-   * header is client-controlled, so loopback-shaped Hosts are as remote as
-   * any other.
+   * Whether the request may reach the proxied target: only a valid device
+   * cookie admits it, and the admitted device must still be live. There is no
+   * Host- or address-based shortcut: behind the tunnel every connection
+   * arrives from the loopback address and the Host header is client-controlled,
+   * so loopback-shaped Hosts are as remote as any other.
    * @param req - incoming HTTP request.
    * @returns true to forward, false to answer 401 with the pairing page.
    */
   authorize(req: IncomingMessage): boolean
   /**
-   * Answer a pairing request at /pair/<ticket>; never forwards.
+   * Answer a pairing request at /pair/<token>; never forwards.
    * @param req - incoming HTTP request.
    * @param res - response the policy owns to completion when returning true.
    * @param pathname - decoded request pathname.
@@ -73,12 +74,13 @@ interface AttemptWindow {
 }
 
 /**
- * Build the default access policy for one master secret.
+ * Build the default access policy for one master secret and device registry.
  * @param secret - the master pairing secret.
+ * @param devices - the device registry pairing tokens are consumed against.
  * @param options - test-replaceable rate bounds and time/address sources.
  * @returns the policy object the proxy consults per request.
  */
-export function createAccessPolicy(secret: Buffer, options: {
+export function createAccessPolicy(secret: Buffer, devices: DeviceRegistry, options: {
   pairMaxAttempts?: number
   pairWindowMs?: number
   now?: () => number
@@ -90,8 +92,12 @@ export function createAccessPolicy(secret: Buffer, options: {
   const clientAddress = options.clientAddress ?? (req => req.socket.remoteAddress)
   const windows = new Map<string, AttemptWindow>()
 
-  const authorize = (req: IncomingMessage): boolean =>
-    verifyCookie(secret, cookieValue(req.headers.cookie), now())
+  const authorize = (req: IncomingMessage): boolean => {
+    const deviceId = verifyCookie(secret, cookieValue(req.headers.cookie), now())
+    if (deviceId === undefined || !devices.isLive(deviceId)) return false
+    devices.touch(deviceId, now())
+    return true
+  }
 
   const handlePairing = (req: IncomingMessage, res: ServerResponse, pathname: string): boolean => {
     if (!pathname.startsWith('/pair/')) return false
@@ -99,11 +105,11 @@ export function createAccessPolicy(secret: Buffer, options: {
       writePage(res, 405, PAIR_REQUIRED_PAGE)
       return true
     }
-    const ticket = pathname.slice('/pair/'.length)
+    const token = pathname.slice('/pair/'.length)
     const address = clientAddress(req) ?? 'unknown'
-    // Verification runs before the limit so the legitimate owner's ticket always
+    // Verification runs before the limit so the legitimate owner's token always
     // succeeds; the window counts failed attempts only.
-    if (!TICKET_PATTERN.test(ticket) || !verifyTicket(secret, ticket, now())) {
+    if (!TOKEN_PATTERN.test(token) || !devices.consumeToken(token, now())) {
       if (rateExceeded(address, now())) {
         writePage(res, 429, PAIR_RATE_LIMITED_PAGE, { 'retry-after': String(Math.ceil(windowMs / 60_000)) })
         return true
@@ -113,7 +119,8 @@ export function createAccessPolicy(secret: Buffer, options: {
       return true
     }
     windows.delete(address)
-    const { value } = mintCookie(secret, now())
+    const deviceId = devices.register(deviceName(req), now())
+    const { value } = mintCookie(secret, deviceId, now())
     res.writeHead(302, {
       location: '/',
       'set-cookie': COOKIE_NAME + '=' + value + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=' + String(COOKIE_MAX_AGE_SECONDS),
@@ -154,6 +161,13 @@ export function cookieValue(header: string | undefined): string | undefined {
   return undefined
 }
 
+/** Short display name for a newly paired device, derived from its user agent. */
+function deviceName(req: IncomingMessage): string {
+  const ua = req.headers['user-agent']
+  if (typeof ua !== 'string') return 'mobile'
+  return /mobi/i.test(ua) ? 'mobile' : 'desktop'
+}
+
 /** Write one HTML page with a trailing-newline-safe byte length. */
 function writePage(res: ServerResponse, status: number, body: string, extraHeaders: Record<string, string> = {}): void {
   res.writeHead(status, {
@@ -163,4 +177,3 @@ function writePage(res: ServerResponse, status: number, body: string, extraHeade
   })
   res.end(body)
 }
-

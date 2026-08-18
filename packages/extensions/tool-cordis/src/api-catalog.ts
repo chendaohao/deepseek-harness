@@ -970,6 +970,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'remoteTunnel',
+    summary: 'The remote-tunnel Service (`ctx.remoteTunnel`): resolves the cloudflared binary and opens tunnel sessions over the loopback port it is handed.',
+    description: 'The remote-tunnel Service (`ctx.remoteTunnel`): resolves the cloudflared binary and opens tunnel sessions over the loopback port it is handed.',
+    methods: [
+      {
+        signature: 'async open(port: number): Promise<RemoteTunnelSession>',
+        description: 'Open one tunnel session exposing the given loopback port.',
+        parameters: [{ name: 'port', description: 'loopback port the tunnel targets (the proxy or webserver port).' }],
+        returns: 'the live session with its public URL; rejects after the attempt budget.',
+      },
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
@@ -2404,6 +2417,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; their messages already obey the immutable creation contract.' }],
   },
   {
+    name: 'remote-tunnel/state',
+    mode: 'emit',
+    signature: '\'remote-tunnel/state\'(state: RemoteTunnelState): void',
+    summary: 'One tunnel session reported a durable fact: its public URL became ready, its child exited, or a final spawn attempt failed.',
+    description: 'One tunnel session reported a durable fact: its public URL became ready, its child exited, or a final spawn attempt failed. `open()` rejects with the same message a final `failed` state carries.',
+    parameters: [{ name: 'state', description: 'the discriminated session fact.' }],
+  },
+  {
+    name: 'remote/devices/change',
+    mode: 'emit',
+    signature: '\'remote/devices/change\'(devices: DeviceRecord[]): void',
+    summary: 'The device roster changed: a device paired, was revoked, or its liveness advanced.',
+    description: 'The device roster changed: a device paired, was revoked, or its liveness advanced.',
+    parameters: [{ name: 'devices', description: 'the live roster snapshot after the change.' }],
+  },
+  {
     name: 'session-telemetry/record',
     mode: 'waterfall',
     signature: '\'session-telemetry/record\'(record: SessionTelemetryRecord, next: () => SessionTelemetryRecord): SessionTelemetryRecord',
@@ -2926,6 +2955,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CredentialRef',
     declaration: 'export type CredentialRef = Branded<\'CredentialRef\'>;',
+  },
+  {
+    name: 'DeviceRecord',
+    declaration: 'export interface DeviceRecord {\n    deviceId: string;\n    name: string;\n    createdAt: number;\n    lastSeen: number;\n}',
   },
   {
     name: 'DiffCallView',
@@ -3584,6 +3617,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
   },
   {
+    name: 'RemoteTunnelSession',
+    declaration: 'export interface RemoteTunnelSession {\n    readonly url: string;\n    close(): Promise<void>;\n}',
+  },
+  {
     name: 'ReplayEnvelope',
     declaration: 'export interface ReplayEnvelope {\n    response: unknown;\n    blocks?: readonly unknown[];\n}',
   },
@@ -3636,28 +3673,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
-    name: 'RpcError',
-    declaration: 'export type RpcError = {\n    [C in RpcErrorCode]: {\n        code: C;\n        message: string;\n        details: RpcErrorDetailsMap[C];\n    };\n}[RpcErrorCode];',
-  },
-  {
-    name: 'RpcErrorCode',
-    declaration: 'export type RpcErrorCode = keyof RpcErrorDetailsMap;',
-  },
-  {
-    name: 'RpcErrorDetailsMap',
-    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-locked\': {\n        sessionId: SessionId;\n        agentPreset: string;\n    };\n    \'agent-preset-conflict\': {\n        sessionId: SessionId;\n        requestedPreset: string;\n        existingPreset?: string;\n    };\n    \'agent-preset-not-found\': {\n        agentPreset: string;\n      /* …truncated — full shape in source */',
-  },
-  {
     name: 'RpcId',
     declaration: 'export type RpcId = Branded<\'rpc-id\'>;',
   },
   {
     name: 'RpcReceipt',
     declaration: 'export type RpcReceipt = {\n    accepted: true;\n} | {\n    accepted: false;\n    reason: \'not-pending\' | \'bad-response\';\n};',
-  },
-  {
-    name: 'RpcResult',
-    declaration: 'export type RpcResult<T> = {\n    ok: true;\n    value: T;\n} | {\n    ok: false;\n    error: RpcError;\n};',
   },
   {
     name: 'RunnerFailureRule',

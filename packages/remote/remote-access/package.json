@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-remote-access",
-  "description": "Remote-access consumer for the Web GUI: pairing-ticket authentication, cookie gate, a loopback reverse proxy, and the URL + QR-code surface for dsh-remote-tunnel",
+  "description": "Remote-access consumer for the Web GUI: one-time pairing tokens, a revocable device gate, a loopback reverse proxy, and the URL + QR-code surface for dsh-remote-tunnel",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -21,6 +21,10 @@
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
+    },
+    "./types": {
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"

@@ -46,6 +46,12 @@
       "path": "../../preset/agent-presets"
     },
     {
+      "path": "../../remote/remote-access"
+    },
+    {
+      "path": "../../remote/remote-tunnel"
+    },
+    {
       "path": "../../settings/settings"
     },
     {

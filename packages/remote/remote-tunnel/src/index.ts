@@ -62,24 +62,10 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     remoteTunnel: RemoteTunnel
   }
-
-  interface Events {
-    /**
-     * One tunnel session reported a durable fact: its public URL became ready,
-     * its child exited, or a final spawn attempt failed. `open()` rejects with
-     * the same message a final `failed` state carries.
-     * @mode emit
-     * @param state - the discriminated session fact.
-     */
-    'remote-tunnel/state'(state: RemoteTunnelState): void
-  }
 }
 
 /** Terminal or reporting facts about one tunnel session, discriminated by status. */
-export type RemoteTunnelState =
-  | { status: 'open'; url: string }
-  | { status: 'ended' }
-  | { status: 'failed'; message: string }
+export type { RemoteTunnelState } from './types.ts'
 
 /** One live tunnel session: its public URL and its teardown. */
 export interface RemoteTunnelSession {

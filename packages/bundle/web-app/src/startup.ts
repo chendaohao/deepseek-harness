@@ -29,7 +29,7 @@ export interface WebStartupValues {
   trustedHosts: string[]
   /** `--remote`: expose the server over a public HTTPS tunnel and print a pairing QR code. */
   remote: boolean
-  /** `--remote-reset`: rotate the remote pairing secret before opening the tunnel. */
+  /** `--remote-reset`: rotate the remote pairing secret and revoke every paired device before opening the tunnel. */
   remoteReset: boolean
 }
 
@@ -55,7 +55,7 @@ function webCommand(): Command {
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--remote', 'expose this server over a public HTTPS tunnel and print a phone-pairing QR code')
-    .option('--remote-reset', 'rotate the remote pairing secret before opening the tunnel')
+    .option('--remote-reset', 'rotate the remote pairing secret and revoke every paired device before opening the tunnel')
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
