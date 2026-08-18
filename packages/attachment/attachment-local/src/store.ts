@@ -62,7 +62,7 @@ async function inspectMetadata(
   if (data.byteLength === 0) throw new AttachmentError('Image is empty.', 'INVALID_IMAGE')
   const detected = await detectImage(data, limits.maxImagePixels)
   if (!limits.mediaTypes.includes(detected.mediaType)) {
-    throw new AttachmentError(`Image type "${detected.mediaType}" is not accepted by this deployment.`, 'IMAGE_TYPE_NOT_ALLOWED')
+    throw new AttachmentError(`Image type "${detected.mediaType}" is not accepted by this deployment.`, 'UNSUPPORTED_IMAGE_TYPE')
   }
   if (declaredMediaType !== undefined && detected.mediaType !== declaredMediaType) {
     throw new AttachmentError('Declared image type does not match its bytes.', 'IMAGE_TYPE_MISMATCH')

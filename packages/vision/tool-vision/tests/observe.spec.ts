@@ -47,7 +47,7 @@ class PngOnlyStore extends AttachmentStore {
   }
 
   /** Scripted save failure; a success value bypasses it. */
-  saveError: unknown = new AttachmentError('disk full', 'STORAGE')
+  saveError: unknown = new AttachmentError('disk full', 'ATTACHMENT_WRITE_FAILED')
   /** When set, saveImage succeeds with this reference instead of failing. */
   saveResult: ImageAttachmentRef | undefined
 
@@ -329,7 +329,7 @@ describe('vision_observe refusals', () => {
     const plain = await observe(ctx, { file_path: 'red.png' }, agentOn())
     expect(plain.isError).toBe(true)
     expect(text(plain)).toContain('backend exploded')
-    store.saveError = new AttachmentError('disk full', 'STORAGE')
+    store.saveError = new AttachmentError('disk full', 'ATTACHMENT_WRITE_FAILED')
     const coded = await observe(ctx, { file_path: 'red.png' }, agentOn())
     expect(coded.isError).toBe(true)
     expect(text(coded)).toContain('disk full')

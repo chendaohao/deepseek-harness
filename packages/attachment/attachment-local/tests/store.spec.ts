@@ -171,7 +171,7 @@ describe('local attachment store', () => {
     expect(detected.mediaType).toBe('image/png')
     // Deployment allowlist refusal on the DETECTED type, without any declaration.
     await expect(saveImageFile(storageRoot, { data: PNG }, { ...LIMITS, mediaTypes: ['image/jpeg'] }))
-      .rejects.toMatchObject({ code: 'IMAGE_TYPE_NOT_ALLOWED' })
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_IMAGE_TYPE' })
     await expect(saveImageFile(storageRoot, {
       data: PNG, mediaType: 'image/png',
     }, { ...LIMITS, maxImageBytes: 1 })).rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })

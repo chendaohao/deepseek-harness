@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import AttachmentStore from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
@@ -140,7 +141,7 @@ describe('Web session model selection', () => {
       height: 1,
       ...input.name === undefined ? {} : { name: input.name },
     }))
-    ctx.provide('attachments', {
+    const attachments = {
       imageLimits: {
         maxImageBytes: 4,
         maxImagesPerMessage: 2,
@@ -150,6 +151,12 @@ describe('Web session model selection', () => {
       },
       validateImage,
       saveImage,
+    }
+    ctx.provide('attachments', {
+      ...attachments,
+      saveImages(inputs: readonly Parameters<typeof saveImage>[0][]) {
+        return AttachmentStore.prototype.saveImages.call(attachments, inputs)
+      },
     } as never)
     const followup = vi.fn()
     Object.assign(agent, { followup })
@@ -260,9 +267,9 @@ describe('Web session model selection', () => {
     ctx.provide('attachments', {
       imageLimits: { maxImageBytes: 4, maxImagesPerMessage: 2, maxMessageImageBytes: 4, maxImagePixels: 4, mediaTypes: ['image/png'] },
       validateImage: () => Promise.resolve(),
-      saveImage: (input: { data: Uint8Array; mediaType: 'image/png'; name?: string }) => Promise.resolve({
-        attachmentId: 'att-bridged', mediaType: input.mediaType, bytes: input.data.byteLength, width: 1, height: 1,
-      }),
+      saveImages: (inputs: readonly { data: Uint8Array; mediaType?: 'image/png'; name?: string }[]) => Promise.resolve(inputs.map(input => ({
+        attachmentId: 'att-bridged', mediaType: input.mediaType ?? 'image/png', bytes: input.data.byteLength, width: 1, height: 1,
+      }))),
     } as never)
     const admitted = await api.sessions.prompt(request({
       sessionId, mode: 'queue' as const, content: [image],
