@@ -33,7 +33,7 @@ import {
 import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
-import { deriveKeyRef, messageOf, protocolChoices } from './store.ts'
+import { deriveKeyRef, messageOf, modelReasoningLevels, modelsReasoningFailure, protocolChoices } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -170,6 +170,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     () => layout === 'pi-ai' ? protocolChoices(namespace) : [],
     [layout, namespace],
   )
+  // The reasoning vocabulary is read the same way: from the owning schema, so
+  // the levels one model may declare come straight from the adapter's Config.
+  const reasoningLevels = useMemo(
+    () => layout === 'pi-ai' ? modelReasoningLevels(namespace) : [],
+    [layout, namespace],
+  )
 
   useEffect(() => {
     let stale = false
@@ -204,6 +210,9 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   // The model list is validated by the same per-row checker for both families,
   // so a bad row is named by its position rather than by a blanket message.
   const modelFailure = validateDeepSeekModels(getPath(draft, ['models']))
+  const reasoningFailure = props.credentialOnly === true
+    ? undefined
+    : modelsReasoningFailure(getPath(draft, ['models']))
   const keyFailure = apiKeyFailure(keyDraft)
   // What a probe or a write must carry: the typed key with paste whitespace
   // removed. A blank field yields an empty string, which both call sites read
@@ -251,6 +260,13 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       /* v8 ignore next 3 -- unreachable from the card: the same failure disables submit */
       if (failure !== undefined) {
         return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`
+      }
+      // Same posture: the submit gate already refuses a bad row, and this stays
+      // because nothing but this function decides what is written.
+      const reasoningFailure = modelsReasoningFailure(getPath(next, ['models']))
+      /* v8 ignore next 3 -- unreachable from the card: the same failure disables submit */
+      if (reasoningFailure !== undefined) {
+        return `${t('model')} ${String(reasoningFailure.index + 1)}: ${t(reasoningFailure.key)}`
       }
     }
     /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
@@ -350,6 +366,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const catalogProps = {
       models,
       overridden: modelsOverridden,
+      levels: reasoningLevels,
       t,
       disabled,
       onChange: (next: Record<string, unknown>[]) => {
@@ -490,11 +507,19 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             {`${t('model')} ${String(modelFailure.index + 1)}: ${t(modelFailure.key)}`}
           </p>
         )}
+      {props.credentialOnly === true || reasoningFailure === undefined
+        ? null
+        : (
+          <p className={styles['advancedHint']}>
+            {`${t('model')} ${String(reasoningFailure.index + 1)}: ${t(reasoningFailure.key)}`}
+          </p>
+        )}
       <EditorFooter
         t={t}
         busy={busy}
         submitDisabled={disabled || layout === 'unknown'
           || (props.credentialOnly !== true && modelFailure !== undefined)
+          || (props.credentialOnly !== true && reasoningFailure !== undefined)
           || shownKeyFailure !== undefined
           || (props.credentialRequired === true && keyValue.length === 0)}
         submitLabel={props.submitLabel ?? 'apply'}

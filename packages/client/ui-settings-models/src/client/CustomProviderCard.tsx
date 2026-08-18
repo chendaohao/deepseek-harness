@@ -29,7 +29,7 @@ import { EditorFooter } from './EditorFooter.tsx'
 import { validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import type { ModelDraft } from './ModelListEditor.tsx'
-import { deriveKeyRef, messageOf } from './store.ts'
+import { deriveKeyRef, messageOf, modelsReasoningFailure } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -52,6 +52,8 @@ export interface CustomProviderCardProps {
   taken: readonly string[]
   /** Wire protocols the adapter can serve, in the order it reports them. */
   protocols: readonly string[]
+  /** Selectable reasoning levels, in the adapter's canonical order. */
+  levels: readonly string[]
   /**
    * Revision of the `llm-pi-ai` user section this card opened at, sent with
    * the create so a route another tab declared meanwhile is a refusal rather
@@ -102,6 +104,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   // bad row is named by its position here too. Capacities have route-level
   // fallbacks; what a route cannot default is at least one model.
   const modelFailure = validateDeepSeekModels(models)
+  const reasoningFailure = modelsReasoningFailure(models)
   const keyFailure = apiKeyFailure(keyDraft)
   // The typed key with paste whitespace removed. A blank field yields an empty
   // string, which the create path reads as "no key supplied" — a route may
@@ -109,6 +112,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   const keyValue = keyDraft.trim()
   const ready = route.length > 0 && !routeInvalid && !routeTaken
     && baseURL.length > 0 && models.length > 0 && modelFailure === undefined
+    && reasoningFailure === undefined
     && keyFailure === undefined
   // The one blocked gate worth a line under the form. A satisfied card says
   // nothing at all rather than printing an empty paragraph.
@@ -126,7 +130,9 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
       ? t('customNeedsBaseUrl')
       : modelFailure !== undefined
         ? `${t('model')} ${String(modelFailure.index + 1)}: ${t(modelFailure.key)}`
-        : t('customNeedsModels')
+        : reasoningFailure !== undefined
+          ? `${t('model')} ${String(reasoningFailure.index + 1)}: ${t(reasoningFailure.key)}`
+          : t('customNeedsModels')
 
   /** Perform the create, returning a failure message or undefined. */
   const createOnce = async (): Promise<string | undefined> => {
@@ -267,6 +273,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
       <ModelListEditor
         models={models}
         onChange={setModels}
+        levels={props.levels}
         probe={{
           settingsNs: NS,
           baseURL,

@@ -86,6 +86,86 @@ export function protocolChoices(namespace: SettingsNamespaceView | undefined): s
   return list.list.map(entry => entry.value).filter((value): value is string => typeof value === 'string')
 }
 
+/**
+ * The selectable reasoning levels one pi-ai model may declare, read out of
+ * the owning namespace's own schema. The profile field is a dict whose keys
+ * are these levels, so the union spelling the keys (`sKey`) is the same
+ * schema read `protocolChoices` makes for the wire protocols: the choices the
+ * page offers come from the adapter's `Config`, never a client-side copy.
+ * @param namespace - the namespace view whose schema declares the profile shape.
+ * @returns the level identifiers in pi-ai's canonical order, or an empty list
+ * when the schema has none (a non-pi-ai family, or one without the field).
+ */
+export function modelReasoningLevels(namespace: SettingsNamespaceView | undefined): string[] {
+  if (namespace === undefined) return []
+  const root = rehydrateSchema(namespace.schema)
+  // providers.<route>.models[] is an array; its element object declares the
+  // reasoningEfforts field as union(false | dict). The dict node's `sKey`
+  // carries the level vocabulary, exactly as the profile's `api` union carries
+  // the protocol vocabulary.
+  const modelsNode = nodeAtPath(root, ['providers', PROBE_ROUTE, 'models'])
+  const modelNode = (modelsNode as { type?: string; inner?: unknown } | undefined)?.inner
+  const fieldNode = (modelNode as { type?: string; dict?: Record<string, unknown> } | undefined)?.dict?.['reasoningEfforts']
+  const unionList = (fieldNode as { type?: string; list?: readonly unknown[] } | undefined)?.list
+  const dictNode = (unionList ?? []).find(entry => (entry as { type?: string } | undefined)?.type === 'dict')
+  const keys = (dictNode as { sKey?: { type?: string; list?: readonly { value?: unknown }[] } } | undefined)?.sKey
+  if (keys?.type !== 'union' || keys.list === undefined) return []
+  return keys.list.map(entry => entry.value).filter((value): value is string => typeof value === 'string')
+}
+
+/**
+ * Whether a model's declared `reasoningEfforts` would be refused by the
+ * pi-ai adapter, mirroring its `resolveModelReasoning` checks so a card
+ * can name the row before a settings write rejects it. Absent (inherit) and
+ * `false` (no reasoning) are always accepted; a dict must offer at least one
+ * level beyond `off`, and every declared level except `off` must name the
+ * wire value to send.
+ * @param value - the drafted `reasoningEfforts` value.
+ * @returns the failure key owned by the Models settings section, or undefined
+ * when the adapter will accept it.
+ */
+export function reasoningEffortsError(value: unknown): 'modelReasoningEmpty' | 'modelReasoningOnlyOff'
+  | 'modelReasoningWireRequired' | undefined {
+  if (value === undefined || value === false) return undefined
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'modelReasoningEmpty'
+  }
+  const efforts = value as Record<string, unknown>
+  if (Object.keys(efforts).length === 0) return 'modelReasoningEmpty'
+  let declaredBeyondOff = false
+  for (const [level, wire] of Object.entries(efforts)) {
+    if (wire === undefined) return 'modelReasoningEmpty'
+    if (wire === null) {
+      if (level !== 'off') return 'modelReasoningWireRequired'
+      continue
+    }
+    if (typeof wire !== 'string' || wire.length === 0) return 'modelReasoningWireRequired'
+    if (level !== 'off') declaredBeyondOff = true
+  }
+  return declaredBeyondOff ? undefined : 'modelReasoningOnlyOff'
+}
+
+/**
+ * The first model row whose reasoning declaration the adapter would refuse,
+ * for the cards' submit gates and per-row hints. A row without a declaration
+ * (inherit) or with `false` never fails here, exactly like
+ * `reasoningEffortsError` alone.
+ * @param models - the drafted `models` array.
+ * @returns the failing row's position and message key, or undefined when the
+ * adapter will accept every row.
+ */
+export function modelsReasoningFailure(models: unknown):
+  | { index: number; key: 'modelReasoningEmpty' | 'modelReasoningOnlyOff' | 'modelReasoningWireRequired' }
+  | undefined {
+  if (!Array.isArray(models)) return undefined
+  for (const [index, model] of models.entries()) {
+    if (typeof model !== 'object' || model === null) continue
+    const key = reasoningEffortsError((model as Record<string, unknown>)['reasoningEfforts'])
+    if (key !== undefined) return { index, key }
+  }
+  return undefined
+}
+
 /** The credential reference a resolved profile names (its `apiKeyEnv` field). */
 function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonly string[]): string | undefined {
   if (namespace === undefined) return undefined

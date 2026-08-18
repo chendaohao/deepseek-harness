@@ -17,6 +17,7 @@ afterEach(cleanup)
 const t: ModelsSectionInjected['t'] = key => en[key]
 
 const PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages']
+const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 
 /** The pi-ai profile shape as the host serializes it, including the layer-1 fields. */
 const PiAiConfig = Schema.object({
@@ -31,6 +32,13 @@ const PiAiConfig = Schema.object({
       name: Schema.string(),
       contextWindow: Schema.number(),
       maxTokens: Schema.number(),
+      reasoningEfforts: Schema.union([
+        Schema.const(false),
+        Schema.dict(
+          Schema.union([Schema.string(), Schema.const(null)]),
+          Schema.union(REASONING_LEVELS),
+        ),
+      ]),
     })),
     reasoning: Schema.union(['off', 'high']),
   })),
@@ -319,6 +327,49 @@ describe('model list editing', () => {
     expect(screen.queryByText(en.resetModels)).toBeNull()
   })
 
+  it('edits one row\'s reasoning without touching its siblings', async () => {
+    const { mutate } = await mountSection({
+      providers: {
+        openai: {
+          baseURL: 'https://proxy.example/v1',
+          models: [{ id: 'first', reasoningEfforts: { off: null, high: 'high' } }, { id: 'second' }],
+        },
+      },
+    })
+    openEditor('openai')
+
+    // Row 2 declares nothing, so its editor starts inherited; declaring a
+    // level writes only that row, leaving row 1's declaration intact.
+    expandModel(2)
+    fireEvent.click(screen.getByRole('radio', { name: en.modelReasoningCustom }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Level high ' + en.modelReasoning }))
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([
+      { id: 'first', reasoningEfforts: { off: null, high: 'high' } },
+      { id: 'second', reasoningEfforts: { high: 'high' } },
+    ])
+  })
+
+  it('names an invalid reasoning declaration beside the row it belongs to', async () => {
+    const { mutate } = await mountSection({
+      providers: {
+        openai: {
+          baseURL: 'https://proxy.example/v1',
+          models: [{ id: 'first', reasoningEfforts: { off: null } }, { id: 'second' }],
+        },
+      },
+    })
+    openEditor('openai')
+
+    // Only-off is refused by the adapter; the editor names the row instead of
+    // letting the settings write fail with a path nobody can see.
+    expect(screen.getByText(en.model + ' 1: ' + en.modelReasoningOnlyOff)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
 
   it('keeps expansion on the row it belongs to after an earlier one is removed', async () => {
     await mountSection({
@@ -536,7 +587,7 @@ describe('endpoint interrogation', () => {
     const scripted = scriptedFace()
     render(
       <CustomProviderCard
-        taken={[]} protocols={PROTOCOLS} revision={7} api={scripted.face as never}
+        taken={[]} protocols={PROTOCOLS} levels={REASONING_LEVELS} revision={7} api={scripted.face as never}
         t={t} readOnly={false} onClose={vi.fn()}
       />,
     )
@@ -663,6 +714,7 @@ describe('hand-declared providers', () => {
       <CustomProviderCard
         taken={['openai']}
         protocols={PROTOCOLS}
+        levels={REASONING_LEVELS}
         revision={7}
         api={scripted.face as never}
         t={t}
@@ -1259,6 +1311,150 @@ describe('hand-declared providers', () => {
 
     await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
     expect(set).not.toHaveBeenCalled()
+  })
+
+  it('declares custom reasoning levels per model and writes them with the profile', async () => {
+    const { mutate, onClose } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-think' } })
+    expandModel(1)
+
+    // The row starts inheriting; the custom mode assembles a dict level by
+    // level, defaulting each freshly offered level's wire spelling to itself.
+    fireEvent.click(screen.getByRole('radio', { name: en.modelReasoningCustom }))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level high ${en.modelReasoning}` }))
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.modelReasoningWire} high`).value).toBe('high')
+
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(firstMutate(mutate)).toMatchObject({
+      ns: 'llm-pi-ai',
+      ops: [{ op: 'set', path: ['providers', 'acme-gateway'], value: {
+        models: [{ id: 'acme-think', reasoningEfforts: { high: 'high' } }],
+      } }],
+    })
+  })
+
+  it('blocks creation while a model declares only the off level', () => {
+    const { mutate } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-think' } })
+    expandModel(1)
+
+    fireEvent.click(screen.getByRole('radio', { name: en.modelReasoningCustom }))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level off ${en.modelReasoning}` }))
+
+    expect(screen.getByText(`${en.model} 1: ${en.modelReasoningOnlyOff}`)).toBeTruthy()
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('renames a declared wire spelling and keeps it nullable for off', async () => {
+    const { mutate, onClose } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-think' } })
+    expandModel(1)
+
+    fireEvent.click(screen.getByRole('radio', { name: en.modelReasoningCustom }))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level off ${en.modelReasoning}` }))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level high ${en.modelReasoning}` }))
+    fireEvent.change(screen.getByLabelText(`${en.modelReasoningWire} high`), { target: { value: 'ultra' } })
+
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(firstMutate(mutate)).toMatchObject({
+      ns: 'llm-pi-ai',
+      ops: [{ op: 'set', path: ['providers', 'acme-gateway'], value: {
+        models: [{ id: 'acme-think', reasoningEfforts: { off: null, high: 'ultra' } }],
+      } }],
+    })
+  })
+
+  it('stores no reasoning when the row is switched off and drops the field on inherit', async () => {
+    const { mutate, onClose } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-think' } })
+    expandModel(1)
+
+    fireEvent.click(screen.getByRole('radio', { name: en.modelReasoningOff }))
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(firstMutate(mutate)).toMatchObject({
+      ns: 'llm-pi-ai',
+      ops: [{ op: 'set', path: ['providers', 'acme-gateway'], value: {
+        models: [{ id: 'acme-think', reasoningEfforts: false }],
+      } }],
+    })
+
+    // A second card: switching a declaration back to inherit removes the field
+    // instead of storing anything the adapter would read as a declaration.
+    cleanup()
+    const second = mountCard()
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-think' } })
+    expandModel(1)
+
+    fireEvent.click(screen.getByRole('radio', { name: en.modelReasoningCustom }))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level high ${en.modelReasoning}` }))
+    fireEvent.click(screen.getByRole('radio', { name: en.modelReasoningInherit }))
+
+    fireEvent.click(screen.getByText(en.create))
+    await waitFor(() => { expect(second.onClose).toHaveBeenCalledWith(true) })
+    expect(firstMutate(second.mutate)).toMatchObject({
+      ns: 'llm-pi-ai',
+      ops: [{ op: 'set', path: ['providers', 'acme-gateway'], value: {
+        models: [{ id: 'acme-think' }],
+      } }],
+    })
+    expect(JSON.stringify(firstMutate(second.mutate))).not.toContain('reasoningEfforts')
+  })
+
+  it('stores a cleared off wire as send-nothing and drops an unchecked level', async () => {
+    const { mutate, onClose } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-think' } })
+    expandModel(1)
+
+    fireEvent.click(screen.getByRole('radio', { name: en.modelReasoningCustom }))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level off ${en.modelReasoning}` }))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level high ${en.modelReasoning}` }))
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level low ${en.modelReasoning}` }))
+    // Typing then clearing the off wire means "supported, send nothing": null.
+    fireEvent.change(screen.getByLabelText(`${en.modelReasoningWire} off`), { target: { value: 'none' } })
+    fireEvent.change(screen.getByLabelText(`${en.modelReasoningWire} off`), { target: { value: '' } })
+    // Unchecking high removes it from the dict; low stays to satisfy the
+    // "at least one level beyond off" rule.
+    fireEvent.click(screen.getByRole('checkbox', { name: `Level high ${en.modelReasoning}` }))
+
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(firstMutate(mutate)).toMatchObject({
+      ns: 'llm-pi-ai',
+      ops: [{ op: 'set', path: ['providers', 'acme-gateway'], value: {
+        models: [{ id: 'acme-think', reasoningEfforts: { off: null, low: 'low' } }],
+      } }],
+    })
   })
 })
 

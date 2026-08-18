@@ -12,6 +12,13 @@
  * A provider that cannot be interrogated (an unreachable endpoint, a protocol
  * with no readable listing) is not a dead end: the failure is shown next to the
  * rows the user can still fill in by hand.
+ *
+ * Each row's expanded area carries the model's selectable reasoning levels:
+ * inherit (no declaration), disabled (`false`), or a declared dict the user
+ * assembles level by level. The vocabulary comes from the parent (the
+ * adapter's own schema), so the offered levels cannot drift from the ones
+ * `resolveModelReasoning` accepts, and the same per-row checker gates the
+ * save so a bad declaration is named beside the row that carries it.
  */
 
 import { useState } from 'react'
@@ -20,7 +27,7 @@ import type { DiscoveredModelView, IApiClient } from '@deepseek-ai/dsh-api-remot
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatCapacity, parseCapacity } from './DeepSeekModelsEditor.tsx'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
-import { messageOf } from './store.ts'
+import { messageOf, reasoningEffortsError } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -81,12 +88,24 @@ export interface ModelListEditorProps {
    * told what the field already says.
    */
   probeBlocked?: keyof typeof en | undefined
+  /**
+   * Selectable reasoning levels, in the adapter's canonical order. Sourced by
+   * the parent from the owning namespace's schema so the offered vocabulary
+   * matches the one the adapter accepts.
+   */
+  levels: readonly string[]
   /** Wire face the fetch action calls. */
   api: Pick<IApiClient, 'llm'>
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable every control (read-only deployment or a pending write). */
   disabled: boolean
+}
+
+/** Spell one level's stored wire value for its input: null is "send nothing". */
+function wireText(dict: Record<string, string | null> | undefined, level: string): string {
+  const wire = dict?.[level]
+  return wire === null || wire === undefined ? '' : wire
 }
 
 /** Disclosure chevron; rotates to point down while its row is open. */
@@ -110,6 +129,92 @@ function IconTrash(): ReactNode {
         stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"
       />
     </svg>
+  )
+}
+
+/** One model row's reasoning declaration: inherit, disabled, or a custom dict. */
+function ReasoningEditor(props: {
+  levels: readonly string[]
+  /** The drafted reasoningEfforts value: absent, false, or a dict. */
+  value: unknown
+  disabled: boolean
+  t: (key: keyof typeof en) => string
+  /** Replace the whole declaration: a dict, false, or absent (inherit). */
+  onSet: (value: Record<string, string | null> | false | undefined) => void
+  /** Offer or remove one level from the custom dict. */
+  onToggleLevel: (level: string, offered: boolean) => void
+  /** Rename one level's wire spelling. */
+  onWire: (level: string, wire: string) => void
+}): ReactNode {
+  const { levels, value, disabled, t, onSet, onToggleLevel, onWire } = props
+  const mode: 'inherit' | 'off' | 'custom'
+    = value === undefined ? 'inherit' : value === false ? 'off' : 'custom'
+  const dict = mode === 'custom' && typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, string | null>
+    : undefined
+  const error = reasoningEffortsError(value)
+
+  const modes: { key: 'inherit' | 'off' | 'custom'; label: string }[] = [
+    { key: 'inherit', label: t('modelReasoningInherit') },
+    { key: 'off', label: t('modelReasoningOff') },
+    { key: 'custom', label: t('modelReasoningCustom') },
+  ]
+  return (
+    <div className={styles['modelReasoning']}>
+      <span className={styles['modelFieldLabel']}>{t('modelReasoning')}</span>
+      <div className={styles['modelReasoningModes']} role="radiogroup" aria-label={t('modelReasoning')}>
+        {modes.map(choice => (
+          <button
+            key={choice.key}
+            type="button"
+            role="radio"
+            aria-checked={mode === choice.key}
+            className={`${styles['modelReasoningMode']}${mode === choice.key ? ` ${styles['modelReasoningModeSelected']}` : ''}`}
+            disabled={disabled}
+            onClick={() => {
+              onSet(choice.key === 'inherit' ? undefined : choice.key === 'off' ? false : {})
+            }}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+      {mode === 'custom'
+        ? (
+          <>
+            <div className={styles['modelReasoningLevels']}>
+              {levels.map((level) => {
+                const offered = dict?.[level] !== undefined
+                const levelLabel = t('modelReasoningLevel').replace('{level}', level)
+                return (
+                  <div key={level} className={styles['modelReasoningRow']}>
+                    <input
+                      type="checkbox"
+                      checked={offered}
+                      aria-label={'{level} {scope}'.replace('{level}', levelLabel).replace('{scope}', t('modelReasoning'))}
+                      disabled={disabled}
+                      onChange={(event) => { onToggleLevel(level, event.target.checked) }}
+                    />
+                    <span className={styles['modelReasoningName']}>{level}</span>
+                    <input
+                      className={styles['input']}
+                      type="text"
+                      value={offered ? wireText(dict, level) : ''}
+                      placeholder={level === 'off' ? t('modelReasoningOffWire') : t('modelReasoningWire')}
+                      aria-label={'{wire} {level}'.replace('{wire}', t('modelReasoningWire')).replace('{level}', level)}
+                      disabled={disabled || !offered}
+                      onChange={(event) => { onWire(level, event.target.value) }}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+            <p className={styles['modelReasoningOffHint']}>{t('modelReasoningHint')}</p>
+          </>
+        )
+        : null}
+      {error === undefined ? null : <p className={styles['error']}>{t(error)}</p>}
+    </div>
   )
 }
 
@@ -159,7 +264,7 @@ function adopt(candidate: DiscoveredModelView): ModelDraft {
  * @returns the model-list editor.
  */
 export function ModelListEditor(props: ModelListEditorProps): ReactNode {
-  const { models, onChange, probe, api, t, disabled } = props
+  const { models, onChange, probe, api, t, disabled, levels } = props
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [candidates, setCandidates] = useState<readonly DiscoveredModelView[] | undefined>(undefined)
@@ -225,6 +330,43 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         Object.entries({ ...model, ...next }).filter(([key]) => !cleared.has(key)),
       )
     }))
+  }
+
+  /** One model's declared reasoning-efforts dict, when it declares one. */
+  const reasoningOf = (model: ModelDraft): Record<string, string | null> | undefined => {
+    const value = model['reasoningEfforts']
+    /* v8 ignore next -- only the custom-mode controls call this, and they only render while the value is an object */
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? value as Record<string, string | null>
+      : undefined
+  }
+
+  /** Set a row's whole reasoning declaration: a dict, false, or absent. */
+  const setReasoning = (index: number, value: Record<string, string | null> | false | undefined): void => {
+    onChange(models.map((model, at) => {
+      if (at !== index) return model
+      if (value === undefined) {
+        const copy = { ...model }
+        delete copy['reasoningEfforts']
+        return copy
+      }
+      return { ...model, reasoningEfforts: value }
+    }))
+  }
+
+  /** Toggle one level in a row's dict, ending the row on an erased dict. */
+  const toggleReasoningLevel = (index: number, model: ModelDraft, level: string, offered: boolean): void => {
+    const current = reasoningOf(model)
+    /* v8 ignore next -- the toggle only renders while a dict exists, so a missing one cannot be reached */
+    if (current === undefined) return
+    if (offered) {
+      // A freshly offered level spells its wire value as itself, the
+      // openai-completions convention; the user can rename it per gateway.
+      setReasoning(index, { ...current, [level]: level === 'off' ? null : level })
+      return
+    }
+    const { [level]: _dropped, ...rest } = current
+    setReasoning(index, rest)
   }
 
   const fetchModels = async (): Promise<void> => {
@@ -417,6 +559,20 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
                 </label>
+                <ReasoningEditor
+                  levels={levels}
+                  value={model['reasoningEfforts']}
+                  disabled={disabled}
+                  t={t}
+                  onSet={(value) => { setReasoning(index, value) }}
+                  onToggleLevel={(level, offered) => { toggleReasoningLevel(index, model, level, offered) }}
+                  onWire={(level, wire) => {
+                    const dict = reasoningOf(model)
+                    /* v8 ignore next -- the wire input only renders while a dict exists */
+                    if (dict === undefined) return
+                    setReasoning(index, { ...dict, [level]: wire === '' && level === 'off' ? null : wire })
+                  }}
+                />
               </div>
             )
             : null}
