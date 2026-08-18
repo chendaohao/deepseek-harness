@@ -225,7 +225,7 @@ type PreStepDecision =
   | { kind: 'enter'; messages: UserMessage[] }
 ```
 
-`agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`; the default `undefined` leaves the failure terminal.
+`agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`; when every listener delegates, the built-in fallback applies the serving retry policy (`always` retries every failure, normal mode retries listed codes up to `maxRetries` per step), and a request without a serving policy leaves the failure terminal.
 
 ```ts type-equiv
 /** Action returned by a listener that owns model-request recovery. */
@@ -824,7 +824,7 @@ A step or turn errored. The machine reports a failure here even when the error h
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:290`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:293`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentinboxclaimed--emit"></a>
 
@@ -947,14 +947,17 @@ Source: [`packages/core/agent/src/runtime-types.ts:244`](../../packages/core/age
 
 #### `agent/request-error` — waterfall
 
-Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
+Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. When every listener delegates, the built-in fallback applies the serving retry policy directly: `always` retries every failure without an attempt limit, normal mode retries `retryableCodes` up to `maxRetries` per step, and a request without a serving policy stays terminal.
 
 ```ts cordis-catalog
 /**
  * Handle one failed model-request attempt before the loop retries or closes
  * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
- * when it owns recovery, or calls `next()` to delegate. The default
- * `undefined` leaves the failure terminal.
+ * when it owns recovery, or calls `next()` to delegate. When every
+ * listener delegates, the built-in fallback applies the serving retry
+ * policy directly: `always` retries every failure without an attempt
+ * limit, normal mode retries `retryableCodes` up to `maxRetries` per
+ * step, and a request without a serving policy stays terminal.
  * @param payload.agent - the agent whose request failed.
  * @param payload.turn - the turn containing the failed request.
  * @param payload.step - the step containing the failed request attempt.
@@ -970,7 +973,7 @@ Handle one failed model-request attempt before the loop retries or closes its st
 
 Types: [LlmFailure](llm-streaming.md) · [ResolvedRetryPolicy](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:260`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:263`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentsession-start--emit"></a>
 
@@ -1048,7 +1051,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:278`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:281`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agent-loop-events"></a>
 

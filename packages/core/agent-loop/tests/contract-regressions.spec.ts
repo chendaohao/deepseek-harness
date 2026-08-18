@@ -823,7 +823,7 @@ describe('turn and step boundary recovery', () => {
 
   it('a throwing agent/error listener during a step-error path still balances the turn, loop survives', async () => {
     // Listener failure cannot interrupt error finalization or the next turn.
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }]
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 401', code: 'AUTH' } } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await balancedHarness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-errorlistener'), { provider: 'mock', model: 'mock' })
@@ -841,7 +841,7 @@ describe('turn and step boundary recovery', () => {
     expect(c.stepStart).toBe(c.stepEnd)
     expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({
       kind: 'error',
-      error: { message: 'provider 500', code: 'SERVER' },
+      error: { message: 'provider 401', code: 'AUTH' },
     })
     expect(threw).toBe(true)
 
@@ -990,7 +990,7 @@ describe('turn and step boundary recovery', () => {
 
   it('a throwing step/end observer cannot interrupt error finalization', async () => {
     // Observer failure after step/end commit cannot interrupt turn finalization.
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }]
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 401', code: 'AUTH' } } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-stependthrow'), { provider: 'mock', model: 'mock' })
@@ -1014,7 +1014,7 @@ describe('turn and step boundary recovery', () => {
     expect(e.at(-1)?.type).toBe('turn/end')
     expect(errors).toHaveLength(1)
     expect(errors[0]).toBeInstanceOf(LlmError)
-    expect((errors[0] as LlmError).failure).toEqual({ message: 'provider 500', code: 'SERVER' })
+    expect((errors[0] as LlmError).failure).toEqual({ message: 'provider 401', code: 'AUTH' })
 
     // loop survives.
     send(agent, 'again')

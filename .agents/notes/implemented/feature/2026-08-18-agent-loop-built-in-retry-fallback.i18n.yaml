@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-agent-loop-built-in-retry-fallback.md
+2026-08-18-agent-loop-built-in-retry-fallback.md: e8b879b9db278ad31ab4bfaa2c8b425849ad25ea
+2026-08-18-agent-loop-built-in-retry-fallback.zh.md: 22c0918281ca49a6877a8d78ae81c2402b20b3b6

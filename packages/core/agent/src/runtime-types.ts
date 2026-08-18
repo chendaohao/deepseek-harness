@@ -245,8 +245,11 @@ declare module '@deepseek-ai/cordis' {
     /**
      * Handle one failed model-request attempt before the loop retries or closes
      * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
-     * when it owns recovery, or calls `next()` to delegate. The default
-     * `undefined` leaves the failure terminal.
+     * when it owns recovery, or calls `next()` to delegate. When every
+     * listener delegates, the built-in fallback applies the serving retry
+     * policy directly: `always` retries every failure without an attempt
+     * limit, normal mode retries `retryableCodes` up to `maxRetries` per
+     * step, and a request without a serving policy stays terminal.
      * @param payload.agent - the agent whose request failed.
      * @param payload.turn - the turn containing the failed request.
      * @param payload.step - the step containing the failed request attempt.

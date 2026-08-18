@@ -13,7 +13,6 @@ import type {
   CancelOptions,
   InboxTarget,
   PreStepDecision,
-  RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { Inbox, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
@@ -336,6 +335,12 @@ export class ReactLoopAgent implements Agent {
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
 
+    // Per-step retry counter: resets each new step, increments only when the
+    // built-in fallback (last resort in the agent/request-error waterfall)
+    // decides to retry. The dsh-llm-retry plugin maintains its own count via
+    // session events when it handles recovery.
+    let stepRetryCount = 0
+
     while (true) {
       const { request, preparedCall } = await this.buildRequest(
         turn, step, assembly.tools, system, this.session.deriveMessages(), signal,
@@ -361,7 +366,21 @@ export class ReactLoopAgent implements Agent {
             retryPolicy: preparedCall?.retryPolicy,
             signal,
           },
-          () => Promise.resolve<RequestErrorAction>(undefined),
+          async () => {
+            // Built-in retry: the last resort in the agent/request-error
+            // waterfall. When no plugin handles recovery, apply the provider's
+            // retry policy directly — transparent retry like Claude Code.
+            const policy = preparedCall?.retryPolicy
+            if (policy === undefined) return undefined
+            if (policy.mode === 'always') {
+              stepRetryCount += 1
+              return { kind: 'retry' }
+            }
+            if (!policy.retryableCodes.includes(finish.failure.code)) return undefined
+            if (stepRetryCount >= policy.maxRetries) return undefined
+            stepRetryCount += 1
+            return { kind: 'retry' }
+          },
         )
         signal.throwIfAborted()
         if (action?.kind !== 'retry') {

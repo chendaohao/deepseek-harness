@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { createUserMessage, LlmError  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -79,16 +79,8 @@ describe('agent/request-error', () => {
       step: item.step,
       code: item.failure.code,
     }))).toEqual([
-      {
-        turn: 1,
-        step: 1,
-        code: 'RATE_LIMIT',
-      },
-      {
-        turn: 1,
-        step: 1,
-        code: 'SERVICE_UNAVAILABLE',
-      },
+      { turn: 1, step: 1, code: 'RATE_LIMIT' },
+      { turn: 1, step: 1, code: 'SERVICE_UNAVAILABLE' },
     ])
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(seen.map(item => item.retryPolicy)).toEqual([
@@ -118,10 +110,10 @@ describe('agent/request-error', () => {
     })
   })
 
-  it('does not retry when the recovery listener fails before returning its action', async () => {
+  it('built-in fallback does not run when a listener throws (waterfall propagates)', async () => {
     const adapter = new MockAdapter([fail('busy', 'RATE_LIMIT'), textResponse('unused')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('request-error-recovery-failed'), {
+    const agent = ctx.agentLoop.create(SessionId('request-error-listener-throws'), {
       provider: 'mock',
       model: 'mock',
     })
@@ -132,8 +124,53 @@ describe('agent/request-error', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
+    // Waterfall propagates the throw — the built-in fallback never runs
     expect(adapter.requests).toHaveLength(1)
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(agent.session.events.find(event => event.type === 'turn/end')).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error' } },
+    })
+  })
+
+  it('built-in fallback retries retryable failures without any listener (default policy)', async () => {
+    const adapter = new MockAdapter([
+      fail('rate limited', 'RATE_LIMIT'),
+      fail('server error', 'SERVER'),
+      fail('timeout', 'TIMEOUT'),
+      textResponse('ok'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('request-error-built-in'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    // No agent/request-error listener — built-in fallback handles retry
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    // Default maxRetries: 2, so only 2 retries before giving up
+    expect(adapter.requests).toHaveLength(3)
+    // 3rd failure (TIMEOUT) is retryable but exceeds maxRetries, so error propagates
+    expect(agent.session.events.find(event => event.type === 'turn/end')).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error' } },
+    })
+  })
+
+  it('built-in fallback does not retry non-retryable failures without any listener', async () => {
+    const adapter = new MockAdapter([fail('invalid', 'INVALID_REQUEST'), textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('request-error-built-in-non-retryable'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    // No agent/request-error listener
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.find(event => event.type === 'turn/end')).toMatchObject({
       type: 'turn/end',
       data: { reason: { kind: 'error' } },
