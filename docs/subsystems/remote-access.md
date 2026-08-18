@@ -2,7 +2,7 @@
 
 English | [中文](remote-access.zh.md)
 
-The remote-access capability: a public HTTPS tunnel into the local Web GUI with phone pairing. [`dsh-remote-tunnel`](../../packages/remote/remote-tunnel) provides `ctx.remoteTunnel`, a Service that spawns a pinned, SHA-256-verified cloudflared release and resolves one `RemoteTunnelSession` per open call — the session's public URL plus idempotent teardown — while sessions report `remote-tunnel/state` facts. [`dsh-remote-access`](../../packages/remote/remote-access) consumes the tunnel and the host webserver port: the pairing secret, the loopback-only reverse proxy with its pairing gate and cookie, and the terminal URL + QR surface. It is not part of the agent loop; local and LAN behavior is unchanged while the capability stays disabled.
+The remote-access capability: a public HTTPS tunnel into the local Web GUI with phone pairing and revocable device sessions. [`dsh-remote-tunnel`](../../packages/remote/remote-tunnel) provides `ctx.remoteTunnel`, a Service that spawns a pinned, SHA-256-verified cloudflared release and resolves one `RemoteTunnelSession` per open call — the session's public URL plus idempotent teardown — while sessions report `remote-tunnel/state` facts. [`dsh-remote-access`](../../packages/remote/remote-access) consumes the tunnel and the host webserver port: the pairing secret, the revocable device registry, the loopback-only reverse proxy with its pairing gate and device-scoped cookie, the terminal URL + QR surface, and a desktop-only `/remote/*` control plane (`remote/devices/change` events ride the allowlist bridge). [`dsh-client-ui-remote`](../../packages/client/ui-remote) owns the client surfaces: the in-GUI remote panel and the standalone `/m` mobile page. It is not part of the agent loop; local and LAN behavior is unchanged while the capability stays disabled.
 
 Source: [`packages/remote/remote-tunnel/src/index.ts`](../../packages/remote/remote-tunnel/src/index.ts) and [`packages/remote/remote-access/src/index.ts`](../../packages/remote/remote-access/src/index.ts)
 
@@ -51,7 +51,28 @@ The remote-tunnel Service (`ctx.remoteTunnel`): resolves the cloudflared binary 
 async open(port: number): Promise<RemoteTunnelSession>
 ```
 
-Source: [`packages/remote/remote-tunnel/src/index.ts:326`](../../packages/remote/remote-tunnel/src/index.ts)
+Source: [`packages/remote/remote-tunnel/src/index.ts:312`](../../packages/remote/remote-tunnel/src/index.ts)
+
+<a id="remote-events"></a>
+
+### `remote/*` events
+
+<a id="remotedeviceschange--emit"></a>
+
+#### `remote/devices/change` — emit
+
+The device roster changed: a device paired, was revoked, or its liveness advanced.
+
+```ts cordis-catalog
+/**
+ * The device roster changed: a device paired, was revoked, or its liveness advanced.
+ * @mode emit
+ * @param devices - the live roster snapshot after the change.
+ */
+'remote/devices/change'(devices: DeviceRecord[]): void
+```
+
+Source: [`packages/remote/remote-access/src/types.ts:24`](../../packages/remote/remote-access/src/types.ts)
 
 <a id="remote-tunnel-events"></a>
 
@@ -74,6 +95,6 @@ One tunnel session reported a durable fact: its public URL became ready, its chi
 'remote-tunnel/state'(state: RemoteTunnelState): void
 ```
 
-Source: [`packages/remote/remote-tunnel/src/index.ts:74`](../../packages/remote/remote-tunnel/src/index.ts)
+Source: [`packages/remote/remote-tunnel/src/types.ts:24`](../../packages/remote/remote-tunnel/src/types.ts)
 <!-- END GENERATED cordis-surface -->
 

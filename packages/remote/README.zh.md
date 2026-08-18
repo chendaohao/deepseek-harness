@@ -7,7 +7,7 @@
 | 包 | 角色 | ctx key |
 |---|---|---|
 | [`remote-tunnel/`](remote-tunnel/README.md) | 隧道能力：Service + cloudflared 快速隧道 provider | `ctx.remoteTunnel` |
-| [`remote-access/`](remote-access/README.md) | 配对闸门、loopback 反向代理与 URL/二维码呈现 | `ctx.remoteAccess` |
+| [`remote-access/`](remote-access/README.md) | 配对闸门、可吊销设备注册表、loopback 反向代理与 URL/二维码 + `/remote/*` 控制面消费者 | `ctx.remoteAccess` |
 
 `remote-access` 消费 `remoteTunnel` Service 与宿主 Web 服务器端口；随附的 Web 组合通过 `dsh web --remote` 旗标启用这两个行（[web-app patch](../bundle/web-app/cordis.patch.yml)）。[原生移动语音 App](../../apps/mobile/README.md) 是配对闸门与 `/api` 协议的纯消费者。
 

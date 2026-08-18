@@ -71,6 +71,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   fs: 'filesystem.md',
   goals: 'goal.md',
   webServer: 'web-server.md',
+  remoteTunnel: 'remote-access.md',
   invariants: 'invariants.md',
   llm: 'llm-streaming.md',
   lsp: 'lsp.md',
@@ -174,6 +175,8 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'fs': 'filesystem.md',
   'goal': 'goal.md',
   'llm': 'llm-streaming.md',
+  'remote': 'remote-access.md',
+  'remote-tunnel': 'remote-access.md',
   'session': 'session.md',
   'settings': 'settings.md',
   'skills': 'skills.md',
@@ -506,6 +509,9 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
+  RemoteTunnelState: 'tunnel session state union is owned by packages/remote/remote-tunnel/src/types.ts',
+  RemoteTunnelSession: 'live tunnel session handle is owned by packages/remote/remote-tunnel/src/index.ts',
+  DeviceRecord: 'paired device roster record is owned by packages/remote/remote-access/src/types.ts',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
