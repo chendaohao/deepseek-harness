@@ -18,3 +18,4 @@ None; the contribution adds one per-shell environment value and does not touch r
 
 - **UI 收窄的特权面** — Web UI 在非 loopback 页面上把设置、凭据与 agent-preset 编辑保留在按会话的内存作用域，本机原生对话框仍仅限本地；端点本身在配对认证之后可达。把特权面整体置于配对认证之后，待认证层经过真实使用后再评估。
 - **一次性配对 token** — 二维码编码的是单次使用、15 分钟 TTL 的 token；消费或过期后，请在界面内面板点"刷新二维码"或重启 `dsh web --remote` 以获取新 token。`--remote-reset` 轮换密钥并吊销所有设备。
+- **控制平面信任 loopback 绑定** — 仅桌面端的 `/remote/*` 控制平面通过 `x-dsh-proxied` 标记拒绝隧道来源流量，但没有其他鉴权，因此必须只从宿主机可达。随附 Web bundle 通过拒绝 `--host 0.0.0.0` 强制这一点；手工组合若把 Web 服务器绑定到所有接口，会把配对 token 签发与设备吊销暴露给局域网。

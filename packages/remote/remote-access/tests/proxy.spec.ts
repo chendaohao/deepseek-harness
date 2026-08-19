@@ -51,6 +51,7 @@ afterEach(async () => {
   proxyInternals.maxPayload = savedInternals.maxPayload
   proxyInternals.pendingMaxBytes = savedInternals.pendingMaxBytes
   proxyInternals.backlogMaxBytes = savedInternals.backlogMaxBytes
+  proxyInternals.reauthorizeIntervalMs = savedInternals.reauthorizeIntervalMs
   await proxy?.close()
   proxy = undefined
   if (target !== undefined) {
@@ -243,6 +244,29 @@ describe('WebSocket relaying', () => {
       client.on('open', () => { resolve({ code: 101 }) })
     })
     await expect(rejected).resolves.toEqual({ code: 401 })
+  })
+
+  it('cuts an established relayed WebSocket when the device is revoked', async () => {
+    proxyInternals.reauthorizeIntervalMs = 25
+    const secret = randomBytes(32)
+    const devices = new DeviceRegistry(undefined)
+    const realPolicy = createAccessPolicy(secret, devices, { now: () => Date.now() })
+    await proxy?.close()
+    proxy = await createRemoteProxy({ targetPort: echoPort, policy: realPolicy })
+    const token = devices.issueToken(Date.now())
+    const pair = await rawRequest(proxy.port, '/pair/' + token, { host: 'fake.tunnel.example' })
+    const cookieHeader = pair.headers['set-cookie']
+    const cookie = (Array.isArray(cookieHeader) ? (cookieHeader[0] ?? '') : cookieHeader ?? '').split(';')[0]!
+    const deviceId = cookie.split('=')[1]!.split('.')[1]!
+    const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port) + '/api/events', { headers: { cookie } })
+    await new Promise<void>((resolve) => { client.on('open', () => { resolve() }) })
+    // The relay is live (upstream echo accepts) — but revocation must not let
+    // the already-open socket outlive the device. The re-authorization tick
+    // closes the pair within one interval.
+    const closed = new Promise<void>((resolve) => { client.on('close', () => { resolve() }) })
+    devices.revoke(deviceId)
+    await expect(closed).resolves.toBeUndefined()
+    expect(devices.isLive(deviceId)).toBe(false)
   })
 
   it('buffers frames that precede the upstream handshake and flushes them on open', async () => {

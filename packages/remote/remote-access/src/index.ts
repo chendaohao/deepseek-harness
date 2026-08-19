@@ -189,7 +189,16 @@ export class RemoteAccess extends Service {
     if (req.method === 'POST' && rawPath === '/remote/pair/issue') return this.issuePair(res)
     if (req.method === 'POST' && rawPath === '/remote/stop') return this.stopAll(res)
     if (req.method === 'POST' && rawPath.startsWith('/remote/devices/')) {
-      return this.revokeDevice(decodeURIComponent(rawPath.slice('/remote/devices/'.length)), res)
+      let deviceId: string
+      try {
+        deviceId = decodeURIComponent(rawPath.slice('/remote/devices/'.length))
+      } catch {
+        // A malformed percent-encoding must not escape as an uncaught URIError.
+        res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
+        res.end('bad device id')
+        return
+      }
+      return this.revokeDevice(deviceId, res)
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
     res.end('not found')

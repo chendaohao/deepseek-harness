@@ -34,6 +34,8 @@ const WS_MAX_PAYLOAD = 64 * 1024 * 1024
 const UPSTREAM_PENDING_MAX_BYTES = 8 * 1024 * 1024
 /** Send-queue backlog that marks a relayed pair as flooding and closes it (bytes). */
 const WS_BACKLOG_MAX_BYTES = 128 * 1024 * 1024
+/** Re-run the access policy on established WebSocket relays every this many ms. */
+const REAUTHORIZE_INTERVAL_MS = 30_000
 
 /** Test hook: WebSocket relay bounds, overridable so fixture tests need no huge frames. */
 export const internals = {
@@ -43,6 +45,8 @@ export const internals = {
   pendingMaxBytes: UPSTREAM_PENDING_MAX_BYTES,
   /** Send-queue backlog bound per direction (bytes). */
   backlogMaxBytes: WS_BACKLOG_MAX_BYTES,
+  /** Re-authorization cadence for established relays (ms). */
+  reauthorizeIntervalMs: REAUTHORIZE_INTERVAL_MS,
 }
 
 /** Byte length of one ws message payload. */
@@ -167,11 +171,19 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       upstream.on('close', () => { upstreamClients.delete(upstream) })
       const pending: { data: RawData; isBinary: boolean }[] = []
       let pendingBytes = 0
+      const stopReauthorize = (): void => { clearInterval(reauthorize) }
       const closePair = (): void => {
+        stopReauthorize()
         /* v8 ignore next 2 -- closePair only runs while the pair is live; the CLOSED arms defend double teardown */
         if (downstream.readyState !== WebSocket.CLOSED) downstream.close()
         if (upstream.readyState !== WebSocket.CLOSED) upstream.close()
       }
+      // Authorization ran at upgrade time; a live relay must not outlive its
+      // device. Re-run the policy on an interval so a revocation cuts an
+      // established socket too, not just the next HTTP request.
+      const reauthorize = setInterval(() => {
+        if (!policy.authorize(req)) closePair()
+      }, internals.reauthorizeIntervalMs)
       upstream.on('open', () => {
         for (const frame of pending) upstream.send(frame.data, { binary: frame.isBinary })
         pending.length = 0
@@ -208,8 +220,8 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
           closePair()
         }
       })
-      upstream.on('close', () => { if (downstream.readyState === WebSocket.OPEN) downstream.close() })
-      downstream.on('close', () => { if (upstream.readyState !== WebSocket.CLOSED) upstream.close() })
+      upstream.on('close', () => { stopReauthorize(); if (downstream.readyState === WebSocket.OPEN) downstream.close() })
+      downstream.on('close', () => { stopReauthorize(); if (upstream.readyState !== WebSocket.CLOSED) upstream.close() })
       upstream.on('error', () => { upstream.close() })
       /* v8 ignore next -- ws always follows a downstream error with close, which already closes the upstream */
       downstream.on('error', () => { upstream.close() })
