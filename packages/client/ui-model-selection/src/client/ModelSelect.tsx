@@ -199,7 +199,21 @@ export function ModelSelect(
       ...effort === undefined ? {} : { reasoningEffort: effort },
     }
     lastActionRef.current = 'select'
-    void select(selection).then(settleSelection)
+    void select(selection).then((accepted) => {
+      if (!accepted) {
+        settleSelection(false)
+        return
+      }
+      // A pick the model cannot take is normalized by the host to its declared
+      // default; surface that so the fallback is not silent.
+      const landed = directory.getSnapshot().current?.reasoningEffort
+      if (effort !== undefined && landed !== undefined && landed !== effort) {
+        const label = reasoning?.efforts.find(level => level.id === landed)?.name ?? landed
+        toastSeq.current += 1
+        setToast({ seq: toastSeq.current, text: t('effort.normalized', { effort: label }) })
+      }
+      settleSelection(true)
+    })
   }
 
   const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')

@@ -830,10 +830,13 @@ async resolveModelInfo( provider: string, model: string, signal?: AbortSignal, )
 
 /**
  * Validate a conversation call config against its exact model capability and
- * materialize adapter-configured defaults. Unsupported explicit efforts
- * reject before provider I/O; no clamping or aliasing is performed. This
- * standalone query does not bind a later dispatch; use {@link prepareCall}
- * when logging and streaming must share one adapter registration.
+ * materialize adapter-configured defaults. An explicit effort the model does
+ * not declare is normalized rather than rejected: it falls back to the
+ * model's adapter-owned default when one is declared, else the effort is
+ * dropped so the provider's own default applies. The config is never aliased
+ * to an arbitrary level. This standalone query does not bind a later
+ * dispatch; use {@link prepareCall} when logging and streaming must share one
+ * adapter registration.
  * @param config - provider/model route and optional request controls.
  * @param signal - optional cancellation for adapter-owned capability lookup.
  * @returns a detached config only when a default must be materialized.

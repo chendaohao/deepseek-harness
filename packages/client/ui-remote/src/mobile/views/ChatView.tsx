@@ -437,6 +437,7 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
   const [state, setState] = useState<{ status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: SessionModels }>({ status: 'loading' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
+  const [hint, setHint] = useState<string | undefined>(undefined)
 
   const load = useCallback(() => {
     setState({ status: 'loading' })
@@ -456,10 +457,20 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
     if (busy) return
     setBusy(true)
     setError(undefined)
+    setHint(undefined)
     void selectModel(sessionId, selection).then(
       (result) => {
         setBusy(false)
         if (result.ok) {
+          // A pick the model cannot take is normalized by the host to its
+          // declared default; keep the sheet open so the fallback is visible.
+          const requested = selection.reasoningEffort
+          const landed = result.value.reasoningEffort
+          if (requested !== undefined && landed !== undefined && landed !== requested) {
+            setHint(`该模型不支持所选思考等级，已回退到 ${landed}`)
+            onCurrent(result.value)
+            return
+          }
           onCurrent(result.value)
           onClose()
         } else {
@@ -517,6 +528,7 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
     <Sheet title="模型与思考强度" onClose={onClose}>
       {error !== undefined && <p className="sheet-error">{error}</p>}
       {error !== undefined && staleHostHint(error) !== undefined && <p className="sheet-hint">{staleHostHint(error)}</p>}
+      {hint !== undefined && <p className="sheet-hint">{hint}</p>}
       {data.failures.map(failure => (
         <p className="sheet-error" key={failure.id}>{failure.name}: {failure.message}</p>
       ))}

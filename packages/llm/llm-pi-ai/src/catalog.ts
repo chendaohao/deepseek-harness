@@ -296,6 +296,21 @@ interface ModelReasoning {
 }
 
 /**
+ * Canonical thinking levels a hand-declared model with no declared capability
+ * is offered. `off` stays absent from the map — supported, send nothing, per
+ * pi-ai's absent-key defaulting — and every other level is pinned, so that same
+ * asymmetric rule cannot leak `minimal`/`medium`/`xhigh` into the offer.
+ */
+const CANONICAL_THINKING_LEVELS: ThinkingLevelMap = {
+  minimal: null,
+  low: 'low',
+  medium: null,
+  high: 'high',
+  xhigh: null,
+  max: 'max',
+}
+
+/**
  * Resolve one model's reasoning capability from its declared efforts.
  *
  * A declared dict translates to pi-ai's `thinkingLevelMap` with every level
@@ -319,12 +334,13 @@ function resolveModelReasoning(
 ): ModelReasoning {
   const efforts = entry.reasoningEfforts
   if (efforts === undefined) {
-    // Reasoning rides the installed entry or is absent: a bare capability flag
-    // would make pi-ai advertise effort levels with no `thinkingLevelMap` to
-    // spell them, and no listing endpoint reports a model's reasoning
-    // protocol. The entry's map (when any) arrives through the `...base`
-    // spread in the model literal.
-    return { reasoning: base?.reasoning ?? false }
+    // An installed catalog entry of the same id describes the capability.
+    // Otherwise this is a hand-declared model pi-ai has never heard of: a
+    // custom vendor often reasons without reporting its levels, so offer the
+    // canonical fallback set to keep the thinking control usable. The request
+    // path maps them best-effort and the loop degrades when a vendor refuses.
+    if (base !== undefined) return { reasoning: base.reasoning }
+    return { reasoning: true, thinkingLevelMap: CANONICAL_THINKING_LEVELS }
   }
   // The installed entry's map may ride along through `...base`; pi-ai never
   // reads it on a non-reasoning model, so stripping it is not worth a field

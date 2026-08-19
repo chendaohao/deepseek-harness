@@ -110,8 +110,8 @@ describe('PiAiAdapter provider routing', () => {
     })
   })
 
-  it('uses a dynamic request effort and reports unsupported efforts before network I/O', async () => {
-    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+  it('uses a dynamic request effort and normalizes an unsupported one to the route default', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }, { events: textEvents }])
     const ctx = await harness(server.url, { reasoning: 'max' })
 
     await assemble(ctx, {
@@ -129,16 +129,15 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
     expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
 
-    const unsupported = await assemble(ctx, {
+    // An effort the model does not offer normalizes to the route's declared
+    // default (the profile's `reasoning`) rather than failing the request.
+    const normalized = await assemble(ctx, {
       model: 'deepseek-v4-flash',
       reasoningEffort: ReasoningEffortId('xhigh'),
       messages: [],
     })
-    expect(unsupported.finish).toMatchObject({
-      kind: 'error',
-      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
-    })
-    expect(server.requests).toHaveLength(2)
+    expect(normalized.finish).toMatchObject({ kind: 'stop' })
+    expect(server.requests[2]).toMatchObject({ reasoning_effort: 'max' })
   })
 
   it('preserves omitted profile options when constructing the adapter directly', async () => {

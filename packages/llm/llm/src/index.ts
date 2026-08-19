@@ -719,10 +719,13 @@ export class LlmRuntime extends Service {
 
   /**
    * Validate a conversation call config against its exact model capability and
-   * materialize adapter-configured defaults. Unsupported explicit efforts
-   * reject before provider I/O; no clamping or aliasing is performed. This
-   * standalone query does not bind a later dispatch; use {@link prepareCall}
-   * when logging and streaming must share one adapter registration.
+   * materialize adapter-configured defaults. An explicit effort the model does
+   * not declare is normalized rather than rejected: it falls back to the
+   * model's adapter-owned default when one is declared, else the effort is
+   * dropped so the provider's own default applies. The config is never aliased
+   * to an arbitrary level. This standalone query does not bind a later
+   * dispatch; use {@link prepareCall} when logging and streaming must share one
+   * adapter registration.
    * @param config - provider/model route and optional request controls.
    * @param signal - optional cancellation for adapter-owned capability lookup.
    * @returns a detached config only when a default must be materialized.
@@ -743,23 +746,26 @@ export class LlmRuntime extends Service {
     const reasoning = info.reasoning
     const requested = defaulted.reasoningEffort
     let resolvedConfig = defaulted
-    if (reasoning === undefined) {
-      if (requested !== undefined) {
-        throw new LlmError(
-          `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${requested}"`,
-          'UNSUPPORTED_REASONING_EFFORT',
-        )
+    if (requested === undefined) {
+      // No explicit effort: materialize the adapter-configured default when the
+      // model declares one. Its default is always one of its declared efforts
+      // (`resolveModelInfo` rejects an unknown default), so no support check is
+      // needed here.
+      if (reasoning?.defaultEffort !== undefined) {
+        resolvedConfig = { ...defaulted, reasoningEffort: reasoning.defaultEffort }
       }
-    } else {
-      const effective = requested ?? reasoning.defaultEffort
-      if (effective !== undefined) {
-        if (!reasoning.efforts.some(effort => effort.id === effective)) {
-          throw new LlmError(
-            `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
-            'UNSUPPORTED_REASONING_EFFORT',
-          )
-        }
-        if (requested !== effective) resolvedConfig = { ...defaulted, reasoningEffort: effective }
+    } else if (reasoning === undefined || !reasoning.efforts.some(effort => effort.id === requested)) {
+      // The requested effort is not something this model can take — a custom
+      // vendor model may reason without declaring its levels. Fall back to the
+      // adapter-owned default when the model declares one, else drop the effort
+      // and let the provider's own default apply. This normalizes the request
+      // rather than failing it; it never aliases to an arbitrary level.
+      const fallback = reasoning?.defaultEffort
+      if (fallback === undefined) {
+        const { reasoningEffort: _dropped, ...without } = defaulted
+        resolvedConfig = without
+      } else {
+        resolvedConfig = { ...defaulted, reasoningEffort: fallback }
       }
     }
     return {

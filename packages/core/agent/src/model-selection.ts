@@ -53,7 +53,7 @@ export function installModelSelection(agentCtx: Context, selection: ModelSelecti
   })
   const disposeRequest = agentCtx.on(
     'agent/request',
-    async (_payload, next): Promise<LlmCallConfig> => {
+    async (payload, next): Promise<LlmCallConfig> => {
       const resolved = await next()
       const selected = selection.assembled
       if (selected === undefined) return resolved
@@ -62,7 +62,9 @@ export function installModelSelection(agentCtx: Context, selection: ModelSelecti
         ...withoutInheritedEffort,
         provider: selected.provider,
         model: selected.model,
-        ...selected.reasoningEffort === undefined
+        // A degraded retry drops the effort after the provider refused it, so
+        // the inherited selection must not re-inject it.
+        ...payload.degradedEffort === true || selected.reasoningEffort === undefined
           ? {}
           : { reasoningEffort: selected.reasoningEffort },
       }

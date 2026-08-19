@@ -717,26 +717,47 @@ describe('LlmRuntime', () => {
       .rejects.toMatchObject({ code: 'INVALID_MODEL_REASONING' })
   })
 
-  it('rejects unsupported reasoning efforts without clamping', async () => {
+  it('normalizes unsupported reasoning efforts instead of rejecting', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     ctx.llm.registerAdapter(['route'], new CatalogAdapter(
       { id: 'route', name: 'Route' },
       [],
       {},
-      { model: { efforts: [{ id: ReasoningEffortId('ultra'), name: 'Ultra' }] } },
+      {
+        model: {
+          efforts: [{ id: ReasoningEffortId('ultra'), name: 'Ultra' }],
+          defaultEffort: ReasoningEffortId('ultra'),
+        },
+        plain: { efforts: [{ id: ReasoningEffortId('ultra'), name: 'Ultra' }] },
+      },
     ))
 
+    // A requested effort the model does not offer falls back to its declared default.
     await expect(ctx.llm.resolveCallConfig({
       provider: 'route',
       model: 'model',
       reasoningEffort: ReasoningEffortId('standard'),
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    })).resolves.toEqual({
+      provider: 'route',
+      model: 'model',
+      reasoningEffort: ReasoningEffortId('ultra'),
+    })
+    // Without a declared default the effort is dropped, preserving the provider default.
     await expect(ctx.llm.resolveCallConfig({
       provider: 'route',
       model: 'plain',
       reasoningEffort: ReasoningEffortId('standard'),
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    })).resolves.toEqual({ provider: 'route', model: 'plain' })
+    // A model with no reasoning capability drops the requested effort.
+    await expect(ctx.llm.resolveCallConfig({
+      provider: 'route',
+      model: 'bare',
+      reasoningEffort: ReasoningEffortId('standard'),
+    })).resolves.toEqual({ provider: 'route', model: 'bare' })
+    // A requested effort the model does offer is preserved unchanged.
+    const supported = { provider: 'route', model: 'model', reasoningEffort: ReasoningEffortId('ultra') }
+    await expect(ctx.llm.resolveCallConfig(supported)).resolves.toBe(supported)
   })
 
   it('resolves reasoning defaults at the final adapter boundary after routing middleware', async () => {

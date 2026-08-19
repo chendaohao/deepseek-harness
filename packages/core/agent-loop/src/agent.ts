@@ -16,7 +16,7 @@ import type {
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { Inbox, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   BlockAssembler,
   LlmError,
@@ -58,6 +58,25 @@ function requestProposal(header: EpochHeader): LlmCallConfig {
   if (header.adapterDefaults.reasoningEffort === true) delete proposal.reasoningEffort
   if (header.adapterDefaults.maxTokens === true) delete proposal.maxTokens
   return proposal
+}
+
+/** Remove an explicit reasoning effort from a config, preserving the rest. */
+function dropReasoningEffort(config: LlmCallConfig): LlmCallConfig {
+  const { reasoningEffort: _dropped, ...rest } = config
+  return rest
+}
+
+/**
+ * Whether a request failure plausibly means the provider refused the reasoning
+ * effort parameter: a validation-class error, or wording that names the
+ * parameter. The built-in degradation only acts on these so a real transport
+ * or context error is never masked by dropping the effort.
+ * @param failure - the terminal failure of the request.
+ * @returns true when retrying without the effort is a plausible remedy.
+ */
+function isEffortRejection(failure: LlmFailure): boolean {
+  if (failure.code === 'INVALID_REQUEST' || failure.code === 'HTTP_400') return true
+  return /\b(reasoning|thinking|effort)\b/i.test(failure.message)
 }
 
 /** Drives one session through turn and step boundaries. */
@@ -336,9 +355,14 @@ export class ReactLoopAgent implements Agent {
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
 
+    // Last-resort effort degradation: when no plugin recovers a request the
+    // provider refused (a validation-class failure on a request that carried an
+    // explicit reasoning effort), drop the effort once per step and retry, so a
+    // custom vendor that rejects the parameter still gets a completed turn.
+    let degradedEffort = false
     while (true) {
       const { request, preparedCall } = await this.buildRequest(
-        turn, step, assembly.tools, system, this.session.deriveMessages(), signal,
+        turn, step, assembly.tools, system, this.session.deriveMessages(), signal, degradedEffort,
       )
       const assembler = new BlockAssembler()
       const chunkSeqs: number[] = []
@@ -361,7 +385,13 @@ export class ReactLoopAgent implements Agent {
             retryPolicy: preparedCall?.retryPolicy,
             signal,
           },
-          () => Promise.resolve<RequestErrorAction>(undefined),
+          () => {
+            if (degradedEffort) return Promise.resolve<RequestErrorAction>(undefined)
+            if (request.reasoningEffort === undefined) return Promise.resolve<RequestErrorAction>(undefined)
+            if (!isEffortRejection(finish.failure)) return Promise.resolve<RequestErrorAction>(undefined)
+            degradedEffort = true
+            return Promise.resolve<RequestErrorAction>({ kind: 'retry', dropReasoningEffort: true })
+          },
         )
         signal.throwIfAborted()
         if (action?.kind !== 'retry') {
@@ -411,6 +441,7 @@ export class ReactLoopAgent implements Agent {
     system: string,
     boundaryMessages: Message[],
     signal: AbortSignal,
+    degradedEffort = false,
   ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
     const { session } = this
 
@@ -425,18 +456,26 @@ export class ReactLoopAgent implements Agent {
       ? persistedConfig.reasoningEffort
       : undefined
     const maxTokens = this.options.maxTokens
+    const proposed = this.requestHeaderLogged
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the header it now folds
+      ? requestProposal(persistedHeader!)
+      : {
+        ...route,
+        ...reasoningEffort === undefined ? {} : { reasoningEffort },
+        ...maxTokens === undefined ? {} : { maxTokens },
+      }
     const seedConfig = deepFreeze(structuredClone(
-      this.requestHeaderLogged
-        // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the header it now folds
-        ? requestProposal(persistedHeader!)
-        : {
-          ...route,
-          ...reasoningEffort === undefined ? {} : { reasoningEffort },
-          ...maxTokens === undefined ? {} : { maxTokens },
-        },
+      degradedEffort && proposed.reasoningEffort !== undefined
+        ? dropReasoningEffort(proposed)
+        : proposed,
     ))
     const proposedConfig = await this.dispatch.waterfall(
-      'agent/request', { turn, step, signal },
+      'agent/request', {
+        turn,
+        step,
+        signal,
+        ...degradedEffort ? { degradedEffort: true } : {},
+      },
       () => Promise.resolve(seedConfig),
     )
     signal.throwIfAborted()

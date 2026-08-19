@@ -224,8 +224,8 @@ describe('DeepSeekAdapter against a mock server', () => {
       })
   })
 
-  it('reports a per-request effort failure before I/O when thinking is disabled', async () => {
-    const server = await mockServer([])
+  it('normalizes a requested effort to the deployment default when thinking is disabled', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url, { thinking: 'disabled' })
 
     const result = await assemble(ctx, {
@@ -236,11 +236,12 @@ describe('DeepSeekAdapter against a mock server', () => {
         source: { kind: 'plugin', plugin: 'test' },
       })],
     })
-    expect(result.finish).toMatchObject({
-      kind: 'error',
-      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
-    })
-    expect(server.requests).toHaveLength(0)
+    // A `thinking: disabled` deployment offers only `off`, so an explicit
+    // higher effort normalizes to it: the request still disables thinking and
+    // never sends a reasoning_effort.
+    expect(result.finish).toMatchObject({ kind: 'stop' })
+    expect(server.requests[0]).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
   })
 
   it.each(['high', 'max'])(

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { createUserMessage, LlmError  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -136,6 +136,62 @@ describe('agent/request-error', () => {
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events.find(event => event.type === 'turn/end')).toMatchObject({
       type: 'turn/end',
+      data: { reason: { kind: 'error' } },
+    })
+  })
+
+  it('drops an explicit reasoning effort and retries when the provider refuses it', async () => {
+    const adapter = new MockAdapter([
+      () => { throw new LlmError('model rejected reasoning_effort', 'INVALID_REQUEST') },
+      textResponse('ok'),
+    ], { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] })
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('request-error-degrade'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    // The selection's explicit effort reaches every request unless the
+    // built-in degradation dropped it.
+    ctx.on('agent/request', async (payload, next) => {
+      const config = await next()
+      if (payload.degradedEffort === true) return config
+      return { ...config, reasoningEffort: ReasoningEffortId('high') }
+    })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[0]?.reasoningEffort).toBe(ReasoningEffortId('high'))
+    expect(adapter.requests[1]?.reasoningEffort).toBeUndefined()
+    // Both attempts log their own header, so the degraded request is honest.
+    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(2)
+  })
+
+  it('does not drop the effort for a failure that is not an effort rejection', async () => {
+    const adapter = new MockAdapter([
+      fail('upstream busy', 'RATE_LIMIT'),
+      textResponse('unused'),
+    ], { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] })
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('request-error-no-degrade'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    ctx.on('agent/request', async (payload, next) => {
+      const config = await next()
+      if (payload.degradedEffort === true) return config
+      return { ...config, reasoningEffort: ReasoningEffortId('high') }
+    })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    // RATE_LIMIT is not an effort rejection, so the degraded retry never fires
+    // and the turn errors after a single attempt.
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.reasoningEffort).toBe(ReasoningEffortId('high'))
+    expect(agent.session.events.find(event => event.type === 'turn/end')).toMatchObject({
       data: { reason: { kind: 'error' } },
     })
   })

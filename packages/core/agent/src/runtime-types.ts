@@ -55,7 +55,9 @@ export type PreStepDecision =
   | { kind: 'enter'; messages: UserMessage[] }
 
 /** Action returned by a listener that owns model-request recovery. */
-export type RequestErrorAction = { kind: 'retry' } | undefined
+export type RequestErrorAction =
+  | { kind: 'retry'; dropReasoningEffort?: boolean }
+  | undefined
 
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
@@ -234,14 +236,18 @@ declare module '@deepseek-ai/cordis' {
      * the machine would use (agent options on the first request, the logged
      * header afterwards); return a replacement to switch. Model-visible
      * content must use logged channels; this waterfall cannot mutate messages.
+     * `degradedEffort` marks a last-resort retry that dropped the reasoning
+     * effort after the provider refused it; listeners that would re-inject an
+     * inherited effort skip it.
      * @param payload.agent - the agent making the model call.
      * @param payload.turn - the open turn number.
      * @param payload.step - the step whose request this is.
      * @param payload.signal - the current turn's explicit abort signal.
+     * @param payload.degradedEffort - whether this retry must omit the effort.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
     */
-    'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal; degradedEffort?: boolean }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
      * Handle one failed model-request attempt before the loop retries or closes
      * its step. A listener returns `{ kind: 'retry' }` without calling `next()`

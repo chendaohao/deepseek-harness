@@ -51,7 +51,7 @@ The remote-tunnel Service (`ctx.remoteTunnel`): resolves the cloudflared binary 
 async open(port: number): Promise<RemoteTunnelSession>
 ```
 
-Source: [`packages/remote/remote-tunnel/src/index.ts:312`](../../packages/remote/remote-tunnel/src/index.ts)
+Source: [`packages/remote/remote-tunnel/src/index.ts:400`](../../packages/remote/remote-tunnel/src/index.ts)
 
 <a id="remote-events"></a>
 

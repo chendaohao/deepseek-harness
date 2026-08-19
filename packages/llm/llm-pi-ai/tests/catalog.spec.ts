@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -112,16 +112,23 @@ describe('hand-declared providers', () => {
     })
   })
 
-  it('offers no reasoning control it could not honour', async () => {
+  it('offers the canonical reasoning set for a hand-declared model that declares none', async () => {
     const server = await mockServer([])
     const ctx = await harness(gateway(`${server.url}/v1`))
 
-    // pi-ai reports a model with no reasoning metadata as supporting the single
-    // level `off`, but `off` is translated to *omitting* the reasoning option —
-    // byte-for-byte the same request as naming no effort — so a provider whose
-    // own default is to think would keep thinking with `off` selected. The
-    // capability is reported unavailable instead of offering that control.
-    expect((await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')).reasoning).toBeUndefined()
+    // A hand-declared model declares no capability, but a custom vendor often
+    // reasons without reporting its levels — offer the canonical fallback set
+    // so the thinking control stays usable. `off` maps to omitting the
+    // parameter (the standard vocabulary), and no default is named unless the
+    // route sets one.
+    expect((await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')).reasoning).toEqual({
+      efforts: [
+        { id: ReasoningEffortId('off'), name: 'Off' },
+        { id: ReasoningEffortId('low'), name: 'Low' },
+        { id: ReasoningEffortId('high'), name: 'High' },
+        { id: ReasoningEffortId('max'), name: 'Max' },
+      ],
+    })
 
     // A catalog route is unaffected: its models carry the metadata that makes
     // `off` actually disable thinking.
@@ -130,6 +137,20 @@ describe('hand-declared providers', () => {
     if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
     expect((await withCatalog.llm.resolveModelInfo('deepseek', catalogModel.id)).reasoning?.efforts.map(e => e.id))
       .toContain('off')
+  })
+
+  it('sends a canonical effort for an undeclared model on the wire', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(gateway(`${server.url}/v1`))
+
+    await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-large',
+      reasoningEffort: ReasoningEffortId('high'),
+      messages: [],
+    })
+
+    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'high' })
   })
 
   it('joins the configurable-provider directory so a settings surface can reach it', async () => {

@@ -350,18 +350,17 @@ describe('Web session model selection', () => {
       reasoningEffort: 'max',
     })
 
-    const unsupported = await api.sessions.selectModel(request({
+    // An effort the model does not offer is normalized to its declared default
+    // rather than rejected, so a stale or optimistic pick never fails the switch.
+    expect(expectValue(await api.sessions.selectModel(request({
       sessionId,
       provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'medium',
-    }))
-    expect(unsupported.result).toMatchObject({
-      ok: false,
-      error: {
-        code: 'model-unavailable',
-        message: 'provider "deepseek-official" model "private-preview" does not support reasoning effort "medium"',
-      },
+    }))).selected).toEqual({
+      provider: 'deepseek-official',
+      model: 'private-preview',
+      reasoningEffort: 'high',
     })
 
     const rejected = await api.sessions.selectModel(request({
@@ -378,7 +377,7 @@ describe('Web session model selection', () => {
       },
     })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
-      .toEqual({ provider: 'deepseek-official', model: 'private-preview', reasoningEffort: 'max' })
+      .toEqual({ provider: 'deepseek-official', model: 'private-preview', reasoningEffort: 'high' })
     await ctx.fiber.dispose()
   })
 
