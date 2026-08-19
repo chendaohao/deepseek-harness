@@ -95,9 +95,9 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
 
   it('never paints the takeover chrome on a configured reload, even with the settings join held open', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-configured-reload'))
-    // Regression pin for the reload flash: both steps are satisfied, yet each
+    // Regression pin for the reload flash: the config step is satisfied, yet it
     // must load private facts before deciding not to show. Dialog chrome lives
-    // inside each visible branch, so the deciding window paints and blocks
+    // inside the visible branch, so the deciding window paints and blocks
     // nothing. Holding settings.describe widens that window from loopback
     // RTT scale to a deterministic hundreds of milliseconds, removing all
     // timing dependence from the sampler assertions below.

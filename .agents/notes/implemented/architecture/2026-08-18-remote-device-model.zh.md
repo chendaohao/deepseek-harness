@@ -13,7 +13,7 @@ Status: implemented
 **把移动端远程控制体验吸收进一方案件 remote 家族，复用现有隧道与平台协议。** host 配对闸门升级为**设备模型**：
 
 - **一次性配对 token** 取代日票：32 随机字节、15 分钟 TTL、单活跃（新签发即作废旧 token）、恰好消费一次。终端与界面内二维码都编码 `…/pair/<token>`。
-- **设备作用域 cookie v2**（`dsh_remote = v2.<deviceId>.<expiresDay>.<mac>`）：HMAC 绑定设备 id，`authorize` 还要求设备在持久化注册表（`$DSH_HOME/secrets/remote-devices.json`，0600）中**存活**。吊销即删除记录，下一次请求返回 401——无需轮换主密钥。
+- **设备作用域 cookie v2**（`dsh_remote = v2.<deviceId>.<expiresDay>.<mac>`）：HMAC 绑定设备 id，`authorize` 还要求设备在持久化注册表（`$DSH_HOME/secrets/remote-roster.json`，0600）中**存活**。吊销即删除记录，下一次请求返回 401——无需轮换主密钥。
 - **`/remote/*` 控制面**挂在主 webserver 上、仅桌面可达：代理给每条转发请求盖 `x-dsh-proxied: 1`（入站同名头剥除），控制面据此拒绝一切隧道来源请求——已配对的手机不能管理其他设备。端点：`GET /remote/state`、`GET /remote/devices`、`POST /remote/pair/issue`、`POST /remote/stop`、`POST /remote/devices/<id>/revoke`。
 - **事件走既有 allowlist 桥**：`remote/devices/change`（注册表快照）与 `remote-tunnel/state` 经 `API_REMOTE_FORWARDED_EVENTS` → `ctx.remote.$on`，面板无需新线路即可实时。
 - **`--remote-reset`** 现在轮换密钥**并**吊销全部设备。
