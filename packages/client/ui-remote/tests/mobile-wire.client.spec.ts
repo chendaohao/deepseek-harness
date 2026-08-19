@@ -2,7 +2,7 @@
 /** Mobile wire layer: unary RPC envelope + error folding, rpcId minting, and mux frame parsing. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { callUnary, mintRpcId } from '../src/mobile/rpc.ts'
-import { parseFrame } from '../src/mobile/events.ts'
+import { EventsClient, parseFrame, type WebSocketLike } from '../src/mobile/events.ts'
 
 function jsonResponse(data: unknown): Response {
   return {
@@ -118,5 +118,125 @@ describe('parseFrame', () => {
     expect(parseFrame('not json')).toBeUndefined()
     expect(parseFrame(JSON.stringify({ type: 'other' }))).toBeUndefined()
     expect(parseFrame(JSON.stringify({ type: 'server-request', rpcId: 'r1', method: 'session/event', payload: { type: 'session/event', sessionId: 's1', event: { type: 'x' } } }))).toBeUndefined()
+  })
+})
+
+/** A scriptable fake socket: tests drive open/message/close and read the client's reactions. */
+function fakeSocket() {
+  const handlers = {
+    onopen: null as ((event: unknown) => void) | null,
+    onmessage: null as ((event: { data: unknown }) => void) | null,
+    onerror: null as ((event: unknown) => void) | null,
+    onclose: null as ((event: unknown) => void) | null,
+  }
+  const close = vi.fn()
+  const socket = {
+    get onopen() { return handlers.onopen },
+    set onopen(value) { handlers.onopen = value },
+    get onmessage() { return handlers.onmessage },
+    set onmessage(value) { handlers.onmessage = value },
+    get onerror() { return handlers.onerror },
+    set onerror(value) { handlers.onerror = value },
+    get onclose() { return handlers.onclose },
+    set onclose(value) { handlers.onclose = value },
+    close,
+  } satisfies WebSocketLike
+  return { socket, handlers, close }
+}
+
+function eventFrame(sessionId: string, seq: number): string {
+  return JSON.stringify({
+    type: 'server-request',
+    rpcId: `r${seq}`,
+    method: 'session/event',
+    payload: {
+      type: 'session/event',
+      sessionId,
+      event: { type: 'assistant/chunk', seq, time: seq, data: { turn: 1, step: 0, chunk: { type: 'text-delta', index: 0, text: 'hi' } } },
+    },
+  })
+}
+
+function heartbeatFrame(): string {
+  return JSON.stringify({ type: 'server-request', rpcId: 'hb', method: 'stream/heartbeat', payload: { type: 'stream/heartbeat' } })
+}
+
+describe('EventsClient idle watchdog', () => {
+  it('recycles a silently-dead socket into polling when no frame arrives for idleTimeoutMs', async () => {
+    vi.useFakeTimers()
+    const { socket, handlers, close } = fakeSocket()
+    const pollLatest = vi.fn(async () => ({ events: [], hasMore: false }))
+    const client = new EventsClient('ws://x/api/events.mux', {
+      socketFactory: () => socket,
+      pollLatest,
+      pollIntervalMs: 10,
+      idleTimeoutMs: 30,
+    })
+    client.start()
+    handlers.onopen?.(undefined)
+    client.observe('s1')
+
+    // Frames (heartbeats included) reset the watchdog: no polling while live.
+    handlers.onmessage?.({ data: heartbeatFrame() })
+    await vi.advanceTimersByTimeAsync(25)
+    expect(pollLatest).not.toHaveBeenCalled()
+    expect(close).not.toHaveBeenCalled()
+
+    // Silence past idleTimeoutMs: the watchdog recycles the socket, exactly as
+    // if the transport had closed without a close frame.
+    await vi.advanceTimersByTimeAsync(30)
+    expect(close).toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(pollLatest).toHaveBeenCalled()
+
+    client.stop()
+    vi.useRealTimers()
+  })
+
+  it('keeps polling dormant while session/event frames keep arriving', async () => {
+    vi.useFakeTimers()
+    const { socket, handlers, close } = fakeSocket()
+    const pollLatest = vi.fn(async () => ({ events: [], hasMore: false }))
+    const frames: string[] = [eventFrame('s1', 1), eventFrame('s1', 2), eventFrame('s1', 3)]
+    const client = new EventsClient('ws://x/api/events.mux', {
+      socketFactory: () => socket,
+      pollLatest,
+      pollIntervalMs: 10,
+      idleTimeoutMs: 30,
+    })
+    client.start()
+    handlers.onopen?.(undefined)
+    client.observe('s1')
+
+    for (const data of frames) {
+      handlers.onmessage?.({ data })
+      await vi.advanceTimersByTimeAsync(20)
+      expect(close).not.toHaveBeenCalled()
+    }
+    expect(pollLatest).not.toHaveBeenCalled()
+
+    client.stop()
+    vi.useRealTimers()
+  })
+
+  it('does not arm the watchdog when idleTimeoutMs is 0', async () => {
+    vi.useFakeTimers()
+    const { socket, handlers, close } = fakeSocket()
+    const pollLatest = vi.fn(async () => ({ events: [], hasMore: false }))
+    const client = new EventsClient('ws://x/api/events.mux', {
+      socketFactory: () => socket,
+      pollLatest,
+      idleTimeoutMs: 0,
+    })
+    client.start()
+    handlers.onopen?.(undefined)
+    client.observe('s1')
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(close).not.toHaveBeenCalled()
+    expect(pollLatest).not.toHaveBeenCalled()
+
+    client.stop()
+    vi.useRealTimers()
   })
 })

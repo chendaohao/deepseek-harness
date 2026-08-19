@@ -170,6 +170,36 @@ describe('connection client apply', () => {
     }
   })
 
+  it('recycles the connection generation on browser online events, and disposes the listeners with the loop', async () => {
+    // Non-loopback authority: the remote/LAN page case, where the watchdog
+    // default applies and network-change signals are the fast path.
+    ;(globalThis as Win).location = { hostname: '192.0.2.20', search: '?fixture' }
+    const windowTarget = new EventTarget()
+    vi.stubGlobal('window', windowTarget)
+    const handle = await mount()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    let connected = 0
+    const loop = handle.start({ onConnected: () => { connected++ } }, {
+      backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, streamOpenTimeoutMs: 500,
+    })
+    try {
+      await vi.waitFor(() => { expect(connected).toBe(1) })
+      // Network regained after a mobile-data <-> WiFi switch: the stale
+      // generation is dropped and the loop reconnects immediately.
+      windowTarget.dispatchEvent(new Event('online'))
+      await vi.waitFor(() => { expect(connected).toBe(2) }, { timeout: 2_000 })
+      loop.stop()
+      const settled = connected
+      windowTarget.dispatchEvent(new Event('online'))
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(connected).toBe(settled) // stop() removed the listener
+    } finally {
+      loop.stop()
+      warnSpy.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('WebApiClient keeps unary calls and respond on globalThis.fetch', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()

@@ -38,6 +38,16 @@ export interface EventsClientOptions {
   pollLatest?: (sessionId: string) => Promise<HistoryPage>
   /** Base poll cadence while the socket is down (default 3000 ms). */
   pollIntervalMs?: number
+  /**
+   * Idle watchdog: while the socket is open, if no frame arrives for this long,
+   * the transport is treated as silently dead (a phone switching mobile data
+   * <-> WiFi tears its TCP leg without a close frame) and the socket is recycled
+   * into the polling fallback + reconnect path. The host heartbeat
+   * (`stream/heartbeat` on the mux stream) resets the timer while idle, so a
+   * firing watchdog means no frames at all — the exact silent-death case.
+   * 0 disables the watchdog. Default 45000 ms (three 15 s heartbeat intervals).
+   */
+  idleTimeoutMs?: number
 }
 
 /** Browser default socket factory (the DOM WebSocket fits the narrow face). */
@@ -55,6 +65,8 @@ const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 15_000
 const POLL_BACKOFF_MAX_MS = 30_000
 const DEFAULT_POLL_INTERVAL_MS = 3_000
+/** Idle watchdog default: three 15 s host heartbeat intervals. */
+const DEFAULT_IDLE_TIMEOUT_MS = 45_000
 /** Poll window: enough recent events to cover a few seconds of agent output. */
 const DEFAULT_POLL_PAGE_SIZE = 50
 
@@ -92,6 +104,7 @@ export class EventsClient {
   private readonly socketFactory: (url: string) => WebSocketLike
   private readonly pollLatest: (sessionId: string) => Promise<HistoryPage>
   private readonly basePollIntervalMs: number
+  private readonly idleTimeoutMs: number
   private readonly listeners = new Set<(frame: SessionEventFrame) => void>()
   private socket: WebSocketLike | undefined
   private stopped = false
@@ -99,6 +112,7 @@ export class EventsClient {
   private socketFailed = false
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  private idleTimer: ReturnType<typeof setTimeout> | undefined
   private pollTimer: ReturnType<typeof setInterval> | undefined
   private pollIntervalMs: number
   private polling = false
@@ -118,6 +132,7 @@ export class EventsClient {
     }))
     this.basePollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
     this.pollIntervalMs = this.basePollIntervalMs
+    this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
   }
 
   /** Open the stream (idempotent; the socket reconnects until {@link stop}). */
@@ -133,6 +148,7 @@ export class EventsClient {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
     }
+    this.clearIdleTimer()
     this.stopPolling()
     this.closeSocket()
     this.observeSessionId = undefined
@@ -165,12 +181,17 @@ export class EventsClient {
     socket.onopen = () => {
       this.reconnectAttempts = 0
       this.socketFailed = false
+      this.touchIdle()
     }
     socket.onmessage = (event) => {
+      // Any delivered frame (heartbeats included) proves the transport is
+      // alive and resets the idle watchdog; a firing watchdog means no frames
+      // at all — the silently-dead case onerror/onclose never report.
+      this.touchIdle()
       const frame = parseFrame(event.data)
       if (frame === undefined) return
-      // A delivered frame proves the socket is live again — drop any fallback
-      // polling so the live stream takes over without double delivery.
+      // A delivered session/event frame proves the socket is live again — drop
+      // any fallback polling so the live stream takes over without double delivery.
       if (this.polling) this.stopPolling()
       this.emit(frame)
     }
@@ -178,9 +199,30 @@ export class EventsClient {
     socket.onclose = () => { this.handleSocketFailure() }
   }
 
+  /**
+   * Reset the idle watchdog: a fired watchdog recycles the socket into the
+   * polling fallback + reconnect path, exactly as if the transport had closed
+   * (the browser reports neither event for a silently torn TCP leg).
+   */
+  private touchIdle(): void {
+    this.clearIdleTimer()
+    if (this.stopped || this.idleTimeoutMs <= 0) return
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined
+      this.handleSocketFailure()
+    }, this.idleTimeoutMs)
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer === undefined) return
+    clearTimeout(this.idleTimer)
+    this.idleTimer = undefined
+  }
+
   private handleSocketFailure(): void {
     if (this.stopped) return
     if (this.socket === undefined) return
+    this.clearIdleTimer()
     this.socketFailed = true
     this.closeSocket()
     if (this.observeSessionId !== undefined) this.startPolling()
@@ -270,6 +312,7 @@ export class EventsClient {
   }
 
   private closeSocket(): void {
+    this.clearIdleTimer()
     const socket = this.socket
     this.socket = undefined
     if (socket === undefined) return

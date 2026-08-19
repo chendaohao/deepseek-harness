@@ -8,6 +8,8 @@ Remote-control surface for the Web GUI. Two halves:
 
 **Mobile surface (`/m`)** — the node half serves a standalone small-screen UI at `/m` (document shell + self-contained `lib/mobile.js` bundle) when enabled (the shipped bundle row derives `enabled` from `--remote`). After phone pairing, the page talks to the host over the same platform `/api` transport the desktop UI uses — unary RPC (`session.list`, `session.history`, `session.prompt`, `session.models`, `session.selectModel`, `session.rename`, `workspace.list`, `session.search`, `session.create`) plus the `events.mux` WebSocket for live `session/event` frames, with a `session.history` polling fallback when the socket cannot deliver. The paired-device cookie authenticates it; no separate mobile channel exists. Rendering derives only from history pulls and live frames — the session log is the source of truth.
 
+The mobile client runs an idle watchdog over the open socket (`idleTimeoutMs`, default 45 s; 0 disables): every delivered frame (host heartbeats included) resets the timer, so a silently dead transport (a phone switching mobile data <-> WiFi tears its TCP leg without a close frame) recycles into the polling fallback + reconnect path on timeout — the same failure mode the desktop connection package's heartbeat/watchdog pair covers.
+
 ## Model Experience
 
 None. The mobile surface renders browser UI over the `/api` wire and never assembles or sends a provider request itself.
