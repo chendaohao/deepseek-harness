@@ -208,6 +208,25 @@ describe('ChatView', () => {
     expect(screen.getByPlaceholderText('输入消息，Enter 发送…')).toHaveProperty('value', '')
   })
 
+  it('keeps a live frame that arrives before the open history tail resolves', async () => {
+    let resolveHistory!: (value: Awaited<ReturnType<typeof history>>) => void
+    mockHistory.mockReturnValue(new Promise<Awaited<ReturnType<typeof history>>>((resolve) => { resolveHistory = resolve }))
+    mockModels.mockResolvedValue({ ok: true, value: directory })
+    const live = eventsStub()
+    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+    // A live frame lands while the history tail is still in flight — the WS and
+    // HTTP legs race over a remote tunnel. It must survive the tail's replace.
+    live.emit({
+      type: 'session/event',
+      sessionId: 's1',
+      event: { type: 'user/message', seq: 3, time: 1_700_000_000_001, data: { id: 'u3', role: 'user', content: [{ type: 'text', text: '竞态帧' }], source: {} } },
+    })
+    await act(async () => { resolveHistory({ ok: true, value: historyPage([userEvent(1, '你好'), userEvent(2, '收到')]) }) })
+    expect(await screen.findByText('你好')).toBeTruthy()
+    expect(screen.getByText('收到')).toBeTruthy()
+    expect(screen.getByText('竞态帧')).toBeTruthy()
+  })
+
   it('switches the model through the bottom sheet', async () => {
     mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
     mockModels.mockResolvedValue({ ok: true, value: directory })

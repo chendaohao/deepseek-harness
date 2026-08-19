@@ -69,6 +69,14 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
   const [title, setTitle] = useState(session.title)
   const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
   const pendingRef = useRef(false)
+  // The WS and HTTP legs race over a remote tunnel: a live frame can arrive
+  // before the open history tail resolves. Buffer those frames and fold them
+  // over the tail when it lands — folding them before would be wiped by the
+  // tail's replace, and folding the tail over them would suppress the whole
+  // tail under their newer seq watermark.
+  const pendingLiveRef = useRef<SessionEventFrame[]>([])
+  /** Whether the open history tail has been applied; live frames fold directly after. */
+  const tailAppliedRef = useRef(false)
 
   // Tail page on open (content loads only when the session is opened).
   useEffect(() => {
@@ -76,19 +84,34 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
     setLoading(true)
     setError(undefined)
     setMessages([])
+    tailAppliedRef.current = false
+    pendingLiveRef.current = []
     void fetchHistory(session.sessionId).then(
       (result) => {
         if (cancelled) return
         if (result.ok) {
-          setMessages(foldEvents(result.value.events.map(eventOf)))
+          const tail = foldEvents(result.value.events.map(eventOf))
+          const buffered = pendingLiveRef.current
+          pendingLiveRef.current = []
+          // Mark applied before scheduling the merge so any frame racing this
+          // task folds onto the merged tail (React preserves update order and
+          // the fold watermark dedups overlap).
+          tailAppliedRef.current = true
+          setMessages(buffered.reduce((acc, frame) => foldEvents([frame.event], acc), tail))
           setHasOlder(result.value.hasMore)
         } else {
+          // No tail baseline: fall back to folding live frames directly (the
+          // pre-race behavior), and drop whatever buffered during the fetch.
+          tailAppliedRef.current = true
+          pendingLiveRef.current = []
           setError(errorText(result.error))
         }
         setLoading(false)
       },
       (reason: unknown) => {
         if (cancelled) return
+        tailAppliedRef.current = true
+        pendingLiveRef.current = []
         setError(errorText(reason))
         setLoading(false)
       },
@@ -109,6 +132,10 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
     if (events === undefined) return
     return events.onFrame((frame: SessionEventFrame) => {
       if (frame.sessionId !== session.sessionId) return
+      if (!tailAppliedRef.current) {
+        pendingLiveRef.current.push(frame)
+        return
+      }
       setMessages(previous => foldEvents([frame.event], previous))
     })
   }, [events, session.sessionId])

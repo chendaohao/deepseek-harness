@@ -114,7 +114,7 @@ export function RemotePanel({ remote, t }: RemotePanelProps) {
       const res = await fetch('/remote/stop', { method: 'POST' })
       if (!res.ok) throw new Error(`remote/stop: HTTP ${res.status}`)
     } catch {
-      setError(t('load.error'))
+      if (aliveRef.current) setError(t('load.error'))
     }
   }, [t])
 
@@ -123,7 +123,7 @@ export function RemotePanel({ remote, t }: RemotePanelProps) {
       const res = await fetch(`/remote/devices/${encodeURIComponent(deviceId)}/revoke`, { method: 'POST' })
       if (!res.ok) throw new Error(`remote/devices/revoke: HTTP ${res.status}`)
     } catch {
-      setError(t('load.error'))
+      if (aliveRef.current) setError(t('load.error'))
     }
   }, [t])
 
