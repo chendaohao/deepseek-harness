@@ -1,11 +1,12 @@
 /**
  * @deepseek-ai/dsh-remote-tunnel — the remote-tunnel capability of the harness:
- * the `remoteTunnel` Service plus its cloudflared quick-tunnel provider. One
- * tunnel session exposes a loopback port over a public HTTPS URL without a
- * Cloudflare account or a pre-registered domain; the public hostname is random
- * per session. The Service owns the spawned cloudflared child and its
- * teardown; consumers of the capability are the presentation and the
- * authentication layers (see dsh-remote-access).
+ * the `remoteTunnel` Service plus its cloudflared provider. One tunnel session
+ * exposes a loopback port over a public HTTPS URL. Quick mode needs no
+ * Cloudflare account and hands out a random `*.trycloudflare.com` hostname per
+ * session; named mode runs a pre-registered tunnel under a stable configured
+ * hostname, so a restart keeps the same URL (see Config). The Service owns the
+ * spawned cloudflared child and its teardown; consumers of the capability are
+ * the presentation and the authentication layers (see dsh-remote-access).
  *
  * The provider downloads and verifies a pinned cloudflared release on first
  * use (SHA-256 constants below match the official checksums of that release);
@@ -17,6 +18,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import { once } from 'node:events'
@@ -75,7 +77,12 @@ export interface RemoteTunnelSession {
   close(): Promise<void>
 }
 
-/** Plugin config: activation plus binary sourcing. */
+/** Per-open tunnel flavor and the named-mode identity. */
+type SessionSpec =
+  | { mode: 'quick' }
+  | { mode: 'named'; name: string; hostname: string }
+
+/** Plugin config: activation plus binary sourcing and the tunnel flavor. */
 export interface Config {
   /**
    * Whether `open()` may start tunnels. The shipped Web row derives this from
@@ -87,6 +94,17 @@ export interface Config {
   download?: CloudflaredDownload
   /** Explicit cloudflared executable; wins over every other source. */
   binaryPath?: string
+  /**
+   * Tunnel flavor. `quick` (default) needs no Cloudflare account and mints a
+   * random `*.trycloudflare.com` hostname per session; `named` runs a
+   * pre-registered tunnel under a stable {@link Config.hostname}, so restarts
+   * keep the same public URL. Named mode requires `name` and `hostname`.
+   */
+  mode?: 'quick' | 'named'
+  /** Named-mode tunnel name or UUID, as created by `cloudflared tunnel create`. */
+  name?: string
+  /** Named-mode public hostname (bare, no scheme, path, or port); the URL is `https://<hostname>`. */
+  hostname?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -94,6 +112,9 @@ export const Config: z<Config> = z.object({
   download: z.union([z.const('allow'), z.const('deny'), z.const('system')]).default('allow'),
   // Non-required: absent resolves to undefined, matching the optional interface member.
   binaryPath: z.string(),
+  mode: z.union([z.const('quick'), z.const('named')]).default('quick'),
+  name: z.string(),
+  hostname: z.string(),
 })
 
 /** Test hook: attempt timing, bounds, and the asset table, overridable so fixture tests need no real waits or downloads. */
@@ -120,6 +141,31 @@ export const internals = {
 
 /** The public-URL line cloudflared prints on stdout or stderr. */
 const TRYCLOUDFLARE_URL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i
+
+/** Named-mode readiness marker cloudflared logs once the connection is registered. */
+const REGISTERED_TUNNEL_CONNECTION = /registered tunnel connection/i
+
+/** Whether a value is a bare multi-label DNS hostname (no scheme, path, port, or whitespace). */
+function isValidHostname(value: string): boolean {
+  if (value.length === 0 || value.length > 253) return false
+  if (/[\\/:\s]/.test(value)) return false
+  if (value.startsWith('.') || value.endsWith('.')) return false
+  const labels = value.split('.')
+  if (labels.length < 2) return false
+  return labels.every(label => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))
+}
+
+/** One named-session ingress config: the pre-registered tunnel under its public hostname, plus the catch-all. */
+function namedIngressConfig(spec: Extract<SessionSpec, { mode: 'named' }>, port: number): string {
+  return [
+    `tunnel: ${spec.name}`,
+    'ingress:',
+    `  - hostname: ${spec.hostname}`,
+    `    service: http://127.0.0.1:${String(port)}`,
+    '  - service: http_status:404',
+    '',
+  ].join('\n')
+}
 
 /** Cache file name of the pinned binary. */
 function cacheBinaryPath(): string {
@@ -154,17 +200,20 @@ function messageOf(error: unknown): string {
 class CloudflaredSession implements RemoteTunnelSession {
   private child: ChildProcess | undefined
   private settled = false
+  private configPath: string | undefined
   url = ''
 
   /**
    * @param ctx - context emitting `remote-tunnel/state`.
    * @param binary - resolved cloudflared executable.
+   * @param spec - tunnel flavor: quick mints a random hostname; named runs a pre-registered tunnel.
    * @param port - loopback port the tunnel exposes.
    * @param onSettle - called once when the session stops (child exit or close).
    */
   constructor(
     private readonly ctx: Context,
     private readonly binary: string,
+    private readonly spec: SessionSpec,
     private readonly port: number,
     private readonly onSettle: () => void,
   ) {}
@@ -182,7 +231,7 @@ class CloudflaredSession implements RemoteTunnelSession {
       if (this.settled) return
       try {
         const url = await this.attemptOnce()
-        /* v8 ignore next 4 -- the URL resolution continuation is a microtask, and close() can only
+        /* v8 ignore start -- the URL resolution continuation is a microtask, and close() can only
            flip settled from a later macrotask; the arm stays as a defensive guard. */
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- the microtask arm stays as a defensive guard
         if (this.settled) {
@@ -190,6 +239,7 @@ class CloudflaredSession implements RemoteTunnelSession {
           await this.killChild()
           return
         }
+        /* v8 ignore stop */
         this.url = url
         this.watchExit()
         this.ctx.emit('remote-tunnel/state', { status: 'open', url })
@@ -202,8 +252,10 @@ class CloudflaredSession implements RemoteTunnelSession {
     if (this.settled) return
     this.settled = true
     this.onSettle()
+    await this.removeConfig()
     this.ctx.emit('remote-tunnel/state', { status: 'failed', message: lastMessage })
-    throw new Error(`remote-tunnel: no tunnel URL after ${internals.maxAttempts} attempts: ${lastMessage}`)
+    const noun = this.spec.mode === 'named' ? 'tunnel connection' : 'tunnel URL'
+    throw new Error(`remote-tunnel: no ${noun} after ${internals.maxAttempts} attempts: ${lastMessage}`)
   }
 
   async close(): Promise<void> {
@@ -211,14 +263,20 @@ class CloudflaredSession implements RemoteTunnelSession {
     this.settled = true
     this.onSettle()
     await this.killChild()
+    await this.removeConfig()
   }
 
-  /** Spawn once and resolve the first tunnel URL, the child exit, or the attempt timeout. */
-  private attemptOnce(): Promise<string> {
+  /** Spawn once and resolve the first public URL or readiness marker, the child exit, or the attempt timeout. */
+  private async attemptOnce(): Promise<string> {
+    const spec = this.spec
+    const localUrl = `http://127.0.0.1:${String(this.port)}`
+    const args = spec.mode === 'quick'
+      ? ['tunnel', '--url', localUrl, '--no-autoupdate']
+      : ['tunnel', '--config', await this.ensureConfig(), '--no-autoupdate', 'run']
     return new Promise((resolve, reject) => {
       let child: ChildProcess
       try {
-        child = spawn(this.binary, ['tunnel', '--url', `http://127.0.0.1:${String(this.port)}`, '--no-autoupdate'], {
+        child = spawn(this.binary, args, {
           stdio: ['ignore', 'pipe', 'pipe'],
           env: scrubbedParentEnv(),
         })
@@ -240,31 +298,38 @@ class CloudflaredSession implements RemoteTunnelSession {
         result()
       }
       const timer = setTimeout(() => {
-        finish(() => { reject(new Error('timed out waiting for the tunnel URL')) })
+        finish(() => { reject(new Error(spec.mode === 'named'
+          ? 'timed out waiting for the tunnel connection'
+          : 'timed out waiting for the tunnel URL')) })
       }, internals.urlTimeoutMs)
-      // Real cloudflared logs (including the tunnel URL) to stderr; the
-      // bounded scan covers both streams so a banner on either resolves.
-      const scan = (stream: 'stdout' | 'stderr', chunk: Buffer): string | undefined => {
+      // Real cloudflared logs (the quick-tunnel URL, or the named registration
+      // marker) to stderr; the bounded scan covers both streams so a banner on
+      // either resolves. Quick mode answers the first scanned hostname; named
+      // mode answers the configured hostname once the child reports the
+      // connection registered.
+      const readyUrl = (stream: 'stdout' | 'stderr', chunk: Buffer): string | undefined => {
         const scanned = stream === 'stdout' ? scannedStdout : scannedStderr
         const next = scanned.length < internals.scanBytes
           ? Buffer.concat([scanned, chunk]).subarray(0, internals.scanBytes)
           : scanned
         if (stream === 'stdout') scannedStdout = next
         else scannedStderr = next
-        return TRYCLOUDFLARE_URL.exec(next.toString('utf8'))?.[0]
+        const text = next.toString('utf8')
+        if (spec.mode === 'quick') return TRYCLOUDFLARE_URL.exec(text)?.[0]
+        return REGISTERED_TUNNEL_CONNECTION.test(text) ? `https://${spec.hostname}` : undefined
       }
       child.stdout?.on('data', (chunk: Buffer) => {
-        const url = scan('stdout', chunk)
+        const url = readyUrl('stdout', chunk)
         if (url !== undefined) finish(() => { resolve(url) })
       })
       child.stderr?.on('data', (chunk: Buffer) => {
         stderrTail = (stderrTail + chunk.toString('utf8')).slice(-internals.stderrTailBytes)
-        const url = scan('stderr', chunk)
+        const url = readyUrl('stderr', chunk)
         if (url !== undefined) finish(() => { resolve(url) })
       })
       child.once('exit', (code, signal) => {
         finish(() => { reject(new Error(
-          `cloudflared exited (code ${String(code)}, signal ${String(signal)}) before reporting a URL: ${stderrTail.trim() || '(no stderr)'}`,
+          `cloudflared exited (code ${String(code)}, signal ${String(signal)}) before ${spec.mode === 'named' ? 'the tunnel connection registered' : 'reporting a URL'}: ${stderrTail.trim() || '(no stderr)'}`,
         ))})
       })
       child.once('error', (error) => {
@@ -281,8 +346,31 @@ class CloudflaredSession implements RemoteTunnelSession {
       if (this.settled) return
       this.settled = true
       this.onSettle()
+      void this.removeConfig()
       this.ctx.emit('remote-tunnel/state', { status: 'ended' })
     })
+  }
+
+  /** Write the named ingress config once per session; retries reuse it. */
+  private async ensureConfig(): Promise<string> {
+    const existing = this.configPath
+    if (existing !== undefined) return existing
+    const spec = this.spec
+    /* v8 ignore next -- the caller only reaches ensureConfig in the named args branch */
+    if (spec.mode !== 'named') throw new Error('remote-tunnel: a named session requires an ingress config')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-remote-tunnel-'))
+    const configPath = join(dir, 'config.yml')
+    await writeFile(configPath, namedIngressConfig(spec, this.port))
+    this.configPath = configPath
+    return configPath
+  }
+
+  /** Remove the per-session config directory; idempotent. */
+  private async removeConfig(): Promise<void> {
+    const configPath = this.configPath
+    this.configPath = undefined
+    if (configPath === undefined) return
+    await rm(join(configPath, '..'), { recursive: true, force: true })
   }
 
   /** Stop the child: SIGTERM (plain kill on Windows), grace, SIGKILL, awaited exit. */
@@ -326,6 +414,15 @@ export class RemoteTunnel extends Service {
     if (config.binaryPath !== undefined && !existsSync(config.binaryPath)) {
       throw new Error(`remote-tunnel: binaryPath ${JSON.stringify(config.binaryPath)} does not exist`)
     }
+    if (config.mode === 'named' && (config.name === undefined || config.hostname === undefined)) {
+      throw new Error('remote-tunnel: named mode requires both name and hostname')
+    }
+    if (config.mode !== 'named' && (config.name !== undefined || config.hostname !== undefined)) {
+      throw new Error('remote-tunnel: name/hostname require mode "named"')
+    }
+    if (config.mode === 'named' && !isValidHostname(config.hostname as string)) {
+      throw new Error(`remote-tunnel: hostname ${JSON.stringify(config.hostname)} is not a bare DNS hostname`)
+    }
     // Dispose must reach quiescence: close every live session and await the children.
     ctx.effect(() => async () => {
       await Promise.all([...this.sessions].map(session => session.close()))
@@ -346,7 +443,12 @@ export class RemoteTunnel extends Service {
     }
     const binary = await this.resolveBinary()
     // Settled sessions remove themselves; the set therefore holds exactly the live children.
-    const session = new CloudflaredSession(this.ctx, binary, port, () => { this.sessions.delete(session) })
+    // Constructor validation guarantees name/hostname when mode is named; the URL keeps the
+    // canonical lowercase hostname.
+    const spec: SessionSpec = this.config.mode === 'named'
+      ? { mode: 'named', name: this.config.name as string, hostname: (this.config.hostname as string).toLowerCase() }
+      : { mode: 'quick' }
+    const session = new CloudflaredSession(this.ctx, binary, spec, port, () => { this.sessions.delete(session) })
     this.sessions.add(session)
     await session.start()
     return session

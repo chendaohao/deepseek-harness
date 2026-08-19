@@ -80,6 +80,27 @@ describe('config validation', () => {
     await expect(service.open(65_536)).rejects.toThrow(/invalid tunnel port/)
     await expect(service.open(1.5)).rejects.toThrow(/invalid tunnel port/)
   })
+
+  it('fails the load on named mode without a name or hostname', async () => {
+    await expect(context!.plugin(RemoteTunnel, { enabled: true, mode: 'named', hostname: 'dsh.example.com' }))
+      .rejects.toThrow(/named mode requires both name and hostname/)
+    await expect(context!.plugin(RemoteTunnel, { enabled: true, mode: 'named', name: 'dsh' }))
+      .rejects.toThrow(/named mode requires both name and hostname/)
+  })
+
+  it('fails the load when name/hostname are set without mode "named"', async () => {
+    await expect(context!.plugin(RemoteTunnel, { enabled: true, name: 'dsh', hostname: 'dsh.example.com' }))
+      .rejects.toThrow(/name\/hostname require mode "named"/)
+  })
+
+  it('rejects a hostname that is not a bare DNS name', async () => {
+    const base = { enabled: true, mode: 'named', name: 'dsh' } as const
+    const badHostnames = ['https://dsh.example.com', 'dsh.example.com/', 'dsh.example.com.', 'dsh example.com', 'example', 'a'.repeat(254)]
+    for (const bad of badHostnames) {
+      await expect(context!.plugin(RemoteTunnel, { ...base, hostname: bad }))
+        .rejects.toThrow(/not a bare DNS hostname/)
+    }
+  })
 })
 
 describe('spawn and URL discovery', () => {
@@ -231,6 +252,119 @@ describe('spawn and URL discovery', () => {
     await context!.fiber.dispose()
     await opening
     expect(events).toEqual([])
+  })
+})
+
+describe('named mode', () => {
+  it('runs the named tunnel through a per-session ingress config', async () => {
+    const marker = join(root!, 'named-args')
+    process.env.TUNNEL_ARGS_MARKER = marker
+    const binary = await script('named-args.sh', [
+      '#!/bin/sh',
+      'echo "$@" > "$TUNNEL_ARGS_MARKER"',
+      'cat "$3" > "$TUNNEL_ARGS_MARKER.config"',
+      "echo 'Registered tunnel connection conn=0x1' >&2",
+      'sleep 60',
+      '',
+    ].join('\n'))
+    internals.urlTimeoutMs = 2_000
+    const service = await withService({
+      enabled: true, binaryPath: binary, mode: 'named', name: 'dsh', hostname: 'dsh.example.com',
+    })
+    const session = await service.open(12_345)
+    expect(session.url).toBe('https://dsh.example.com')
+    await session.close()
+    const args = (await readFile(marker, 'utf8')).trim()
+    expect(args).toMatch(/^tunnel --config .*config\.yml --no-autoupdate run$/)
+    const configPath = args.split(' ')[2] as string
+    const config = await readFile(join(marker + '.config'), 'utf8')
+    expect(config).toContain('tunnel: dsh')
+    expect(config).toContain('hostname: dsh.example.com')
+    expect(config).toContain('service: http://127.0.0.1:12345')
+    expect(config).toContain('service: http_status:404')
+    expect(existsSync(configPath)).toBe(false)
+    delete process.env.TUNNEL_ARGS_MARKER
+  })
+
+  it('reuses the per-session ingress config across spawn retries', async () => {
+    const argsLog = join(root!, 'named-retry-args')
+    const runCount = join(root!, 'named-retry-count')
+    process.env.TUNNEL_ARGS_LOG = argsLog
+    process.env.TUNNEL_RUN_COUNT = runCount
+    const binary = await script('named-retry.sh', [
+      '#!/bin/sh',
+      'echo "$@" >> "$TUNNEL_ARGS_LOG"',
+      'if [ -f "$TUNNEL_RUN_COUNT" ]; then n=$(cat "$TUNNEL_RUN_COUNT"); else n=0; fi',
+      'n=$((n + 1))',
+      'echo "$n" > "$TUNNEL_RUN_COUNT"',
+      'if [ "$n" -lt 2 ]; then',
+      "  echo 'first attempt fails' >&2",
+      '  exit 1',
+      'fi',
+      "echo 'Registered tunnel connection conn=0x1' >&2",
+      'sleep 60',
+      '',
+    ].join('\n'))
+    internals.urlTimeoutMs = 2_000
+    internals.maxAttempts = 2
+    internals.backoffMs = [0]
+    const service = await withService({
+      enabled: true, binaryPath: binary, mode: 'named', name: 'dsh', hostname: 'dsh.example.com',
+    })
+    const session = await service.open(12_345)
+    expect(session.url).toBe('https://dsh.example.com')
+    await session.close()
+    const lines = (await readFile(argsLog, 'utf8')).trim().split('\n')
+    expect(lines).toHaveLength(2)
+    const paths = lines.map(line => line.split(' ')[2])
+    expect(paths[1]).toBe(paths[0])
+    expect(existsSync(paths[0] as string)).toBe(false)
+    delete process.env.TUNNEL_ARGS_LOG
+    delete process.env.TUNNEL_RUN_COUNT
+  })
+
+  it('resolves the configured hostname once the connection registers, lowercased', async () => {
+    const binary = await script('named-ready.sh', [
+      '#!/bin/sh',
+      "echo '2026-08-19T00:00:00Z INF Registered tunnel connection conn=0x1 origin=cloudflared' >&2",
+      'sleep 60',
+      '',
+    ].join('\n'))
+    internals.urlTimeoutMs = 2_000
+    const events = stateEvents()
+    const service = await withService({
+      enabled: true, binaryPath: binary, mode: 'named', name: 'dsh', hostname: 'Dsh.Example.Com',
+    })
+    const session = await service.open(12_345)
+    expect(session.url).toBe('https://dsh.example.com')
+    expect(events).toEqual([{ status: 'open', url: 'https://dsh.example.com' }])
+    await session.close()
+  })
+
+  it('fails named opens with the stderr tail when the child exits before registering', async () => {
+    const binary = await script('named-exit.sh', [
+      '#!/bin/sh',
+      "echo 'error: tunnel not found' >&2",
+      'exit 1',
+      '',
+    ].join('\n'))
+    internals.maxAttempts = 1
+    internals.urlTimeoutMs = 2_000
+    const service = await withService({
+      enabled: true, binaryPath: binary, mode: 'named', name: 'dsh', hostname: 'dsh.example.com',
+    })
+    await expect(service.open(12_345)).rejects.toThrow(/error: tunnel not found/)
+    await expect(service.open(12_345)).rejects.toThrow(/before the tunnel connection registered/)
+  })
+
+  it('times out when the named child stays silent', async () => {
+    const binary = await script('named-hang.sh', '#!/bin/sh\nsleep 60\n')
+    internals.maxAttempts = 1
+    internals.urlTimeoutMs = 100
+    const service = await withService({
+      enabled: true, binaryPath: binary, mode: 'named', name: 'dsh', hostname: 'dsh.example.com',
+    })
+    await expect(service.open(12_345)).rejects.toThrow(/timed out waiting for the tunnel connection/)
   })
 })
 

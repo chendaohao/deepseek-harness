@@ -176,9 +176,10 @@ describe('enabled', () => {
     const deviceId = cookie.split('=')[1]!.split('.')[1]!
     const withCookie = await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })
     expect(withCookie.status).toBe(200)
-    // Desktop-side revoke (no x-dsh-proxied marker) removes the device.
+    // Desktop-side revoke (no x-dsh-proxied marker) removes the device; the
+    // action suffix is the contract the shipped panel posts.
     const revokeRes = { writeHead: vi.fn(), end: vi.fn() }
-    route.handler({ url: '/remote/devices/' + deviceId, method: 'POST', headers: {} } as never, revokeRes as never)
+    route.handler({ url: '/remote/devices/' + deviceId + '/revoke', method: 'POST', headers: {} } as never, revokeRes as never)
     expect(revokeRes.writeHead).toHaveBeenCalledWith(200, expect.anything())
     const denied = await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })
     expect(denied.status).toBe(401)

@@ -36,6 +36,8 @@ export const internals = {
 }
 /** Relative pairing path prefix the QR encodes. */
 const PAIR_PATH = '/pair/'
+/** Action suffix the control plane accepts on the device path. */
+const DEVICE_REVOKE_SUFFIX = '/revoke'
 
 /** Plugin config: activation plus secret rotation. */
 export interface Config {
@@ -189,9 +191,15 @@ export class RemoteAccess extends Service {
     if (req.method === 'POST' && rawPath === '/remote/pair/issue') return this.issuePair(res)
     if (req.method === 'POST' && rawPath === '/remote/stop') return this.stopAll(res)
     if (req.method === 'POST' && rawPath.startsWith('/remote/devices/')) {
+      const rest = rawPath.slice('/remote/devices/'.length)
+      if (!rest.endsWith(DEVICE_REVOKE_SUFFIX)) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+        res.end('not found')
+        return
+      }
       let deviceId: string
       try {
-        deviceId = decodeURIComponent(rawPath.slice('/remote/devices/'.length))
+        deviceId = decodeURIComponent(rest.slice(0, -DEVICE_REVOKE_SUFFIX.length))
       } catch {
         // A malformed percent-encoding must not escape as an uncaught URIError.
         res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
