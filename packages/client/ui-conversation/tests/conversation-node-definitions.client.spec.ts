@@ -643,6 +643,80 @@ describe('built-in conversation node Definitions', () => {
     expect(snapshot(compactions).nodes.values().filter(candidate => candidate.kind === 'compaction')).toHaveLength(1)
   })
 
+  it('hides a model-retry chain once the retried step settles (live append)', () => {
+    const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
+    const append = (seq: number, type: string, data: unknown, extra: Record<string, unknown> = {}): void => {
+      value.append(at(seq, type, data, extra))
+      value.flush()
+    }
+    append(1, 'turn/start', { turn: 1 })
+    append(2, 'step/start', { turn: 1, step: 1 })
+    append(3, 'llm/retry', {
+      retryId: 'retry-resolved', turn: 1, step: 1, provider: 'fake', mode: 'normal',
+      policyKey: 'fake-normal', retry: 1, maxRetries: 2, delayMs: 10,
+      failure: { code: 'TRANSPORT', message: 'first' },
+    })
+    const visible = node(snapshot(value), 'model-retry')
+    expect(visible).toBeDefined()
+    expect(visible?.visibility).toBe('visible')
+    expect(snapshot(value).order).toContain(visible?.key)
+
+    append(4, 'llm/retry-started', { retryId: 'retry-resolved', turn: 1, step: 1, retry: 1 })
+    append(5, 'assistant/message', {
+      turn: 1, step: 1, message: assistantMessage('a1', '重试后的完整回复'),
+    }, { surfaceOp: 'append' })
+    // The final message alone does not re-evaluate the retry node; it only
+    // settles once the step boundary lands.
+    expect(node(snapshot(value), 'model-retry')?.visibility).toBe('visible')
+
+    append(6, 'step/end', { turn: 1, step: 1 })
+    append(7, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const hidden = node(snapshot(value), 'model-retry')
+    expect(hidden?.visibility).toBe('hidden')
+    expect(snapshot(value).order).not.toContain(hidden?.key)
+  })
+
+  it('does not materialize a model-retry chain whose step settled (history reload)', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'llm/retry', {
+        retryId: 'retry-resolved', turn: 1, step: 1, provider: 'fake', mode: 'normal',
+        policyKey: 'fake-normal', retry: 1, maxRetries: 2, delayMs: 10,
+        failure: { code: 'TRANSPORT', message: 'first' },
+      }),
+      at(4, 'llm/retry-started', { retryId: 'retry-resolved', turn: 1, step: 1, retry: 1 }),
+      at(5, 'assistant/message', {
+        turn: 1, step: 1, message: assistantMessage('a1', '重试后的完整回复'),
+      }, { surfaceOp: 'append' }),
+      at(6, 'step/end', { turn: 1, step: 1 }),
+      at(7, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+    expect(node(snapshot(value), 'model-retry')).toBeUndefined()
+  })
+
+  it('keeps a model-retry chain visible when the step never settles', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'llm/retry', {
+        retryId: 'retry-failed', turn: 1, step: 1, provider: 'fake', mode: 'normal',
+        policyKey: 'fake-normal', retry: 1, maxRetries: 2, delayMs: 10,
+        failure: { code: 'TRANSPORT', message: 'first' },
+      }),
+      at(4, 'llm/retry-started', { retryId: 'retry-failed', turn: 1, step: 1, retry: 1 }),
+      at(6, 'step/end', { turn: 1, step: 1 }),
+      at(7, 'turn/end', {
+        turn: 1,
+        reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'failed' } },
+      }),
+    ])
+    const retry = node(snapshot(value), 'model-retry')
+    expect(retry?.visibility).toBe('visible')
+    expect(snapshot(value).order).toContain(retry?.key)
+  })
+
   it('fills a landed compaction marker when an older page supplies its summary', () => {
     const value = assembler([
       at(13, 'user/message', {

@@ -3,7 +3,7 @@ import type {
   ConversationLocation, ConversationNodeDefinition, ModelRetryNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
-import type { RetryChatData } from '../contract/chat-nodes.ts'
+import type { AssistantChatData, RetryChatData } from '../contract/chat-nodes.ts'
 import { chatNode } from './common.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
@@ -35,6 +35,13 @@ function scheduledNode(match: Parameters<ConversationNodeDefinition['start']>[1]
 function isClosed(location: ConversationLocation): boolean {
   return (location.kind === 'step' && location.step.status === 'closed')
     || ((location.kind === 'step' || location.kind === 'turn') && location.turn.status === 'closed')
+}
+
+/** Whether the retried step produced a settled final answer (retry resolved). */
+function stepSettled(location: ConversationLocation): boolean {
+  if (location.kind !== 'step') return false
+  const assistant: AssistantChatData | undefined = location.step.data.get('assistant-step')
+  return assistant !== undefined && assistant.status === 'settled'
 }
 
 /** Producer-correlated model retry chain Definition. */
@@ -84,7 +91,16 @@ export const retryDefinition: ConversationNodeDefinition<RetryState> = {
     const current = attempts.at(-1)
     if (current === undefined) return null
     const data: RetryChatData = { attempts, current }
-    return chatNode(context, 'model-retry', attempts[0]?.seq ?? current.seq, data)
+    const anchorSeq = attempts[0]?.seq ?? current.seq
+    // The notice is transient: once the retried step settles, drop the row
+    // while keeping the chain materialized for timeline stability.
+    if (stepSettled(location)) {
+      const previous = context.current.get('chat')
+      return previous === undefined || previous === null
+        ? null
+        : chatNode(context, 'model-retry', anchorSeq, data, { visibility: 'hidden' })
+    }
+    return chatNode(context, 'model-retry', anchorSeq, data)
   },
 }
 
