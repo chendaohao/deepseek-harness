@@ -692,6 +692,43 @@ body {
   font-weight: 600;
 }
 
+/* Provider header as a collapse toggle: carries the section-title typography,
+   adds the button chrome and a leading label with a trailing count + chevron. */
+.sheet-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sheet-section-toggle:active {
+  color: var(--m-text);
+}
+
+.sheet-section-count {
+  flex: none;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--m-bg-input);
+  color: var(--m-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.sheet-section-chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--m-text-tertiary);
+  font-size: 14px;
+  line-height: 1;
+}
+
 .sheet-option {
   display: flex;
   align-items: center;
@@ -881,6 +918,7 @@ body {
 .chat-load-older:focus-visible,
 .chat-disclosure-head:focus-visible,
 .sheet-option:focus-visible,
+.sheet-section-toggle:focus-visible,
 .chat-input:focus-visible,
 .mobile-search:focus-visible,
 .rename-input:focus-visible,

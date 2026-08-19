@@ -14,6 +14,15 @@ export { Menu } from './Menu.tsx'
 export type { MenuEntry, MenuItem, MenuSeparator, MenuLabel } from './Menu.tsx'
 export { useAnchoredMaxHeight } from './useAnchoredMaxHeight.ts'
 export { useDismissOnOutsidePointer } from './useDismissOnOutsidePointer.ts'
+export {
+  RECENT_MODELS_KEY,
+  RECENT_LIMIT,
+  readRecentModels,
+  writeRecentModel,
+  modelMatchesQuery,
+  useRecentModels,
+} from './recent-models.ts'
+export type { RecentModel } from './recent-models.ts'
 export { HoverCard } from './HoverCard.tsx'
 export { Modal } from './Modal.tsx'
 export { OnboardingSurface } from './OnboardingSurface.tsx'

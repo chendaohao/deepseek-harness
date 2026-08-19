@@ -16,6 +16,7 @@ import type { ModelSelection, SessionModels } from '../api.ts'
 import { history as fetchHistory, models, prompt, renameSession, selectModel } from '../api.ts'
 import type { EventsClient, SessionEventFrame } from '../events.ts'
 import { foldEvents, type RenderMessage, type ToolCallInfo, type WireEvent } from '../messages.ts'
+import { modelMatchesQuery, useRecentModels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ThemeToggle } from '../ThemeToggle.tsx'
 import { errorText, formatTime, staleHostHint, type SessionView } from './App.tsx'
 
@@ -408,8 +409,13 @@ function CollapsibleText({ text }: { text: string }) {
 
 /* ── bottom sheet ─────────────────────────────────────────────────────── */
 
-/** Shared bottom-sheet chrome (backdrop + slide-up panel). */
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+/** Shared bottom-sheet chrome (backdrop + slide-up panel); `header` pins above the scroll body. */
+function Sheet({ title, header, onClose, children }: {
+  title: string
+  header?: ReactNode
+  onClose: () => void
+  children: ReactNode
+}) {
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div
@@ -421,6 +427,7 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
       >
         <div className="sheet-handle" aria-hidden />
         <div className="sheet-title">{title}</div>
+        {header}
         <div className="sheet-body">{children}</div>
       </div>
     </div>
@@ -437,6 +444,9 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
   const [state, setState] = useState<{ status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: SessionModels }>({ status: 'loading' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
+  const [query, setQuery] = useState('')
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const { recent, record } = useRecentModels()
   const [hint, setHint] = useState<string | undefined>(undefined)
 
   const load = useCallback(() => {
@@ -462,6 +472,7 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
       (result) => {
         setBusy(false)
         if (result.ok) {
+          record({ provider: selection.provider, model: selection.model })
           // A pick the model cannot take is normalized by the host to its
           // declared default; keep the sheet open so the fallback is visible.
           const requested = selection.reasoningEffort
@@ -482,7 +493,7 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
         setError('切换模型失败')
       },
     )
-  }, [busy, sessionId, onCurrent, onClose])
+  }, [busy, sessionId, onCurrent, onClose, record])
 
   if (state.status === 'loading') {
     return (
@@ -506,6 +517,13 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
   const { data } = state
   const selected = current ?? data.current
   const choices = data.groups.flatMap(group => group.models.map(model => ({ group, model })))
+  const searching = query.trim() !== ''
+  const filtered = searching
+    ? choices.filter(({ group, model }) => modelMatchesQuery(group, model, query))
+    : []
+  const recentChoices = recent
+    .map(entry => choices.find(choice => choice.group.id === entry.provider && choice.model.id === entry.model))
+    .filter((choice): choice is NonNullable<typeof choice> => choice !== undefined)
   const currentChoice = choices.find(choice => choice.group.id === selected.provider && choice.model.id === selected.model)
   const reasoning = currentChoice?.model.reasoning
   const effectiveEffort = selected.reasoningEffort ?? reasoning?.defaultEffort
@@ -524,72 +542,127 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
         })),
       ]
 
+  /** One sheet option row (model or effort): title + optional description, trailing check. */
+  const sheetOption = (
+    title: string,
+    description: string | undefined,
+    isSelected: boolean,
+    rowKey: string,
+    select: () => void,
+  ): ReactNode => {
+    return (
+      <button
+        type="button"
+        key={rowKey}
+        className={`sheet-option${isSelected ? ' sheet-option-selected' : ''}`}
+        disabled={busy}
+        onClick={select}
+      >
+        <span className="sheet-option-copy">
+          <span className="sheet-option-title">{title}</span>
+          {description !== undefined && <span className="sheet-option-desc">{description}</span>}
+        </span>
+        {isSelected && <span className="sheet-option-check" aria-hidden>√</span>}
+      </button>
+    )
+  }
+
+  /** One model row (search hit, recent, or in-group) wired to {@link apply}. */
+  const modelSheetOption = (
+    group: { id: string; name: string },
+    model: { id: string; name: string; description?: string; reasoning?: { defaultEffort?: string } },
+    description: string | undefined,
+    rowKey: string,
+  ): ReactNode => {
+    const isSelected = selected.provider === group.id && selected.model === model.id
+    return sheetOption(model.name, description, isSelected, rowKey, () => {
+      apply({
+        provider: group.id,
+        model: model.id,
+        ...(model.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: model.reasoning.defaultEffort }),
+      })
+    })
+  }
+
   return (
-    <Sheet title="模型与思考强度" onClose={onClose}>
+    <Sheet
+      title="模型与思考强度"
+      onClose={onClose}
+      header={
+        <input
+          type="search"
+          className="mobile-search"
+          value={query}
+          placeholder="搜索模型…"
+          aria-label="搜索模型"
+          onChange={(event) => { setQuery(event.target.value) }}
+        />
+      }
+    >
       {error !== undefined && <p className="sheet-error">{error}</p>}
       {error !== undefined && staleHostHint(error) !== undefined && <p className="sheet-hint">{staleHostHint(error)}</p>}
       {hint !== undefined && <p className="sheet-hint">{hint}</p>}
       {data.failures.map(failure => (
         <p className="sheet-error" key={failure.id}>{failure.name}: {failure.message}</p>
       ))}
-      {data.groups.length === 0 && choices.length === 0 && (
+      {!searching && data.groups.length === 0 && choices.length === 0 && (
         <div className="sheet-status">没有可用的模型</div>
       )}
-      {data.groups.map(group => (
-        <div className="sheet-section" key={group.id}>
-          <div className="sheet-section-title">{group.name}</div>
-          {group.models.map((model) => {
-            const isSelected = selected.provider === group.id && selected.model === model.id
+      {searching ? (
+        filtered.length === 0
+          ? <div className="sheet-status">没有匹配的模型</div>
+          : filtered.map(({ group, model }) => modelSheetOption(group, model, group.name, `${group.id}/${model.id}`))
+      ) : (
+        <>
+          {recentChoices.length > 0 && (
+            <div className="sheet-section">
+              <div className="sheet-section-title">最近使用</div>
+              {recentChoices.map(({ group, model }) => modelSheetOption(group, model, group.name, `${group.id}/${model.id}`))}
+            </div>
+          )}
+          {data.groups.map((group) => {
+            const isCollapsed = collapsed.has(group.id)
+            const modelsId = `models-${group.id}`
             return (
-              <button
-                type="button"
-                key={model.id}
-                className={`sheet-option${isSelected ? ' sheet-option-selected' : ''}`}
-                disabled={busy}
-                onClick={() => {
-                  apply({
-                    provider: group.id,
-                    model: model.id,
-                    ...(model.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: model.reasoning.defaultEffort }),
-                  })
-                }}
-              >
-                <span className="sheet-option-copy">
-                  <span className="sheet-option-title">{model.name}</span>
-                  {model.description !== undefined && <span className="sheet-option-desc">{model.description}</span>}
-                </span>
-                {isSelected && <span className="sheet-option-check" aria-hidden>√</span>}
-              </button>
+              <div className="sheet-section" key={group.id}>
+                <button
+                  type="button"
+                  className="sheet-section-title sheet-section-toggle"
+                  aria-expanded={!isCollapsed}
+                  aria-controls={modelsId}
+                  onClick={() => {
+                    setCollapsed((previous) => {
+                      const next = new Set(previous)
+                      if (next.has(group.id)) next.delete(group.id)
+                      else next.add(group.id)
+                      return next
+                    })
+                  }}
+                >
+                  <span>{group.name}</span>
+                  <span className="sheet-section-count">{group.models.length}</span>
+                  <span className="sheet-section-chevron" aria-hidden>{isCollapsed ? '›' : '⌄'}</span>
+                </button>
+                <div id={modelsId} hidden={isCollapsed}>
+                  {group.models.map(model => modelSheetOption(group, model, model.description, model.id))}
+                </div>
+              </div>
             )
           })}
-        </div>
-      ))}
+        </>
+      )}
       {effortChoices.length > 0 && (
         <div className="sheet-section">
           <div className="sheet-section-title">思考强度</div>
           {effortChoices.map((choice) => {
             const isSelected = effectiveEffort === choice.effort
-            return (
-              <button
-                type="button"
-                key={choice.key}
-                className={`sheet-option${isSelected ? ' sheet-option-selected' : ''}`}
-                disabled={busy}
-                onClick={() => {
-                  apply({
-                    provider: selected.provider,
-                    model: selected.model,
-                    ...(choice.effort !== undefined ? { reasoningEffort: choice.effort } : {}),
-                  })
-                }}
-              >
-                <span className="sheet-option-copy">
-                  <span className="sheet-option-title">{choice.label}</span>
-                  {choice.description !== undefined && <span className="sheet-option-desc">{choice.description}</span>}
-                </span>
-                {isSelected && <span className="sheet-option-check" aria-hidden>√</span>}
-              </button>
-            )
+            return sheetOption(choice.label, choice.description, isSelected, choice.key, () => {
+              apply({
+                provider: selected.provider,
+                model: selected.model,
+                ...(choice.effort !== undefined ? { reasoningEffort: choice.effort } : {}),
+              })
+            })
           })}
         </div>
       )}

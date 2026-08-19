@@ -2,6 +2,7 @@
 /** Mobile views: App navigation, workspace/session lists, and the chat surface (history, live events, prompt, model sheet, rename). */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { RECENT_MODELS_KEY, readRecentModels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { App, toSessionView } from '../src/mobile/views/App.tsx'
 import { WorkspaceView } from '../src/mobile/views/WorkspaceView.tsx'
 import { SessionListView } from '../src/mobile/views/SessionListView.tsx'
@@ -48,6 +49,7 @@ const mockRenameSession = vi.mocked(renameSession)
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  localStorage.clear()
 })
 
 function workspace(id: string, title: string, sessionIds: string[]): WorkspaceRow {
@@ -74,6 +76,24 @@ const directory: SessionModels = {
   current: { provider: 'deepseek', model: 'deepseek-chat' },
   routable: true,
   groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }],
+  failures: [],
+}
+
+const multiDirectory: SessionModels = {
+  current: { provider: 'deepseek', model: 'deepseek-chat' },
+  routable: true,
+  groups: [
+    {
+      id: 'deepseek',
+      name: 'DeepSeek',
+      models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }, { id: 'deepseek-r1', name: 'DeepSeek R1' }],
+    },
+    {
+      id: 'anthropic',
+      name: 'Anthropic',
+      models: [{ id: 'claude-sonnet', name: 'Claude Sonnet' }, { id: 'claude-opus', name: 'Claude Opus' }],
+    },
+  ],
   failures: [],
 }
 
@@ -240,6 +260,63 @@ describe('ChatView', () => {
     await waitFor(() => {
       expect(mockSelectModel).toHaveBeenCalledWith('s1', { provider: 'deepseek', model: 'deepseek-chat' })
     })
+  })
+
+  it('filters the model sheet by provider and model name', async () => {
+    mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
+    mockModels.mockResolvedValue({ ok: true, value: multiDirectory })
+    mockSelectModel.mockResolvedValue({ ok: true, value: { provider: 'deepseek', model: 'deepseek-chat' } })
+    const live = eventsStub()
+    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
+    await screen.findByText('DeepSeek Chat')
+    const search = screen.getByRole('searchbox')
+    fireEvent.change(search, { target: { value: 'sonnet' } })
+    expect(screen.queryByText('DeepSeek Chat')).toBeNull()
+    expect(screen.getByText('Claude Sonnet')).toBeTruthy()
+    expect(screen.queryByText('Claude Opus')).toBeNull()
+    fireEvent.change(search, { target: { value: 'anthropic' } })
+    expect(screen.getByText('Claude Sonnet')).toBeTruthy()
+    expect(screen.getByText('Claude Opus')).toBeTruthy()
+    fireEvent.change(search, { target: { value: 'zzz' } })
+    expect(screen.getByText('没有匹配的模型')).toBeTruthy()
+  })
+
+  it('shows a recently used section and records an accepted pick', async () => {
+    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify([
+      { provider: 'anthropic', model: 'claude-opus' },
+      { provider: 'old', model: 'gone' },
+    ]))
+    mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
+    mockModels.mockResolvedValue({ ok: true, value: multiDirectory })
+    mockSelectModel.mockResolvedValue({ ok: true, value: { provider: 'deepseek', model: 'deepseek-chat' } })
+    const live = eventsStub()
+    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
+    await screen.findByText('最近使用')
+    expect(screen.queryByText('gone')).toBeNull()
+    fireEvent.click(screen.getAllByRole('button', { name: /Claude Opus/ })[0]!)
+    await waitFor(() => {
+      expect(mockSelectModel).toHaveBeenCalledWith('s1', { provider: 'anthropic', model: 'claude-opus' })
+      expect(readRecentModels()[0]).toEqual({ provider: 'anthropic', model: 'claude-opus' })
+    })
+  })
+
+  it('collapses and expands a provider group in the sheet', async () => {
+    mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
+    mockModels.mockResolvedValue({ ok: true, value: multiDirectory })
+    mockSelectModel.mockResolvedValue({ ok: true, value: { provider: 'deepseek', model: 'deepseek-chat' } })
+    const live = eventsStub()
+    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
+    await screen.findByText('DeepSeek Chat')
+    fireEvent.click(screen.getByRole('button', { name: /DeepSeek/, expanded: true }))
+    expect(screen.queryByRole('button', { name: /DeepSeek Chat/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /DeepSeek/, expanded: false }))
+    expect(screen.getByRole('button', { name: /DeepSeek Chat/ })).toBeTruthy()
   })
 
   it('renames the session through session.rename', async () => {
