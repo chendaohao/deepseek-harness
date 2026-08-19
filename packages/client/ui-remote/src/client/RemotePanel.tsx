@@ -140,7 +140,7 @@ export function RemotePanel({ remote, t }: RemotePanelProps) {
       <section className={css.qrSection}>
         <h3 className={css.sectionTitle}>{t('scan.label')}</h3>
         {pairUrl !== null ? (
-          <QRCodeSVG value={pairUrl} title={pairUrl} size={140} className={css.qr} />
+          <QRCodeSVG value={pairUrl} title={pairUrl} size={200} className={css.qr} />
         ) : (
           <div className={css.qrPlaceholder}>
             {tunnel.status === 'open' ? t('loading') : t('pair.unavailable')}

@@ -65,7 +65,7 @@
   align-self: center;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  padding: 8px;
+  padding: 12px;
   background: var(--dsw-alias-bg-layer-1);
 }
 
@@ -74,8 +74,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 140px;
-  height: 140px;
+  width: 200px;
+  height: 200px;
   border: 1px dashed var(--dsw-alias-border-l3);
   border-radius: 12px;
   color: var(--dsw-alias-label-caption);

@@ -88,7 +88,12 @@ describe('RemotePanel initial render', () => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/remote/pair/issue', { method: 'POST' })
     })
     // The pairing QR is in the dialog once the pair URL lands (title carries the URL).
-    expect(await screen.findByTitle(pairUrl)).toBeTruthy()
+    const qrTitle = await screen.findByTitle(pairUrl)
+    expect(qrTitle).toBeTruthy()
+    // The QR renders large enough to scan reliably within the dialog column.
+    const qrSvg = qrTitle.closest('svg')
+    expect(qrSvg?.getAttribute('width')).toBe('200')
+    expect(qrSvg?.getAttribute('height')).toBe('200')
     // Live event wiring: the tunnel ended event flips the badge; a device change
     // populates the roster without a refetch.
     emit('remote-tunnel/state', { status: 'ended' })
@@ -142,6 +147,30 @@ describe('RemotePanel device roster', () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/remote/devices/d1/revoke', { method: 'POST' })
     })
+  })
+
+  it('revokes an offline paired device without painting the load error', async () => {
+    const { remote } = makeRemote()
+    const offline = { ...device('d9', 'Old Phone'), lastSeen: Date.now() - 10 * 60_000 }
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/remote/state') {
+        return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [offline] })
+      }
+      if (url === '/remote/devices/d9/revoke') return jsonResponse({})
+      throw new Error(`unexpected fetch ${url}`)
+    }) as unknown as typeof fetch
+
+    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+
+    expect(await screen.findByText('Old Phone')).toBeTruthy()
+    expect(screen.getByText('Offline')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith('/remote/devices/d9/revoke', { method: 'POST' })
+    })
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('confirms before stopping and then calls /remote/stop', async () => {
