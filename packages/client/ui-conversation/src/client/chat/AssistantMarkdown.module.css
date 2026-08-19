@@ -34,3 +34,10 @@
   /* Optical align with 28px icon hit targets that pad 6px past the glyph. */
   margin-left: -6px;
 }
+
+/* Mobile web: the actions cluster sits closer under the final block. */
+@media (max-width: 640px) {
+  .actions {
+    margin-top: 10px;
+  }
+}
