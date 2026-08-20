@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import qrcode from 'qrcode-terminal'
 import RemoteAccess, { internals } from '../src/index.ts'
@@ -32,10 +32,16 @@ function fakeTunnel() {
   }
 }
 
+interface ControlRoute {
+  kind: string
+  path: string
+  handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void
+}
+
 interface FakeWebServer {
   port: number
   host: string
-  register: ReturnType<typeof vi.fn>
+  register: ReturnType<typeof vi.fn<(route: ControlRoute) => () => void>>
 }
 
 let root: string | undefined
@@ -44,7 +50,7 @@ let target: Server | undefined
 let targetPort = 0
 let tunnel: ReturnType<typeof fakeTunnel>
 let saved: typeof internals
-let logSpy: ReturnType<typeof vi.spyOn>
+let logSpy: MockInstance<typeof console.log>
 let shellEnvRegister: ReturnType<typeof vi.fn<(contributor: unknown) => () => void>>
 let unprovideWebServer: () => void
 let fakeWebServer: FakeWebServer
@@ -58,7 +64,7 @@ beforeEach(async () => {
   await new Promise<void>((resolve) => { target!.listen(0, '127.0.0.1', resolve) })
   targetPort = (target.address() as AddressInfo).port
   context = new Context()
-  fakeWebServer = { port: targetPort, host: '127.0.0.1', register: vi.fn(() => () => {}) }
+  fakeWebServer = { port: targetPort, host: '127.0.0.1', register: vi.fn((_route: ControlRoute) => () => {}) }
   unprovideWebServer = context.provide('webServer', fakeWebServer)
   context.provide('remoteTunnel', tunnel)
   shellEnvRegister = vi.fn<(contributor: unknown) => () => void>(() => () => {})
@@ -119,10 +125,10 @@ function pairToken(): string {
 }
 
 /** The registered /remote control-plane route the service mounts on the webserver. */
-function controlRoute(): { path: string; handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void } {
+function controlRoute(): ControlRoute {
   const route = fakeWebServer.register.mock.calls[0]?.[0]
   if (route === undefined) throw new Error('no control plane route registered')
-  return route as never
+  return route
 }
 
 describe('disabled', () => {

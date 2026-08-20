@@ -29,7 +29,7 @@ function makeRemote() {
   }
   return {
     remote: remote as never,
-    emit(event: string, payload: unknown) {
+    emit: (event: string, payload: unknown) => {
       act(() => { listeners.get(event)?.(payload) })
     },
   }
@@ -68,8 +68,8 @@ describe('RemotePanel initial render', () => {
   it('opens the modal, pulls /remote/state, issues the pairing QR, and renders the open badge', async () => {
     const { remote, emit } = makeRemote()
     const pairUrl = 'https://foo.trycloudflare.com/pair/token'
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
+    globalThis.fetch = vi.fn(async (input: string) => {
+      const url = input
       if (url === '/remote/state') {
         return jsonResponse({ tunnelUrl: 'https://foo.trycloudflare.com', tunnelStatus: 'open', devices: [] })
       }
@@ -104,8 +104,8 @@ describe('RemotePanel initial render', () => {
 
   it('renders the closed badge and no QR when the tunnel is down', async () => {
     const { remote } = makeRemote()
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
+    globalThis.fetch = vi.fn(async (input: string) => {
+      const url = input
       if (url === '/remote/state') {
         return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [] })
       }
@@ -124,8 +124,8 @@ describe('RemotePanel initial render', () => {
 describe('RemotePanel device roster', () => {
   it('renders each device row with its status and revokes on demand', async () => {
     const { remote } = makeRemote()
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
+    globalThis.fetch = vi.fn(async (input: string) => {
+      const url = input
       if (url === '/remote/state') {
         return jsonResponse({
           tunnelUrl: null,
@@ -152,8 +152,8 @@ describe('RemotePanel device roster', () => {
   it('revokes an offline paired device without painting the load error', async () => {
     const { remote } = makeRemote()
     const offline = { ...device('d9', 'Old Phone'), lastSeen: Date.now() - 10 * 60_000 }
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
+    globalThis.fetch = vi.fn(async (input: string) => {
+      const url = input
       if (url === '/remote/state') {
         return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [offline] })
       }
@@ -175,8 +175,8 @@ describe('RemotePanel device roster', () => {
 
   it('confirms before stopping and then calls /remote/stop', async () => {
     const { remote } = makeRemote()
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
+    globalThis.fetch = vi.fn(async (input: string) => {
+      const url = input
       if (url === '/remote/state') {
         return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [] })
       }

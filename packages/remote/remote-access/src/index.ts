@@ -191,10 +191,22 @@ export class RemoteAccess extends Service {
     }
     const url = new URL(req.url ?? '/', 'http://x')
     const rawPath = url.pathname
-    if (req.method === 'GET' && rawPath === '/remote/state') return this.respondState(res)
-    if (req.method === 'GET' && rawPath === '/remote/devices') return this.respondDevices(res)
-    if (req.method === 'POST' && rawPath === '/remote/pair/issue') return this.issuePair(res)
-    if (req.method === 'POST' && rawPath === '/remote/stop') return this.stopAll(res)
+    if (req.method === 'GET' && rawPath === '/remote/state') {
+      this.respondState(res)
+      return
+    }
+    if (req.method === 'GET' && rawPath === '/remote/devices') {
+      this.respondDevices(res)
+      return
+    }
+    if (req.method === 'POST' && rawPath === '/remote/pair/issue') {
+      this.issuePair(res)
+      return
+    }
+    if (req.method === 'POST' && rawPath === '/remote/stop') {
+      this.stopAll(res)
+      return
+    }
     if (req.method === 'POST' && rawPath.startsWith('/remote/devices/')) {
       const rest = rawPath.slice('/remote/devices/'.length)
       const suffix = rest.endsWith(DEVICE_REVOKE_SUFFIX)
@@ -214,9 +226,13 @@ export class RemoteAccess extends Service {
         res.end('bad device id')
         return
       }
-      if (suffix === DEVICE_REVOKE_SUFFIX) return this.revokeDevice(deviceId, res)
+      if (suffix === DEVICE_REVOKE_SUFFIX) {
+        this.revokeDevice(deviceId, res)
+        return
+      }
       const name = url.searchParams.get('name')?.trim() ?? ''
-      return this.renameDevice(deviceId, name, res)
+      this.renameDevice(deviceId, name, res)
+      return
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
     res.end('not found')

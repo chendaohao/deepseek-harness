@@ -44,8 +44,8 @@ export class DeviceRegistry {
     if (!Array.isArray(parsed)) {
       throw new Error('remote-access: device registry ' + JSON.stringify(this.path) + ' must be a JSON array')
     }
-    for (const record of parsed as DeviceRecord[]) {
-      if (typeof record?.deviceId !== 'string' || typeof record?.name !== 'string') {
+    for (const record of parsed as Array<DeviceRecord | null>) {
+      if (record === null || typeof record.deviceId !== 'string' || typeof record.name !== 'string') {
         throw new Error('remote-access: device registry ' + JSON.stringify(this.path) + ' holds a malformed record')
       }
       this.devices.set(record.deviceId, record)
