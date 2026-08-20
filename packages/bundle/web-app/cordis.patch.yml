@@ -124,6 +124,10 @@
       config:
         host: !!js ctx.webStartup.host ?? '127.0.0.1'
         port: !!js ctx.webStartup.port ?? 3080
+        # Brotli/gzip response compression is on by default; set to 'none' to
+        # disable (e.g. behind a reverse proxy that compresses itself).
+        compression: !!js process.env.DSH_WEB_COMPRESSION ?? 'auto'
+        keepAliveTimeoutMs: 30000
 
     # Web glue owned by this bundle: resolves the built frontend dist (an
     # assembly fact of dsh-web-app, never user config), mounts the

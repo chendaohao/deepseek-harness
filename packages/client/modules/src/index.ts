@@ -278,7 +278,16 @@ window.__ModuleLoader__={
     .filter((entry): entry is WebBootEntry => entry !== undefined)
     .map(entry => `<script src="${escapeHtmlAttribute(entry.url)}"></script>`)
     .join('')
-  const script = `${queue}${preload}<script>window.__DSH_BOOT__ = ${json}</script>`
+  // Stage-one (immediately) rows are fetched by the shell's prefetch pass
+  // right after boot; a preload hint starts those transfers during HTML
+  // parsing instead, collapsing the HTTP/1.1 request waterfall on first load.
+  // The already-scripted bootstrap rows must not be hinted twice.
+  const hinted = new Set([...PARSER_PRELOAD_IDS, CLIENT_MODULES_ID])
+  const hints = graph.entries
+    .filter(entry => entry.immediately === true && !hinted.has(entry.id))
+    .map(entry => `<link rel="preload" as="script" href="${escapeHtmlAttribute(entry.url)}">`)
+    .join('')
+  const script = `${hints}${queue}${preload}<script>window.__DSH_BOOT__ = ${json}</script>`
   const head = html.indexOf('<head>')
   if (head !== -1) return `${html.slice(0, head + 6)}${script}${html.slice(head + 6)}`
   // Headless fixture pages may lack <head>; prepending keeps the read-before-shell ordering.
@@ -566,9 +575,13 @@ export class ClientModuleRegistry extends Service {
     }
     try {
       const body = await readFile(path)
+      // The URL carries the bundle's content hash (?rev=), so the body is
+      // immutable per URL: browsers keep it until the manifest serves a new
+      // rev, and the HMR chain swaps the URL on rebuild. Source maps share
+      // the bundle's rev and ride the same cache.
       res.writeHead(200, {
         'content-type': isSourceMap ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
-        'cache-control': 'no-cache',
+        'cache-control': 'public, max-age=31536000, immutable',
       })
       res.end(body)
     } catch {

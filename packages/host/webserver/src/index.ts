@@ -14,6 +14,8 @@ import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { DEFAULT_COMPRESSION_THRESHOLD_BYTES, maybeCompressResponse, pickEncoding } from './compress.ts'
+import type { CompressionMode } from './compress.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -41,12 +43,30 @@ export interface WebUpgradeRoute {
   handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>
 }
 
-/** Gateway config: the listen address. */
+/** Gateway config: the listen address and transport tuning. */
 export interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /**
+   * Response compression: 'auto' negotiates per request (brotli preferred,
+   * gzip fallback), 'br' and 'gzip' force a codec when the client accepts it,
+   * 'none' disables. SSE and other non-compressible bodies always pass
+   * through uncompressed. Defaults to 'auto'.
+   */
+  compression?: CompressionMode
+  /**
+   * Minimum body size in bytes before compression applies; smaller known
+   * bodies ship identity (the codec setup would cost more than it saves).
+   */
+  compressionThresholdBytes?: number
+  /**
+   * Idle keep-alive timeout for the HTTP server in milliseconds (Node default
+   * 5000). Slow mobile links benefit from a longer-lived connection; raise
+   * the default to 30s unless a reverse proxy in front wants to own it.
+   */
+  keepAliveTimeoutMs?: number
 }
 
 /**
@@ -60,6 +80,14 @@ export class WebServer extends Service {
   static Config: z<Config> = z.object({
     host: z.union([z.const('127.0.0.1'), z.const('0.0.0.0')]).required(),
     port: z.natural().max(65535).required(),
+    compression: z.union([
+      z.const('auto'),
+      z.const('br'),
+      z.const('gzip'),
+      z.const('none'),
+    ]).default('auto'),
+    compressionThresholdBytes: z.natural().min(0).default(DEFAULT_COMPRESSION_THRESHOLD_BYTES),
+    keepAliveTimeoutMs: z.natural().min(1000).default(30_000),
   })
 
   private readonly exact = new Map<string, WebRoute>()
@@ -149,6 +177,10 @@ export class WebServer extends Service {
     const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
       /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server
       requests; the field is only optional on the client-side IncomingMessage type */
+      const encoding = pickEncoding(req.headers['accept-encoding'], this.config.compression ?? 'auto')
+      if (encoding !== undefined) {
+        res = maybeCompressResponse(res, encoding, this.config.compressionThresholdBytes ?? DEFAULT_COMPRESSION_THRESHOLD_BYTES)
+      }
       const rawPath = new URL(req.url ?? '/', 'http://x').pathname
       const route = this.match(rawPath)
       if (route !== undefined) {
@@ -213,6 +245,7 @@ export class WebServer extends Service {
       }
     })
 
+    this.server.keepAliveTimeout = this.config.keepAliveTimeoutMs ?? 30_000
     await new Promise<void>((resolve, reject) => {
       this.server.once('error', reject)
       this.server.listen(this.config.port, this.config.host, () => {

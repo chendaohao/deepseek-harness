@@ -29,16 +29,24 @@ interface WebRoute {
 ## 配置
 
 ```ts type-equiv
-/** Gateway config: the listen address. */
+/** Gateway config: the listen address and transport tuning. */
 interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** 'auto' 按请求协商（优先 brotli，回退 gzip）；'br'/'gzip' 强制编码；'none' 禁用。 */
+  compression?: 'auto' | 'br' | 'gzip' | 'none'
+  /** 压缩前的最小已知响应体字节数。 */
+  compressionThresholdBytes?: number
+  /** HTTP 服务器空闲 keep-alive 超时（毫秒）。 */
+  keepAliveTimeoutMs?: number
 }
 ```
 
 `host` 只接受 `127.0.0.1`（默认姿态）和 `0.0.0.0`（刻意的网络暴露）；没有 TLS、认证或 origin 策略，因此绑定到非回环地址会把服务器暴露给该网络。dist 位置是认领席位的前端插件的组装事实。
+
+`compression` 默认为 `auto`：当客户端接受、响应体是可压缩 MIME 类型（SSE 除外——流保持逐字节一致且无附加延迟）、状态码带响应体、且已知体积达到 `compressionThresholdBytes`（默认 1 KiB）时，每个响应都使用 brotli 压缩（gzip 回退）。被压缩的响应会去掉 `content-length`（改用 chunked 分帧）并加上 `Vary: accept-encoding`。`keepAliveTimeoutMs` 默认为 30 秒——比 Node 默认的 5 秒更长，让手机的复用连接在网络抖动后免于重新握手；反向代理部署可调低。
 
 ## 服务
 

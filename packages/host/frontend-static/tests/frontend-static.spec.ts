@@ -7,8 +7,8 @@
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -37,6 +37,10 @@ async function loadComposition(): Promise<Context> {
   await writeFile(join(dist, 'app.js'), 'export {}')
   await writeFile(join(dist, 'blob.bin'), 'BLOB')
   await writeFile(join(dist, 'manifest.webmanifest'), '{}')
+  await writeFile(join(dist, 'sw.js'), '/* dsh shell worker */')
+  await writeFile(join(dist, 'LICENSE'), 'MIT')
+  await mkdir(join(dist, 'assets'))
+  await writeFile(join(dist, 'assets', 'app-abc12345.js'), 'export {}')
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
@@ -73,13 +77,21 @@ async function loadComposition(): Promise<Context> {
   return context
 }
 
-/** GET (by default) one path against the running server; returns status, content-type, and a body prefix. */
-async function request(port: number, path: string, init?: RequestInit): Promise<{ status: number; type: string | null; body: string }> {
+/** GET (by default) one path against the running server; returns status, content-type, a body prefix, and the caching headers. */
+async function request(port: number, path: string, init?: RequestInit): Promise<{
+  status: number
+  type: string | null
+  body: string
+  cacheControl: string | null
+  etag: string | null
+}> {
   const response = await fetch(`http://127.0.0.1:${String(port)}${path}`, init)
   return {
     status: response.status,
     type: response.headers.get('content-type'),
     body: (await response.text()).slice(0, 80),
+    cacheControl: response.headers.get('cache-control'),
+    etag: response.headers.get('etag'),
   }
 }
 
@@ -129,5 +141,37 @@ describe('real Loader composition', () => {
     await frontendEntry!.fiber?.dispose()
     expect((await request(port, '/no/such/route')).status).toBe(404)
     expect(() => server.registerFallback(() => {})).not.toThrow()
+  })
+
+  it('serves cache headers and 304 revalidation per resource class', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const port = loaded.webServer.port
+
+    // Hashed assets are immutable forever.
+    const asset = await request(port, '/assets/app-abc12345.js')
+    expect(asset.cacheControl).toBe('public, max-age=31536000, immutable')
+    expect(asset.etag).toBeDefined()
+
+    // Non-hashed static files are short-cached with revalidation.
+    const plain = await request(port, '/app.js')
+    expect(plain.cacheControl).toBe('public, max-age=3600, must-revalidate')
+    expect(plain.etag).toBeDefined()
+    const revalidated = await request(port, '/app.js', { headers: { 'if-none-match': plain.etag! } })
+    expect(revalidated.status).toBe(304)
+
+    // A dotless name is not content-addressed, so it is short-cached too.
+    expect((await request(port, '/LICENSE')).cacheControl).toBe('public, max-age=3600, must-revalidate')
+
+    // The service worker revalidates every visit so deployed workers take over.
+    const worker = await request(port, '/sw.js')
+    expect(worker.cacheControl).toBe('no-cache')
+    expect(worker.etag).toBeDefined()
+    expect((await request(port, '/sw.js', { headers: { 'if-none-match': worker.etag! } })).status).toBe(304)
+
+    // The index document (here the SPA fallback) always revalidates too.
+    const index = await request(port, '/')
+    expect(index.cacheControl).toBe('no-cache')
+    expect(index.etag).toBeDefined()
+    expect((await request(port, '/', { headers: { 'if-none-match': index.etag! } })).status).toBe(304)
   })
 })

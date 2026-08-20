@@ -105,6 +105,13 @@ export interface WebSocketDownlinkOptions {
    * tunnel edges do not reap the idle socket. 0 disables heartbeats.
    */
   heartbeatIntervalMs?: number
+  /**
+   * permessage-deflate compression for the two event streams. Frame payloads
+   * are JSON text (chat markdown, tool views) and compress 60-80% on slow
+   * links; the ws library negotiates the extension and handles both ends.
+   * Defaults to enabled.
+   */
+  perMessageDeflate?: boolean
 }
 
 /**
@@ -113,16 +120,23 @@ export interface WebSocketDownlinkOptions {
  * remains on HTTP.
  */
 export class WebSocketDownlinks {
-  private readonly server = new WebSocketServer({ noServer: true })
+  private readonly server: WebSocketServer
   private readonly pumps = new Set<Promise<void>>()
   private readonly heartbeatIntervalMs: number
 
   /**
    * @param api - host API supplying the typed event streams.
-   * @param options - downlink tunables (heartbeat interval).
+   * @param options - downlink tunables (heartbeat interval, compression).
    */
   constructor(private readonly api: ApiProxy, options: WebSocketDownlinkOptions = {}) {
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 0
+    // Frame payloads are JSON text; permessage-deflate typically saves 60-80%
+    // on chat-heavy streams at a small per-message CPU cost. The extension is
+    // negotiated per connection — clients that do not offer it stay plain.
+    this.server = new WebSocketServer({
+      noServer: true,
+      perMessageDeflate: options.perMessageDeflate ?? true,
+    })
   }
 
   /**

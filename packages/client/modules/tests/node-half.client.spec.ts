@@ -237,7 +237,7 @@ describe('client bundle activation', () => {
     expect(status).toBe(200)
     expect(headers).toEqual({
       'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-cache',
+      'cache-control': 'public, max-age=31536000, immutable',
     })
     expect(body).toBe(map)
   })

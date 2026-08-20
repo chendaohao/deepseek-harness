@@ -29,16 +29,24 @@ Match order is fixed: exact table first, then longest matching prefix, then the 
 ## Config
 
 ```ts type-equiv
-/** Gateway config: the listen address. */
+/** Gateway config: the listen address and transport tuning. */
 interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** 'auto' negotiates per request (brotli preferred, gzip fallback); 'br'/'gzip' force a codec; 'none' disables. */
+  compression?: 'auto' | 'br' | 'gzip' | 'none'
+  /** Minimum known body size in bytes before compression applies. */
+  compressionThresholdBytes?: number
+  /** Idle keep-alive timeout in ms for the HTTP server. */
+  keepAliveTimeoutMs?: number
 }
 ```
 
 `host` accepts only `127.0.0.1` (default posture) and `0.0.0.0` (deliberate network exposure); there is no TLS, auth, or origin policy, so a non-loopback bind exposes the server to that network. The dist location is an assembly fact of the frontend plugin that claims the seat.
+
+`compression` defaults to `auto`: every response is brotli-compressed (gzip fallback) when the client accepts it, the body is a compressible MIME type (SSE excluded — streaming stays byte-identical and latency-free), the status is body-bearing, and the known body size meets `compressionThresholdBytes` (default 1 KiB). A compressed response drops its `content-length` (chunked framing) and adds `Vary: accept-encoding`. `keepAliveTimeoutMs` defaults to 30 s — longer than Node's 5 s default so a phone's reused connection survives network hiccups without a re-handshake; reverse-proxy deployments may lower it.
 
 ## The service
 

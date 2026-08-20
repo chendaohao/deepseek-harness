@@ -11,9 +11,10 @@
  * @module @deepseek-ai/dsh-host-frontend-static
  */
 
+import { createHash } from 'node:crypto'
 import type { ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
+import { basename, dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -44,6 +45,38 @@ const MIME: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
 }
 
+/** Long cache for content-addressed files: one year, never revalidated. */
+const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable'
+
+/** Short cache for non-hashed static files: one hour, revalidated on use. */
+const SHORT_CACHE = 'public, max-age=3600, must-revalidate'
+
+/** Service-worker scripts revalidate on every visit: a cached worker would
+ * stall deployed shell updates for the short-cache window. no-cache plus the
+ * ETag keeps the unchanged case a 304 round-trip. */
+const WORKER_CACHE = 'no-cache'
+
+/**
+ * Whether the pathname names a Vite content-addressed asset: the build emits
+ * assets/<name>-<hash>.<ext> (and fonts/langs siblings); their names embed the
+ * file content digest, so they can be cached forever.
+ */
+function isHashedAsset(pathname: string): boolean {
+  const base = basename(pathname)
+  const dot = base.lastIndexOf('.')
+  if (dot === -1) return false
+  const stem = base.slice(0, dot)
+  const hashDash = stem.lastIndexOf('-')
+  if (hashDash === -1) return false
+  const hash = stem.slice(hashDash + 1)
+  return /^[a-zA-Z0-9_-]{8,}$/.test(hash)
+}
+
+/** Strong validator for one file body: the first 16 hex chars of its sha1. */
+function bodyEtag(body: Buffer): string {
+  return '"' + createHash('sha1').update(body).digest('hex').slice(0, 16) + '"'
+}
+
 /**
  * Serve one GET/HEAD static request from the dist root.
  * @param pathname - decoded URL pathname of the request.
@@ -52,10 +85,11 @@ const MIME: Record<string, string> = {
  * @param distIndex - absolute path of index.html inside distRoot.
  * @param renderIndex - produces the index.html body (index-tap injection) for
  * `/` and every SPA fallback.
+ * @param ifNoneMatch - the request's If-None-Match header, when present.
  */
 export async function serveStatic(
   pathname: string, res: ServerResponse, distRoot: string, distIndex: string,
-  renderIndex: () => Promise<string>,
+  renderIndex: () => Promise<string>, ifNoneMatch?: string,
 ): Promise<void> {
   const target = resolve(normalize(join(distRoot, pathname)))
   // Traversal rejection: the target must be distRoot itself (`/`) or stay under
@@ -66,8 +100,20 @@ export async function serveStatic(
     res.end()
     return
   }
+  // Every index response (the document itself or a SPA fallback) carries the
+  // boot manifest injected by the index taps, whose graph changes with the
+  // plugin set: always revalidate, and answer 304 when the client already has
+  // the current body.
   const serveIndex = async (): Promise<void> => {
     const body = await renderIndex()
+    const etag = bodyEtag(Buffer.from(body))
+    res.setHeader('cache-control', 'no-cache')
+    res.setHeader('etag', etag)
+    if (ifNoneMatch === etag) {
+      res.writeHead(304)
+      res.end()
+      return
+    }
     res.writeHead(200, { 'content-type': MIME['.html'] })
     res.end(body)
   }
@@ -77,7 +123,24 @@ export async function serveStatic(
   }
   try {
     const body = await readFile(target)
-    res.writeHead(200, { 'content-type': MIME[extname(target)] ?? 'application/octet-stream' })
+    const headers: Record<string, string> = {
+      'content-type': MIME[extname(target)] ?? 'application/octet-stream',
+      // Hashed assets are immutable forever; the service worker revalidates
+      // every visit so deployed updates take over promptly; the rest is
+      // short-cached with revalidation (the ETag gives a cheap 304 round-trip).
+      'cache-control': isHashedAsset(pathname)
+        ? IMMUTABLE_CACHE
+        : basename(pathname) === 'sw.js'
+          ? WORKER_CACHE
+          : SHORT_CACHE,
+      'etag': bodyEtag(body),
+    }
+    if (ifNoneMatch === headers.etag) {
+      res.writeHead(304, headers)
+      res.end()
+      return
+    }
+    res.writeHead(200, headers)
     res.end(body)
   } catch {
     // Miss (ENOENT/EISDIR) falls back to index.html with 200 (SPA routing).
@@ -105,6 +168,6 @@ export function apply(ctx: Context, config: Config): void {
     }
     /* v8 ignore next -- node:http always sets url on server requests */
     const rawPath = new URL(req.url ?? '/', 'http://x').pathname
-    await serveStatic(decodeURIComponent(rawPath), res, distRoot, distIndex, renderIndex)
+    await serveStatic(decodeURIComponent(rawPath), res, distRoot, distIndex, renderIndex, req.headers['if-none-match'])
   }), 'frontend-static: fallback seat')
 }
