@@ -11,6 +11,7 @@ async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
+  locale.setLocale('zh')
   ctx.provide('locale', locale)
   const remote = { $on: vi.fn(() => () => {}) }
   ctx.provide('remote', remote)

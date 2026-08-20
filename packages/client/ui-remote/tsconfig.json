@@ -28,7 +28,7 @@
       "path": "../runtime"
     },
     {
-      "path": "../web-react"
+      "path": "../web"
     },
     {
       "path": "../locale"
