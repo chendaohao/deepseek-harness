@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-remote-tunnel",
   "description": "Remote-tunnel capability: the remoteTunnel Service plus its cloudflared quick-tunnel provider, exposing one loopback port over a public HTTPS URL",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.0-rc.8",
   "publishConfig": {
     "access": "public"
   },
@@ -32,6 +32,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/types/**/*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
