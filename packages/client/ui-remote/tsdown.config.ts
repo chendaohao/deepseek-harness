@@ -32,6 +32,10 @@ export function standaloneMobile(): UserConfig {
     },
     outputOptions: {
       entryFileNames: 'mobile.js',
+      // The page is served as one file; shiki's dynamic language imports must
+      // fold into the single artifact rather than emit sibling chunks that the
+      // host webserver would not publish.
+      inlineDynamicImports: true,
     },
   }
 }
