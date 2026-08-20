@@ -178,6 +178,10 @@ export class EventsClient {
     if (this.stopped) return
     const socket = this.socketFactory(this.url)
     this.socket = socket
+    // Arm the idle watchdog now, before open: a carrier that never establishes
+    // the socket (a tunnel edge swallowing the upgrade) fires neither onopen
+    // nor onerror, so without this the fallback would never start.
+    this.touchIdle()
     socket.onopen = () => {
       this.reconnectAttempts = 0
       this.socketFailed = false

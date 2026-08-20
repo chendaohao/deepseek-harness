@@ -21,6 +21,9 @@ export type RpcResult<T> = { ok: true; value: T } | { ok: false; error: RpcError
 /** Route prefix owning every api request (platform contract). */
 export const API_PREFIX = '/api'
 
+/** Unary budget: a response dropped by a flaky remote link must surface as an error, not hang forever. */
+const DEFAULT_RPC_TIMEOUT_MS = 30_000
+
 let rpcCounter = 0
 
 /** Mint one page-unique rpcId (stable under crypto.randomUUID absence). */
@@ -45,21 +48,29 @@ function transportError(reason: unknown): RpcError {
  * @param method - the dotted RPC method, e.g. `session.list`.
  * @param payload - the business payload.
  * @param signal - optional abort.
+ * @param timeoutMs - per-call deadline in ms (default {@link DEFAULT_RPC_TIMEOUT_MS}); overridable for tests.
  * @returns the response value, or a folded error.
  */
 export async function callUnary<T>(
   method: string,
   payload: unknown,
   signal?: AbortSignal,
+  timeoutMs: number = DEFAULT_RPC_TIMEOUT_MS,
 ): Promise<RpcResult<T>> {
   const rpcId = mintRpcId()
+  // A timeout bounds every call: over a remote link a response dropped mid-body
+  // must fold to a transport error (and let the EventsClient poll back off)
+  // instead of hanging the surface forever.
+  const requestSignal = signal === undefined
+    ? AbortSignal.timeout(timeoutMs)
+    : AbortSignal.any([AbortSignal.timeout(timeoutMs), signal])
   let response: Response
   try {
     response = await fetch(`${API_PREFIX}/${method}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'client-request', rpcId, method, payload }),
-      ...(signal !== undefined ? { signal } : {}),
+      signal: requestSignal,
     })
   } catch (error) {
     return { ok: false, error: transportError(error) }

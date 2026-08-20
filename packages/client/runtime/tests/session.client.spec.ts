@@ -217,14 +217,73 @@ describe('open', () => {
     const snapshot = session.getSnapshot()
     expect(snapshot.openState).toBe('error')
     expect(snapshot.openError?.code).toBe('session-not-found')
+    // A business error is not retried.
+    expect(api.callsOf('session.history')).toHaveLength(1)
   })
 
-  it('folds a transport throw into openState=error / internal', async () => {
-    const { api, session } = makeSession()
-    api.onHistory = () => Promise.reject(new Error('socket died'))
-    await session.open()
-    expect(session.getSnapshot().openState).toBe('error')
-    expect(session.getSnapshot().openError).toMatchObject({ code: 'internal', message: 'socket died' })
+  it('retries a transient history failure then opens', async () => {
+    vi.useFakeTimers()
+    try {
+      const { api, session } = makeSession()
+      const page = plainTurn(10, 3, '问', '答')
+      let attempts = 0
+      api.onHistory = () => {
+        attempts += 1
+        if (attempts < 3) return Promise.reject(new Error('socket died'))
+        return histResponse(page, false)
+      }
+      const opening = session.open()
+      expect(session.getSnapshot().openState).toBe('loading')
+      // Two backoff sleeps (1 s then 2 s) between the three attempts.
+      await vi.advanceTimersByTimeAsync(4_000)
+      await opening
+      expect(session.getSnapshot().openState).toBe('open')
+      expect(attempts).toBe(3)
+      expect(api.callsOf('session.history')).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives up after bounded retries on a persistent transport throw', async () => {
+    vi.useFakeTimers()
+    try {
+      const { api, session } = makeSession()
+      api.onHistory = () => Promise.reject(new Error('socket died'))
+      const opening = session.open()
+      await vi.advanceTimersByTimeAsync(5_000)
+      await opening
+      expect(session.getSnapshot().openState).toBe('error')
+      expect(session.getSnapshot().openError).toMatchObject({ code: 'internal', message: 'socket died' })
+      expect(api.callsOf('session.history')).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps an installed window when the gap-detection re-pull fails', async () => {
+    vi.useFakeTimers()
+    try {
+      const { api, session } = makeSession()
+      const page = plainTurn(10, 3, '问', '答')
+      let calls = 0
+      api.onHistory = () => {
+        calls += 1
+        if (calls === 1) return histResponse(page, false)
+        return Promise.reject(new Error('second pull dropped'))
+      }
+      // Baseline past the window tail (turn/end at seq 15) triggers the re-pull.
+      session.handleMuxEnvelope('r-sub' as never, { type: 'session/subscribed', sessionId: SID, lastSeq: 20 })
+      const opening = session.open()
+      await vi.advanceTimersByTimeAsync(5_000)
+      await opening
+      const snapshot = session.getSnapshot()
+      // The re-pull failing must not flip the already-installed window to error.
+      expect(snapshot.openState).toBe('open')
+      expect(snapshot.nodes.length).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('stitches live frames arriving while history is pending, dropping the page overlap', async () => {

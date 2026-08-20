@@ -72,6 +72,20 @@ describe('callUnary', () => {
     expect(result).toEqual({ ok: false, error: { code: 'transport', message: 'transport failed: network down' } })
   })
 
+  it('bounds a never-resolving fetch with the unary timeout', async () => {
+    // A fetch that never settles but honors the abort signal: over a remote link
+    // a dropped response must fold to a transport error, not hang forever.
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => { reject(new DOMException('Aborted', 'AbortError')) }, { once: true })
+    })))
+    const pending = callUnary<unknown>('session.history', { sessionId: 's1' }, undefined, 25)
+    const result = await Promise.race([
+      pending,
+      new Promise<{ timeout: true }>((resolve) => { setTimeout(() => { resolve({ timeout: true }) }, 500) }),
+    ])
+    expect(result).toEqual({ ok: false, error: { code: 'transport', message: 'transport failed: aborted' } })
+  })
+
   it('rejects a response envelope with a mismatched rpcId', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ type: 'server-response', rpcId: 'other', result: { ok: true, value: 1 } })))
     const result = await callUnary<unknown>('session.list', {})
@@ -235,6 +249,35 @@ describe('EventsClient idle watchdog', () => {
     await vi.advanceTimersByTimeAsync(10_000)
     expect(close).not.toHaveBeenCalled()
     expect(pollLatest).not.toHaveBeenCalled()
+
+    client.stop()
+    vi.useRealTimers()
+  })
+
+  it('recycles a socket that never opens into polling + reconnect via the connect-time watchdog', async () => {
+    vi.useFakeTimers()
+    const { socket, close } = fakeSocket()
+    const pollLatest = vi.fn(async () => ({ events: [], hasMore: false }))
+    const socketFactory = vi.fn(() => socket)
+    const client = new EventsClient('ws://x/api/events.mux', {
+      socketFactory,
+      pollLatest,
+      pollIntervalMs: 10,
+      idleTimeoutMs: 30,
+    })
+    client.start()
+    client.observe('s1')
+    expect(socketFactory).toHaveBeenCalledTimes(1)
+
+    // No onopen and no frames (a carrier swallowing the upgrade): the
+    // connect-time watchdog still fires and recycles into polling + reconnect.
+    await vi.advanceTimersByTimeAsync(40)
+    expect(close).toHaveBeenCalled()
+    expect(pollLatest).toHaveBeenCalled()
+
+    // The backoff schedules a reconnect through the same factory.
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(socketFactory).toHaveBeenCalledTimes(2)
 
     client.stop()
     vi.useRealTimers()

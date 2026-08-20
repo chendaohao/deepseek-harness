@@ -31,6 +31,25 @@ import { SessionQueueMirror } from './queue-mirror.ts'
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
+/**
+ * Per-call history deadline (ms). History pages scale with session content, so
+ * the fixed unary budget (30 s) can cut reads on slow remote links; the client
+ * is deadline-exempt for history and this funnel supplies the generous cap.
+ */
+const HISTORY_DEADLINE_MS = 60_000
+
+/** Bounded history-open retries over a flaky transport; a dropped request must not wedge 'loading'. */
+const HISTORY_RETRY_ATTEMPTS = 3
+/** Backoff base between history retries (doubles each retry). */
+const HISTORY_RETRY_BACKOFF_MS = 1_000
+
+/** One history page value (events + hasMore + optional projection baseline). */
+type HistoryPageValue = {
+  events: HistoryEntry[]
+  hasMore: boolean
+  projections?: ProjectionsBaseline
+}
+
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
   /** Catalog-discovered address selecting non-activating subagent transport. */
@@ -632,7 +651,7 @@ export class Session implements SessionFace {
     this.openError = null
     this.notifier.markDirty()
     try {
-      let { result } = await this.history({ maxMessages: PAGE_MESSAGES })
+      let { result } = await this.historyWithRetry({ maxMessages: PAGE_MESSAGES })
       if (generation !== this.openGeneration) return
       if (!result.ok) {
         this.openState = 'error'
@@ -643,7 +662,7 @@ export class Session implements SessionFace {
       // Gap detection: baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
-        result = (await this.history({ maxMessages: PAGE_MESSAGES })).result
+        result = (await this.historyWithRetry({ maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
@@ -783,15 +802,46 @@ export class Session implements SessionFace {
     }
   }
 
-  /** Select ordinary or addressed history transport from the stored browser fact. */
-  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<{
-    events: HistoryEntry[]
-    hasMore: boolean
-    projections?: ProjectionsBaseline
-  }>> {
+  /** Select ordinary or addressed history transport from the stored browser fact.
+   *  Every read is bounded by {@link HISTORY_DEADLINE_MS} — the client is
+   *  deadline-exempt for history, so a missing signal here would hang forever. */
+  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<HistoryPageValue>> {
+    const signal = AbortSignal.timeout(HISTORY_DEADLINE_MS)
     return this.address === undefined
-      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
-      : this.api.subagents.history({ ...this.address, ...payload })
+      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload }, signal)
+      : this.api.subagents.history({ ...this.address, ...payload }, signal)
+  }
+
+  /**
+   * One history fetch with bounded retry for transient transport failures: a
+   * dropped request on a flaky remote link must not wedge the open window at
+   * 'loading'. The carrier (apiproxy) throws on transport trouble — dropped
+   * request, HTTP status, timeout — and returns a folded error result only for
+   * business errors, so a thrown rejection is retried and a folded result is
+   * returned as-is. A folded error also keeps the gap-detection pull fail-soft
+   * (its `if (result.ok)` guard) instead of rejecting into doOpen's catch and
+   * flipping an installed window to 'error'. A superseded open generation is
+   * checked by the caller after this returns, never retried here.
+   */
+  private async historyWithRetry(payload: { beforeSeq?: number; maxMessages?: number }): Promise<{ result: RpcResult<HistoryPageValue> }> {
+    let delay = HISTORY_RETRY_BACKOFF_MS
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const { result } = await this.history(payload)
+        // A folded error result is a business error the server answered with —
+        // never retried. Only a thrown rejection (transport) is retried.
+        return { result }
+      } catch (error) {
+        const folded = transportError<never>(error)
+        if (attempt >= HISTORY_RETRY_ATTEMPTS || folded.ok) return { result: folded }
+      }
+      await this.sleep(delay)
+      delay *= 2
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => { setTimeout(resolve, ms) })
   }
 }
 

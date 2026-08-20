@@ -9,8 +9,21 @@ import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
 type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
 type Parser<F> = { parse(value: unknown): F }
 
+/** Non-history unary budget (the apiproxy default); only history reads are deadline-exempt. */
+const DEFAULT_UNARY_TIMEOUT_MS = 30_000
+
 /** Browser platform subclass: unary/respond use fetch; mux/host use downlink-only WebSockets. */
 export class WebApiClient extends AbstractApiClient {
+  /**
+   * History reads are deadline-exempt so their payload-scale pages are not cut
+   * by the fixed unary budget on slow remote links; the runtime passes its own
+   * generous cap at the Session.history funnel. Every other unary keeps the
+   * fixed 30 s budget.
+   */
+  constructor() {
+    super(DEFAULT_UNARY_TIMEOUT_MS, true)
+  }
+
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
     return globalThis.fetch(input, init)
   }
