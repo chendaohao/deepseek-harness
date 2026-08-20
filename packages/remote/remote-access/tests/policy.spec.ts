@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import { COOKIE_MAX_AGE_SECONDS, COOKIE_NAME, mintCookie } from '../src/secret.ts'
 import { DeviceRegistry } from '../src/devices.ts'
-import { cookieValue, createAccessPolicy, type AccessPolicy } from '../src/policy.ts'
+import { cookieValue, createAccessPolicy, deviceName, type AccessPolicy } from '../src/policy.ts'
 
 interface FakeRequest {
   method?: string
@@ -90,6 +90,36 @@ describe('cookieValue', () => {
     expect(cookieValue('dsh_remote=')).toBe('')
     expect(cookieValue('a=1; b=2')).toBeUndefined()
     expect(cookieValue(undefined)).toBeUndefined()
+  })
+})
+
+describe('deviceName', () => {
+  it('derives a distinguishable label from the user agent', () => {
+    expect(deviceName(undefined)).toBe('mobile')
+    expect(deviceName(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    )).toBe('iPhone · Safari')
+    expect(deviceName(
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230805.001) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.122 Mobile Safari/537.36',
+    )).toBe('Android · Chrome')
+    expect(deviceName(
+      'Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    )).toBe('iPad · Safari')
+    expect(deviceName(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    )).toBe('Windows · Chrome')
+    expect(deviceName(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+    )).toBe('macOS · Safari')
+    // Edge user agents carry both "Chrome" and "Edg"; the Edge label must win.
+    expect(deviceName(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.2592.87',
+    )).toBe('Windows · Edge')
+  })
+
+  it('falls back to mobile/desktop for unknown agents', () => {
+    expect(deviceName('Mozilla/5.0 (mobi) custom')).toBe('mobile')
+    expect(deviceName('some/unknown agent')).toBe('desktop')
   })
 })
 

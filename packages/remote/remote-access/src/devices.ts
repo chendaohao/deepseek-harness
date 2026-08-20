@@ -86,6 +86,15 @@ export class DeviceRegistry {
     return deviceId
   }
 
+  /** Rename one device (a user-assigned label); returns whether it was paired. */
+  rename(deviceId: string, name: string): boolean {
+    const record = this.devices.get(deviceId)
+    if (record === undefined) return false
+    record.name = name
+    this.onChange?.(true)
+    return true
+  }
+
   /** Whether a device id is currently paired. */
   isLive(deviceId: string): boolean {
     return this.devices.has(deviceId)

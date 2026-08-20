@@ -196,4 +196,30 @@ describe('RemotePanel device roster', () => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/remote/stop', { method: 'POST' })
     })
   })
+
+  it('renames a device inline and posts the new label', async () => {
+    const { remote } = makeRemote()
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (typeof input === 'string' && input === '/remote/state') {
+        return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [device('d1', 'Phone A')] })
+      }
+      if (typeof input === 'string' && input.startsWith('/remote/devices/d1/rename?name=')) return jsonResponse({})
+      throw new Error('unexpected fetch')
+    })
+
+    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    await screen.findByText('Phone A')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    const nameInput = screen.getByDisplayValue('Phone A')
+    // An emptied draft disables the save action.
+    fireEvent.change(nameInput, { target: { value: '' } })
+    expect(screen.getByRole('button', { name: 'Save' }).matches(':disabled')).toBe(true)
+    fireEvent.change(nameInput, { target: { value: '我的iPhone' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith('/remote/devices/d1/rename?name=' + encodeURIComponent('我的iPhone'), { method: 'POST' })
+    })
+  })
 })

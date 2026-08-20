@@ -38,6 +38,10 @@ export const internals = {
 const PAIR_PATH = '/pair/'
 /** Action suffix the control plane accepts on the device path. */
 const DEVICE_REVOKE_SUFFIX = '/revoke'
+/** Action suffix renaming one device (the new label rides the `name` query param). */
+const DEVICE_RENAME_SUFFIX = '/rename'
+/** Maximum length of a user-assigned device label. */
+const DEVICE_NAME_MAX = 40
 
 /** Plugin config: activation plus secret rotation. */
 export interface Config {
@@ -185,28 +189,34 @@ export class RemoteAccess extends Service {
       res.end('forbidden')
       return
     }
-    const rawPath = new URL(req.url ?? '/', 'http://x').pathname
+    const url = new URL(req.url ?? '/', 'http://x')
+    const rawPath = url.pathname
     if (req.method === 'GET' && rawPath === '/remote/state') return this.respondState(res)
     if (req.method === 'GET' && rawPath === '/remote/devices') return this.respondDevices(res)
     if (req.method === 'POST' && rawPath === '/remote/pair/issue') return this.issuePair(res)
     if (req.method === 'POST' && rawPath === '/remote/stop') return this.stopAll(res)
     if (req.method === 'POST' && rawPath.startsWith('/remote/devices/')) {
       const rest = rawPath.slice('/remote/devices/'.length)
-      if (!rest.endsWith(DEVICE_REVOKE_SUFFIX)) {
+      const suffix = rest.endsWith(DEVICE_REVOKE_SUFFIX)
+        ? DEVICE_REVOKE_SUFFIX
+        : rest.endsWith(DEVICE_RENAME_SUFFIX) ? DEVICE_RENAME_SUFFIX : undefined
+      if (suffix === undefined) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('not found')
         return
       }
       let deviceId: string
       try {
-        deviceId = decodeURIComponent(rest.slice(0, -DEVICE_REVOKE_SUFFIX.length))
+        deviceId = decodeURIComponent(rest.slice(0, -suffix.length))
       } catch {
         // A malformed percent-encoding must not escape as an uncaught URIError.
         res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('bad device id')
         return
       }
-      return this.revokeDevice(deviceId, res)
+      if (suffix === DEVICE_REVOKE_SUFFIX) return this.revokeDevice(deviceId, res)
+      const name = url.searchParams.get('name')?.trim() ?? ''
+      return this.renameDevice(deviceId, name, res)
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
     res.end('not found')
@@ -252,6 +262,22 @@ export class RemoteAccess extends Service {
   private revokeDevice(deviceId: string, res: ServerResponse): void {
     const removed = this.devices?.revoke(deviceId) ?? false
     if (!removed) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('not found')
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    res.end('{}')
+  }
+
+  private renameDevice(deviceId: string, name: string, res: ServerResponse): void {
+    if (name === '' || name.length > DEVICE_NAME_MAX) {
+      res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('invalid device name')
+      return
+    }
+    const renamed = this.devices?.rename(deviceId, name) ?? false
+    if (!renamed) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
       res.end('not found')
       return

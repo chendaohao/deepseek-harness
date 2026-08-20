@@ -189,6 +189,47 @@ describe('enabled', () => {
     expect(proxiedRes.writeHead).toHaveBeenCalledWith(403, expect.anything())
   })
 
+  it('renames a device through the desktop-only control plane', async () => {
+    await boot()
+    const proxyPort = tunnel.openPorts[0]!
+    const route = controlRoute()
+    const paired = await rawRequest(proxyPort, '/pair/' + pairToken(), { host: 'fake.tunnel.example' })
+    expect(paired.status).toBe(302)
+    const cookie = String(paired.headers['set-cookie']).split(';')[0]!
+    const deviceId = cookie.split('=')[1]!.split('.')[1]!
+    // Desktop-side rename (no x-dsh-proxied marker) updates the label; the
+    // new label rides the `name` query param.
+    const renameRes = { writeHead: vi.fn(), end: vi.fn() }
+    route.handler({
+      url: '/remote/devices/' + deviceId + '/rename?name=' + encodeURIComponent('我的iPhone'),
+      method: 'POST',
+      headers: {},
+    } as never, renameRes as never)
+    expect(renameRes.writeHead).toHaveBeenCalledWith(200, expect.anything())
+    // The roster snapshot now carries the renamed label.
+    const stateRes = { writeHead: vi.fn(), end: vi.fn() }
+    route.handler({ url: '/remote/state', method: 'GET', headers: {} } as never, stateRes as never)
+    const stateBody = stateRes.end.mock.calls[0]?.[0] as string
+    expect(JSON.parse(stateBody)).toMatchObject({ devices: [{ deviceId, name: '我的iPhone' }] })
+    // The renamed device keeps its cookie authority.
+    const stillPaired = await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })
+    expect(stillPaired.status).toBe(200)
+  })
+
+  it('refuses an empty or oversized rename label and an unknown device', async () => {
+    await boot()
+    const route = controlRoute()
+    const emptyRes = { writeHead: vi.fn(), end: vi.fn() }
+    route.handler({ url: '/remote/devices/x/rename?name=', method: 'POST', headers: {} } as never, emptyRes as never)
+    expect(emptyRes.writeHead).toHaveBeenCalledWith(400, expect.anything())
+    const longRes = { writeHead: vi.fn(), end: vi.fn() }
+    route.handler({ url: '/remote/devices/x/rename?name=' + 'a'.repeat(41), method: 'POST', headers: {} } as never, longRes as never)
+    expect(longRes.writeHead).toHaveBeenCalledWith(400, expect.anything())
+    const unknownRes = { writeHead: vi.fn(), end: vi.fn() }
+    route.handler({ url: '/remote/devices/unknown/rename?name=x', method: 'POST', headers: {} } as never, unknownRes as never)
+    expect(unknownRes.writeHead).toHaveBeenCalledWith(404, expect.anything())
+  })
+
   it('restarts the tunnel after an unexpected exit and reprints the URL', async () => {
     internals.restartBackoffBaseMs = 1
     await boot()

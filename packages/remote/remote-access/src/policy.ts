@@ -119,7 +119,7 @@ export function createAccessPolicy(secret: Buffer, devices: DeviceRegistry, opti
       return true
     }
     windows.delete(address)
-    const deviceId = devices.register(deviceName(req), now())
+    const deviceId = devices.register(deviceName(req.headers['user-agent']), now())
     const { value } = mintCookie(secret, deviceId, now())
     res.writeHead(302, {
       location: '/',
@@ -161,11 +161,29 @@ export function cookieValue(header: string | undefined): string | undefined {
   return undefined
 }
 
-/** Short display name for a newly paired device, derived from its user agent. */
-function deviceName(req: IncomingMessage): string {
-  const ua = req.headers['user-agent']
-  if (typeof ua !== 'string') return 'mobile'
-  return /mobi/i.test(ua) ? 'mobile' : 'desktop'
+/**
+ * Short display name for a newly paired device, derived from its user agent:
+ * the device family (or OS) plus the browser, so a roster of phones is
+ * distinguishable at a glance. Unknown agents fall back to 'mobile'/'desktop'.
+ * @param ua - the pairing request's User-Agent header, if any.
+ * @returns a human-readable device label.
+ */
+export function deviceName(ua: string | undefined): string {
+  if (ua === undefined) return 'mobile'
+  const os = /iPhone/i.test(ua) ? 'iPhone'
+    : /iPad/i.test(ua) ? 'iPad'
+      : /Android/i.test(ua) ? 'Android'
+        : /Windows/i.test(ua) ? 'Windows'
+          : /Macintosh|Mac OS X/i.test(ua) ? 'macOS'
+            : /Linux/i.test(ua) ? 'Linux'
+              : /mobi/i.test(ua) ? 'mobile'
+                : 'desktop'
+  const browser = /Edg\//i.test(ua) ? 'Edge'
+    : /Chrome\//i.test(ua) ? 'Chrome'
+      : /Firefox\//i.test(ua) ? 'Firefox'
+        : /Safari\//i.test(ua) || /Version\//i.test(ua) ? 'Safari'
+          : undefined
+  return browser === undefined ? os : `${os} · ${browser}`
 }
 
 /** Write one HTML page with a trailing-newline-safe byte length. */

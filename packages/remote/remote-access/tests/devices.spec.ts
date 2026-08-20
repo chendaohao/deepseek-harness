@@ -73,6 +73,18 @@ describe('device roster', () => {
     expect(registry.snapshot()).toEqual([])
   })
 
+  it('renames a paired device structurally and ignores an unknown id', () => {
+    const registry = new DeviceRegistry(undefined)
+    const changes: boolean[] = []
+    registry.onChange = (structural) => { changes.push(structural) }
+    const deviceId = registry.register('mobile', NOW)
+    expect(registry.rename(deviceId, '我的iPhone')).toBe(true)
+    expect(registry.snapshot()[0]?.name).toBe('我的iPhone')
+    expect(changes).toEqual([true, true]) // register + rename are both structural
+    expect(registry.rename('no-such-device', 'x')).toBe(false)
+    expect(registry.snapshot()).toHaveLength(1)
+  })
+
   it('touch advances lastSeen but only notifies once per interval', () => {
     const registry = new DeviceRegistry(undefined)
     const changes: boolean[] = []

@@ -51,6 +51,8 @@ export function RemotePanel({ remote, t }: RemotePanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [confirmingStop, setConfirmingStop] = useState(false)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
   const aliveRef = useRef(true)
 
   /** Mint a fresh one-time pairing URL from the control plane. */
@@ -127,6 +129,33 @@ export function RemotePanel({ remote, t }: RemotePanelProps) {
     }
   }, [t])
 
+  const startRename = useCallback((device: RemoteDeviceRecord): void => {
+    setRenamingId(device.deviceId)
+    setDraftName(device.name)
+  }, [])
+
+  const cancelRename = useCallback((): void => {
+    setRenamingId(null)
+    setDraftName('')
+  }, [])
+
+  const saveRename = useCallback(async (): Promise<void> => {
+    const deviceId = renamingId
+    const name = draftName.trim()
+    if (deviceId === null || name === '') return
+    try {
+      const res = await fetch(`/remote/devices/${encodeURIComponent(deviceId)}/rename?name=${encodeURIComponent(name)}`, { method: 'POST' })
+      if (!res.ok) throw new Error(`remote/devices/rename: HTTP ${res.status}`)
+      if (aliveRef.current) {
+        setRenamingId(null)
+        setDraftName('')
+        setError(null)
+      }
+    } catch {
+      if (aliveRef.current) setError(t('device.renameError'))
+    }
+  }, [renamingId, draftName, t])
+
   return (
     <div className={css.panel}>
       <div className={css.statusRow}>
@@ -174,10 +203,47 @@ export function RemotePanel({ remote, t }: RemotePanelProps) {
           <ul className={css.deviceList}>
             {devices.map(device => (
               <li key={device.deviceId} className={css.deviceRow}>
-                <span className={css.deviceName}>{device.name}</span>
-                <span className={css.deviceStatus}>
-                  {isOnline(device) ? t('device.online') : t('device.offline')}
-                </span>
+                {renamingId === device.deviceId ? (
+                  <>
+                    <input
+                      type="text"
+                      className={css.renameInput}
+                      value={draftName}
+                      maxLength={40}
+                      autoFocus
+                      onChange={(event) => { setDraftName(event.target.value) }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') { event.preventDefault(); void saveRename() }
+                        if (event.key === 'Escape') cancelRename()
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className={css.actionButton}
+                      disabled={draftName.trim() === ''}
+                      onClick={() => { void saveRename() }}
+                    >
+                      {t('device.renameSave')}
+                    </button>
+                    <button type="button" className={css.actionButton} onClick={cancelRename}>
+                      {t('device.renameCancel')}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className={css.deviceName}>{device.name}</span>
+                    <button
+                      type="button"
+                      className={css.renameButton}
+                      onClick={() => { startRename(device) }}
+                    >
+                      {t('device.rename')}
+                    </button>
+                    <span className={css.deviceStatus}>
+                      {isOnline(device) ? t('device.online') : t('device.offline')}
+                    </span>
+                  </>
+                )}
                 <button
                   type="button"
                   className={css.revokeButton}
