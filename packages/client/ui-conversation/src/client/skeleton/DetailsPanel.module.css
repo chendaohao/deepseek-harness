@@ -7,7 +7,6 @@
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  border-left: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-base);
 }
 

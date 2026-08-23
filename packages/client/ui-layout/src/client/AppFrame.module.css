@@ -23,6 +23,7 @@
 }
 
 .sidebarCol {
+  grid-column: 1;
   min-width: 0;
   overflow: hidden;
   background: var(--dsw-specific-sidebar-fill);
@@ -30,6 +31,7 @@
 }
 
 .centerCol {
+  grid-column: 2;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -37,6 +39,7 @@
 }
 
 .detailsCol {
+  grid-column: 3;
   min-width: 0;
   overflow: hidden;
   border-left: 1px solid var(--dsw-alias-border-l2);
@@ -116,4 +119,37 @@
 
 .overlayLayer > * {
   pointer-events: auto;
+}
+
+/* Narrow overlay: a floating sidebar/details panel rides an absolute layer
+   above the full-width center, with a click-away backdrop below it. The grid
+   tracks stay at their collapsed geometry; the panel is a sibling overlay,
+   not a track occupant. The details width caps at the viewport so a very
+   narrow phone never gets a full-width panel with hidden content. */
+.frame[data-sidebar-overlay] .sidebarCol {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 280px;
+  z-index: 30;
+  box-shadow: 0 0 24px var(--dsw-alias-bg-mask-2);
+}
+
+.frame[data-details-overlay] .detailsCol {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: min(100%, 360px);
+  z-index: 30;
+  box-shadow: 0 0 24px var(--dsw-alias-bg-mask-2);
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  /* Below shell overlays (z 20) so toasts/menus stay interactive above it. */
+  z-index: 15;
+  background: var(--dsw-alias-bg-mask-1);
 }

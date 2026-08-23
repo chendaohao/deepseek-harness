@@ -139,7 +139,15 @@ export function AppFrame({
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  // Narrow overlays: on phones the opened panels float above the full-width
+  // center (with a click-away backdrop) instead of squeezing it past
+  // usability — the grid keeps the collapsed rail plus the whole center.
+  const detailsPref = detailsSession === undefined ? 0 : panels.details
+  const overlaySidebar = narrow && !sidebarCollapsed
+  const overlayDetails = narrow && detailsPref > 0
+  const cols = overlaySidebar || overlayDetails
+    ? computeColumns(viewport, 0, 0)
+    : computeColumns(viewport, sidebarPreference, detailsPref)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -168,6 +176,8 @@ export function AppFrame({
       style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
+      data-sidebar-overlay={overlaySidebar || undefined}
+      data-details-overlay={overlayDetails || undefined}
       data-dragging={dragging || undefined}
     >
       <div className={css.sidebarCol}>
@@ -175,10 +185,11 @@ export function AppFrame({
             sidebar keeps the mounted slot at the compact-rail width, and the
             component sees its rendered state as owner params decided here
             (collapsed follows the resolved rail, so a derived auto-collapse
-            renders the rail UI too). */}
+            renders the rail UI too). A narrow overlay re-expands the wide
+            content above the full-width center. */}
         {renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
-          width: cols.sidebar,
+          width: overlaySidebar ? SIDEBAR_DEFAULT : cols.sidebar,
         })}
       </div>
       <>
@@ -193,9 +204,21 @@ export function AppFrame({
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>
-      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
+      {/* Narrow overlay backdrop: one tap outside the floating panel closes it. */}
+      {(overlaySidebar || overlayDetails) && (
+        <div
+          className={css.backdrop}
+          data-shell-backdrop=""
+          onClick={() => {
+            if (overlaySidebar) actions.toggleSidebar()
+            else actions.closeDetails()
+          }}
+        />
+      )}
+      {/* The collapsed rail is fixed-width: no resize handle while closed;
+          narrow overlays have no visible column edge to grab either. */}
+      {!sidebarCollapsed && !narrow && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {cols.details > 0 && !narrow && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

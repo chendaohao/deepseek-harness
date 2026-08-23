@@ -294,25 +294,56 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
   })
 
-  it('narrow toggle re-expands over the squeezed center and back', () => {
+  it('narrow toggle re-expands as an overlay over the full-width center and back', () => {
+    frameWidth = 980
+    const { frame, instance, slotCalls } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    // Overlay keeps the collapsed rail track plus the whole center; the panel
+    // floats above it (data-sidebar-overlay) at the contract default width.
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
+    expect(frame.hasAttribute('data-sidebar-overlay')).toBe(true)
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: false, width: 280 })
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-sidebar-overlay')).toBe(false)
+  })
+
+  it('narrow overlay backdrop closes the floating sidebar', () => {
     frameWidth = 980
     const { frame, instance } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([280, 0])
-    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
-    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-    act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    const backdrop = frame.querySelector('[data-shell-backdrop]')!
+    act(() => { backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(instance.getSnapshot().narrowExpanded).toBe(false)
+    expect(frame.hasAttribute('data-sidebar-overlay')).toBe(false)
   })
 
-  it('a wide-closed preference re-expands at the contract default while narrow', () => {
+  it('narrow details open renders as an overlay instead of squeezing the center', () => {
+    frameWidth = 980
+    const { frame, instance, slotCalls } = mountFrame()
+    act(() => { instance.actions.openDetails() })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-details-overlay')).toBe(true)
+    expect(frame.querySelector('[data-shell-backdrop]')).toBeTruthy()
+    expect(slotCalls.filter(c => c.key === 'details').length).toBeGreaterThan(0)
+    act(() => { frame.querySelector('[data-shell-backdrop]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(frame.hasAttribute('data-details-overlay')).toBe(false)
+    expect(instance.getSnapshot().details).toBe(0)
+  })
+
+  it('a wide-closed preference re-expands as an overlay at the contract default while narrow', () => {
     frameWidth = 1920
     const { frame, instance } = mountFrame()
     act(() => { instance.actions.toggleSidebar() }) // close while wide: preference 0
     frameWidth = 980
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([280, 0])
+    // The narrow overlay floats above the full-width center at the contract
+    // default; the underlying grid keeps the collapsed rail.
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-sidebar-overlay')).toBe(true)
     expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
   })
 
