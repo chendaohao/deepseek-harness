@@ -43,18 +43,28 @@ function applyToDocument(theme: MobileTheme): void {
   if (meta !== null) meta.content = theme === 'dark' ? DARK_THEME_COLOR : LIGHT_THEME_COLOR
 }
 
-/** Current theme (light unless the user explicitly toggled to dark). */
+/**
+ * Current theme (light unless the user explicitly toggled to dark).
+ * @returns the current mobile theme.
+ */
 export function getMobileTheme(): MobileTheme {
   return current
 }
 
-/** Subscribe to theme changes; returns the unsubscribe function. */
+/**
+ * Subscribe to theme changes; returns the unsubscribe function.
+ * @param listener - called after each theme change.
+ * @returns an unsubscribe function.
+ */
 export function subscribeMobileTheme(listener: () => void): () => void {
   listeners.add(listener)
   return () => { listeners.delete(listener) }
 }
 
-/** Set the theme explicitly (persisted + applied to the document). */
+/**
+ * Set the theme explicitly (persisted + applied to the document).
+ * @param theme - the theme to apply.
+ */
 export function setMobileTheme(theme: MobileTheme): void {
   if (theme === current) return
   current = theme
@@ -63,7 +73,10 @@ export function setMobileTheme(theme: MobileTheme): void {
   for (const listener of [...listeners]) listener()
 }
 
-/** Flip light/dark and return the new theme. */
+/**
+ * Flip light/dark and return the new theme.
+ * @returns the theme after the flip.
+ */
 export function toggleMobileTheme(): MobileTheme {
   setMobileTheme(current === 'light' ? 'dark' : 'light')
   return current

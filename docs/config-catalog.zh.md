@@ -411,10 +411,20 @@ export interface ConnectionConfig {
   trustedHosts?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
+  /**
+   * Quiet-stream heartbeat interval for the two WebSocket downlinks (ms).
+   * While a stream delivers no frame, the server sends a
+   * `stream/heartbeat` probe every interval, which keeps tunnel edges from
+   * reaping idle sockets and lets clients detect a silently dead connection
+   * (a phone switching mobile data <-> WiFi tears its TCP leg without any
+   * close frame). 0 disables heartbeats — pair with the client's
+   * idleTimeoutMs=0 when both ends opt out.
+   */
+  heartbeatIntervalMs?: number
 }
 ```
 
-来源：[`packages/client/connection/src/index.ts:50`](../packages/client/connection/src/index.ts)
+来源：[`packages/client/connection/src/index.ts:53`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -431,6 +441,22 @@ export interface Config {
 ```
 
 来源：[`packages/client/hmr/src/index.ts:31`](../packages/client/hmr/src/index.ts)
+
+<a id="deepseek-aidsh-client-ui-remote"></a>
+
+## `@deepseek-ai/dsh-client-ui-remote`
+
+需要：`webServer`
+
+```ts config-catalog
+/** Plugin config: activation gate for the /m surface. */
+export interface Config {
+  /** Serve the /m mobile page; false leaves the node half inert. */
+  enabled: boolean
+}
+```
+
+来源：[`packages/client/ui-remote/src/index.ts:19`](../packages/client/ui-remote/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 
@@ -856,13 +882,34 @@ export interface Config {
 ## `@deepseek-ai/dsh-host-webserver`
 
 ```ts config-catalog
-/** Gateway config: the listen address. */
+/** Gateway config: the listen address and transport tuning. */
 export interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /**
+   * Response compression: 'auto' negotiates per request (brotli preferred,
+   * gzip fallback), 'br' and 'gzip' force a codec when the client accepts it,
+   * 'none' disables. SSE and other non-compressible bodies always pass
+   * through uncompressed. Defaults to 'auto'.
+   */
+  compression?: CompressionMode
+  /**
+   * Minimum body size in bytes before compression applies; smaller known
+   * bodies ship identity (the codec setup would cost more than it saves).
+   */
+  compressionThresholdBytes?: number
+  /**
+   * Idle keep-alive timeout for the HTTP server in milliseconds (Node default
+   * 5000). Slow mobile links benefit from a longer-lived connection; raise
+   * the default to 30s unless a reverse proxy in front wants to own it.
+   */
+  keepAliveTimeoutMs?: number
 }
+
+/** User-facing compression modes. 'auto' negotiates; 'br'/'gzip' force a codec when the client accepts it; 'none' disables. */
+export type CompressionMode = 'auto' | 'br' | 'gzip' | 'none'
 ```
 
 来源：[`packages/host/webserver/src/index.ts:45`](../packages/host/webserver/src/index.ts)
@@ -1556,6 +1603,60 @@ export type Config = LocalConfig
 依赖：[`LocalConfig`](#deepseek-aidsh-pwsh-local)
 
 来源：[`packages/shell/pwsh-sandbox/src/index.ts:40`](../packages/shell/pwsh-sandbox/src/index.ts)
+
+<a id="deepseek-aidsh-remote-access"></a>
+
+## `@deepseek-ai/dsh-remote-access`
+
+需要：`remoteTunnel` · `webServer` · `shellEnv`
+
+```ts config-catalog
+/** Plugin config: activation plus secret rotation. */
+export interface Config {
+  /** Whether the proxy, gate, and tunnel run at all; false leaves the plugin inert. */
+  enabled: boolean
+  /** Rotate the persisted pairing secret and revoke every device before opening the tunnel. */
+  resetSecret: boolean
+}
+```
+
+来源：[`packages/remote/remote-access/src/index.ts:47`](../packages/remote/remote-access/src/index.ts)
+
+<a id="deepseek-aidsh-remote-tunnel"></a>
+
+## `@deepseek-ai/dsh-remote-tunnel`
+
+```ts config-catalog
+/** Plugin config: activation plus binary sourcing and the tunnel flavor. */
+export interface Config {
+  /**
+   * Whether `open()` may start tunnels. The shipped Web row derives this from
+   * the `--remote` flag; a disabled Service still loads, and open() fails
+   * loudly while disabled. Binary-sourcing misconfiguration fails the load.
+   */
+  enabled: boolean
+  /** Binary sourcing: download the pinned release, require an explicit path, or use PATH. Defaults to `allow`. */
+  download?: CloudflaredDownload
+  /** Explicit cloudflared executable; wins over every other source. */
+  binaryPath?: string
+  /**
+   * Tunnel flavor. `quick` (default) needs no Cloudflare account and mints a
+   * random `*.trycloudflare.com` hostname per session; `named` runs a
+   * pre-registered tunnel under a stable {@link Config.hostname}, so restarts
+   * keep the same public URL. Named mode requires `name` and `hostname`.
+   */
+  mode?: 'quick' | 'named'
+  /** Named-mode tunnel name or UUID, as created by `cloudflared tunnel create`. */
+  name?: string
+  /** Named-mode public hostname (bare, no scheme, path, or port); the URL is `https://<hostname>`. */
+  hostname?: string
+}
+
+/** Where the tunnel child executable comes from. */
+export type CloudflaredDownload = 'allow' | 'deny' | 'system'
+```
+
+来源：[`packages/remote/remote-tunnel/src/index.ts:86`](../packages/remote/remote-tunnel/src/index.ts)
 
 <a id="deepseek-aidsh-repeat-tool-reminder"></a>
 

@@ -9,5 +9,5 @@ The remote-access capability family: exposing the local Web GUI over a public HT
 | [`remote-tunnel/`](remote-tunnel/README.md) | Tunnel capability: Service + cloudflared quick-tunnel provider | `ctx.remoteTunnel` |
 | [`remote-access/`](remote-access/README.md) | Pairing gate, revocable device registry, loopback reverse proxy, and the URL/QR + `/remote/*` control-plane consumer | `ctx.remoteAccess` |
 
-`remote-access` consumes the `remoteTunnel` Service and the host webserver port; the shipped Web composition enables both rows from the `dsh web --remote` flag ([web-app patch](../bundle/web-app/cordis.patch.yml)). The [native mobile voice app](../../apps/mobile/README.md) is a pure consumer of the pairing gate and the `/api` protocol.
+`remote-access` consumes the `remoteTunnel` Service and the host webserver port; the shipped Web composition enables both rows from the `dsh web --remote` flag ([web-app patch](../bundle/web-app/cordis.patch.yml)). The [mobile control surface (`/m`)](../client/ui-remote/README.md) is a pure consumer of the pairing gate and the `/api` protocol.
 

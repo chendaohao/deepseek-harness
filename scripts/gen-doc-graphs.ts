@@ -580,6 +580,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-cordis'],
     note: 'Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport.',
   },
+  {
+    key: 'remoteTunnel',
+    pkg: 'remote-tunnel',
+    title: 'Public HTTPS tunnel to the local web GUI',
+    mode: 'seam',
+    consumers: ['remote-access'],
+    note: 'Resolves the pinned cloudflared binary and opens one loopback port as a public HTTPS URL; the access service consumes the tunnel lifecycle behind its pairing gate.',
+  },
 ]
 
 function generatedHeader(title: string): string[] {

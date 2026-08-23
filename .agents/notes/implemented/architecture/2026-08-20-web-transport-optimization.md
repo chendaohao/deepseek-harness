@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-08-20-web-transport-optimization.zh.md)
+
 ## Problem
 
 The dsh web GUI's transport chain (node:http carrier, SPA dist server, plugin bundle route, WebSocket downlinks) shipped without any transfer optimization. A first page load transfers ~5.8 MB of uncompressed JavaScript and CSS over HTTP/1.1 (shell 1.16 MB + 53 plugin bundles 4.58 MB), every reload re-fetches all of it (`no-cache` on bundles, no cache headers on hashed shell assets, no validators), and the two event-stream WebSockets carry uncompressed JSON text. On a phone's cellular link this is seconds of unnecessary latency and repeated daily data cost.

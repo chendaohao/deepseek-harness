@@ -12,7 +12,7 @@ The mobile client runs an idle watchdog over the open socket (`idleTimeoutMs`, d
 
 ## Model Experience
 
-None. The mobile surface renders browser UI over the `/api` wire and never assembles or sends a provider request itself.
+None, as the mobile surface renders browser UI over the `/api` wire and never assembles or sends a provider request itself.
 
 #### KV Cache effect
 

@@ -20,3 +20,5 @@ Web HTTP 与 upgrade route 注册插件（默认导出 `WebServer`，配置为 `
 
 - **不提供 TLS、认证或来源策略**：绑定非回环地址会向对应网络公开服务器；面向部署的加固措施（或在前方放置真正的反向代理）有意不纳入面向开发环境的 v1。
 - **Socket 选项固定不变**：配置只选择绑定宿主与端口；在具体部署产生需求前，backlog 和其他 socket 设置仍保持内部实现。
+- **压缩覆盖文本响应体**：`compression: 'auto'`（默认）在可压缩 MIME 集合上按请求协商 brotli/gzip，阈值 1 KiB；SSE 保持不压缩透传，`compression: 'none'` 则完全关闭该通道（自行压缩的反向代理部署）。被压缩的响应去掉 `content-length`（改用 chunked 分帧）并加 `Vary: accept-encoding`。
+- **仅 HTTP/1.1**：载体是 `node:http` 服务器；HTTP/2 多路复用需在其前方放置反向代理（remote-access 代理或任意 h2 终结器）。

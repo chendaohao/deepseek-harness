@@ -302,27 +302,47 @@ function parseRenamed(value: unknown): { title: string; seq: number } | undefine
   return { title: value['title'], seq: value['seq'] }
 }
 
-/** The workspace roster. */
+/**
+ * The workspace roster.
+ * @returns the workspace list result.
+ */
 export function listWorkspaces(): Promise<RpcResult<WorkspaceView[]>> {
   return callParsed('workspace.list', {}, parseWorkspaceList, 'workspace.list')
 }
 
-/** All sessions (the v1 list has no pagination cursor). */
+/**
+ * All sessions (the v1 list has no pagination cursor).
+ * @returns the session summary list result.
+ */
 export function listSessions(): Promise<RpcResult<SessionSummary[]>> {
   return callParsed('session.list', {}, parseSessionList, 'session.list')
 }
 
-/** Full-text session search, returning matched session ids with snippets. */
+/**
+ * Full-text session search, returning matched session ids with snippets.
+ * @param query - the search text.
+ * @returns the matched session search items.
+ */
 export function searchSessions(query: string): Promise<RpcResult<SessionSearchItem[]>> {
   return callParsed('session.search', { query }, parseSearchList, 'session.search')
 }
 
-/** Create a blank session attached to one workspace. */
+/**
+ * Create a blank session attached to one workspace.
+ * @param workspaceId - the workspace to attach the session to.
+ * @returns the created session result.
+ */
 export function createSession(workspaceId: string): Promise<RpcResult<CreatedSession>> {
   return callParsed('session.create', { workspaceId }, parseCreatedSession, 'session.create')
 }
 
-/** One history window; omit beforeSeq for the tail page. */
+/**
+ * One history window; omit beforeSeq for the tail page.
+ * @param sessionId - the session whose history is read.
+ * @param beforeSeq - optional exclusive sequence bound for an earlier page.
+ * @param maxMessages - page size, default 30.
+ * @returns the history page result.
+ */
 export function history(
   sessionId: string,
   beforeSeq?: number,
@@ -335,7 +355,12 @@ export function history(
   }, parseHistoryPage, 'session.history')
 }
 
-/** Send one text prompt (queued: the agent picks it up in order). */
+/**
+ * Send one text prompt (queued: the agent picks it up in order).
+ * @param sessionId - the session receiving the prompt.
+ * @param text - the prompt text.
+ * @returns the acceptance result.
+ */
 export function prompt(sessionId: string, text: string): Promise<RpcResult<{ accepted: true }>> {
   return callParsed('session.prompt', {
     sessionId,
@@ -344,12 +369,21 @@ export function prompt(sessionId: string, text: string): Promise<RpcResult<{ acc
   }, value => isRecord(value) && value['accepted'] === true ? { accepted: true } : undefined, 'session.prompt')
 }
 
-/** Fresh advisory model directory for one session. */
+/**
+ * Fresh advisory model directory for one session.
+ * @param sessionId - the session whose model directory is read.
+ * @returns the model directory result.
+ */
 export function models(sessionId: string): Promise<RpcResult<SessionModels>> {
   return callParsed('session.models', { sessionId }, parseModels, 'session.models')
 }
 
-/** Select the complete model selection (provider/model/reasoning effort) for a session. */
+/**
+ * Select the complete model selection (provider/model/reasoning effort) for a session.
+ * @param sessionId - the session whose model selection changes.
+ * @param selection - the model selection to apply.
+ * @returns the applied model selection result.
+ */
 export function selectModel(
   sessionId: string,
   selection: ModelSelection,
@@ -362,7 +396,12 @@ export function selectModel(
   }, parseSelected, 'session.selectModel')
 }
 
-/** Rename a session (the host normalizes the accepted title). */
+/**
+ * Rename a session (the host normalizes the accepted title).
+ * @param sessionId - the session to rename.
+ * @param title - the requested title.
+ * @returns the normalized title and its sequence number.
+ */
 export function renameSession(sessionId: string, title: string): Promise<RpcResult<{ title: string; seq: number }>> {
   return callParsed('session.rename', { sessionId, title }, parseRenamed, 'session.rename')
 }

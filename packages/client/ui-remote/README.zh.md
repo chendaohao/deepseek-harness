@@ -12,7 +12,7 @@ Web GUI 的远程控制表面。两半：
 
 ## Model Experience
 
-None。移动表面在 `/api` 线上渲染浏览器 UI，自身从不组装或发送 provider 请求。
+None，因为移动表面在 `/api` 线上渲染浏览器 UI，自身从不组装或发送 provider 请求。
 
 #### KV Cache effect
 

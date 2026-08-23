@@ -26,7 +26,10 @@ const DEFAULT_RPC_TIMEOUT_MS = 30_000
 
 let rpcCounter = 0
 
-/** Mint one page-unique rpcId (stable under crypto.randomUUID absence). */
+/**
+ * Mint one page-unique rpcId (stable under crypto.randomUUID absence).
+ * @returns a unique rpc id string.
+ */
 export function mintRpcId(): string {
   const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()

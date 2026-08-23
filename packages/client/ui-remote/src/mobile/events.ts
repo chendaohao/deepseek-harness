@@ -70,7 +70,11 @@ const DEFAULT_IDLE_TIMEOUT_MS = 45_000
 /** Poll window: enough recent events to cover a few seconds of agent output. */
 const DEFAULT_POLL_PAGE_SIZE = 50
 
-/** Parse one WS frame into a session/event frame, or undefined when unrelated or malformed. */
+/**
+ * Parse one WS frame into a session/event frame, or undefined when unrelated or malformed.
+ * @param data - the raw frame payload.
+ * @returns the parsed session/event frame, or undefined.
+ */
 export function parseFrame(data: unknown): SessionEventFrame | undefined {
   if (typeof data !== 'string') return undefined
   let parsed: unknown
@@ -154,7 +158,11 @@ export class EventsClient {
     this.observeSessionId = undefined
   }
 
-  /** Subscribe to validated session/event frames; returns an unsubscribe function. */
+  /**
+   * Subscribe to validated session/event frames; returns an unsubscribe function.
+   * @param listener - receives each validated frame.
+   * @returns an unsubscribe function.
+   */
   onFrame(listener: (frame: SessionEventFrame) => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
@@ -164,6 +172,7 @@ export class EventsClient {
    * Point the polling fallback at one open session (or `undefined` to stop
    * it). While the socket is down, this client polls that session's history
    * and re-emits new events as `session/event` frames.
+   * @param sessionId - the session to poll, or undefined to stop polling.
    */
   observe(sessionId: string | undefined): void {
     this.observeSessionId = sessionId

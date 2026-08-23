@@ -35,11 +35,23 @@ interface Config {
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
-  /** 'auto' negotiates per request (brotli preferred, gzip fallback); 'br'/'gzip' force a codec; 'none' disables. */
-  compression?: 'auto' | 'br' | 'gzip' | 'none'
-  /** Minimum known body size in bytes before compression applies. */
+  /**
+   * Response compression: 'auto' negotiates per request (brotli preferred,
+   * gzip fallback), 'br' and 'gzip' force a codec when the client accepts it,
+   * 'none' disables. SSE and other non-compressible bodies always pass
+   * through uncompressed. Defaults to 'auto'.
+   */
+  compression?: CompressionMode
+  /**
+   * Minimum body size in bytes before compression applies; smaller known
+   * bodies ship identity (the codec setup would cost more than it saves).
+   */
   compressionThresholdBytes?: number
-  /** Idle keep-alive timeout in ms for the HTTP server. */
+  /**
+   * Idle keep-alive timeout for the HTTP server in milliseconds (Node default
+   * 5000). Slow mobile links benefit from a longer-lived connection; raise
+   * the default to 30s unless a reverse proxy in front wants to own it.
+   */
   keepAliveTimeoutMs?: number
 }
 ```
@@ -112,5 +124,5 @@ tapIndex(transform: (html: string) => string): () => void
 applyIndexTaps(html: string): string
 ```
 
-Source: [`packages/host/webserver/src/index.ts:59`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:79`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->

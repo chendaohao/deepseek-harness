@@ -85,7 +85,11 @@ export function pickEncoding(header: string | undefined, mode: CompressionMode):
   return !accepted.any || accepted.identity ? undefined : 'gzip'
 }
 
-/** Whether a MIME type is worth compressing (SSE and unknown types are not). */
+/**
+ * Whether a MIME type is worth compressing (SSE and unknown types are not).
+ * @param contentType - the response Content-Type header value, if any.
+ * @returns true when the MIME type is compressible.
+ */
 export function isCompressibleMime(contentType: string | undefined): boolean {
   if (contentType === undefined) return false
   const lower = contentType.toLowerCase()
@@ -93,7 +97,11 @@ export function isCompressibleMime(contentType: string | undefined): boolean {
   return COMPRESSIBLE_MIME_PREFIXES.some(prefix => lower.startsWith(prefix))
 }
 
-/** Whether a status code carries a body worth compressing. */
+/**
+ * Whether a status code carries a body worth compressing.
+ * @param status - the response status code.
+ * @returns true when the status permits a compressible body.
+ */
 export function isCompressibleStatus(status: number): boolean {
   // 1xx/204/304 have no body; 206 is a byte-range response whose identity must
   // be preserved (a range of a compressed stream is a different byte space).
@@ -264,8 +272,8 @@ export function maybeCompressResponse(
       // bridge and other handlers wait on this event after a false write, so
       // routing it to the socket here would never fire (the socket is only fed
       // by the codec pipe, whose output lags the codec's writable side).
-      if (event === 'drain' && decided !== undefined) codec.once(event, listener as never)
-      else res.once(event, listener as never)
+      if (event === 'drain' && decided !== undefined) codec.once(event, listener)
+      else res.once(event, listener)
       return facade
     },
     off(event: string, listener: (...args: unknown[]) => void): ServerResponse {

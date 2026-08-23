@@ -62,7 +62,11 @@ export class DeviceRegistry {
     await rename(tmp, this.path)
   }
 
-  /** Mint a one-time pairing token; a fresh issuance invalidates the previous one. */
+  /**
+   * Mint a one-time pairing token; a fresh issuance invalidates the previous one.
+   * @param now - the current epoch time in milliseconds.
+   * @returns the minted token.
+   */
   issueToken(now: number): string {
     const token = randomBytes(32).toString('base64url')
     this.tokens.clear()
@@ -70,7 +74,12 @@ export class DeviceRegistry {
     return token
   }
 
-  /** Consume a one-time pairing token; expires the entry on success and on expiry alike. */
+  /**
+   * Consume a one-time pairing token; expires the entry on success and on expiry alike.
+   * @param token - the token to consume.
+   * @param now - the current epoch time in milliseconds.
+   * @returns true when the token was valid and consumed.
+   */
   consumeToken(token: string, now: number): boolean {
     const expiresAt = this.tokens.get(token)
     if (expiresAt === undefined || now >= expiresAt) return false
@@ -78,7 +87,12 @@ export class DeviceRegistry {
     return true
   }
 
-  /** Register a paired device and return its new id. */
+  /**
+   * Register a paired device and return its new id.
+   * @param name - the user-supplied device label.
+   * @param now - the current epoch time in milliseconds.
+   * @returns the new device id.
+   */
   register(name: string, now: number): string {
     const deviceId = randomBytes(DEVICE_ID_BYTES).toString('base64url')
     this.devices.set(deviceId, { deviceId, name, createdAt: now, lastSeen: now })
@@ -86,7 +100,12 @@ export class DeviceRegistry {
     return deviceId
   }
 
-  /** Rename one device (a user-assigned label); returns whether it was paired. */
+  /**
+   * Rename one device (a user-assigned label); returns whether it was paired.
+   * @param deviceId - the device to rename.
+   * @param name - the new label.
+   * @returns true when the device was paired and renamed.
+   */
   rename(deviceId: string, name: string): boolean {
     const record = this.devices.get(deviceId)
     if (record === undefined) return false
@@ -95,12 +114,20 @@ export class DeviceRegistry {
     return true
   }
 
-  /** Whether a device id is currently paired. */
+  /**
+   * Whether a device id is currently paired.
+   * @param deviceId - the device id to check.
+   * @returns true when the device is paired.
+   */
   isLive(deviceId: string): boolean {
     return this.devices.has(deviceId)
   }
 
-  /** Refresh a device's last-seen time, notifying at most once per interval. */
+  /**
+   * Refresh a device's last-seen time, notifying at most once per interval.
+   * @param deviceId - the device to touch.
+   * @param now - the current epoch time in milliseconds.
+   */
   touch(deviceId: string, now: number): void {
     const record = this.devices.get(deviceId)
     if (record === undefined || now - record.lastSeen < TOUCH_NOTIFY_MIN_SECONDS * 1000) return
@@ -108,7 +135,11 @@ export class DeviceRegistry {
     this.onChange?.(false)
   }
 
-  /** Revoke one device; returns whether it was paired. */
+  /**
+   * Revoke one device; returns whether it was paired.
+   * @param deviceId - the device to revoke.
+   * @returns true when the device was paired and revoked.
+   */
   revoke(deviceId: string): boolean {
     const removed = this.devices.delete(deviceId)
     if (removed) this.onChange?.(true)
@@ -122,7 +153,10 @@ export class DeviceRegistry {
     this.onChange?.(true)
   }
 
-  /** Snapshot of the live roster, newest first. */
+  /**
+   * Snapshot of the live roster, newest first.
+   * @returns the live device records.
+   */
   snapshot(): DeviceRecord[] {
     return [...this.devices.values()].reverse()
   }
