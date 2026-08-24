@@ -8,7 +8,7 @@ Status: implemented
 
 任务完成后，宿主端 Stop hook 能推送飞书通知，但手机 web（手机浏览器访问的远程 Web GUI，以及 `/m` 表面）不更新：最后的会话事件永远不到达，页面停在旧状态，直到手动刷新。桌面与移动客户端都漏掉了同一个失效模式：手机在移动数据与 WiFi 之间切换（或浏览器标签页被后台化）时，WebSocket 的 TCP 链路被静默撕断——浏览器收不到 close 帧——于是 `onerror`/`onclose` 永不触发，重连机器永不启动，也永远不会 resync。
 
-远程接入设计（[2026-08-14-remote-phone-access](../feature/2026-08-14-remote-phone-access.md)）已经记录了覆盖这一失效模式的心跳 + 空闲看门狗对（位于 `packages/client/connection`），但当前工作分支缺少它：宿主 `WebSocketDownlinks` 从不发送 `stream/heartbeat`，客户端 `ConnectionController` 没有 `idleTimeoutMs` 看门狗也没有 `recycle()`，更没有挂载网络切换监听。
+远程接入设计（[2026-08-14-remote-phone-access](../feature/2026-08-14-remote-phone-access.zh.md)）已经记录了覆盖这一失效模式的心跳 + 空闲看门狗对（位于 `packages/client/connection`），但当前工作分支缺少它：宿主 `WebSocketDownlinks` 从不发送 `stream/heartbeat`，客户端 `ConnectionController` 没有 `idleTimeoutMs` 看门狗也没有 `recycle()`，更没有挂载网络切换监听。
 
 ## 决策
 

@@ -8,7 +8,7 @@
 
 named 模式需要先在部署所属的 Cloudflare 账号下一次性注册隧道才能运行：`cloudflared tunnel login`（浏览器 OAuth 写入 `~/.cloudflared/cert.pem`）、`cloudflared tunnel create <name>`、`cloudflared tunnel route dns <name> <hostname>`，均用固定二进制（或任意匹配的 `cloudflared`）。未执行 `route dns` 时隧道能注册但浏览器会 404，直到 CNAME 记录存在。
 
-重启策略属于消费者：`ended` 后由 [`dsh-remote-access`](../remote-access/README.md) 重新开启会话。
+重启策略属于消费者：`ended` 后由 [`dsh-remote-access`](../remote-access/README.zh.md) 重新开启会话。
 
 ## Model Experience
 

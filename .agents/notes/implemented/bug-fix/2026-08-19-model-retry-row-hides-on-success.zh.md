@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决定
 
-`model-retry` 是短暂提示，不是持久记录。在 `retry.ts` 的 `buildViewNode` 中，当所在 step 已发布的 `assistant-step` 数据为 `status === 'settled'`（完成态最终 `assistant/message`；`resetForRetry` 保证其只能来自被重试的那次尝试）时，返回 `visibility: 'hidden'` 节点——若该窗口内链从未物化则返回 `null`。这与 `turn-error` 节点的抑制模式一致（[节点装配](../architecture/2026-08-09-client-conversation-node-assembly.md)）。无需新的唤醒机制：`step/end` 位置边界本来就会重放重试 context，隐藏节点从对话流 `order` 中消失，但仍保持物化以维持时间线/分支稳定。
+`model-retry` 是短暂提示，不是持久记录。在 `retry.ts` 的 `buildViewNode` 中，当所在 step 已发布的 `assistant-step` 数据为 `status === 'settled'`（完成态最终 `assistant/message`；`resetForRetry` 保证其只能来自被重试的那次尝试）时，返回 `visibility: 'hidden'` 节点——若该窗口内链从未物化则返回 `null`。这与 `turn-error` 节点的抑制模式一致（[节点装配](../architecture/2026-08-09-client-conversation-node-assembly.zh.md)）。无需新的唤醒机制：`step/end` 位置边界本来就会重放重试 context，隐藏节点从对话流 `order` 中消失，但仍保持物化以维持时间线/分支稳定。
 
 判定用 `status === 'settled'` 而非 `finalNode !== undefined`：assistant Definition 会为被中止或出错的中断流合成 `interrupted` 的 final node——那种情况下重试并未干净成功，行应保留作为中断回合记录的一部分。
 

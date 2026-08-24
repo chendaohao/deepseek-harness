@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-20-history-load-resilience-remote-links.md
 2026-08-20-history-load-resilience-remote-links.md: e5a1a9f52f18cdb0d496e9c30845a9da6f2bdede
-2026-08-20-history-load-resilience-remote-links.zh.md: f26f38bb3e576fe9d404b03ea9ad50dff52be578
+2026-08-20-history-load-resilience-remote-links.zh.md: 563aec18e671d40f5b8e9b12ef453dcfc10f9387

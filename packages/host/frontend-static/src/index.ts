@@ -1,13 +1,13 @@
 /**
  * @deepseek-ai/dsh-host-frontend-static — SPA dist server over the webserver
- * fallback seat: serves the built frontend directory with the semantics the
- * Web shell locked at step1 — traversal outside the dist root is 403, any
- * miss falls back to index.html with HTTP 200 (SPA routing), unknown
- * extensions ship as octet-stream, non-GET/HEAD is 405. Every index response
- * runs through the webserver's registered index taps (boot-manifest
- * injection). The dist location is workspace knowledge of the composing
- * application, so `distIndex` is typically supplied through a `!!js`
- * expression, never hardcoded by a deployment.
+ * fallback seat: serves the built frontend directory with explicit index
+ * entry points. A readable index renders at the dist root and configured index
+ * path; missing paths return 404, traversal outside the dist root is 403,
+ * unknown extensions ship as octet-stream, and non-GET/HEAD is 405. Every
+ * index response runs through the webserver's index render (structured
+ * injection rows, then raw taps). The dist location is workspace knowledge of
+ * the composing application, so `distIndex` is typically supplied through a
+ * `!!js` expression, never hardcoded by a deployment.
  * @module @deepseek-ai/dsh-host-frontend-static
  */
 
@@ -35,8 +35,10 @@ export const Config: z<Config> = z.object({
   distIndex: z.string().required(),
 })
 
+const HTML_MIME = 'text/html; charset=utf-8'
+
 const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
+  '.html': HTML_MIME,
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
@@ -77,14 +79,21 @@ function bodyEtag(body: Buffer): string {
   return '"' + createHash('sha1').update(body).digest('hex').slice(0, 16) + '"'
 }
 
+/** Filesystem failure codes that mean a target is simply absent or not a file. */
+const STATIC_MISS_CODES: ReadonlySet<string | undefined> = new Set([
+  'ENOENT',
+  'EISDIR',
+  'ENOTDIR',
+])
+
 /**
  * Serve one GET/HEAD static request from the dist root.
  * @param pathname - decoded URL pathname of the request.
  * @param res - the node:http response to write.
  * @param distRoot - absolute dist root directory (resolved by the caller).
  * @param distIndex - absolute path of index.html inside distRoot.
- * @param renderIndex - produces the index.html body (index-tap injection) for
- * `/` and every SPA fallback.
+ * @param renderIndex - produces the index.html body (structured injection
+ * rendering) for the dist root and configured index path.
  * @param ifNoneMatch - the request's If-None-Match header, when present.
  */
 export async function serveStatic(
@@ -100,52 +109,46 @@ export async function serveStatic(
     res.end()
     return
   }
-  // Every index response (the document itself or a SPA fallback) carries the
-  // boot manifest injected by the index taps, whose graph changes with the
-  // plugin set: always revalidate, and answer 304 when the client already has
-  // the current body.
-  const serveIndex = async (): Promise<void> => {
-    const body = await renderIndex()
-    const etag = bodyEtag(Buffer.from(body))
-    res.setHeader('cache-control', 'no-cache')
-    res.setHeader('etag', etag)
-    if (ifNoneMatch === etag) {
-      res.writeHead(304)
-      res.end()
-      return
+  let body: string | Buffer
+  let type: string
+  try {
+    if (target === distRoot || target === distIndex) {
+      body = await renderIndex()
+      type = HTML_MIME
+    } else {
+      body = await readFile(target)
+      type = MIME[extname(target)] ?? 'application/octet-stream'
     }
-    res.writeHead(200, { 'content-type': MIME['.html'] })
-    res.end(body)
-  }
-  if (target === distRoot || target === distIndex) {
-    await serveIndex()
+  } catch (error) {
+    // Only absent or non-file targets are 404; other filesystem failures reach
+    // the webserver's request-failure handling.
+    if (!STATIC_MISS_CODES.has((error as NodeJS.ErrnoException).code)) throw error
+    res.writeHead(404)
+    res.end()
     return
   }
-  try {
-    const body = await readFile(target)
-    const headers: Record<string, string> = {
-      'content-type': MIME[extname(target)] ?? 'application/octet-stream',
-      // Hashed assets are immutable forever; the service worker revalidates
-      // every visit so deployed updates take over promptly; the rest is
-      // short-cached with revalidation (the ETag gives a cheap 304 round-trip).
-      'cache-control': isHashedAsset(pathname)
+  // Every served body revalidates: the index document carries the boot manifest
+  // injected by the webserver's index render (whose graph changes with the
+  // plugin set), and assets carry the cache classes below. Answer 304 when the
+  // client already has the current body.
+  const headers: Record<string, string> = {
+    'content-type': type,
+    'cache-control': type === HTML_MIME
+      ? 'no-cache'
+      : isHashedAsset(pathname)
         ? IMMUTABLE_CACHE
         : basename(pathname) === 'sw.js'
           ? WORKER_CACHE
           : SHORT_CACHE,
-      'etag': bodyEtag(body),
-    }
-    if (ifNoneMatch === headers.etag) {
-      res.writeHead(304, headers)
-      res.end()
-      return
-    }
-    res.writeHead(200, headers)
-    res.end(body)
-  } catch {
-    // Miss (ENOENT/EISDIR) falls back to index.html with 200 (SPA routing).
-    await serveIndex()
+    'etag': bodyEtag(Buffer.isBuffer(body) ? body : Buffer.from(body)),
   }
+  if (ifNoneMatch === headers.etag) {
+    res.writeHead(304, headers)
+    res.end()
+    return
+  }
+  res.writeHead(200, headers)
+  res.end(body)
 }
 
 /**
@@ -157,7 +160,7 @@ export function apply(ctx: Context, config: Config): void {
   const distIndex = config.distIndex
   const distRoot = dirname(distIndex)
   const renderIndex = async (): Promise<string> =>
-    ctx.webServer.applyIndexTaps(await readFile(distIndex, 'utf8'))
+    ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
   ctx.effect(() => ctx.webServer.registerFallback(async (req, res) => {
     // Non-GET/HEAD without a matching named route is 405 (fallback-only
     // semantics: named routes own their method handling).

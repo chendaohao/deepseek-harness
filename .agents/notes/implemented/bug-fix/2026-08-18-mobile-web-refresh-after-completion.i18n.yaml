@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-18-mobile-web-refresh-after-completion.md
 2026-08-18-mobile-web-refresh-after-completion.md: cc69fe15179c3f086aea7caa643744aab6ed0a6e
-2026-08-18-mobile-web-refresh-after-completion.zh.md: 57e35a6656ec16bf74fcb3a34bed0e8585229224
+2026-08-18-mobile-web-refresh-after-completion.zh.md: fc9c3496a75de975268fb8bd38852fa6ee1949f1

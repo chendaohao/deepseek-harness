@@ -25,7 +25,7 @@ Status: implemented
 - **`/m`：unary 超时。** `callUnary` 用 `AbortSignal.timeout(30_000)` 给每次调用设限（有调用方 signal 时用 `AbortSignal.any` 合并），超时折叠为 `transport` 错误。这把此前挂在无超时 history 拉取上的 EventsClient 轮询退避也解开了。
 - **`/m`：连接时即布防看门狗。** `connectSocket()` 在 `onopen` 之前就调用 `this.touchIdle()`，于是 socket 一直建立不起来时，`idleTimeoutMs` 后仍会循环进入轮询 + 重连。
 
-既有的空闲看门狗/心跳决策（[2026-08-18-mobile-web-refresh-after-completion](2026-08-18-mobile-web-refresh-after-completion.md)）仍是传输活跃机制；本笔记让它的恢复路径在抖动链路上也能存活。
+既有的空闲看门狗/心跳决策（[2026-08-18-mobile-web-refresh-after-completion](2026-08-18-mobile-web-refresh-after-completion.zh.md)）仍是传输活跃机制；本笔记让它的恢复路径在抖动链路上也能存活。
 
 ## 验证（Verification）
 

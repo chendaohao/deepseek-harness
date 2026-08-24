@@ -10,7 +10,7 @@ web profile 装载了第三方插件 `@linxin666/dsh-remote-web-ui` 提供移动
 
 ## Decision
 
-**把移动端远程控制能力吸收为一方案件 `@deepseek-ai/dsh-client-ui-remote`，复用一方案件隧道与配对闸门；不移植平行基础设施。** host 配对闸门升级为设备模型（一次性 token、可吊销注册表、仅桌面 `/remote/*` 控制面）；桌面面板与 `/m` bundle 是走平台协议的新一方案件表面（见[设备模型](../architecture/2026-08-18-remote-device-model.md)与[移动表面](../architecture/2026-08-18-mobile-surface-bundle.md)两篇 note）。第三方的**远程更新功能不在范围**：更新第三方 UI 家族与远程访问无关，仍归厂商。
+**把移动端远程控制能力吸收为一方案件 `@deepseek-ai/dsh-client-ui-remote`，复用一方案件隧道与配对闸门；不移植平行基础设施。** host 配对闸门升级为设备模型（一次性 token、可吊销注册表、仅桌面 `/remote/*` 控制面）；桌面面板与 `/m` bundle 是走平台协议的新一方案件表面（见[设备模型](../architecture/2026-08-18-remote-device-model.zh.md)与[移动表面](../architecture/2026-08-18-mobile-surface-bundle.zh.md)两篇 note）。第三方的**远程更新功能不在范围**：更新第三方 UI 家族与远程访问无关，仍归厂商。
 
 **卸载 `@linxin666/dsh-remote-web-ui` 是独立、需用户确认的步骤，不属于功能 PR 的一部分。** 它由 `@linxin666/dsh-web-ui-all` 聚合包传递引入，因此移除意味着在 profile 用户层禁用 `remote-web-ui` 行（`~/.dsh/profiles/web/cordis.patch.yml` 中 `- disable: remote-web-ui`），不碰聚合包其他插件（skins、ssh、pet、live-stats 等）。确认门槛的存在是因为聚合包是外部的、且该 profile 归用户所有。
 
