@@ -12,9 +12,12 @@
   gap: 4px;
   min-width: 0;
   /* Legacy fallback, then a row-relative cap that grants long names more
-     room without letting this trailing control consume the composer. */
+     room without letting this trailing control consume the composer. The
+     cap is tighter than the desktop figma so narrow composer rows (phones)
+     can keep the whole toolbar on one row; wide rows still grant long
+     names up to 360px. */
   max-width: 220px;
-  max-width: min(360px, 45cqw);
+  max-width: min(360px, 38cqw);
   height: 28px;
   padding: 0 4px 0 8px;
   border: none;
@@ -351,4 +354,17 @@
 .cellChevron {
   flex: 0 0 auto;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* Narrow viewports: the composer's app sidebar occupies the left edge, so a
+   right-anchored menu (right: 0 relative to the chip) expands leftward and
+   underlaps that column. Center the menu on the chip instead (left: 50% +
+   translateX(-50%)) — the chip sits clear of the sidebar on these widths, so
+   the menu does too, while vertical placement above the chip is unchanged. */
+@media (max-width: 640px) {
+  .menu {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
