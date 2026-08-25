@@ -39,3 +39,7 @@ apps/web/dist/
 worktrees/
 .agents/worktrees/
 .typert-*/
+.codegraph/
+.omc/
+apps/mobile/
+*.tgz
