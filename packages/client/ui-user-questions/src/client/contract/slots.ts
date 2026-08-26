@@ -6,18 +6,26 @@
  * cancelled error encoding, receipt checks — lives HERE, with the package
  * that consumes it.
  */
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 // Also pulls ui-conversation's SlotMap merge (the 'conversation.composer'
 // entry) into every program that sees this contract, so PropsRuntime resolves.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import type { QuestionResponsePayload } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QuestionDraftStore } from '../stores.ts'
 
 /** The pending question carrier the owner dispatches into the composer slot. */
 export type QuestionWait = PendingWait<'question'>
 
 /** One structured answer batch covering every question of the request. */
 export type QuestionAnswer = QuestionResponsePayload['answer']
+
+/** One question's in-progress draft (shared by the composer and its store). */
+export interface QuestionDraftAnswer {
+  selected: string[]
+  custom: string
+  skipped: boolean
+}
 
 /** One question of the request, as the carrier payload carries it. */
 type QuestionItem = QuestionWait['payload']['questions'][number]
@@ -136,8 +144,12 @@ export class PendingQuestion {
  * Full component props: the framework runtime share (chain currency +
  * session/global standard kit) plus the chain `matched` share — the entry's
  * selector result, already narrowed to the question carrier — plus the
+ * question-draft store seat (survives composer unmount + page reload) plus the
  * standard locale seat; the carrier plus the domain face above carry the
  * whole behavior surface.
  */
 export type QuestionComposerProps =
-  PropsRuntime<'conversation.composer'> & { matched: QuestionWait } & PropsLocale<'question'>
+  PropsRuntime<'conversation.composer'>
+  & PropsStore<QuestionDraftStore>
+  & { matched: QuestionWait }
+  & PropsLocale<'question'>

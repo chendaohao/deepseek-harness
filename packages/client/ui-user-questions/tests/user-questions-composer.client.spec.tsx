@@ -1,20 +1,28 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
-  ConversationSnapshot, SessionId, SessionListState, WorkspaceListState,
+  SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RpcReceipt } from '@deepseek-ai/dsh-api-remotes/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import { PendingQuestion, type QuestionComposerProps } from '../src/client/contract/slots.ts'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import {
+  PendingQuestion, type QuestionComposerProps, type QuestionWait,
+} from '../src/client/contract/slots.ts'
 import { QuestionComposer, parseRecommendedLabel } from '../src/client/QuestionComposer.tsx'
+import { createQuestionDraftStore } from '../src/client/stores.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  // The draft store persists to localStorage under the per-session key; tests
+  // re-use default rpcIds, so clear the slot after each test to isolate runs.
+  localStorage.removeItem(`dsh.ui.userQuestions.drafts.${SID}`)
+})
 
 const SID = 's1' as SessionId
 
@@ -22,20 +30,28 @@ const SID = 's1' as SessionId
 const seatOver = (dict: Record<string, string>, common: Record<string, string>): QuestionComposerProps['t'] =>
   (key => dict[key] ?? common[key] ?? key)
 
-/** Framework standard-kit stubs: the composer consumes only the locale seat;
- *  the composed props type mandates delivery of the rest (framework hooks are
- *  plain stubs per the client testing discipline). */
-const kit = {
-  session: undefined,
-  sessionId: SID,
-  useSession: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<ConversationSnapshot>,
-  useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
-  useWorkspaces: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<WorkspaceListState>,
-  useProjection: (() => undefined) as never,
-  useInput: (() => { throw new Error('unused') }) as never,
-  inputActions: { setDraft: () => { throw new Error('unused') }, submit: () => { throw new Error('unused') } } as never,
-  // The seat's key domain is question ∪ common.
-  t: seatOver(zh, commonZh),
+/** Framework standard-kit stubs: the composer consumes only the locale seat and
+ *  the question-draft store; the composed props type mandates delivery of the
+ *  rest (framework hooks are plain stubs per the client testing discipline).
+ *  A FRESH draft-store instance per call prevents cross-test leakage of a
+ *  shared persisted store (tests reuse default rpcIds like `question-1`). */
+const makeKit = (): Omit<QuestionComposerProps, 'matched' | 'interactions'> => {
+  const draftStore = createQuestionDraftStore().create(SID)
+  const unused = (): never => { throw new Error('unused') }
+  return {
+    session: undefined,
+    sessionId: SID,
+    useSession: unused,
+    useSessions: unused,
+    useWorkspaces: unused,
+    useProjection: unused,
+    useInput: unused,
+    inputActions: { setDraft: unused, submit: unused, addImages: unused, removeImage: unused, pruneImages: unused },
+    useStore: bindSnapshotSelector(draftStore),
+    actions: draftStore.actions,
+    // The seat's key domain is question ∪ common.
+    t: seatOver(zh, commonZh),
+  }
 }
 
 const QUESTIONS = [
@@ -58,9 +74,15 @@ const QUESTIONS = [
 
 /** Carrier fixture: a real PendingWait over a scripted respond carrier. */
 function wait(rpcId = 'question-1', respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))) {
-  const carrier = new PendingWait(
-    'question', RpcId(rpcId), SID, { questions: QUESTIONS }, respond)
-  return { carrier, respond }
+  const carrier = new PendingWait('question', RpcId(rpcId), SID, { questions: QUESTIONS }, respond)
+  return { rpcId, carrier, respond }
+}
+
+/** Carrier fixture over a caller-supplied question batch (keeps default wait() tidy for the 3-question case). */
+function waitQuestions(rpcId: string, questions: QuestionWait['payload']['questions']) {
+  const respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))
+  const carrier = new PendingWait('question', RpcId(rpcId), SID, { questions }, respond)
+  return { rpcId, carrier, respond }
 }
 
 /** The client-response envelope respond must have received for an answer batch. */
@@ -74,7 +96,7 @@ function answeredEnvelope(rpcId: string, answers: object[]) {
 describe('QuestionComposer', () => {
   it('collects single, custom, and multi-select answers before one batch submit', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     expect(screen.getByText('偏好')).toBeTruthy()
     expect(screen.getByText('1 / 3')).toBeTruthy()
@@ -136,7 +158,7 @@ describe('QuestionComposer', () => {
       },
       vi.fn(),
     )
-    const view = render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    const view = render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     expect(screen.getByRole('heading', { level: 1, name: '实施计划' })).toBeTruthy()
     expect(view.container.querySelector('strong')?.textContent).toBe('先验证')
@@ -146,7 +168,7 @@ describe('QuestionComposer', () => {
 
   it('skips individual questions without discarding earlier answers', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     expect((screen.getByText('下一题').closest('button') as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('radio', { name: '研究潜力型' }))
@@ -164,7 +186,7 @@ describe('QuestionComposer', () => {
 
   it('keeps IME Enter inside the custom input until composition finishes', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     fireEvent.click(screen.getByRole('radio', { name: '研究潜力型' }))
     const custom = screen.getByPlaceholderText('输入你的答案')
@@ -184,7 +206,7 @@ describe('QuestionComposer', () => {
 
   it('shows the inline custom input, reports missing answers, and supports pager navigation', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     expect(screen.getByPlaceholderText('输入你的答案')).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: '工程落地型' }))
@@ -206,7 +228,7 @@ describe('QuestionComposer', () => {
 
   it('answers over multiple lines: both fields grow with the draft and keep Shift+Enter a newline', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     // Both question shapes answer into a textarea, so the engine soft-wraps a
     // long answer and Shift+Enter breaks the line natively.
@@ -246,7 +268,7 @@ describe('QuestionComposer', () => {
       .mockResolvedValueOnce({ accepted: false, reason: 'bad-response' })
       .mockRejectedValueOnce(new Error('第二次取消失败'))
     const { carrier } = wait('question-1', respond)
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     // Receipt rejection surfaces through the domain face's thrown message.
     fireEvent.click(screen.getByRole('button', { name: '放弃整组问题' }))
@@ -262,12 +284,12 @@ describe('QuestionComposer', () => {
       .mockRejectedValueOnce(new Error('网络中断'))
       .mockRejectedValueOnce('字符串错误')
     const first = wait('first', respond)
-    const view = render(<QuestionComposer matched={first.carrier} interactions={[first.carrier]} {...kit} />)
+    const view = render(<QuestionComposer matched={first.carrier} interactions={[first.carrier]} {...makeKit()} />)
 
     fireEvent.click(screen.getByRole('radio', { name: /研究潜力型/ }))
     expect(screen.getByText('2 / 3')).toBeTruthy()
     const second = wait('second', respond)
-    view.rerender(<QuestionComposer matched={second.carrier} interactions={[second.carrier]} {...kit} />)
+    view.rerender(<QuestionComposer matched={second.carrier} interactions={[second.carrier]} {...makeKit()} />)
     expect(screen.getByRole('radio', { name: /研究潜力型/ }).getAttribute('aria-checked')).toBe('false')
 
     fireEvent.click(screen.getByRole('radio', { name: /工程落地型/ }))
@@ -292,7 +314,7 @@ describe('QuestionComposer', () => {
     const respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))
     const carrier = new PendingWait(
       'question', RpcId('solo'), SID, { questions: [{ id: 'detail', question: '补充你的要求' }] }, respond)
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} t={seatOver(en, commonEn)} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} t={seatOver(en, commonEn)} />)
     expect(screen.getByLabelText('Dismiss all questions')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Skip this question' })).toBeTruthy()
     expect(screen.getByPlaceholderText('Type your answer')).toBeTruthy()
@@ -300,13 +322,53 @@ describe('QuestionComposer', () => {
 
   it('same-key carrier replacement (baseline replay) keeps drafts', () => {
     const first = wait('same-id')
-    const view = render(<QuestionComposer matched={first.carrier} interactions={[first.carrier]} {...kit} />)
+    const view = render(<QuestionComposer matched={first.carrier} interactions={[first.carrier]} {...makeKit()} />)
     fireEvent.click(screen.getByRole('radio', { name: /研究潜力型/ }))
     expect(screen.getByText('2 / 3')).toBeTruthy()
     // Replay mints a NEW carrier for the same request; same key = no remount.
     const replayed = wait('same-id')
-    view.rerender(<QuestionComposer matched={replayed.carrier} interactions={[replayed.carrier]} {...kit} />)
+    view.rerender(<QuestionComposer matched={replayed.carrier} interactions={[replayed.carrier]} {...makeKit()} />)
     expect(screen.getByText('2 / 3')).toBeTruthy()
+  })
+
+  it('survives an actual unmount+remount (connection-generation death) via the draft store', async () => {
+    const draftStore = createQuestionDraftStore().create(SID)
+    const kit = { ...makeKit(), useStore: bindSnapshotSelector(draftStore), actions: draftStore.actions }
+    const { carrier } = wait('reconnect-id')
+    const key = 'q:reconnect-id'
+    // Choose an answer (auto-advances to question 2), then unmount — exactly
+    // what a connection-generation death does to the composer.
+    const view = render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    fireEvent.click(screen.getByRole('radio', { name: /研究潜力型/ }))
+    await waitFor(() => {
+      expect(draftStore.getSnapshot().drafts[key]?.[0])
+        .toMatchObject({ selected: ['研究潜力型'], skipped: false })
+      expect(draftStore.getSnapshot().positions[key]).toBe(1)
+    })
+    view.unmount()
+    // Remount with a fresh carrier of the same rpcId: both the answered draft
+    // AND the question position persist (user resumes at Q2, not Q1).
+    const replay = wait('reconnect-id')
+    render(<QuestionComposer matched={replay.carrier} interactions={[replay.carrier]} {...kit} />)
+    expect(screen.getByText('2 / 3')).toBeTruthy()
+    expect(draftStore.getSnapshot().drafts[key]?.[0]).toMatchObject({ selected: ['研究潜力型'] })
+  })
+
+  it('clears the persisted drafts once the batch is answered', async () => {
+    const draftStore = createQuestionDraftStore().create(SID)
+    const kit = { ...makeKit(), useStore: bindSnapshotSelector(draftStore), actions: draftStore.actions }
+    const questions: QuestionWait['payload']['questions'] = [
+      { id: 'single', question: '一次决定', options: [{ label: '是' }, { label: '否' }] },
+    ]
+    const { rpcId, carrier, respond } = waitQuestions('clear-id', questions)
+    const key = `q:${rpcId}`
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    fireEvent.click(screen.getByRole('radio', { name: '是' }))
+    await waitFor(() => { expect(draftStore.getSnapshot().drafts[key]?.[0]).toMatchObject({ selected: ['是'] }) })
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
+    // The answer receipt resolves async; the settled path clears the keyed drafts.
+    await waitFor(() => { expect(respond).toHaveBeenCalled() })
+    await waitFor(() => { expect(draftStore.getSnapshot().drafts[key]).toBeUndefined() })
   })
 })
 
@@ -346,7 +408,7 @@ describe('PendingQuestion domain face', () => {
 
   it('collapses the card to the header strip and expands it back', () => {
     const { carrier } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
     // Expanded: the option list is visible.
     expect(screen.getByRole('radiogroup')).toBeTruthy()
     // Collapse: options leave the tree; the title and minimize toggle stay.
@@ -362,7 +424,7 @@ describe('PendingQuestion domain face', () => {
 
   it('keeps the collapse toggle out of the cancel path and preserves drafts across collapse', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
     fireEvent.click(screen.getByRole('radio', { name: /工程落地型/ }))
     // Single-select auto-advances to the second question; collapse and expand
     // must not lose either the picked option or the current position.

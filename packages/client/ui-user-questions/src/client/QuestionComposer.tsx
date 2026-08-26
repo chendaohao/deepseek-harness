@@ -7,16 +7,12 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   PendingQuestion, planReviewOf,
-  type QuestionAnswer, type QuestionComposerProps,
+  type QuestionAnswer, type QuestionComposerProps, type QuestionDraftAnswer,
 } from './contract/slots.ts'
 import { PlanReviewPanel } from './PlanReviewPanel.tsx'
 import css from './QuestionComposer.module.css'
 
-interface DraftAnswer {
-  selected: string[]
-  custom: string
-  skipped: boolean
-}
+type DraftAnswer = QuestionDraftAnswer
 
 /**
  * Displayed feedback: validation feedback is stored as a dictionary KEY and
@@ -116,19 +112,46 @@ function AnswerField(props: AnswerFieldProps) {
 export function QuestionComposer(props: QuestionComposerProps) {
   // Domain-face mint rides the carrier's stable identity (never minted in a
   // select/render dispatch — per-dispatch minting would churn memo identity).
-  const question = useMemo(() => new PendingQuestion(props.matched), [props.matched])
+  const { matched, useStore, actions, t } = props
+  const question = useMemo(() => new PendingQuestion(matched), [matched])
   const review = useMemo(() => planReviewOf(question.questions), [question])
   return review === undefined
-    ? <QuestionFlow key={question.key} pending={question} t={props.t} />
-    : <PlanReviewPanel key={question.key} pending={question} review={review} t={props.t} />
+    ? <QuestionFlow key={question.key} pending={question} t={t} useStore={useStore} actions={actions} />
+    : <PlanReviewPanel key={question.key} pending={question} review={review} t={t} />
 }
 
-function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't'>) {
+function QuestionFlow({
+  pending, t, useStore, actions,
+}: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't' | 'useStore' | 'actions'>) {
   const questions = pending.questions
-  const [index, setIndex] = useState(0)
-  const [drafts, setDrafts] = useState<DraftAnswer[]>(() => questions.map(() => ({
+  const savedDrafts = useStore(s => s.drafts[pending.key])
+  // Restore the persisted drafts for this stable question key where present; a
+  // connection-generation death (or page reload) unmounts the composer, and the
+  // remount reads this seed instead of discarding what the user already chose.
+  const [drafts, setDrafts] = useState<DraftAnswer[]>(() => savedDrafts ?? questions.map(() => ({
     selected: [], custom: '', skipped: false,
   })))
+  // Persist every draft change so an unmount loses nothing; the keyed entry is
+  // only ever cleared on settlement/cancel. The updater runs on the latest
+  // drafts so rapid successive edits (multi-select checkbox toggles) never
+  // collapse onto a stale snapshot.
+  const draftKey = pending.key
+  const commitDrafts = (update: (current: DraftAnswer[]) => DraftAnswer[]): void => {
+    setDrafts((current) => {
+      const next = update(current)
+      actions.setDrafts(draftKey, next)
+      return next
+    })
+  }
+  // Resume the question the user was last on (clamped to the batch bounds); an
+  // interruption loses only the scroll position, never the answered drafts.
+  const savedPosition = useStore(s => s.positions[pending.key])
+  const [index, setIndex] = useState(() =>
+    savedPosition === undefined ? 0 : Math.min(savedPosition, questions.length - 1))
+  const moveTo = (next: number): void => {
+    setIndex(next)
+    actions.setPosition(draftKey, next)
+  }
   const [busy, setBusy] = useState<'answer' | 'cancel' | null>(null)
   const [error, setError] = useState<Feedback | null>(null)
   // Collapsed to the header strip so the conversation above stays readable
@@ -148,14 +171,14 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
   const cancelFlow = (): void => {
     setBusy('cancel')
     setError(null)
-    void pending.cancel().catch((cause: unknown) => {
+    void pending.cancel().then(() => { actions.clearDrafts(draftKey) }).catch((cause: unknown) => {
       setBusy(null)
       setError({ text: cause instanceof Error ? cause.message : String(cause) })
     })
   }
 
   const updateDraft = (update: (current: DraftAnswer) => DraftAnswer): void => {
-    setDrafts(current => current.map((item, itemIndex) => itemIndex === index ? update(item) : item))
+    commitDrafts(current => current.map((item, itemIndex) => itemIndex === index ? update(item) : item))
     setError(null)
   }
 
@@ -170,7 +193,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
       return { selected: [label], custom: '', skipped: false }
     })
     if (question.multiSelect !== true && index < questions.length - 1) {
-      setIndex(current => current + 1)
+      moveTo(index + 1)
     }
   }
 
@@ -182,7 +205,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
   const submitDrafts = (values: DraftAnswer[]): void => {
     const missing = values.findIndex(item => !completed(item))
     if (missing >= 0) {
-      setIndex(missing)
+      moveTo(missing)
       setError({ key: 'error.incomplete' })
       return
     }
@@ -200,7 +223,9 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     }
     setBusy('answer')
     setError(null)
-    void pending.answer(answer).catch((cause: unknown) => {
+    // A settled question is done for good: drop its persisted drafts (the
+    // rpcId-keyed entry would never be re-read, keeping it is only hygiene).
+    void pending.answer(answer).then(() => { actions.clearDrafts(draftKey) }).catch((cause: unknown) => {
       setBusy(null)
       setError({ text: cause instanceof Error ? cause.message : String(cause) })
     })
@@ -212,7 +237,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
       return
     }
     if (index < questions.length - 1) {
-      setIndex(current => current + 1)
+      moveTo(index + 1)
       setError(null)
       return
     }
@@ -242,10 +267,10 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     const nextDrafts = drafts.map((item, itemIndex) => itemIndex === index
       ? { selected: [], custom: '', skipped: true }
       : item)
-    setDrafts(nextDrafts)
+    commitDrafts(() => nextDrafts)
     setError(null)
     if (index < questions.length - 1) {
-      setIndex(current => current + 1)
+      moveTo(index + 1)
       return
     }
     submitDrafts(nextDrafts)
@@ -379,7 +404,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
                 <button
                   type="button" className={css.iconButton} aria-label={t('nav.prev')}
                   disabled={index === 0 || busy !== null}
-                  onClick={() => { setIndex(index - 1); setError(null) }}
+                  onClick={() => { moveTo(index - 1); setError(null) }}
                 >
                   <IconChevronLeftOutline14 />
                 </button>
@@ -387,7 +412,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
                 <button
                   type="button" className={css.iconButton} aria-label={t('nav.next')}
                   disabled={index === questions.length - 1 || busy !== null}
-                  onClick={() => { setIndex(index + 1); setError(null) }}
+                  onClick={() => { moveTo(index + 1); setError(null) }}
                 >
                   <IconChevronRightOutline14 />
                 </button>

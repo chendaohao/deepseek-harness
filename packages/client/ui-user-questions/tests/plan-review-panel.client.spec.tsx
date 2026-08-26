@@ -6,19 +6,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type {
-  ConversationSnapshot, SessionId, SessionListState, WorkspaceListState,
+  SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RpcReceipt } from '@deepseek-ai/dsh-api-remotes/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { planReviewOf, type QuestionComposerProps, type QuestionWait } from '../src/client/contract/slots.ts'
 import { QuestionComposer } from '../src/client/QuestionComposer.tsx'
+import { createQuestionDraftStore } from '../src/client/stores.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  // The draft store persists to localStorage under the per-session key; tests
+  // reuse default rpcIds, so clear the slot after each test to isolate runs.
+  localStorage.removeItem(`dsh.ui.userQuestions.drafts.${SID}`)
+})
 
 const SID = 's1' as SessionId
 
@@ -26,17 +32,28 @@ const SID = 's1' as SessionId
 const seatOver = (dict: Record<string, string>, common: Record<string, string>): QuestionComposerProps['t'] =>
   (key => dict[key] ?? common[key] ?? key)
 
-/** Framework standard-kit stubs: the panel consumes only the locale seat. */
-const kit = {
-  sessionId: SID,
-  session: undefined,
-  useSession: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<ConversationSnapshot>,
-  useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
-  useWorkspaces: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<WorkspaceListState>,
-  useProjection: (() => undefined) as never,
-  useInput: (() => { throw new Error('unused') }) as never,
-  inputActions: { setDraft: () => { throw new Error('unused') }, submit: () => { throw new Error('unused') } } as never,
-  t: seatOver(zh, commonZh),
+/** Framework standard-kit stubs: the panel consumes only the locale seat; the
+ *  composed props type mandates delivery of the rest (framework hooks are plain
+ *  stubs per the client testing discipline). A FRESH draft-store instance per
+ *  call prevents cross-test leakage of a shared persisted store (tests reuse
+ *  the default rpcId). */
+const makeKit = (): Omit<QuestionComposerProps, 'matched' | 'interactions'> => {
+  const draftStore = createQuestionDraftStore().create(SID)
+  const unused = (): never => { throw new Error('unused') }
+  return {
+    session: undefined,
+    sessionId: SID,
+    useSession: unused,
+    useSessions: unused,
+    useWorkspaces: unused,
+    useProjection: unused,
+    useInput: unused,
+    inputActions: { setDraft: unused, submit: unused, addImages: unused, removeImage: unused, pruneImages: unused },
+    useStore: bindSnapshotSelector(draftStore),
+    actions: draftStore.actions,
+    // The seat's key domain is question ∪ common.
+    t: seatOver(zh, commonZh),
+  }
 }
 
 const PLAN = '# Ship the picker\n\n- read the store\n- render the rows\n'
@@ -115,7 +132,7 @@ describe('planReviewOf', () => {
 describe('PlanReviewPanel', () => {
   it('renders the plan under a review strip, with none of the quiz affordances', () => {
     const { carrier } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     expect(document.querySelector('[data-plan-review-key="q:q-1"]')).toBeTruthy()
     expect(screen.getByText(zh['plan.header'])).toBeTruthy()
@@ -134,7 +151,7 @@ describe('PlanReviewPanel', () => {
 
   it('answers with the asker\'s approve label and keeps its description as the tooltip', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     const approve = screen.getByRole('button', { name: zh['plan.approve'] })
     expect(approve.getAttribute('title')).toBe('Leave plan mode; the plan is carried out from the next step.')
@@ -149,7 +166,7 @@ describe('PlanReviewPanel', () => {
 
   it('answers with the asker\'s decline label', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     fireEvent.click(screen.getByRole('button', { name: zh['plan.decline'] }))
     expect(respond).toHaveBeenCalledWith(decidedEnvelope('Keep planning'))
@@ -157,7 +174,7 @@ describe('PlanReviewPanel', () => {
 
   it('dismisses the request so the composer returns for a plain message', () => {
     const { carrier, respond } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     fireEvent.click(screen.getByRole('button', { name: zh['plan.discuss'] }))
     expect(respond).toHaveBeenCalledWith({
@@ -174,7 +191,7 @@ describe('PlanReviewPanel', () => {
       ...questions()[0] as object,
       options: [{ label: 'Approve' }, { label: 'Keep planning' }],
     }] as never })
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     expect(screen.getByRole('button', { name: zh['plan.approve'] }).hasAttribute('title')).toBe(false)
     expect(screen.getByRole('button', { name: zh['plan.decline'] }).hasAttribute('title')).toBe(false)
@@ -184,7 +201,7 @@ describe('PlanReviewPanel', () => {
     const { carrier } = wait({ questions: [{
       ...questions()[0] as object, options: [{ label: 'Approve' }],
     }] as never })
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     expect(screen.queryByRole('button', { name: zh['plan.decline'] })).toBeNull()
     expect(screen.getByRole('button', { name: zh['plan.approve'] })).toBeTruthy()
@@ -195,7 +212,7 @@ describe('PlanReviewPanel', () => {
       { questions: questions() },
       vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: false, reason: 'not-pending' })),
     )
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     fireEvent.click(screen.getByRole('button', { name: zh['plan.approve'] }))
     const failure = await screen.findByText('question response rejected: not-pending')
@@ -211,7 +228,7 @@ describe('PlanReviewPanel', () => {
     // anything, and the panel must still show the user something.
     // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     const { carrier } = wait({ questions: questions() }, vi.fn(() => Promise.reject('socket gone')))
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} />)
 
     fireEvent.click(screen.getByRole('button', { name: zh['plan.discuss'] }))
     expect(await screen.findByText('socket gone')).toBeTruthy()
@@ -219,7 +236,7 @@ describe('PlanReviewPanel', () => {
 
   it('carries the same decision surface in English', () => {
     const { carrier } = wait()
-    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} t={seatOver(en, commonEn)} />)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...makeKit()} t={seatOver(en, commonEn)} />)
 
     expect(screen.getByText('Plan review')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy()
