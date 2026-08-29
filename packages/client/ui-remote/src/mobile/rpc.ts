@@ -8,6 +8,8 @@
  * views render.
  */
 
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
+
 /** The wire error body (code + message, details kept wide). */
 export interface RpcError {
   code: string
@@ -27,13 +29,11 @@ const DEFAULT_RPC_TIMEOUT_MS = 30_000
 let rpcCounter = 0
 
 /**
- * Mint one page-unique rpcId (stable under crypto.randomUUID absence).
+ * Mint one page-unique rpcId (randomUUID, not crypto.randomUUID: plain-HTTP LAN pages run outside secure contexts).
  * @returns a unique rpc id string.
  */
 export function mintRpcId(): string {
-  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  const random = randomUUID()
   rpcCounter += 1
   return `${random}-${rpcCounter.toString(36)}`
 }

@@ -9,7 +9,7 @@
  * Export discipline: packages/client/AGENTS.md — no cross-plugin value
  * imports; `ctx.remote`, `ctx.slots`, and `ctx.locale` are injected peers.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the `remote` service merge and the forwarded-event
 // vocabulary into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -17,6 +17,8 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the `sidebar.footer.action` slot declaration into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+// Type-only: pulls the `slots` service merge into this program.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { en, zh, type RemoteKey } from './locales.ts'
 import { RemoteFooterAction } from './RemoteFooterAction.tsx'
 import type { RemoteDeviceRecord, RemoteTunnelState } from './remote-types.ts'

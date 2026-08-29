@@ -1,26 +1,44 @@
+---
+description: "浏览器侧远程控制表面：桌面配对/设备面板与配对后的 `/m` 移动页，渲染在 remote-access 控制面之上。"
+kind: "package-reference"
+---
 # @deepseek-ai/dsh-client-ui-remote
 
 [English](README.md) | 中文
 
-Web GUI 的远程控制表面。两半：
+## 概述
 
-**桌面面板** —— 侧栏底部设置旁的手机图标入口（`sidebar.footer.action`）打开一个 modal，展示隧道状态徽标、一次性配对二维码、带逐设备改名与吊销的已配对设备列表，以及停止全部操作。数据走仅桌面的 remote-access 控制面——`GET /remote/state`、`POST /remote/pair/issue`、`POST /remote/devices/<deviceId>/revoke`、`POST /remote/devices/<deviceId>/rename`、`POST /remote/stop`——以及面板打开期间转发的 `remote/devices/change` 与 `remote-tunnel/state` 事件。
+Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标入口（`sidebar.footer.action`）打开桌面面板：隧道状态徽标、一次性配对二维码、带逐设备改名与吊销的已配对设备列表，以及停止全部操作。数据走仅桌面的 remote-access 控制面——`GET /remote/state`、`POST /remote/pair/issue`、`POST /remote/devices/<deviceId>/revoke`、`POST /remote/devices/<deviceId>/rename` 与 `POST /remote/stop`——以及面板打开期间转发的 `remote/devices/change` 与 `remote-tunnel/state` 事件。配对后的 `/m` 页复用平台 `/api` 传输与转发事件，以小屏形式渲染同一状态。
 
-**移动表面（`/m`）** —— 启用时（随附 bundle 行从 `--remote` 派生 `enabled`）node half 在 `/m` 服务一个独立小屏界面（文档壳 + 自包含 `lib/mobile.js` bundle）。手机配对后，页面通过桌面 UI 使用的同一平台 `/api` 传输与 host 通信——unary RPC（`session.list`、`session.history`、`session.prompt`、`session.models`、`session.selectModel`、`session.rename`、`workspace.list`、`session.search`、`session.create`）加 `events.mux` WebSocket 接收实时 `session/event` 帧，socket 无法投递时退化为 `session.history` 轮询。设备 cookie 负责鉴权；不存在独立的移动通道。渲染只派生自 history 拉取与实时帧——会话日志是真源。
+## 目录
 
-移动客户端为打开的 socket 运行空闲看门狗（`idleTimeoutMs`，默认 45 秒；0 关闭）：任何到达的帧（含宿主心跳）都会重置计时器，静默死亡的传输（手机切换移动数据 ↔ WiFi，无 close 帧）会在超时后回收进轮询回退 + 重连路径——与桌面 connection 包的心跳/看门狗对同一失效模式。
+- [模型体验](#model-experience)
+- [已知限制与暂缓事项](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
-## Model Experience
+-----
 
-None，因为移动表面在 `/api` 线上渲染浏览器 UI，自身从不组装或发送 provider 请求。
+<a id="model-experience"></a>
+## 模型体验
+
+无：远程表面在 `/api` 线路上渲染已记录的状态，从不组装或发送 provider 请求。
 
 #### KV Cache effect
 
-None。
+无；面板与 `/m` 页不组装模型请求。
 
-## Known Limitations and Deferred Work
+<a id="known-limitations-and-deferred-work"></a>
+## 已知限制与暂缓事项
 
-- `/m` 页面与 `/api` 传输需要设备 cookie；未配对打开 `/m` 显示的是设备闸门的拒绝，而非引导流程。
-- 控制面路由仅 loopback（隧道流量被拒），因此 host 隧道关闭或浏览器处于远端时，桌面面板读到的是空/错误状态。
-- 移动表面以单个 ESM bundle（`lib/mobile.js`）交付，由包内独立 tsdown 入口从源码内联；`/m` 路由可服务前必须先跑 `bundle` 脚本，在此之前 node half 返回 500。
-- 配对二维码一次只签发一个（新签发即作废旧 token），因此面板显示单个二维码，而非轮换集合。
+- **控制面仅限 loopback** —— 隧道流量被拒绝，因此 host 隧道关闭或浏览器处于远程时，桌面面板读到的是空/错误状态。
+- **一次只有一个二维码** —— 新签发会使上一个 token 失效，面板展示单个二维码而非轮换集合。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>两个表面如何接线</summary>
+
+桌面面板通过 `sidebar.footer.action` 槽位挂载，并仅在打开期间订阅转发的 remote 事件。`/m` 页以一个自包含 bundle（`lib/mobile.js`）交付，由本包独立的 tsdown 入口构建；`bundle` 脚本必须先运行，node half 才能服务它。导出纪律遵循 packages/client/AGENTS.md：不跨插件值导入；`ctx.remote`、`ctx.slots`、`ctx.locale` 为注入的 peer。
+
+</details>

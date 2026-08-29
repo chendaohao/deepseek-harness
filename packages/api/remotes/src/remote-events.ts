@@ -6,26 +6,33 @@
  * type-only.
  */
 
+import { SESSION_CONTROLLER_REMOTE_EVENTS } from '@deepseek-ai/dsh-api-session-controller/remote-events'
+import type { TypertForwardableEventEntry } from '@deepseek-ai/dsh-typert-protocol'
+// Type-only: pull the remote-access/tunnel Events merges into both faces, so
+// the forwarded-event list below (and every `ctx.remote.$on` key face) sees
+// the `remote/*` and `remote-tunnel/*` vocabulary it names.
+import type {} from '@deepseek-ai/dsh-remote-access/types'
+import type {} from '@deepseek-ai/dsh-remote-tunnel/types'
+
 /**
- * Host events this application forwards to consumers verbatim: no projection,
- * no redaction, no renaming. The wire name is the Host cordis event name and
- * the payload is its argument list, so this array is simultaneously the whole
- * control point over what a consumer can receive and the legal key set of
- * `ctx.remote.$on`. Forwarding one more event is an entry here and nothing
- * else.
+ * Host events this application forwards without renaming. The explicit mode is
+ * both the Host dispatch strategy and the legal key set of `ctx.remote.$on`.
  */
 export const API_REMOTE_FORWARDED_EVENTS = [
-  'agent-preset/selected',
-  'commands/change',
-  'credentials/reference-updated',
-  'cordis/request-run',
-  'cordis/request-run-resolved',
-  'cordis/dynamic-package',
-  'cordis/dynamic-retract',
-  'cordis/inspect-query',
-  'cordis/inspect-query-resolved',
-  'llm/adapters-updated',
-  'remote/devices/change',
-  'remote-tunnel/state',
-  'settings/document-updated',
-] as const
+  { event: 'agent-preset/selected', mode: 'emit' },
+  { event: 'approval/request', mode: 'waterfall' },
+  ...SESSION_CONTROLLER_REMOTE_EVENTS.map(event => ({ event, mode: 'emit' as const })),
+  { event: 'commands/change', mode: 'emit' },
+  { event: 'credentials/reference-updated', mode: 'emit' },
+  { event: 'cordis/request-run', mode: 'emit' },
+  { event: 'cordis/request-run-resolved', mode: 'emit' },
+  { event: 'cordis/dynamic-package', mode: 'emit' },
+  { event: 'cordis/dynamic-retract', mode: 'emit' },
+  { event: 'cordis/inspect-query', mode: 'emit' },
+  { event: 'cordis/inspect-query-resolved', mode: 'emit' },
+  { event: 'llm/adapters-updated', mode: 'emit' },
+  { event: 'remote/devices/change', mode: 'emit' },
+  { event: 'remote-tunnel/state', mode: 'emit' },
+  { event: 'settings/document-updated', mode: 'emit' },
+  { event: 'user-questions/request', mode: 'waterfall' },
+] as const satisfies readonly TypertForwardableEventEntry[]

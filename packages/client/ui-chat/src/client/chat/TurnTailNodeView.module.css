@@ -1,0 +1,23 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.footer {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.actions {
+  margin-left: -6px;
+}
+
+/* Mobile web: tail actions hug the turn end. */
+@media (max-width: 640px) {
+  .root {
+    gap: 10px;
+  }
+}

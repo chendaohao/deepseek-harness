@@ -1,3 +1,7 @@
+---
+description: "远程接入能力族：通过公网 HTTPS 隧道暴露 Web GUI 并支持手机扫码配对。"
+kind: "package-group"
+---
 # remote/ — 远程接入能力
 
 [English](README.md) | 中文

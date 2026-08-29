@@ -1,3 +1,7 @@
+---
+description: "Remote-access capability family: public HTTPS tunnel exposure of the Web GUI with phone pairing."
+kind: "package-group"
+---
 # remote/ — remote-access capability
 
 English | [中文](README.zh.md)

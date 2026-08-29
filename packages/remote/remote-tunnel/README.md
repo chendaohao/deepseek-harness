@@ -1,6 +1,12 @@
+---
+description: "Tunnel capability Service (`ctx.remoteTunnel`): pinned cloudflared quick and named tunnels with verified downloads."
+kind: "package-reference"
+---
 # @deepseek-ai/dsh-remote-tunnel
 
 English | [中文](README.zh.md)
+
+## Summary
 
 Remote-tunnel capability: the default-exported `RemoteTunnel` Service (`ctx.remoteTunnel`) with its cloudflared provider. `open(port)` spawns a pinned `cloudflared` release (`2026.8.1`, SHA-256-verified per platform against the official release checksums): quick mode runs `tunnel --url http://127.0.0.1:<port> --no-autoupdate` and scans bounded stdout/stderr windows for the `https://<slug>.trycloudflare.com` URL (real cloudflared logs the banner to stderr); named mode writes a per-session ingress config (`tunnel: <name>`, an ingress rule from `<hostname>` to `http://127.0.0.1:<port>`, and the `http_status:404` catch-all) and runs `tunnel --config <file> --no-autoupdate run`, resolving `https://<hostname>` once the child reports the connection registered. Both retry spawn attempts with backoff and resolve a `RemoteTunnelSession`: its `url`, and `close()` stopping the child (SIGTERM, grace, SIGKILL), awaiting exit, and removing the per-session config. Sessions emit `remote-tunnel/state` with `open` (plus URL), `ended` (child exit), or `failed` (attempt budget spent; `open()` rejects with the same message). A session's URL stays readable after `ended` but is dead.
 
@@ -10,6 +16,14 @@ Named mode needs the tunnel registered once under the deployment's Cloudflare ac
 
 Restart policy belongs to the consumer: [`dsh-remote-access`](../remote-access/README.md) reopens a session on `ended`.
 
+## Table of Contents
+
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as the package owns tunnel transport only; no URL, ticket, or cookie reaches a model request.
@@ -18,9 +32,19 @@ None, as the package owns tunnel transport only; no URL, ticket, or cookie reach
 
 None; this package neither assembles nor sends a provider request.
 
+<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 
 - **Single provider** — cloudflared tunnels are the only backend; the Service is the seam a frp/Tailscale provider would replace, but no provider registry exists until a second provider needs one.
 - **Quick mode is ephemeral** — TryCloudflare assigns a random subdomain per session and Cloudflare positions quick tunnels for testing; deployments needing stable domains register a named tunnel (`mode: named`) as documented above.
 - **One network fetch to install** — `download: allow` fetches the pinned release from GitHub on first use; air-gapped hosts use `system` or `binaryPath`.
 
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Provider facts</summary>
+
+The pinned release (`2026.8.1`) is SHA-256-verified per platform against the official release checksums; a digest mismatch fails loudly and keeps nothing. Quick mode mints a random `*.trycloudflare.com` hostname per session; named mode runs a pre-registered tunnel under a stable hostname so the pairing cookie survives restarts. Sessions emit `remote-tunnel/state` (`open`/`ended`/`failed`); restart policy belongs to the consumer.
+
+</details>

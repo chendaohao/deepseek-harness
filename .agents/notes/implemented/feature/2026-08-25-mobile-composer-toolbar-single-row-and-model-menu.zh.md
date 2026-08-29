@@ -37,4 +37,4 @@ Status: implemented
 
 ## 相关
 
-- [窄视口 plan chip 点击区域回归测试](../bug-fix/2026-08-06-plan-narrow-viewport-regression.zh.md) — 既有 composer 控制行换行机制（`flex-wrap: wrap` + `margin-left: auto`）的来源；本次变更在其基础上把 ≤640px 视口的默认从"空间不足就换行"改为"尽量保持单行"，760-850px 的换行行为不受影响。
+- [窄视口 plan chip 点击区域回归测试](../bug-fix/2026-08-06-plan-narrow-viewport-regression.md) — 既有 composer 控制行换行机制（`flex-wrap: wrap` + `margin-left: auto`）的来源；本次变更在其基础上把 ≤640px 视口的默认从"空间不足就换行"改为"尽量保持单行"，760-850px 的换行行为不受影响。

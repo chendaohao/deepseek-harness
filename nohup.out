@@ -1,0 +1,33 @@
+$ node --import tsx/esm apps/cli/src/bin.ts web --remote
+[plugin-console] registered plugin tools: plugin_search, plugin_install, plugin_uninstall, plugin_status
+[ui-skin-center] legacy bridge: no legacy managed skin state; nothing to migrate
+[ELIFECYCLE] Command failed.
+$ node --import tsx/esm apps/cli/src/bin.ts web --remote
+[plugin-console] registered plugin tools: plugin_search, plugin_install, plugin_uninstall, plugin_status
+[ui-skin-center] legacy bridge: no legacy managed skin state; nothing to migrate
+dsh web: http://127.0.0.1:3080
+dsh web: opening the default browser; pass --no-open to disable
+dsh web remote: https://dsh.chenhao33685.ccwu.cc/pair/-UDfb1PuFZMaVPN-XwjLvEpPcYncVCVQvwytpZzmqZY
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+█ ▄▄▄▄▄ █▀ █▀▀██▄▄▀██ ▄ ██ ▀▀▀█ ▄▄▄▄▄ █
+█ █   █ █▀ ▄ ██▄█ █▄▄█ ▀█ ▀ ▀██ █   █ █
+█ █▄▄▄█ █▀█ █▄   ▀█▀█▄ ▄▄██▄▀ █ █▄▄▄█ █
+█▄▄▄▄▄▄▄█▄█▄█ ▀▄▀▄█▄▀ ▀▄█▄█▄█▄█▄▄▄▄▄▄▄█
+█ ▄▄▄▄█▄ ▄▄▄█▄█▄ ▀▄██ ▄▄▄▄▄▄▄▀▄█ █ ▀ ██
+█ █▄ ▄▄▄▄ ▀▀ ▄█▀█▀▄▀▀▄▀▄▀ █▀▄▀ █▄█ ▄▀▄█
+█▀▄ ▄▀ ▄▄ ▀ ▄▀▀▀▀▄▄█▀▀██▄█ ▄██▀▄▀▄▄ ▀▄█
+█ ▄▄█ ▀▄█ ███▀ ▄ ▄▄█▀▀  ▀▄█▀  ▀▄█▀▀▄▄ █
+██ █▀ █▄█▄▀▀█▄█▄ ▀ █ ▀▄ █▄▄ ▄ ▀▄▀▄▄ ▀▄█
+██ ▀███▄▄▀▀█ ▄█▀█▀█▄█▄ ███▄█▄ ▀▄▀ █▄▄ █
+██ █▀█▄▄▀▀ ▄▄▀▀▀▀█▄█▄ ▀ ▀█ █▄ ▀▄▀▄▄▄ ▄█
+██▀▄█▀▄▄ ▀▀ █▀ ▄ ▄█▀▀▄▀ █ ▄ ▄▄▄▄ █▄█▄ █
+█▀   ▄▄▄▄▀▄██▄█▄▀ ▄█▀▀█▄██ █▄▀▀▄▀▄▀▄ ▄█
+█ █ █▀█▄▀██  ▄█▀▄██ ██▀██▀█ ▄▄█▀█▀█▄▄ █
+█▄█▄██▄▄▄ ▄▄▄▀▀▀▀ ▀██ ▄▄▀▀█   ▄▄▄   ███
+█ ▄▄▄▄▄ █▄█▄█▀ ▄ ▄▄ ██ ▄▀ █ █ █▄█  █  █
+█ █   █ █ ▀▄█▄█▄▄  █▀ ▀ ▀▄█▄  ▄ ▄ ▄ ▀ █
+█ █▄▄▄█ █ ▀  ▄█▀  ▄ █ ▀▄▀▄█▄▀  ▀ ▀▄▄▄ █
+█▄▄▄▄▄▄▄█▄██▄█████▄███▄▄█▄▄▄▄█▄▄██▄▄▄▄█
+
+(node:256389) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)

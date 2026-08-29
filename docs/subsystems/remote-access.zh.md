@@ -34,7 +34,7 @@ interface RemoteTunnelSession {
 
 ## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxremotetunnel--remotetunnel"></a>
 
@@ -51,7 +51,7 @@ The remote-tunnel Service (`ctx.remoteTunnel`): resolves the cloudflared binary 
 async open(port: number): Promise<RemoteTunnelSession>
 ```
 
-Source: [`packages/remote/remote-tunnel/src/index.ts:400`](../../packages/remote/remote-tunnel/src/index.ts)
+Source: [`packages/remote/remote-tunnel/src/index.ts`](../../packages/remote/remote-tunnel/src/index.ts)
 
 <a id="remote-events"></a>
 
@@ -72,7 +72,7 @@ The device roster changed: a device paired, was revoked, or its liveness advance
 'remote/devices/change'(devices: DeviceRecord[]): void
 ```
 
-Source: [`packages/remote/remote-access/src/types.ts:24`](../../packages/remote/remote-access/src/types.ts)
+Source: [`packages/remote/remote-access/src/types.ts`](../../packages/remote/remote-access/src/types.ts)
 
 <a id="remote-tunnel-events"></a>
 
@@ -95,6 +95,6 @@ One tunnel session reported a durable fact: its public URL became ready, its chi
 'remote-tunnel/state'(state: RemoteTunnelState): void
 ```
 
-Source: [`packages/remote/remote-tunnel/src/types.ts:24`](../../packages/remote/remote-tunnel/src/types.ts)
+Source: [`packages/remote/remote-tunnel/src/types.ts`](../../packages/remote/remote-tunnel/src/types.ts)
 <!-- END GENERATED cordis-surface -->
 

@@ -6,13 +6,13 @@ import {
   IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  PendingQuestion, planReviewOf,
-  type QuestionAnswer, type QuestionComposerProps, type QuestionDraftAnswer,
+  planReviewOf,
+  type QuestionAnswer, type QuestionComposerProps,
 } from './contract/slots.ts'
+import type { PendingQuestion } from './contract/slots.ts'
+import type { QuestionDraftAnswer, QuestionDraftProgress } from './draft-store.ts'
 import { PlanReviewPanel } from './PlanReviewPanel.tsx'
 import css from './QuestionComposer.module.css'
-
-type DraftAnswer = QuestionDraftAnswer
 
 /**
  * Displayed feedback: validation feedback is stored as a dictionary KEY and
@@ -41,9 +41,9 @@ function isComposing(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
   return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
 }
 
-/** The free-text answer field shared by both question shapes. */
+/** The free-text answer field shared by both question variants. */
 interface AnswerFieldProps {
-  /** Which shape the field takes: the custom row's inline column, or the optionless question's own framed block. */
+  /** Visual variant: the custom row's inline column or the optionless question's framed block. */
   variant: 'inline' | 'block'
   /** Current draft text. */
   value: string
@@ -74,7 +74,7 @@ interface AnswerFieldProps {
  * Mirror and textarea MUST share font, line-height, padding and wrapping rules
  * or the two heights diverge.
  *
- * @param props - field shape, draft text, and the field's event handlers.
+ * @param props - visual variant, draft text, and the field's event handlers.
  * @returns The mirrored auto-growing field.
  */
 function AnswerField(props: AnswerFieldProps) {
@@ -97,88 +97,91 @@ function AnswerField(props: AnswerFieldProps) {
 }
 
 /**
- * Composer takeover boundary; the carrier key keys local drafts, so a
- * same-request replay (same key, new carrier object) preserves them.
+ * Composer takeover router. Generic-question drafts live in this entry's
+ * Session-scoped Slot store, keyed by the pending carrier, so a strict Session
+ * entry remount restores the same request without exposing it to another one.
  *
- * One takeover, two shapes: a request that declares a presentation intent this
- * package renders takes that shape (a plan review is one decision over one
+ * One takeover, two presentations: a request that declares a presentation intent this
+ * package renders uses that presentation (a plan review is one decision over one
  * plan, not a question set), and every other request takes the generic flow.
  * The routing lives here, at the one entry that owns the composer seat, so
- * neither shape can claim a request the other is already rendering.
+ * neither presentation can claim a request the other is already rendering.
  *
  * @param props - the selector-matched pending question carrier plus the framework standard kit.
  * @returns The question flow, or the intent's own surface, for this request.
  */
 export function QuestionComposer(props: QuestionComposerProps) {
-  // Domain-face mint rides the carrier's stable identity (never minted in a
-  // select/render dispatch — per-dispatch minting would churn memo identity).
-  const { matched, useStore, actions, t } = props
-  const question = useMemo(() => new PendingQuestion(matched), [matched])
+  const question = props.matched
   const review = useMemo(() => planReviewOf(question.questions), [question])
   return review === undefined
-    ? <QuestionFlow key={question.key} pending={question} t={t} useStore={useStore} actions={actions} />
-    : <PlanReviewPanel key={question.key} pending={question} review={review} t={t} />
+    ? (
+      <QuestionFlow
+        key={question.key}
+        pending={question}
+        t={props.t}
+        useStore={props.useStore}
+        actions={props.actions}
+      />
+    )
+    : <PlanReviewPanel key={question.key} pending={question} review={review} t={props.t} />
 }
 
-function QuestionFlow({
-  pending, t, useStore, actions,
-}: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't' | 'useStore' | 'actions'>) {
+type QuestionFlowProps =
+  { pending: PendingQuestion } & Pick<QuestionComposerProps, 't' | 'useStore' | 'actions'>
+
+function QuestionFlow({ pending, t, useStore, actions }: QuestionFlowProps) {
   const questions = pending.questions
-  const savedDrafts = useStore(s => s.drafts[pending.key])
-  // Restore the persisted drafts for this stable question key where present; a
-  // connection-generation death (or page reload) unmounts the composer, and the
-  // remount reads this seed instead of discarding what the user already chose.
-  const [drafts, setDrafts] = useState<DraftAnswer[]>(() => savedDrafts ?? questions.map(() => ({
-    selected: [], custom: '', skipped: false,
-  })))
-  // Persist every draft change so an unmount loses nothing; the keyed entry is
-  // only ever cleared on settlement/cancel. The updater runs on the latest
-  // drafts so rapid successive edits (multi-select checkbox toggles) never
-  // collapse onto a stale snapshot.
-  const draftKey = pending.key
-  const commitDrafts = (update: (current: DraftAnswer[]) => DraftAnswer[]): void => {
-    setDrafts((current) => {
-      const next = update(current)
-      actions.setDrafts(draftKey, next)
-      return next
-    })
-  }
-  // Resume the question the user was last on (clamped to the batch bounds); an
-  // interruption loses only the scroll position, never the answered drafts.
-  const savedPosition = useStore(s => s.positions[pending.key])
-  const [index, setIndex] = useState(() =>
-    savedPosition === undefined ? 0 : Math.min(savedPosition, questions.length - 1))
-  const moveTo = (next: number): void => {
-    setIndex(next)
-    actions.setPosition(draftKey, next)
-  }
+  const markdownLabels = useMemo(() => ({
+    code: { copyLabel: t('copy'), copiedLabel: t('copied') },
+    footnotes: t('markdown.footnotes'),
+  }), [t])
+  const initialProgress = useMemo<QuestionDraftProgress>(() => ({
+    index: 0,
+    drafts: questions.map(() => ({ selected: [], custom: '', skipped: false })),
+  }), [questions])
+  const storedProgress = useStore(state => (
+    state.requestKey === pending.key && state.progress.drafts.length === questions.length
+      ? state.progress
+      : undefined
+  ))
+  const { index, drafts } = storedProgress ?? initialProgress
   const [busy, setBusy] = useState<'answer' | 'cancel' | null>(null)
   const [error, setError] = useState<Feedback | null>(null)
   // Collapsed to the header strip so the conversation above stays readable
-  // while the user decides; the drafts survive because the state lives here.
+  // while the user decides; answer drafts live in the Session store above.
   const [minimized, setMinimized] = useState(false)
   // The free-form textarea autofocuses on first presentation; re-expanding a
   // collapsed question must not steal focus from the expand toggle back into
   // the input, so focus is granted once per question index.
   const focusedQuestions = useRef(new Set<number>())
-  // index stays in bounds (every setIndex site clamps) and drafts mirrors questions 1:1.
+  // Every navigation write stays in bounds and drafts mirrors questions 1:1.
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const question = questions[index]!
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const draft = drafts[index]!
   const hasOptions = (question.options?.length ?? 0) > 0
 
+  const replaceProgress = (nextIndex: number, nextDrafts: QuestionDraftAnswer[]): void => {
+    actions.replace(pending.key, { index: nextIndex, drafts: nextDrafts })
+  }
+
   const cancelFlow = (): void => {
     setBusy('cancel')
     setError(null)
-    void pending.cancel().then(() => { actions.clearDrafts(draftKey) }).catch((cause: unknown) => {
-      setBusy(null)
-      setError({ text: cause instanceof Error ? cause.message : String(cause) })
-    })
+    void pending.cancel()
+      .then(() => { actions.clear(pending.key) })
+      .catch((cause: unknown) => {
+        setBusy(null)
+        setError({ text: cause instanceof Error ? cause.message : String(cause) })
+      })
   }
 
-  const updateDraft = (update: (current: DraftAnswer) => DraftAnswer): void => {
-    commitDrafts(current => current.map((item, itemIndex) => itemIndex === index ? update(item) : item))
+  const updateDraft = (
+    update: (current: QuestionDraftAnswer) => QuestionDraftAnswer,
+    nextIndex = index,
+  ): void => {
+    const nextDrafts = drafts.map((item, itemIndex) => itemIndex === index ? update(item) : item)
+    replaceProgress(nextIndex, nextDrafts)
     setError(null)
   }
 
@@ -191,27 +194,24 @@ function QuestionFlow({
         return { ...current, selected, skipped: false }
       }
       return { selected: [label], custom: '', skipped: false }
-    })
-    if (question.multiSelect !== true && index < questions.length - 1) {
-      moveTo(index + 1)
-    }
+    }, question.multiSelect !== true && index < questions.length - 1 ? index + 1 : index)
   }
 
-  const answered = (item: DraftAnswer): boolean =>
+  const answered = (item: QuestionDraftAnswer): boolean =>
     item.selected.length > 0 || item.custom.trim() !== ''
 
-  const completed = (item: DraftAnswer): boolean => answered(item) || item.skipped
+  const completed = (item: QuestionDraftAnswer): boolean => answered(item) || item.skipped
 
-  const submitDrafts = (values: DraftAnswer[]): void => {
+  const submitDrafts = (values: QuestionDraftAnswer[]): void => {
     const missing = values.findIndex(item => !completed(item))
     if (missing >= 0) {
-      moveTo(missing)
+      replaceProgress(missing, values)
       setError({ key: 'error.incomplete' })
       return
     }
     const answer: QuestionAnswer = {
       answers: questions.map((item, itemIndex) => {
-        const value = values[itemIndex] as DraftAnswer
+        const value = values[itemIndex] as QuestionDraftAnswer
         if (value.skipped) return { id: item.id, selected: [] }
         const custom = value.custom.trim()
         return {
@@ -223,12 +223,12 @@ function QuestionFlow({
     }
     setBusy('answer')
     setError(null)
-    // A settled question is done for good: drop its persisted drafts (the
-    // rpcId-keyed entry would never be re-read, keeping it is only hygiene).
-    void pending.answer(answer).then(() => { actions.clearDrafts(draftKey) }).catch((cause: unknown) => {
-      setBusy(null)
-      setError({ text: cause instanceof Error ? cause.message : String(cause) })
-    })
+    void pending.answer(answer)
+      .then(() => { actions.clear(pending.key) })
+      .catch((cause: unknown) => {
+        setBusy(null)
+        setError({ text: cause instanceof Error ? cause.message : String(cause) })
+      })
   }
 
   const continueFlow = (): void => {
@@ -237,7 +237,7 @@ function QuestionFlow({
       return
     }
     if (index < questions.length - 1) {
-      moveTo(index + 1)
+      replaceProgress(index + 1, drafts)
       setError(null)
       return
     }
@@ -267,10 +267,9 @@ function QuestionFlow({
     const nextDrafts = drafts.map((item, itemIndex) => itemIndex === index
       ? { selected: [], custom: '', skipped: true }
       : item)
-    commitDrafts(() => nextDrafts)
+    replaceProgress(index < questions.length - 1 ? index + 1 : index, nextDrafts)
     setError(null)
     if (index < questions.length - 1) {
-      moveTo(index + 1)
       return
     }
     submitDrafts(nextDrafts)
@@ -314,7 +313,7 @@ function QuestionFlow({
           <>
             <div className={css.body} data-question-scroll>
               {question.detail !== undefined && (
-                <div className={css.detail}><MarkdownText text={question.detail} /></div>
+                <div className={css.detail}><MarkdownText text={question.detail} labels={markdownLabels} /></div>
               )}
               <div className={css.options} role={question.multiSelect === true ? 'group' : 'radiogroup'}>
                 {(question.options ?? []).map((option, optionIndex) => {
@@ -404,7 +403,7 @@ function QuestionFlow({
                 <button
                   type="button" className={css.iconButton} aria-label={t('nav.prev')}
                   disabled={index === 0 || busy !== null}
-                  onClick={() => { moveTo(index - 1); setError(null) }}
+                  onClick={() => { replaceProgress(index - 1, drafts); setError(null) }}
                 >
                   <IconChevronLeftOutline14 />
                 </button>
@@ -412,7 +411,7 @@ function QuestionFlow({
                 <button
                   type="button" className={css.iconButton} aria-label={t('nav.next')}
                   disabled={index === questions.length - 1 || busy !== null}
-                  onClick={() => { moveTo(index + 1); setError(null) }}
+                  onClick={() => { replaceProgress(index + 1, drafts); setError(null) }}
                 >
                   <IconChevronRightOutline14 />
                 </button>

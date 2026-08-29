@@ -6,59 +6,55 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import { AgentPresetSeatController } from '../src/client/seat-store.ts'
-import type { SeatSessionSummary } from '../src/client/seat-store.ts'
 
 /** One dispatched select RPC whose settlement the test controls. */
 interface PendingSelect {
-  payload: { sessionId: string; agentPreset: string }
-  resolve(envelope: unknown): void
+  sessionId: SessionId
+  agentPreset: string
+  resolve(result: unknown): void
   reject(error: unknown): void
 }
 
 /** A select double: records every dispatched RPC and settles it on demand. */
-function selectRig(): { pending: PendingSelect[]; api: IApiClient } {
+function selectRig(): { pending: PendingSelect[]; remote: Pick<ClientRemote, 'agentPresets'> } {
   const pending: PendingSelect[] = []
-  const api = {
+  const remote = {
     agentPresets: {
-      list: () => Promise.resolve({
-        rpcId: 'r',
-        result: {
-          ok: true as const,
-          value: { presets: [{ id: 'standard', trust: 'system' as const, isDefault: true }] },
-        },
-      }),
-      select: (payload: { sessionId: string; agentPreset: string }) => new Promise((resolve, reject) => {
-        pending.push({
-          payload,
-          resolve,
-          reject: reject as (error: unknown) => void,
-        })
+      select: (sessionId: SessionId, agentPreset: string) => new Promise((resolve, reject) => {
+        pending.push({ sessionId, agentPreset, resolve, reject: reject as (error: unknown) => void })
       }),
     },
-  } as unknown as IApiClient
-  return { pending, api }
+  } as unknown as Pick<ClientRemote, 'agentPresets'>
+  return { pending, remote }
 }
 
-function okEnvelope(agentPreset: string): unknown {
-  return { rpcId: 'r', result: { ok: true, value: { agentPreset } } }
+function ok(value: string): unknown {
+  return { ok: true as const, value }
 }
 
-function errEnvelope(message: string): unknown {
-  return { rpcId: 'r', result: { ok: false, error: { code: 'agent-preset-locked', message, details: {} } } }
+function err(message: string): unknown {
+  return { ok: false as const, error: { code: 'agent-preset-locked', message, details: {} } }
 }
+
+type CurrentSession = Pick<SessionSummary, 'id' | 'blank' | 'projectionValues'> | undefined
 
 /** A seat over the rig, reading the given current-session thunk. */
 function seat(
-  rig: { pending: PendingSelect[]; api: IApiClient },
-  currentSession: () => SeatSessionSummary | undefined,
-  onApplied?: (sessionId: string, agentPreset: string) => void,
+  rig: { pending: PendingSelect[]; remote: Pick<ClientRemote, 'agentPresets'> },
+  currentSession: () => CurrentSession,
 ): AgentPresetSeatController {
-  return new AgentPresetSeatController(rig.api, currentSession, onApplied)
+  return new AgentPresetSeatController(rig.remote, currentSession)
 }
 
-const BLANK_S1: SeatSessionSummary = { id: 's1' as never, blank: true, agentPreset: 'standard' }
+const BLANK_S1: CurrentSession = {
+  id: 's1' as SessionId,
+  blank: true,
+  projectionValues: { agentPreset: 'standard' },
+}
 
 describe('the agent-preset seat apply machinery', () => {
   it('coalesces concurrent applies onto one select RPC', async () => {
@@ -71,7 +67,7 @@ describe('the agent-preset seat apply machinery', () => {
     const second = controller.apply()
     const third = controller.apply()
     expect(rig.pending).toHaveLength(1)
-    rig.pending[0]!.resolve(okEnvelope('minimal'))
+    rig.pending[0]!.resolve(ok('minimal'))
     await Promise.all([first, second, third])
     expect(rig.pending).toHaveLength(1)
   })
@@ -85,19 +81,20 @@ describe('the agent-preset seat apply machinery', () => {
     const gate = controller.pendingApply().then(() => { settled = true })
     await Promise.resolve()
     expect(settled).toBe(false)
-    rig.pending[0]!.resolve(okEnvelope('minimal'))
+    rig.pending[0]!.resolve(ok('minimal'))
     await gate
     expect(settled).toBe(true)
   })
 
   it('applies an unserved stage itself instead of waiting for a list change', async () => {
     const rig = selectRig()
-    const controller = seat(rig, () => ({ id: 's1' as never, blank: true }))
+    const controller = seat(rig, () => ({ id: 's1' as SessionId, blank: true }))
     controller.stage('minimal')
     const gate = controller.pendingApply()
     expect(rig.pending).toHaveLength(1)
-    expect(rig.pending[0]!.payload).toEqual({ sessionId: 's1', agentPreset: 'minimal' })
-    rig.pending[0]!.resolve(okEnvelope('minimal'))
+    expect(rig.pending[0]!.sessionId).toBe('s1')
+    expect(rig.pending[0]!.agentPreset).toBe('minimal')
+    rig.pending[0]!.resolve(ok('minimal'))
     await gate
     // The stage is spent: the next gate settles without a second RPC.
     await controller.pendingApply()
@@ -106,17 +103,17 @@ describe('the agent-preset seat apply machinery', () => {
 
   it('terminates when no session can serve the stage and keeps it for the applier', async () => {
     const rig = selectRig()
-    const holder: { current?: SeatSessionSummary } = {}
+    const holder: { current?: CurrentSession } = {}
     const controller = seat(rig, () => holder.current)
     controller.stage('minimal')
     await controller.pendingApply()
     expect(rig.pending).toHaveLength(0)
     // The unservable stage survives for the list-change applier.
-    holder.current = { id: 's1' as never, blank: true }
+    holder.current = { id: 's1' as SessionId, blank: true }
     const applying = controller.apply()
     expect(rig.pending).toHaveLength(1)
-    expect(rig.pending[0]!.payload.agentPreset).toBe('minimal')
-    rig.pending[0]!.resolve(okEnvelope('minimal'))
+    expect(rig.pending[0]!.agentPreset).toBe('minimal')
+    rig.pending[0]!.resolve(ok('minimal'))
     await applying
   })
 
@@ -129,21 +126,21 @@ describe('the agent-preset seat apply machinery', () => {
     // apply's completion and land through the waiting call.
     controller.stage('cordis')
     const second = controller.apply()
-    rig.pending[0]!.resolve(okEnvelope('minimal'))
+    rig.pending[0]!.resolve(ok('minimal'))
     await first
     expect(rig.pending).toHaveLength(2)
-    expect(rig.pending[1]!.payload.agentPreset).toBe('cordis')
-    rig.pending[1]!.resolve(okEnvelope('cordis'))
+    expect(rig.pending[1]!.agentPreset).toBe('cordis')
+    rig.pending[1]!.resolve(ok('cordis'))
     await second
     expect(controller.store.getSnapshot().current).toBe('cordis')
   })
 
-  it('a refused apply surfaces the host message and drops the stage', async () => {
+  it('a refused apply surfaces the refusal cause and drops the stage', async () => {
     const rig = selectRig()
     const controller = seat(rig, () => BLANK_S1)
     controller.stage('minimal')
     const gate = controller.pendingApply()
-    rig.pending[0]!.resolve(errEnvelope('session has already started'))
+    rig.pending[0]!.resolve(err('session has already started'))
     await gate
     expect(controller.store.getSnapshot().error).toBe('session has already started')
     expect(controller.store.getSnapshot().busy).toBe(false)
@@ -164,22 +161,9 @@ describe('the agent-preset seat apply machinery', () => {
     expect(controller.store.getSnapshot().current).toBe('cordis')
     const second = controller.apply()
     expect(rig.pending).toHaveLength(2)
-    expect(rig.pending[1]!.payload.agentPreset).toBe('cordis')
-    rig.pending[1]!.resolve(okEnvelope('cordis'))
+    expect(rig.pending[1]!.agentPreset).toBe('cordis')
+    rig.pending[1]!.resolve(ok('cordis'))
     await second
     expect(controller.store.getSnapshot().current).toBe('cordis')
-  })
-
-  it('reports the applied composition through onApplied', async () => {
-    const rig = selectRig()
-    const seen: string[][] = []
-    const controller = seat(rig, () => BLANK_S1, (sessionId, agentPreset) => {
-      seen.push([sessionId, agentPreset])
-    })
-    controller.stage('minimal')
-    const applying = controller.apply()
-    rig.pending[0]!.resolve(okEnvelope('minimal'))
-    await applying
-    expect(seen).toEqual([['s1', 'minimal']])
   })
 })

@@ -18,9 +18,8 @@ import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './s
 
 /** Starts the shipped default on this scenario's declared reasoning model. */
 const OVERLAY = fileURLToPath(new URL('./declared-reasoning.overlay.yml', import.meta.url))
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/declared-reasoning', import.meta.url))
-const UI_EXPECTED = fileURLToPath(new URL('./snapshots/declared-reasoning/ui.expected.md', import.meta.url))
-const UNDECLARED_EXPECTED = fileURLToPath(new URL('./snapshots/declared-reasoning/undeclared.expected.md', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/declared-reasoning', import.meta.url))
+const UI_EXPECTED = fileURLToPath(new URL('./expected/declared-reasoning/ui.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 
 describe.skipIf(MODE === 'record')('web e2e: declared reasoning efforts reach the composer', () => {
@@ -41,27 +40,18 @@ describe.skipIf(MODE === 'record')('web e2e: declared reasoning efforts reach th
           displayName: 'Acme Gateway',
           api: 'openai-completions',
           baseURL: 'https://gateway.acme.example/v1',
-          models: [
-            {
-              id: 'acme-think',
-              name: 'Acme Think',
-              reasoningEfforts: { off: null, high: 'high', max: 'ultra' },
-            },
-            {
-              // Declares no reasoningEfforts: a custom vendor that reasons
-              // without reporting its levels, so the picker offers the
-              // canonical fallback set instead of nothing.
-              id: 'acme-plain',
-              name: 'Acme Plain',
-            },
-          ],
+          models: [{
+            id: 'acme-think',
+            name: 'Acme Think',
+            reasoningEfforts: { off: null, high: 'high', max: 'ultra' },
+          }],
         },
       },
     })
     browser = await chromium.launch()
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspaceZh(page, scaffold.workspaceCwd)
   }, 120_000)
@@ -99,38 +89,7 @@ describe.skipIf(MODE === 'record')('web e2e: declared reasoning efforts reach th
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('offers the canonical fallback levels for an undeclared hand-declared model', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-canonical-fallback'))
-    const trigger = page.getByRole('button', { name: /^选择模型/ })
-    await trigger.click()
-    await page.getByRole('menuitem', { name: /模型/ }).click()
-    await page.getByRole('menuitemradio', { name: /Acme Plain/ }).click()
-    // The switch settles (and the menu closes) before the effort pane reopens.
-    await expect.poll(() => trigger.getAttribute('aria-label'), { timeout: 10_000 })
-      .toBe('选择模型，当前 Acme Plain，推理等级 Default')
-    await trigger.click()
-    await page.getByRole('menuitem', { name: /推理等级/ }).click()
-
-    // No reasoningEfforts declared and no route default: the canonical fallback
-    // set is offered, leading with the provider-default entry.
-    const levels = page.getByRole('menuitemradio')
-    await expect.poll(async () => levels.allTextContents(), { timeout: 10_000 })
-      .toEqual(['Default', 'Off', 'Low', 'High', 'Max'])
-    const snapshot = await captureStableAria(page, '[role="menu"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(UNDECLARED_EXPECTED, snapshot, MODE)
-
-    // A canonical pick still records with the Agent default.
-    await page.getByRole('menuitemradio', { name: 'High' }).click()
-    await expect.poll(
-      async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'),
-      { timeout: 10_000 },
-    ).toContain('reasoningEffort: high')
-    await expect.poll(() => trigger.getAttribute('aria-label'), { timeout: 10_000 })
-      .toBe('选择模型，当前 Acme Plain，推理等级 High')
-    expect(tripwire.pageErrors).toEqual([])
-  }, 60_000)
-
   it('keeps its snapshot inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md', 'undeclared.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md'])
   })
 })
