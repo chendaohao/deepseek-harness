@@ -41,14 +41,27 @@ function fakeRes() {
   }
 }
 
-/** Mount the node half with a fake webserver and return the captured routes. */
+/** A controllable browser-auth fence: pass all requests unless told otherwise. */
+function fakeFence() {
+  const state = { reject: false }
+  return {
+    state,
+    requestRejection() {
+      return state.reject ? (401 as const) : undefined
+    },
+  }
+}
+
+/** Mount the node half with a fake webserver and fence, returning the captured routes. */
 async function mount(enabled: boolean) {
   const ctx = new Context()
   const webServer = fakeWebServer()
+  const fence = fakeFence()
   ctx.provide('webServer', webServer as never)
+  ctx.provide('connection', fence as never)
   const fiber = ctx.plugin({ inject, apply, Config }, { enabled })
   await fiber.await()
-  return { webServer, fiber }
+  return { webServer, fence, fiber }
 }
 
 describe('ui-remote node half', () => {
@@ -67,6 +80,24 @@ describe('ui-remote node half', () => {
     expect([...webServer.routes.keys()].sort()).toEqual(['/m', '/m/mobile.js'])
     await fiber.dispose()
     expect([...webServer.routes.keys()]).toEqual([])
+  })
+
+  it('refuses /m with 401 when the browser-auth fence rejects the request', async () => {
+    const { webServer, fence, fiber } = await mount(true)
+    fence.state.reject = true
+    const res = fakeRes()
+    await webServer.routes.get('/m')!.handler({} as never, res as unknown as ServerResponse)
+    expect(res.state.status).toBe(401)
+    await fiber.dispose()
+  })
+
+  it('refuses /m/mobile.js with 401 when the fence rejects the request', async () => {
+    const { webServer, fence, fiber } = await mount(true)
+    fence.state.reject = true
+    const res = fakeRes()
+    await webServer.routes.get('/m/mobile.js')!.handler({} as never, res as unknown as ServerResponse)
+    expect(res.state.status).toBe(401)
+    await fiber.dispose()
   })
 
   it('serves the mobile document shell at /m', async () => {

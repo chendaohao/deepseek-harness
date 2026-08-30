@@ -4,8 +4,10 @@
  * the standalone mobile surface at `/m`: the document shell at `/m` and the
  * self-contained bundle at `/m/mobile.js`, read from this package's `lib/`.
  * The page shares the platform `/api` transport (unary RPC + the remote.mux
- * stream WebSocket) with the desktop UI, so the paired-device cookie
- * authenticates it with no additional channel.
+ * stream WebSocket) with the desktop UI. The `/m` routes sit behind the same
+ * browser-auth fence as `/api`: `connection.requestRejection` checks the
+ * authority-bound cookie, so a mobile page reaching the webserver without the
+ * fence cookie (or a paired-tunnel cookie from the proxy gate) is refused.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -14,6 +16,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 // Type-only: resolves the `webServer` Context merge behind the route registrations.
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { ConnectionTrustRequest } from '@deepseek-ai/dsh-client-connection'
 
 /** Plugin config: activation gate for the /m surface. */
 export interface Config {
@@ -25,7 +28,7 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(false),
 })
 
-/** Required services: the host webserver owns the /m routes. */
+/** Required services: the host webserver owns the /m routes; the connection fence is optional. */
 export const inject = ['webServer']
 
 /** The mobile bundle artifact, resolved against this module's package lib. */
@@ -62,20 +65,36 @@ async function serveMobileJs(_req: IncomingMessage, res: ServerResponse): Promis
   }
 }
 
+/** Whether the request carries a valid browser-session cookie. */
+type Fence = { requestRejection(request: ConnectionTrustRequest): 401 | 403 | undefined }
+
 /**
  * Register the /m routes as effects (disposed with the owning fiber) only when
- * the surface is enabled.
- * @param ctx - host context with the webserver service injected.
+ * the surface is enabled. Both routes sit behind the browser-auth fence: the
+ * host connection service rejects requests whose Host/Origin fence or cookie
+ * check fails, mirroring the /api route's gate.
+ * @param ctx - host context with the webserver and connection services injected.
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
   if (!config.enabled) return
+  const fence = ctx.get('connection') as Fence | undefined
+  const gate = (handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>) =>
+    (req: IncomingMessage, res: ServerResponse): void | Promise<void> => {
+      const rejection = fence?.requestRejection(req)
+      if (rejection !== undefined) {
+        res.writeHead(rejection)
+        res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+        return
+      }
+      return handler(req, res)
+    }
   ctx.effect(
-    () => ctx.webServer.register({ kind: 'exact', path: '/m', handler: serveMobileHtml }),
+    () => ctx.webServer.register({ kind: 'exact', path: '/m', handler: gate(serveMobileHtml) }),
     'ui-remote: /m',
   )
   ctx.effect(
-    () => ctx.webServer.register({ kind: 'exact', path: '/m/mobile.js', handler: serveMobileJs }),
+    () => ctx.webServer.register({ kind: 'exact', path: '/m/mobile.js', handler: gate(serveMobileJs) }),
     'ui-remote: /m/mobile.js',
   )
 }

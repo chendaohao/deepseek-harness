@@ -150,6 +150,32 @@ describe('handlePairing', () => {
     expect(devices.snapshot()[0]?.name).toBe('mobile')
   })
 
+  it('redirects a just-paired device to the fence-login URL when provided', () => {
+    const devices = registry()
+    const policy = createAccessPolicy(secret, devices, {
+      now: () => NOW,
+      indexLoginUrl: () => 'https://public.example/?token=launch',
+    })
+    const { res, calls } = response()
+    const token = devices.issueToken(NOW)
+    expect(policy.handlePairing(request({}), res, '/pair/' + token)).toBe(true)
+    expect(calls[0]!.status).toBe(302)
+    expect(calls[0]!.headers?.location).toBe('https://public.example/?token=launch')
+  })
+
+  it('falls back to the bare root when the fence-login URL is unavailable', () => {
+    const devices = registry()
+    const policy = createAccessPolicy(secret, devices, {
+      now: () => NOW,
+      indexLoginUrl: () => undefined,
+    })
+    const { res, calls } = response()
+    const token = devices.issueToken(NOW)
+    expect(policy.handlePairing(request({}), res, '/pair/' + token)).toBe(true)
+    expect(calls[0]!.status).toBe(302)
+    expect(calls[0]!.headers?.location).toBe('/')
+  })
+
   it('answers HEAD the same way and consumes the token once', () => {
     const devices = registry()
     const policy = createAccessPolicy(secret, devices, { now: () => NOW })
@@ -222,5 +248,40 @@ describe('handlePairing', () => {
     const { res: otherRes, calls: otherCalls } = response()
     expect(policy.handlePairing(request({ remoteAddress: '198.51.100.2' }), otherRes, '/pair/AAAA')).toBe(true)
     expect(otherCalls[0]!.status).toBe(401)
+  })
+
+  it('separates rate-limit buckets by user agent behind one shared address', () => {
+    // Through the tunnel every request arrives from one loopback address; a
+    // single failing client must not burn the budget for every other device.
+    const policy = createAccessPolicy(secret, registry(), { now: () => NOW, pairMaxAttempts: 1 })
+    const phone = request({ remoteAddress: '127.0.0.1', headers: { 'user-agent': 'Mozilla/5.0 (iPhone)' } })
+    const desktop = request({ remoteAddress: '127.0.0.1', headers: { 'user-agent': 'Mozilla/5.0 (Windows)' } })
+    const { res: firstRes, calls: firstCalls } = response()
+    expect(policy.handlePairing(phone, firstRes, '/pair/AAAA')).toBe(true)
+    expect(firstCalls[0]!.status).toBe(401)
+    // The phone's bucket is spent; the desktop's is untouched.
+    const { res: secondRes, calls: secondCalls } = response()
+    expect(policy.handlePairing(desktop, secondRes, '/pair/AAAA')).toBe(true)
+    expect(secondCalls[0]!.status).toBe(401)
+    // The phone's second attempt is now limited.
+    const { res: thirdRes, calls: thirdCalls } = response()
+    expect(policy.handlePairing(phone, thirdRes, '/pair/AAAA')).toBe(true)
+    expect(thirdCalls[0]!.status).toBe(429)
+  })
+
+  it('keys the rate limit by a custom pairAttemptKey when supplied', () => {
+    const policy = createAccessPolicy(secret, registry(), {
+      now: () => NOW,
+      pairMaxAttempts: 1,
+      pairAttemptKey: req => String((req.headers['x-forwarded-for'] as string | undefined) ?? 'unknown'),
+    })
+    const first = request({ remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '198.51.100.9' } })
+    const second = request({ remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '198.51.100.9' } })
+    const other = request({ remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '198.51.100.10' } })
+    expect(policy.handlePairing(first, response().res, '/pair/AAAA')).toBe(true)
+    expect(policy.handlePairing(other, response().res, '/pair/AAAA')).toBe(true)
+    const { res: limitedRes, calls: limitedCalls } = response()
+    expect(policy.handlePairing(second, limitedRes, '/pair/AAAA')).toBe(true)
+    expect(limitedCalls[0]!.status).toBe(429)
   })
 })

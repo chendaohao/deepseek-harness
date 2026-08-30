@@ -1,7 +1,7 @@
 /**
  * Request policy of the remote-access proxy: the authorization gate (a live
  * device cookie only), the /pair/<token> exchange with its failure budget
- * keyed by client address, and the friendly HTML pages unpaired visitors see.
+ * keyed per client bucket, and the friendly HTML pages unpaired visitors see.
  * @module @deepseek-ai/dsh-remote-access/policy
  */
 
@@ -65,7 +65,7 @@ export interface AccessPolicy {
   handlePairing(req: IncomingMessage, res: ServerResponse, pathname: string): boolean
 }
 
-/** Rate-limit window state for one pairing address. */
+/** Rate-limit window state for one pairing-attempt bucket. */
 interface AttemptWindow {
   /** Window start in epoch milliseconds. */
   startedAt: number
@@ -92,11 +92,25 @@ export function createAccessPolicy(secret: Buffer, devices: DeviceRegistry, opti
   indexLoginUrl?: () => string | undefined
   now?: () => number
   clientAddress?: (req: IncomingMessage) => string | undefined
+  /**
+   * Rate-limit bucket key for one pairing request. Defaults to the client
+   * address plus the request's User-Agent: behind a tunnel every connection
+   * arrives from one loopback address, so an address-only key would make every
+   * visitor share one failure budget (a remote attacker who can reach the
+   * tunnel could lock out pairing for everyone). The UA component separates
+   * distinct devices behind that shared address; deployments behind a trusted
+   * edge may supply a real client identifier (e.g. a validated X-Forwarded-For).
+   * @param req - the pairing request.
+   * @returns the bucket key, or undefined to fall back to the unknown bucket.
+   */
+  pairAttemptKey?: (req: IncomingMessage) => string | undefined
 } = {}): AccessPolicy {
   const maxAttempts = options.pairMaxAttempts ?? PAIR_MAX_ATTEMPTS
   const windowMs = options.pairWindowMs ?? PAIR_WINDOW_MS
   const now = options.now ?? Date.now
   const clientAddress = options.clientAddress ?? (req => req.socket.remoteAddress)
+  const pairAttemptKey = options.pairAttemptKey ?? ((req: IncomingMessage) =>
+    (clientAddress(req) ?? 'unknown') + '|' + (req.headers['user-agent'] ?? ''))
   const windows = new Map<string, AttemptWindow>()
 
   const authorize = (req: IncomingMessage): boolean => {
@@ -113,19 +127,19 @@ export function createAccessPolicy(secret: Buffer, devices: DeviceRegistry, opti
       return true
     }
     const token = pathname.slice('/pair/'.length)
-    const address = clientAddress(req) ?? 'unknown'
+    const key = pairAttemptKey(req) ?? 'unknown'
     // Verification runs before the limit so the legitimate owner's token always
     // succeeds; the window counts failed attempts only.
     if (!TOKEN_PATTERN.test(token) || !devices.consumeToken(token, now())) {
-      if (rateExceeded(address, now())) {
+      if (rateExceeded(key, now())) {
         writePage(res, 429, PAIR_RATE_LIMITED_PAGE, { 'retry-after': String(Math.ceil(windowMs / 60_000)) })
         return true
       }
-      recordFailure(address, now())
+      recordFailure(key, now())
       writePage(res, 401, PAIR_REQUIRED_PAGE)
       return true
     }
-    windows.delete(address)
+    windows.delete(key)
     const deviceId = devices.register(deviceName(req.headers['user-agent']), now())
     const { value } = mintCookie(secret, deviceId, now())
     res.writeHead(302, {

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-29-remote-access-browser-auth-bridge-and-runtime-shim.md
+2026-08-29-remote-access-browser-auth-bridge-and-runtime-shim.md: f4f7f09025ca252c8e8867c8698c945377c2225e
+2026-08-29-remote-access-browser-auth-bridge-and-runtime-shim.zh.md: 99841f850c25f5220b4d8fc795d38c0cbb9686ec
