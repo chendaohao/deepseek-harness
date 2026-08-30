@@ -485,27 +485,27 @@ export function InputBar({
                 )}
               </button>
             </Tooltip>
-            <div className={css.tools}>
-              <Tooltip label={t('input.commands')} side="top" delayMs={500}>
-                <button
-                  type="button"
-                  className={css.add}
-                  aria-label={t('input.commands')}
-                  aria-haspopup="listbox"
-                  aria-expanded={commandMenuOpen}
-                  disabled={locked || toggleCommandMenu === undefined}
-                  onMouseDown={keepFocus}
-                  onClick={onToggleCommandMenu}
-                >
-                  <IconPlusOutline16 size={14} />
-                </button>
-              </Tooltip>
-              <div className={css.modes}>
-                {accessSelect}
-                {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
-              </div>
-              {leftItems}
+          </div>
+          <div className={css.tools}>
+            <Tooltip label={t('input.commands')} side="top" delayMs={500}>
+              <button
+                type="button"
+                className={css.add}
+                aria-label={t('input.commands')}
+                aria-haspopup="listbox"
+                aria-expanded={commandMenuOpen}
+                disabled={locked || toggleCommandMenu === undefined}
+                onMouseDown={keepFocus}
+                onClick={onToggleCommandMenu}
+              >
+                <IconPlusOutline16 size={14} />
+              </button>
+            </Tooltip>
+            <div className={css.modes}>
+              {accessSelect}
+              {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
             </div>
+            {leftItems}
           </div>
         </div>
       </div>
