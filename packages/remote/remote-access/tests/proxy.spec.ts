@@ -52,6 +52,7 @@ afterEach(async () => {
   proxyInternals.pendingMaxBytes = savedInternals.pendingMaxBytes
   proxyInternals.backlogMaxBytes = savedInternals.backlogMaxBytes
   proxyInternals.reauthorizeIntervalMs = savedInternals.reauthorizeIntervalMs
+  proxyInternals.pongMissMax = savedInternals.pongMissMax
   await proxy?.close()
   proxy = undefined
   if (target !== undefined) {
@@ -76,6 +77,30 @@ function rawRequest(port: number, path: string, headers: Record<string, string>,
     req.on('error', reject)
     req.end(body)
   })
+}
+
+/**
+ * One raw socket that completes the WS handshake and then stays silent —
+ * never pongs, never closes — the shape of a phone whose OS tore the
+ * suspended page's TCP leg without a close frame.
+ */
+async function silentLeg(port: number, path: string): Promise<Socket> {
+  const socket = connect(port, '127.0.0.1')
+  await once(socket, 'connect')
+  socket.write([
+    `GET ${path} HTTP/1.1`,
+    'Host: 127.0.0.1',
+    'Upgrade: websocket',
+    'Connection: Upgrade',
+    `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+    'Sec-WebSocket-Version: 13',
+    '\r\n',
+  ].join('\r\n'))
+  const handshake = await new Promise<string>((resolve) => {
+    socket.once('data', (chunk: Buffer) => { resolve(chunk.toString('utf8')) })
+  })
+  expect(handshake).toContain('101')
+  return socket
 }
 
 describe('HTTP relaying', () => {
@@ -333,6 +358,60 @@ describe('WebSocket relaying', () => {
     await new Promise<void>((resolve) => { client.on('open', () => { resolve() }) })
     client.terminate()
     await echoClosed
+  })
+
+  it('relays upstream pings to the visitor so a ponging leg survives', async () => {
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => true, handlePairing: () => false },
+    })
+    // The upstream pings on a fast cadence, standing in for the gateway's
+    // heartbeat interval; a forwarded ping is the visitor leg's only traffic.
+    wss!.on('connection', (socket) => {
+      const pings = setInterval(() => { socket.ping() }, 5)
+      socket.on('close', () => { clearInterval(pings) })
+    })
+    const relayed = new Promise<void>((resolve) => {
+      let seen = 0
+      const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port) + '/api/remote.mux')
+      // The ws library answers pings at the protocol level, like a browser;
+      // the client-side 'ping' event only fires if the relay forwarded them.
+      client.on('ping', () => {
+        seen += 1
+        if (seen >= 3) {
+          client.close()
+          resolve()
+        }
+      })
+    })
+    await expect(relayed).resolves.toBeUndefined()
+  })
+
+  it('closes the pair when the downstream leg stops answering relayed pings', async () => {
+    proxyInternals.pongMissMax = 1
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => true, handlePairing: () => false },
+    })
+    // The second unanswered relayed ping exceeds the miss budget: the pair
+    // must close, ending the upstream fan-out into the dead leg.
+    const upstreamClosed = new Promise<void>((resolve) => {
+      wss!.on('connection', (socket) => {
+        const pings = setInterval(() => { socket.ping() }, 5)
+        socket.on('close', () => { clearInterval(pings); resolve() })
+      })
+    })
+    const leg = await silentLeg(proxy.port, '/api/remote.mux')
+    const closeFrame = new Promise<Buffer>((resolve) => {
+      leg.on('data', (chunk: Buffer) => {
+        if ((chunk[0]! & 0x0f) === 0x8) resolve(chunk)
+      })
+    })
+    await expect(upstreamClosed).resolves.toBeUndefined()
+    await expect(closeFrame).resolves.toBeDefined()
+    leg.destroy()
   })
 
   it('buffers pre-open frames and refuses a flooding client', async () => {

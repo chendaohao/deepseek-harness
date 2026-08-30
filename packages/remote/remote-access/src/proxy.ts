@@ -36,6 +36,8 @@ const UPSTREAM_PENDING_MAX_BYTES = 8 * 1024 * 1024
 const WS_BACKLOG_MAX_BYTES = 128 * 1024 * 1024
 /** Re-run the access policy on established WebSocket relays every this many ms. */
 const REAUTHORIZE_INTERVAL_MS = 30_000
+/** Consecutive relayed pings a downstream leg may leave unanswered before the pair is closed. */
+const PONG_MISS_MAX = 3
 
 /** Test hook: WebSocket relay bounds, overridable so fixture tests need no huge frames. */
 export const internals = {
@@ -47,6 +49,8 @@ export const internals = {
   backlogMaxBytes: WS_BACKLOG_MAX_BYTES,
   /** Re-authorization cadence for established relays (ms). */
   reauthorizeIntervalMs: REAUTHORIZE_INTERVAL_MS,
+  /** Missed-pong threshold that closes a relayed pair. */
+  pongMissMax: PONG_MISS_MAX,
 }
 
 /** Byte length of one ws message payload. */
@@ -190,6 +194,24 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       const reauthorize = setInterval(() => {
         if (!policy.authorize(req)) closePair()
       }, internals.reauthorizeIntervalMs)
+      // Relay the upstream's WebSocket pings to the visitor and watch the
+      // pongs. A phone that left the network — or whose OS tore the suspended
+      // page's leg — never sends a close frame, so unanswered pings are the
+      // only signal, and an unwatched relay keeps fanning frames into the
+      // dead leg until a kernel timeout. Browsers answer pings at the
+      // protocol level without page JavaScript, so any live leg resets the
+      // watch; the carrier-facing keepalive is the relayed ping itself.
+      let unansweredPings = 0
+      upstream.on('ping', () => {
+        if (downstream.readyState !== WebSocket.OPEN) return
+        unansweredPings += 1
+        if (unansweredPings > internals.pongMissMax) {
+          closePair()
+          return
+        }
+        downstream.ping()
+      })
+      downstream.on('pong', () => { unansweredPings = 0 })
       upstream.on('open', () => {
         for (const frame of pending) upstream.send(frame.data, { binary: frame.isBinary })
         pending.length = 0

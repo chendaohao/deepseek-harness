@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-mobile-foreground-resync-and-relay-keepalive.md
+2026-08-30-mobile-foreground-resync-and-relay-keepalive.md: 72fb8f41281fd31f1ef65ae763aef6daa6a56f17
+2026-08-30-mobile-foreground-resync-and-relay-keepalive.zh.md: 27c53b98ebfcf7551ad4bbb9dfb1d602d4fc8ac8
