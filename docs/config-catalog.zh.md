@@ -463,7 +463,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/client/ui-remote/src/index.ts:19`](../packages/client/ui-remote/src/index.ts)
+Source: [`packages/client/ui-remote/src/index.ts:22`](../packages/client/ui-remote/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 
@@ -501,6 +501,26 @@ export interface Config {
 ```
 
 来源：[`packages/code-runtime/code-runtime-worker-thread/src/index.ts:25`](../packages/code-runtime/code-runtime-worker-thread/src/index.ts)
+
+<a id="deepseek-aidsh-codegraph"></a>
+
+## `@deepseek-ai/dsh-codegraph`
+
+```ts config-catalog
+/** Configuration for one codegraph MCP server and the scoped checklist. */
+export interface Config {
+  /** codegraph CLI executable (default 'codegraph'). */
+  command?: string
+  /** Extra CLI args appended after `serve --mcp` (default []). */
+  args?: string[]
+  /** Per-tool-call timeout in ms (default 120000). */
+  toolCallTimeoutMs?: number
+  /** Set false to disable the plugin entirely (default true). */
+  enabled?: boolean
+}
+```
+
+来源：[`packages/codegraph/codegraph/src/index.ts:66`](../packages/codegraph/codegraph/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -1712,7 +1732,7 @@ export type Config = LocalConfig
 
 ## `@deepseek-ai/dsh-remote-access`
 
-Requires: `remoteTunnel` · `webServer` · `shellEnv`
+Requires: `remoteTunnel` · `webServer` · `shellEnv` · `connection`
 
 ```ts config-catalog
 /** Plugin config: activation plus secret rotation. */

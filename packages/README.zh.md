@@ -47,6 +47,7 @@ harness 由 `packages/` 下的 npm 包组装而成，按能力系列分组：会
 | [`skill/`](skill/README.zh.md) | skill 能力系列：提供方注册表、本地提供方、面向模型的目录/loader |
 | [`compaction/`](compaction/README.zh.md) | 压缩能力系列：Service Definition + 基础提供方 + 命令 Consumer |
 | [`context/`](context/README.zh.md) | 模型可见请求上下文：workspace 指令、时间上下文、引用 |
+| [`codegraph/`](codegraph/README.zh.md) | CodeGraph 集成：索引工作区的定向清单 + 惰性启动的 MCP 服务器 |
 | [`subagent/`](subagent/README.zh.md) | subagent 能力系列：提供方注册表约定和面向模型的委托工具 |
 | [`jobs/`](jobs/README.zh.md) | 通用后台任务运行时和面向模型的作业控制工具 |
 | [`experimental/`](experimental/README.zh.md) | 私有原型与内部专用插件 |
