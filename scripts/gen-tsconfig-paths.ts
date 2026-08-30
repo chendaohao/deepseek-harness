@@ -39,31 +39,38 @@ interface PackageAlias {
   readonly source: string
   /** Whether the package carries `src/invariant.ts`, which earns a second alias. */
   readonly hasInvariant: boolean
+  /** Whether the package exports `./types` backed by `src/types.ts`, which earns a third alias. */
+  readonly hasTypes: boolean
 }
 
 /**
- * Read a workspace manifest's declared name.
+ * Read a workspace manifest's declared name and whether it exports `./types`.
  * @param manifest - absolute path to a `package.json`.
- * @returns The declared name, or undefined when the file is absent or nameless.
+ * @returns The declared name (or undefined when the file is absent or nameless)
+ *   and the `./types` export flag.
  */
-function packageName(manifest: string): string | undefined {
+function manifestFacts(manifest: string): { name: string | undefined; exportsTypes: boolean } {
   let parsed: unknown
   try {
     parsed = JSON.parse(readFileSync(manifest, 'utf8'))
   } catch (_absentOrUnreadableManifest) {
-    return undefined
+    return { name: undefined, exportsTypes: false }
   }
-  if (typeof parsed !== 'object' || parsed === null) return undefined
-  const name: unknown = (parsed as { name?: unknown }).name
-  return typeof name === 'string' ? name : undefined
+  if (typeof parsed !== 'object' || parsed === null) return { name: undefined, exportsTypes: false }
+  const record = parsed as { name?: unknown; exports?: unknown }
+  const name = typeof record.name === 'string' ? record.name : undefined
+  const entry = record.exports !== undefined && typeof record.exports === 'object' && record.exports !== null
+    ? (record.exports as Record<string, unknown>)['./types']
+    : undefined
+  return { name, exportsTypes: entry !== undefined }
 }
-
-/** One workspace package directory and the name its manifest declares. */
+/** One workspace package directory, its declared name, and its `./types` export flag. */
 interface WorkspacePackage {
   readonly group: string
   readonly directory: string
   readonly packageDir: string
   readonly name: string
+  readonly exportsTypes: boolean
 }
 
 /**
@@ -78,9 +85,9 @@ function workspacePackages(): WorkspacePackage[] {
     if (!statSync(groupDir).isDirectory()) continue
     for (const directory of readdirSync(groupDir).sort()) {
       const packageDir = join(groupDir, directory)
-      const name = packageName(join(packageDir, 'package.json'))
+      const { name, exportsTypes } = manifestFacts(join(packageDir, 'package.json'))
       if (name === undefined || !name.startsWith(PREFIX)) continue
-      if (existsSync(join(packageDir, 'src'))) found.push({ group, directory, packageDir, name })
+      if (existsSync(join(packageDir, 'src'))) found.push({ group, directory, packageDir, name, exportsTypes })
     }
   }
   return found
@@ -100,7 +107,7 @@ function workspacePackages(): WorkspacePackage[] {
  */
 export function collectPackageAliases(): PackageAlias[] {
   const bySpecifier = new Map<string, PackageAlias & { directory: string }>()
-  for (const { group, directory, packageDir, name } of workspacePackages()) {
+  for (const { group, directory, packageDir, name, exportsTypes } of workspacePackages()) {
     if (name !== `${PREFIX}${directory}`) continue
     const previous = bySpecifier.get(name)
     if (previous !== undefined) {
@@ -113,11 +120,12 @@ export function collectPackageAliases(): PackageAlias[] {
       specifier: name,
       source: `./packages/${group}/${directory}/src`,
       hasInvariant: existsSync(join(packageDir, 'src', 'invariant.ts')),
+      hasTypes: exportsTypes && existsSync(join(packageDir, 'src', 'types.ts')),
       directory: `${group}/${directory}`,
     })
   }
   return [...bySpecifier.values()]
-    .map(({ specifier, source, hasInvariant }) => ({ specifier, source, hasInvariant }))
+    .map(({ specifier, source, hasInvariant, hasTypes }) => ({ specifier, source, hasInvariant, hasTypes }))
     .sort((left, right) => left.specifier.localeCompare(right.specifier))
 }
 
@@ -185,6 +193,10 @@ export function renderAliases(aliases: readonly PackageAlias[], handWritten: Rea
     const invariant = `${alias.specifier}/invariant`
     if (alias.hasInvariant && !handWritten.has(invariant)) {
       lines.push(`      ${JSON.stringify(invariant)}: [${JSON.stringify(`${alias.source}/invariant.ts`)}]`)
+    }
+    const types = `${alias.specifier}/types`
+    if (alias.hasTypes && !handWritten.has(types)) {
+      lines.push(`      ${JSON.stringify(types)}: [${JSON.stringify(`${alias.source}/types.ts`)}]`)
     }
   }
   // The region closes `paths`, so the last member carries no trailing comma.
