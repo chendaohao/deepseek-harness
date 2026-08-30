@@ -1,12 +1,12 @@
 /**
  * Landing level: the workspace roster. The mobile surface opens straight here,
- * and every workspace row is a thin fetch from workspace.list (the roster is
- * small; sessions are not loaded until a workspace is opened).
+ * and every workspace row comes from the `workspace/follow` baseline (the
+ * roster is small; sessions are not loaded until a workspace is opened).
  */
 
 import { useEffect, useState } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../api.ts'
-import { listWorkspaces } from '../api.ts'
+import { fetchWorkspaceRoster } from '../api.ts'
 import { ThemeToggle } from '../ThemeToggle.tsx'
 import { errorText } from './App.tsx'
 
@@ -27,7 +27,7 @@ export function WorkspaceView({ onPick }: WorkspaceViewProps) {
 
   useEffect(() => {
     let cancelled = false
-    void listWorkspaces().then(
+    void fetchWorkspaceRoster().then(
       (result) => {
         if (cancelled) return
         if (result.ok) setItems(result.value)

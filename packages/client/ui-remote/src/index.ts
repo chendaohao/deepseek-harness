@@ -3,9 +3,9 @@
  * shipped bundle row derives it from the `--remote` flag), the node half serves
  * the standalone mobile surface at `/m`: the document shell at `/m` and the
  * self-contained bundle at `/m/mobile.js`, read from this package's `lib/`.
- * The page shares the platform `/api` transport (unary RPC + the events.mux
- * WebSocket) with the desktop UI, so the paired-device cookie authenticates it
- * with no additional channel.
+ * The page shares the platform `/api` transport (unary RPC + the remote.mux
+ * stream WebSocket) with the desktop UI, so the paired-device cookie
+ * authenticates it with no additional channel.
  */
 
 import { readFile } from 'node:fs/promises'

@@ -1,11 +1,11 @@
 /**
  * Minimal unary RPC client for the mobile surface, riding the platform /api
- * transport: POST /api/<method> with the client-request envelope, resolving
- * the server-response value. The page is a self-contained bundle (no module
- * loader), so the wire contract is reimplemented here over plain fetch; every
- * failure — network, HTTP status, malformed envelope, or a business error the
- * host answered with — folds into the same `{ ok: false, error }` result the
- * views render.
+ * transport: POST /api/<namespace>/<method> with the client-request envelope
+ * and a `{ args }` payload, resolving the server-response value. The page is a
+ * self-contained bundle (no module loader), so the wire contract is
+ * reimplemented here over plain fetch; every failure — network, HTTP status,
+ * malformed envelope, or a business error the host answered with — folds into
+ * the same `{ ok: false, error }` result the views render.
  */
 
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
@@ -46,33 +46,34 @@ function transportError(reason: unknown): RpcError {
 }
 
 /**
- * One unary call: POST /api/<method> with the client-request envelope,
- * resolving the server-response value into a folded result.
- * @param method - the dotted RPC method, e.g. `session.list`.
- * @param payload - the business payload.
+ * One unary call: POST /api/<endpoint> with the client-request envelope and
+ * the gateway `{ args }` payload, resolving the server-response value into a
+ * folded result.
+ * @param endpoint - the slash Remote endpoint, e.g. `session/list`.
+ * @param args - the endpoint's named-argument record (keys are descriptor wire names, e.g. `request`).
  * @param signal - optional abort.
  * @param timeoutMs - per-call deadline in ms (default {@link DEFAULT_RPC_TIMEOUT_MS}); overridable for tests.
  * @returns the response value, or a folded error.
  */
 export async function callUnary<T>(
-  method: string,
-  payload: unknown,
+  endpoint: string,
+  args: Record<string, unknown>,
   signal?: AbortSignal,
   timeoutMs: number = DEFAULT_RPC_TIMEOUT_MS,
 ): Promise<RpcResult<T>> {
   const rpcId = mintRpcId()
   // A timeout bounds every call: over a remote link a response dropped mid-body
-  // must fold to a transport error (and let the EventsClient poll back off)
-  // instead of hanging the surface forever.
+  // must fold to a transport error (and let the events client reconnect) instead
+  // of hanging the surface forever.
   const requestSignal = signal === undefined
     ? AbortSignal.timeout(timeoutMs)
     : AbortSignal.any([AbortSignal.timeout(timeoutMs), signal])
   let response: Response
   try {
-    response = await fetch(`${API_PREFIX}/${method}`, {
+    response = await fetch(`${API_PREFIX}/${endpoint}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'client-request', rpcId, method, payload }),
+      body: JSON.stringify({ type: 'client-request', rpcId, method: endpoint, payload: { args } }),
       signal: requestSignal,
     })
   } catch (error) {

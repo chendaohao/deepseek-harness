@@ -1,8 +1,9 @@
 /**
- * Chat level: one session. Loads the history tail page on open, appends pages
- * upward (loadOlder), folds live `session/event` frames in as they arrive, and
- * sends prompts through `session.prompt`. Rendering derives only from the
- * history pulls and live frames — no local model-visible state.
+ * Chat level: one session. The live-event client's `session/follow` snapshot
+ * supplies the opening tail (and the page cursor for loadOlder); appended
+ * events fold in live as `session/event` frames; older pages load through
+ * `session/page` below the snapshot cursor. Rendering derives only from the
+ * follow snapshot, page pulls, and live frames — no local model-visible state.
  *
  * Small-screen parity with the desktop fold: reasoning text hides behind a
  * collapsed "深度思考" disclosure, tool calls behind a collapsed tool
@@ -12,10 +13,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { ModelSelection, SessionModels } from '../api.ts'
-import { history as fetchHistory, models, prompt, renameSession, selectModel } from '../api.ts'
-import type { EventsClient, SessionEventFrame } from '../events.ts'
-import { foldEvents, type RenderMessage, type ToolCallInfo, type WireEvent } from '../messages.ts'
+import type { ModelCatalog, ModelSelection } from '../api.ts'
+import { modelCatalog, pageSessions, prompt, renameSession, selectModel } from '../api.ts'
+import type { EventsClient, SessionEventFrame, SessionSnapshotFrame } from '../events.ts'
+import { foldEvents, type RenderMessage, type ToolCallInfo } from '../messages.ts'
 import { modelMatchesQuery, useRecentModels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ThemeToggle } from '../ThemeToggle.tsx'
 import { errorText, formatTime, staleHostHint, type SessionView } from './App.tsx'
@@ -28,9 +29,22 @@ export interface ChatViewProps {
   onBack: () => void
 }
 
-/** Extract the raw event from one history entry (the fold consumes events only). */
-function eventOf(entry: { event: WireEvent }): WireEvent {
-  return entry.event
+/** The session's model-selection projection (the wire's `{ lastUsed, next }`). */
+function readProjectedModel(value: unknown): ModelSelection | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const record = value as { lastUsed?: unknown; next?: unknown }
+  const pick = (candidate: unknown): ModelSelection | undefined => {
+    if (typeof candidate !== 'object' || candidate === null) return undefined
+    const selection = candidate as { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
+    if (typeof selection['provider'] !== 'string' || typeof selection['model'] !== 'string') return undefined
+    return {
+      provider: selection['provider'],
+      model: selection['model'],
+      ...(typeof selection['reasoningEffort'] === 'string' ? { reasoningEffort: selection['reasoningEffort'] } : {}),
+    }
+  }
+  // `next` is the selection the next request takes; `lastUsed` is the fallback.
+  return pick(record['next']) ?? pick(record['lastUsed'])
 }
 
 /** First non-empty line of reasoning text (the collapsed summary). */
@@ -70,63 +84,67 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
   const [title, setTitle] = useState(session.title)
   const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
   const pendingRef = useRef(false)
-  // The WS and HTTP legs race over a remote tunnel: a live frame can arrive
-  // before the open history tail resolves. Buffer those frames and fold them
-  // over the tail when it lands — folding them before would be wiped by the
-  // tail's replace, and folding the tail over them would suppress the whole
-  // tail under their newer seq watermark.
+  // The snapshot and frame legs race: a live frame can arrive before the open
+  // snapshot resolves. Buffer those frames and fold them over the tail when it
+  // lands — folding them before would be wiped by the tail's replace, and
+  // folding the tail over them would suppress the whole tail under their newer
+  // seq watermark.
   const pendingLiveRef = useRef<SessionEventFrame[]>([])
-  /** Whether the open history tail has been applied; live frames fold directly after. */
+  /** Whether the opening snapshot has been applied; live frames fold directly after. */
   const tailAppliedRef = useRef(false)
+  /** The follow snapshot's inclusive cursor — the session/page throughSeq. */
+  const cursorRef = useRef<number | undefined>(undefined)
 
-  // Tail page on open (content loads only when the session is opened).
+  // Reset per open session; the subscribe effect below then refills from the
+  // follow snapshot. Declared first so the reset runs before the subscription.
   useEffect(() => {
-    let cancelled = false
     setLoading(true)
     setError(undefined)
     setMessages([])
+    setHasOlder(false)
     tailAppliedRef.current = false
     pendingLiveRef.current = []
-    void fetchHistory(session.sessionId).then(
-      (result) => {
-        if (cancelled) return
-        if (result.ok) {
-          const tail = foldEvents(result.value.events.map(eventOf))
-          const buffered = pendingLiveRef.current
-          pendingLiveRef.current = []
-          // Mark applied before scheduling the merge so any frame racing this
-          // task folds onto the merged tail (React preserves update order and
-          // the fold watermark dedups overlap).
-          tailAppliedRef.current = true
-          setMessages(buffered.reduce((acc, frame) => foldEvents([frame.event], acc), tail))
-          setHasOlder(result.value.hasMore)
-        } else {
-          // No tail baseline: fall back to folding live frames directly (the
-          // pre-race behavior), and drop whatever buffered during the fetch.
-          tailAppliedRef.current = true
-          pendingLiveRef.current = []
-          setError(errorText(result.error))
-        }
-        setLoading(false)
-      },
-      (reason: unknown) => {
-        if (cancelled) return
-        tailAppliedRef.current = true
-        pendingLiveRef.current = []
-        setError(errorText(reason))
-        setLoading(false)
-      },
-    )
-    // Best-effort current-model label for the toolbar chip; the sheet always
-    // re-reads a fresh directory on open.
-    void models(session.sessionId).then(
-      (result) => {
-        if (!cancelled && result.ok) setCurrentModel(result.value.current)
-      },
-      () => { /* chip falls back to a plain label */ },
-    )
-    return () => { cancelled = true }
+    cursorRef.current = undefined
   }, [session.sessionId])
+
+  // Follow snapshot (content loads when the observed session's stream opens)
+  // and transport status. The snapshot supplies the tail records, the page
+  // cursor, hasMore, and the current-model projection.
+  useEffect(() => {
+    if (events === undefined) return
+    const applySnapshot = (snapshot: SessionSnapshotFrame): void => {
+      if (snapshot.sessionId !== session.sessionId) return
+      cursorRef.current = snapshot.cursor
+      setHasOlder(snapshot.hasMore)
+      const projected = readProjectedModel(snapshot.projections.values['modelSelection'])
+      if (projected !== undefined) setCurrentModel(projected)
+      setError(undefined)
+      if (tailAppliedRef.current) {
+        // A fresh generation's records sit at or below the fold watermark, so
+        // this only backfills anything the previous generation missed.
+        setMessages(previous => foldEvents(snapshot.records, previous))
+        return
+      }
+      const buffered = pendingLiveRef.current
+      pendingLiveRef.current = []
+      // Mark applied before scheduling the merge so any frame racing this
+      // task folds onto the merged tail (React preserves update order and
+      // the fold watermark dedups overlap).
+      tailAppliedRef.current = true
+      setMessages(buffered.reduce((acc, frame) => foldEvents([frame.event], acc), foldEvents(snapshot.records)))
+      setLoading(false)
+    }
+    const unsubscribeSnapshot = events.onSnapshot(applySnapshot)
+    const unsubscribeStatus = events.onStatus((status) => {
+      if (status !== 'down' || tailAppliedRef.current) return
+      setError('实时连接不可用，正在重试…')
+      setLoading(false)
+    })
+    return () => {
+      unsubscribeSnapshot()
+      unsubscribeStatus()
+    }
+  }, [events, session.sessionId])
 
   // Live frames: fold session events for this session in as they arrive.
   useEffect(() => {
@@ -161,20 +179,17 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
   /** Load one older page and prepend it (host page boundaries never cut a message). */
   const loadOlder = useCallback(() => {
     if (pendingRef.current) return
+    const first = messages[0]
+    const cursor = cursorRef.current
+    if (first === undefined || cursor === undefined) return
     pendingRef.current = true
     setLoading(true)
-    const first = messages[0]
-    if (first === undefined) {
-      pendingRef.current = false
-      setLoading(false)
-      return
-    }
-    void fetchHistory(session.sessionId, first.seq).then(
+    void pageSessions(session.sessionId, cursor, first.seq).then(
       (result) => {
         pendingRef.current = false
         setLoading(false)
         if (result.ok) {
-          const older = foldEvents(result.value.events.map(eventOf))
+          const older = foldEvents(result.value.events)
           setMessages(previous => [...older, ...previous])
           setHasOlder(result.value.hasMore)
         } else {
@@ -441,7 +456,7 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
   onCurrent: (selection: ModelSelection) => void
   onClose: () => void
 }) {
-  const [state, setState] = useState<{ status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: SessionModels }>({ status: 'loading' })
+  const [state, setState] = useState<{ status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: ModelCatalog }>({ status: 'loading' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
   const [query, setQuery] = useState('')
@@ -451,14 +466,14 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
 
   const load = useCallback(() => {
     setState({ status: 'loading' })
-    void models(sessionId).then(
+    void modelCatalog().then(
       (result) => {
         if (result.ok) setState({ status: 'ready', data: result.value })
         else setState({ status: 'error', message: errorText(result.error) })
       },
       () => { setState({ status: 'error', message: '模型目录加载失败' }) },
     )
-  }, [sessionId])
+  }, [])
 
   useEffect(() => { load() }, [load])
 
@@ -515,7 +530,9 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
   }
 
   const { data } = state
-  const selected = current ?? data.current
+  // An unset session projection falls back to the deployment default: the
+  // host resolves an unconfigured session to exactly that catalog default.
+  const selected = current ?? data.default ?? { provider: '', model: '' }
   const choices = data.groups.flatMap(group => group.models.map(model => ({ group, model })))
   const searching = query.trim() !== ''
   const filtered = searching

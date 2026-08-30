@@ -49,6 +49,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "qrcode.react": "^4.2.0"
   },
@@ -73,6 +74,7 @@
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.1",
     "react": "^18.2.0",

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-29-mobile-surface-typert-wire-migration.md
+2026-08-29-mobile-surface-typert-wire-migration.md: dfc3a4b0503fbeff250ccdc5be6b47b0c64baaac
+2026-08-29-mobile-surface-typert-wire-migration.zh.md: 20dcc99ba762fda70e772a582982b81640fcbfaa

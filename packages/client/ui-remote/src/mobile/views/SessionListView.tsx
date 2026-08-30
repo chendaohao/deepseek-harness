@@ -1,5 +1,5 @@
 /**
- * Sessions level: one workspace's sessions, filtered from the session.list
+ * Sessions level: one workspace's sessions, filtered from the session/list
  * roster by the workspace's owned session ids, plus a full-text search across
  * all sessions and the new-session action. Creating a session attaches it to
  * the workspace and lands the user straight in the new chat — the same "new
@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { SessionSearchItem, SessionSummary, WorkspaceView as WorkspaceRow } from '../api.ts'
-import { createSession, listSessions, listWorkspaces, searchSessions } from '../api.ts'
+import { createSession, fetchWorkspaceRoster, listSessions, searchSessions } from '../api.ts'
 import { ThemeToggle } from '../ThemeToggle.tsx'
 import { errorText, formatTime, toSessionView, type SessionView } from './App.tsx'
 
@@ -48,7 +48,7 @@ export function SessionListView({ workspace, onBack, onPick }: SessionListViewPr
     let cancelled = false
     setLoading(true)
     setError(undefined)
-    void Promise.all([listSessions(), listWorkspaces()]).then(
+    void Promise.all([listSessions(), fetchWorkspaceRoster()]).then(
       ([sessions, workspaces]) => {
         if (cancelled) return
         if (!sessions.ok) {

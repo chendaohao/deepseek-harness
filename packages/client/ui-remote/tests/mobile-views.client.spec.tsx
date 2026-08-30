@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Mobile views: App navigation, workspace/session lists, and the chat surface (history, live events, prompt, model sheet, rename). */
+/** Mobile views: navigation, roster and session lists, and the chat surface (snapshot tail, live frames, prompt, model sheet, rename). */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RECENT_MODELS_KEY, readRecentModels } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -7,42 +7,79 @@ import { App, toSessionView } from '../src/mobile/views/App.tsx'
 import { WorkspaceView } from '../src/mobile/views/WorkspaceView.tsx'
 import { SessionListView } from '../src/mobile/views/SessionListView.tsx'
 import { ChatView } from '../src/mobile/views/ChatView.tsx'
-import type { EventsClient, SessionEventFrame } from '../src/mobile/events.ts'
+import type { EventsClient, SessionSnapshotFrame } from '../src/mobile/events.ts'
 import type { WireEvent } from '../src/mobile/messages.ts'
-import type { HistoryPage, SessionModels, SessionSearchItem, SessionSummary, WorkspaceView as WorkspaceRow } from '../src/mobile/api.ts'
-import { createSession, history, listSessions, listWorkspaces, models, prompt, renameSession, searchSessions, selectModel } from '../src/mobile/api.ts'
-import { foldEvents } from '../src/mobile/messages.ts'
+import type { ModelCatalog, SessionSearchItem, SessionSummary, WorkspaceView as WorkspaceRow } from '../src/mobile/api.ts'
+import { createSession, fetchWorkspaceRoster, listSessions, modelCatalog, pageSessions, prompt, renameSession, searchSessions, selectModel } from '../src/mobile/api.ts'
+import { foldEvents, recordsToWireEvents } from '../src/mobile/messages.ts'
 
 vi.mock('../src/mobile/api.ts', () => ({
-  listWorkspaces: vi.fn(),
+  fetchWorkspaceRoster: vi.fn(),
   listSessions: vi.fn(),
   searchSessions: vi.fn(),
   createSession: vi.fn(),
-  history: vi.fn(),
+  pageSessions: vi.fn(),
   prompt: vi.fn(),
-  models: vi.fn(),
+  modelCatalog: vi.fn(),
   selectModel: vi.fn(),
   renameSession: vi.fn(),
 }))
 
-// The page-lifetime live-event client is created inside App; a no-op stub keeps
-// jsdom from dialing out to a WebSocket during navigation tests.
-vi.mock('../src/mobile/events.ts', () => ({
-  EventsClient: class {
+// The page-lifetime live-event client is created inside App; the hoisted stub
+// records instances so tests can drive the follow snapshot and live frames of
+// the chat that is currently on screen. Listener faces stay structural so the
+// hoisted block never references the mocked module's types.
+const { StubEventsClient } = vi.hoisted(() => {
+  class StubEventsClient {
+    static instances: StubEventsClient[] = []
+    frameListeners = new Set<(frame: { sessionId: string; event: unknown }) => void>()
+    snapshotListeners = new Set<(snapshot: unknown) => void>()
+    statusListeners = new Set<(status: string) => void>()
+    constructor() {
+      StubEventsClient.instances.push(this)
+    }
+    onFrame(listener: (frame: { sessionId: string; event: unknown }) => void): () => void {
+      this.frameListeners.add(listener)
+      return () => { this.frameListeners.delete(listener) }
+    }
+    onSnapshot(listener: (snapshot: unknown) => void): () => void {
+      this.snapshotListeners.add(listener)
+      return () => { this.snapshotListeners.delete(listener) }
+    }
+    onStatus(listener: (status: string) => void): () => void {
+      this.statusListeners.add(listener)
+      return () => { this.statusListeners.delete(listener) }
+    }
     start(): void {}
     stop(): void {}
     observe(): void {}
-    onFrame(): () => void { return () => {} }
-  },
-}))
+    emit(frame: { type?: unknown; sessionId: string; event: unknown }): void {
+      act(() => { for (const listener of [...this.frameListeners]) listener(frame) })
+    }
+    emitSnapshot(snapshot: unknown): void {
+      act(() => { for (const listener of [...this.snapshotListeners]) listener(snapshot) })
+    }
+    emitStatus(status: string): void {
+      act(() => { for (const listener of [...this.statusListeners]) listener(status) })
+    }
+  }
+  return { StubEventsClient }
+})
 
-const mockListWorkspaces = vi.mocked(listWorkspaces)
+vi.mock('../src/mobile/events.ts', () => ({ EventsClient: StubEventsClient }))
+
+/** The stub satisfies the client face at runtime; the real class is the declared prop type. */
+function asEventsClient(stub: InstanceType<typeof StubEventsClient>): EventsClient {
+  return stub as unknown as EventsClient
+}
+
+const mockFetchWorkspaceRoster = vi.mocked(fetchWorkspaceRoster)
 const mockListSessions = vi.mocked(listSessions)
 const mockSearchSessions = vi.mocked(searchSessions)
 const mockCreateSession = vi.mocked(createSession)
-const mockHistory = vi.mocked(history)
+const mockPageSessions = vi.mocked(pageSessions)
 const mockPrompt = vi.mocked(prompt)
-const mockModels = vi.mocked(models)
+const mockModelCatalog = vi.mocked(modelCatalog)
 const mockSelectModel = vi.mocked(selectModel)
 const mockRenameSession = vi.mocked(renameSession)
 
@@ -50,6 +87,7 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   localStorage.clear()
+  StubEventsClient.instances.length = 0
 })
 
 function workspace(id: string, title: string, sessionIds: string[]): WorkspaceRow {
@@ -68,20 +106,26 @@ function assistantEvent(seq: number, text: string): WireEvent {
   return { type: 'assistant/message', seq, time: 1_700_000_000_000, data: { turn: 1, step: 0, message: { id: `a${seq}`, content: [{ type: 'text', text }] } } }
 }
 
-function historyPage(events: WireEvent[], hasMore = false): HistoryPage {
-  return { events: events.map(event => ({ event })), hasMore }
+function snapshotFrame(records: WireEvent[], options: { cursor?: number; hasMore?: boolean } = {}): SessionSnapshotFrame {
+  const cursor = options.cursor ?? records.at(-1)?.seq ?? 0
+  return {
+    type: 'session/snapshot',
+    sessionId: 's1',
+    cursor,
+    hasMore: options.hasMore ?? false,
+    projections: { asOfSeq: cursor, values: {} },
+    records,
+  }
 }
 
-const directory: SessionModels = {
-  current: { provider: 'deepseek', model: 'deepseek-chat' },
-  routable: true,
+const directory: ModelCatalog = {
+  default: { provider: 'deepseek', model: 'deepseek-chat' },
   groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }],
   failures: [],
 }
 
-const multiDirectory: SessionModels = {
-  current: { provider: 'deepseek', model: 'deepseek-chat' },
-  routable: true,
+const multiDirectory: ModelCatalog = {
+  default: { provider: 'deepseek', model: 'deepseek-chat' },
   groups: [
     {
       id: 'deepseek',
@@ -97,29 +141,19 @@ const multiDirectory: SessionModels = {
   failures: [],
 }
 
-/** A hand-built live-event client stub that records subscribers for later dispatch. */
-function eventsStub() {
-  const listeners = new Set<(frame: SessionEventFrame) => void>()
-  return {
-    client: {
-      onFrame: (listener: (frame: SessionEventFrame) => void) => {
-        listeners.add(listener)
-        return () => { listeners.delete(listener) }
-      },
-    } as unknown as EventsClient,
-    emit(frame: SessionEventFrame) {
-      act(() => { for (const listener of [...listeners]) listener(frame) })
-    },
-  }
+/** The live-event client instance App mounted (one per render). */
+function lastEventsClient(): InstanceType<typeof StubEventsClient> {
+  const instances = StubEventsClient.instances
+  const instance = instances[instances.length - 1]
+  if (instance === undefined) throw new Error('no EventsClient mounted')
+  return instance
 }
 
 describe('App state machine', () => {
   it('navigates workspaces → sessions → chat and back', async () => {
     const w1 = workspace('w1', 'project-alpha', ['s1'])
-    mockListWorkspaces.mockResolvedValue({ ok: true, value: [w1] })
+    mockFetchWorkspaceRoster.mockResolvedValue({ ok: true, value: [w1] })
     mockListSessions.mockResolvedValue({ ok: true, value: [sessionRow('s1', '我的项目')] })
-    mockHistory.mockResolvedValue({ ok: true, value: historyPage([userEvent(1, '你好'), assistantEvent(2, '你好，有什么可以帮你？')]) })
-    mockModels.mockResolvedValue({ ok: true, value: directory })
     mockPrompt.mockResolvedValue({ ok: true, value: { accepted: true } })
 
     render(<App />)
@@ -131,8 +165,9 @@ describe('App state machine', () => {
     fireEvent.click(screen.getByRole('button', { name: /我的项目/ }))
 
     expect(await screen.findByPlaceholderText('输入消息，Enter 发送…')).toBeTruthy()
-    expect(screen.getByText('你好')).toBeTruthy()
-    expect(screen.getByText('你好，有什么可以帮你？')).toBeTruthy()
+    // The chat fills from the follow snapshot of the mounted events client.
+    lastEventsClient().emitSnapshot(snapshotFrame([userEvent(1, '你好'), assistantEvent(2, '你好，有什么可以帮你？')]))
+    expect(await screen.findByText('你好，有什么可以帮你？')).toBeTruthy()
 
     // Back to sessions, then back to workspaces.
     fireEvent.click(screen.getByRole('button', { name: '返回' }))
@@ -144,14 +179,14 @@ describe('App state machine', () => {
 
 describe('WorkspaceView', () => {
   it('renders the workspace roster', async () => {
-    mockListWorkspaces.mockResolvedValue({ ok: true, value: [workspace('w1', '项目甲', []), workspace('w2', '项目乙', [])] })
+    mockFetchWorkspaceRoster.mockResolvedValue({ ok: true, value: [workspace('w1', '项目甲', []), workspace('w2', '项目乙', [])] })
     const { container } = render(<WorkspaceView onPick={() => {}} />)
     await screen.findByText('项目甲')
     expect(container.innerHTML).toMatchSnapshot()
   })
 
   it('renders an error state with retry', async () => {
-    mockListWorkspaces.mockResolvedValue({ ok: false, error: { code: 'http', message: 'HTTP 403' } })
+    mockFetchWorkspaceRoster.mockResolvedValue({ ok: false, error: { code: 'http', message: 'HTTP 403' } })
     render(<WorkspaceView onPick={() => {}} />)
     expect(await screen.findByText(/加载失败：HTTP 403/)).toBeTruthy()
   })
@@ -161,7 +196,7 @@ describe('SessionListView', () => {
   it('shows only the sessions owned by the workspace', async () => {
     const w1 = workspace('w1', '项目甲', ['s1', 's3'])
     mockListSessions.mockResolvedValue({ ok: true, value: [sessionRow('s1', 'A'), sessionRow('s2', 'B'), sessionRow('s3', 'C')] })
-    mockListWorkspaces.mockResolvedValue({ ok: true, value: [w1] })
+    mockFetchWorkspaceRoster.mockResolvedValue({ ok: true, value: [w1] })
     render(<SessionListView workspace={w1} onBack={() => {}} onPick={() => {}} />)
     expect(await screen.findByText('A')).toBeTruthy()
     expect(screen.queryByText('B')).toBeNull()
@@ -171,7 +206,7 @@ describe('SessionListView', () => {
   it('creates a session in the workspace and opens it', async () => {
     const w1 = workspace('w1', '项目甲', [])
     mockListSessions.mockResolvedValue({ ok: true, value: [] })
-    mockListWorkspaces.mockResolvedValue({ ok: true, value: [w1] })
+    mockFetchWorkspaceRoster.mockResolvedValue({ ok: true, value: [w1] })
     mockCreateSession.mockResolvedValue({ ok: true, value: { sessionId: 's9' } })
     const onPick = vi.fn()
     render(<SessionListView workspace={w1} onBack={() => {}} onPick={onPick} />)
@@ -183,7 +218,7 @@ describe('SessionListView', () => {
   it('searches all sessions and opens a hit', async () => {
     const w1 = workspace('w1', '项目甲', [])
     mockListSessions.mockResolvedValue({ ok: true, value: [] })
-    mockListWorkspaces.mockResolvedValue({ ok: true, value: [w1] })
+    mockFetchWorkspaceRoster.mockResolvedValue({ ok: true, value: [w1] })
     const hit: SessionSearchItem = { sessionId: 's42', snippet: '权限检查片段' }
     mockSearchSessions.mockResolvedValue({ ok: true, value: [hit] })
     const onPick = vi.fn()
@@ -198,13 +233,12 @@ describe('SessionListView', () => {
 describe('ChatView', () => {
   const session = { sessionId: 's1', title: '我的项目', cwd: '/home/dev/s1', updatedAt: 1_700_000_000_000, running: false, blank: false }
 
-  it('renders history, sends a prompt, and folds live events', async () => {
-    mockHistory.mockResolvedValue({ ok: true, value: historyPage([userEvent(1, '你好'), assistantEvent(2, '收到')]) })
-    mockModels.mockResolvedValue({ ok: true, value: directory })
+  it('renders the follow snapshot, sends a prompt, and folds live events', async () => {
     mockPrompt.mockResolvedValue({ ok: true, value: { accepted: true } })
-    const live = eventsStub()
-    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
 
+    live.emitSnapshot(snapshotFrame([userEvent(1, '你好'), assistantEvent(2, '收到')]))
     expect(await screen.findByText('你好')).toBeTruthy()
     expect(screen.getByText('收到')).toBeTruthy()
 
@@ -228,31 +262,60 @@ describe('ChatView', () => {
     expect(screen.getByPlaceholderText('输入消息，Enter 发送…')).toHaveProperty('value', '')
   })
 
-  it('keeps a live frame that arrives before the open history tail resolves', async () => {
-    let resolveHistory!: (value: Awaited<ReturnType<typeof history>>) => void
-    mockHistory.mockReturnValue(new Promise<Awaited<ReturnType<typeof history>>>((resolve) => { resolveHistory = resolve }))
-    mockModels.mockResolvedValue({ ok: true, value: directory })
-    const live = eventsStub()
-    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
-    // A live frame lands while the history tail is still in flight — the WS and
-    // HTTP legs race over a remote tunnel. It must survive the tail's replace.
+  it('keeps a live frame that arrives before the follow snapshot resolves', async () => {
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    // A live frame lands before the snapshot — the snapshot and frame legs race.
+    // It must survive the tail's replace.
     live.emit({
       type: 'session/event',
       sessionId: 's1',
       event: { type: 'user/message', seq: 3, time: 1_700_000_000_001, data: { id: 'u3', role: 'user', content: [{ type: 'text', text: '竞态帧' }], source: {} } },
     })
-    await act(async () => { resolveHistory({ ok: true, value: historyPage([userEvent(1, '你好'), userEvent(2, '收到')]) }) })
+    live.emitSnapshot(snapshotFrame([userEvent(1, '你好'), userEvent(2, '收到')]))
     expect(await screen.findByText('你好')).toBeTruthy()
     expect(screen.getByText('收到')).toBeTruthy()
     expect(screen.getByText('竞态帧')).toBeTruthy()
   })
 
-  it('switches the model through the bottom sheet', async () => {
-    mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
-    mockModels.mockResolvedValue({ ok: true, value: directory })
+  it('shows the transport banner while down before the snapshot, and clears it on reconnect', async () => {
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitStatus('down')
+    expect(await screen.findByText('实时连接不可用，正在重试…')).toBeTruthy()
+    live.emitSnapshot(snapshotFrame([userEvent(1, '你好')]))
+    expect(await screen.findByText('你好')).toBeTruthy()
+    expect(screen.queryByText('实时连接不可用，正在重试…')).toBeNull()
+  })
+
+  it('derives the current model from the snapshot projection', async () => {
+    mockModelCatalog.mockResolvedValue({ ok: true, value: directory })
     mockSelectModel.mockResolvedValue({ ok: true, value: { provider: 'deepseek', model: 'deepseek-chat' } })
-    const live = eventsStub()
-    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitSnapshot({
+      ...snapshotFrame([]),
+      projections: { asOfSeq: 0, values: { modelSelection: { lastUsed: null, next: { provider: 'deepseek', model: 'deepseek-chat' } } } },
+    })
+    expect(await screen.findByText('deepseek-chat')).toBeTruthy()
+  })
+
+  it('loads older pages below the snapshot cursor', async () => {
+    mockPageSessions.mockResolvedValue({ ok: true, value: { events: [userEvent(1, '更早')], hasMore: false } })
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitSnapshot(snapshotFrame([assistantEvent(2, '收到')], { cursor: 5, hasMore: true }))
+    fireEvent.click(await screen.findByRole('button', { name: '加载更早的消息' }))
+    await screen.findByText('更早')
+    expect(mockPageSessions).toHaveBeenCalledWith('s1', 5, 2)
+  })
+
+  it('switches the model through the bottom sheet', async () => {
+    mockModelCatalog.mockResolvedValue({ ok: true, value: directory })
+    mockSelectModel.mockResolvedValue({ ok: true, value: { provider: 'deepseek', model: 'deepseek-chat' } })
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitSnapshot(snapshotFrame([]))
 
     fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
     expect(await screen.findByText('DeepSeek Chat')).toBeTruthy()
@@ -263,11 +326,11 @@ describe('ChatView', () => {
   })
 
   it('filters the model sheet by provider and model name', async () => {
-    mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
-    mockModels.mockResolvedValue({ ok: true, value: multiDirectory })
+    mockModelCatalog.mockResolvedValue({ ok: true, value: multiDirectory })
     mockSelectModel.mockResolvedValue({ ok: true, value: { provider: 'deepseek', model: 'deepseek-chat' } })
-    const live = eventsStub()
-    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitSnapshot(snapshotFrame([]))
 
     fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
     await screen.findByText('DeepSeek Chat')
@@ -288,11 +351,11 @@ describe('ChatView', () => {
       { provider: 'anthropic', model: 'claude-opus' },
       { provider: 'old', model: 'gone' },
     ]))
-    mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
-    mockModels.mockResolvedValue({ ok: true, value: multiDirectory })
+    mockModelCatalog.mockResolvedValue({ ok: true, value: multiDirectory })
     mockSelectModel.mockResolvedValue({ ok: true, value: { provider: 'deepseek', model: 'deepseek-chat' } })
-    const live = eventsStub()
-    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitSnapshot(snapshotFrame([]))
 
     fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
     await screen.findByText('最近使用')
@@ -305,11 +368,11 @@ describe('ChatView', () => {
   })
 
   it('collapses and expands a provider group in the sheet', async () => {
-    mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
-    mockModels.mockResolvedValue({ ok: true, value: multiDirectory })
+    mockModelCatalog.mockResolvedValue({ ok: true, value: multiDirectory })
     mockSelectModel.mockResolvedValue({ ok: true, value: { provider: 'deepseek', model: 'deepseek-chat' } })
-    const live = eventsStub()
-    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitSnapshot(snapshotFrame([]))
 
     fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
     await screen.findByText('DeepSeek Chat')
@@ -320,11 +383,10 @@ describe('ChatView', () => {
   })
 
   it('renames the session through session.rename', async () => {
-    mockHistory.mockResolvedValue({ ok: true, value: historyPage([]) })
-    mockModels.mockResolvedValue({ ok: true, value: directory })
     mockRenameSession.mockResolvedValue({ ok: true, value: { title: '新标题', seq: 9 } })
-    const live = eventsStub()
-    render(<ChatView session={session} events={live.client} onBack={() => {}} />)
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitSnapshot(snapshotFrame([]))
 
     fireEvent.click(screen.getByRole('button', { name: '重命名会话' }))
     const input = screen.getByPlaceholderText('输入新标题…')
@@ -348,5 +410,33 @@ describe('fold helpers', () => {
     expect(next.map(message => message.text)).toEqual(['你好', 'hi'])
     const replayed = foldEvents([{ type: 'assistant/chunk', seq: 2, time: 0, data: { turn: 1, step: 0, chunk: { type: 'text-delta', index: 0, text: 'hi' } } }], next)
     expect(replayed.map(message => message.text)).toEqual(['你好', 'hi'])
+  })
+
+  it('expands a packed chunk-row record into its member delta events', () => {
+    const records = [
+      { type: 'event', event: userEvent(1, '你好') },
+      {
+        type: 'chunks',
+        event: {
+          type: 'chunkrow/text-chunks',
+          seq: 2,
+          time: 1_000,
+          data: { turn: 1, step: 0, index: 0, dt: [5, 7], texts: ['你', '好', '！'] },
+        },
+      },
+    ]
+    const page = foldEvents(recordsToWireEvents(records))
+    expect(page.map(message => message.text)).toEqual(['你好', '你好！'])
+    expect(page[1]).toMatchObject({ id: 'assistant,1.0#2', pending: true, time: 1_012 })
+  })
+
+  it('drops malformed records instead of blanking the page', () => {
+    const records = [
+      { type: 'event', event: userEvent(1, '你好') },
+      { type: 'chunks', event: { type: 'chunkrow/text-chunks', seq: 'x', time: 0, data: {} } },
+      { type: 'chunks', event: { type: 'chunkrow/unknown-tag', seq: 2, time: 0, data: {} } },
+      'garbage',
+    ]
+    expect(recordsToWireEvents(records).map(event => event.seq)).toEqual([1])
   })
 })

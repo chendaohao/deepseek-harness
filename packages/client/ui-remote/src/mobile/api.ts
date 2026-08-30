@@ -1,16 +1,19 @@
 /**
  * Typed business API for the mobile surface, riding the platform /api unary
- * transport. Every method folds to an `RpcResult`; response values are
- * validated structurally here (the surface bundle cannot value-import the
- * host-apiproxy zod schemas, so the wire shapes are re-checked by hand).
+ * transport (Typert Remote endpoints, `{ args }` payloads) and one short-lived
+ * remote-mux socket for the workspace roster (the roster has no unary read; it
+ * streams as a `workspace/follow` baseline). Response values are validated
+ * structurally here (the surface bundle re-checks wire shapes by hand).
  * Malformed rows are dropped so one bad record never blanks a list; a
  * malformed top-level value fails loud as a folded error.
  */
 
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
+import { recordsToWireEvents, type WireEvent } from './messages.ts'
+import { muxCancel, muxOpen, parseMuxFrame, REMOTE_MUX_PATH, type WebSocketLike } from './mux.ts'
 import { callUnary, type RpcResult } from './rpc.ts'
-import type { WireEvent } from './messages.ts'
 
-/** One workspace roster row (workspace.* responses). */
+/** One workspace roster row (the `workspace/follow` baseline). */
 export interface WorkspaceView {
   workspaceId: string
   path: string
@@ -20,7 +23,7 @@ export interface WorkspaceView {
   updatedAt: string
 }
 
-/** One session.list row. */
+/** One session/list row. */
 export interface SessionSummary {
   sessionId: string
   updatedAt: number
@@ -32,23 +35,16 @@ export interface SessionSummary {
   projections?: { values?: Record<string, unknown> }
 }
 
-/** One session.search result. */
+/** One session/search result. */
 export interface SessionSearchItem {
   sessionId: string
   snippet: string
 }
 
-/** One session.history entry (the tool view is not rendered on this surface). */
-export interface HistoryEntry {
-  event: WireEvent
-}
-
-/** The session.history tail page. */
+/** One message-aligned history page (events already expanded from records). */
 export interface HistoryPage {
-  events: HistoryEntry[]
+  events: WireEvent[]
   hasMore: boolean
-  /** Projection baseline riding the tail page (title, permissions, ...). */
-  projections?: { asOfSeq: number; values: Record<string, unknown> }
 }
 
 /** Complete provider/model selection. */
@@ -93,15 +89,15 @@ export interface ModelCatalogFailure {
   message: string
 }
 
-/** The session.models advisory directory. */
-export interface SessionModels {
-  current: ModelSelection
-  routable: boolean
+/** The session/modelCatalog advisory directory (deployment-wide; no per-session state). */
+export interface ModelCatalog {
+  /** Selection used when a session has none of its own. */
+  default?: ModelSelection
   groups: ModelProviderGroup[]
   failures: ModelCatalogFailure[]
 }
 
-/** The session.create result (the id is the commit the caller navigates to). */
+/** The session/create result (the id is the commit the caller navigates to). */
 export interface CreatedSession {
   sessionId: string
   agentPreset?: string
@@ -117,12 +113,12 @@ function isStringArray(value: unknown): value is string[] {
 
 /** Run one unary call and validate the response value; malformed → folded error. */
 async function callParsed<T>(
-  method: string,
-  payload: unknown,
+  endpoint: string,
+  args: Record<string, unknown>,
   parse: (value: unknown) => T | undefined,
   label: string,
 ): Promise<RpcResult<T>> {
-  const result = await callUnary<unknown>(method, payload)
+  const result = await callUnary<unknown>(endpoint, args)
   if (!result.ok) return result
   const value = parse(result.value)
   if (value === undefined) return { ok: false, error: { code: 'malformed', message: `${label}: unexpected response shape` } }
@@ -146,6 +142,8 @@ function parseWorkspaceView(value: unknown): WorkspaceView | undefined {
 
 function parseSessionSummary(value: unknown): SessionSummary | undefined {
   if (!isRecord(value)) return undefined
+  // Subagent sessions render through their parent's turn on every surface.
+  if (value['origin'] === 'subagent') return undefined
   const { sessionId, updatedAt } = value
   if (typeof sessionId !== 'string' || typeof updatedAt !== 'number') return undefined
   const result: SessionSummary = {
@@ -163,15 +161,6 @@ function parseSessionSummary(value: unknown): SessionSummary | undefined {
     result.projections = { values: projections['values'] }
   }
   return result
-}
-
-function parseHistoryEntry(value: unknown): HistoryEntry | undefined {
-  if (!isRecord(value)) return undefined
-  const event = value['event']
-  if (!isRecord(event)) return undefined
-  const { type, seq, time } = event
-  if (typeof type !== 'string' || typeof seq !== 'number' || typeof time !== 'number') return undefined
-  return { event: { type, seq, time, data: event['data'] } }
 }
 
 function parseModelSelection(value: unknown): ModelSelection | undefined {
@@ -253,19 +242,27 @@ function parseSearchList(value: unknown): SessionSearchItem[] | undefined {
 }
 
 function parseHistoryPage(value: unknown): HistoryPage | undefined {
-  if (!isRecord(value) || !Array.isArray(value['events'])) return undefined
-  const result: HistoryPage = {
-    events: value['events'].map(parseHistoryEntry).filter((entry): entry is HistoryEntry => entry !== undefined),
-    hasMore: value['hasMore'] === true,
+  if (!isRecord(value)) return undefined
+  const hasMore = value['hasMore']
+  if (hasMore !== true && hasMore !== false) return undefined
+  return {
+    events: recordsToWireEvents(value['records']),
+    hasMore,
   }
-  const projections = value['projections']
-  if (isRecord(projections)) {
-    const asOfSeq = projections['asOfSeq']
-    if (typeof asOfSeq === 'number' && isRecord(projections['values'])) {
-      result.projections = { asOfSeq, values: projections['values'] }
-    }
+}
+
+function parseCatalog(value: unknown): ModelCatalog | undefined {
+  if (!isRecord(value)) return undefined
+  const fallback = parseModelSelection(value['default'])
+  return {
+    ...(fallback !== undefined ? { default: fallback } : {}),
+    groups: Array.isArray(value['groups'])
+      ? value['groups'].map(parseProviderGroup).filter((group): group is ModelProviderGroup => group !== undefined)
+      : [],
+    failures: Array.isArray(value['failures'])
+      ? value['failures'].map(parseModelFailure).filter((failure): failure is ModelCatalogFailure => failure !== undefined)
+      : [],
   }
-  return result
 }
 
 function parseCreatedSession(value: unknown): CreatedSession | undefined {
@@ -274,22 +271,6 @@ function parseCreatedSession(value: unknown): CreatedSession | undefined {
   const agentPreset = value['agentPreset']
   if (typeof agentPreset === 'string') result.agentPreset = agentPreset
   return result
-}
-
-function parseModels(value: unknown): SessionModels | undefined {
-  if (!isRecord(value)) return undefined
-  const current = parseModelSelection(value['current'])
-  if (current === undefined) return undefined
-  return {
-    current,
-    routable: value['routable'] === true,
-    groups: Array.isArray(value['groups'])
-      ? value['groups'].map(parseProviderGroup).filter((group): group is ModelProviderGroup => group !== undefined)
-      : [],
-    failures: Array.isArray(value['failures'])
-      ? value['failures'].map(parseModelFailure).filter((failure): failure is ModelCatalogFailure => failure !== undefined)
-      : [],
-  }
 }
 
 function parseSelected(value: unknown): ModelSelection | undefined {
@@ -303,19 +284,73 @@ function parseRenamed(value: unknown): { title: string; seq: number } | undefine
 }
 
 /**
- * The workspace roster.
+ * The workspace roster: one `workspace/follow` stream on a short-lived mux
+ * socket, resolved with the baseline frame and cancelled. The workspace
+ * capability exposes no unary roster read, so the stream's opening baseline is
+ * the wire's only point-in-time roster.
  * @returns the workspace list result.
  */
-export function listWorkspaces(): Promise<RpcResult<WorkspaceView[]>> {
-  return callParsed('workspace.list', {}, parseWorkspaceList, 'workspace.list')
+export function fetchWorkspaceRoster(): Promise<RpcResult<WorkspaceView[]>> {
+  return new Promise((resolve) => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    let socket: WebSocketLike
+    try {
+      socket = new WebSocket(`${protocol}//${window.location.host}${REMOTE_MUX_PATH}`) as unknown as WebSocketLike
+    } catch (error) {
+      resolve({ ok: false, error: { code: 'transport', message: error instanceof Error ? error.message : String(error) } })
+      return
+    }
+    const done = (result: RpcResult<WorkspaceView[]>): void => {
+      socket.onopen = null
+      socket.onmessage = null
+      socket.onerror = null
+      socket.onclose = null
+      try {
+        socket.close()
+      } catch {
+        // Already closed.
+      }
+      resolve(result)
+    }
+    const streamId = 'workspace-roster'
+    socket.onopen = () => {
+      muxOpen(socket, streamId, 'workspace/follow', { args: {} })
+    }
+    socket.onmessage = (event) => {
+      const frame = parseMuxFrame(event.data)
+      if (frame === undefined || frame.streamId !== streamId) return
+      if (frame.type === 'item') {
+        const value = isRecord(frame.value) ? frame.value['value'] : undefined
+        const items = value === undefined ? undefined : parseWorkspaceList(value)
+        muxCancel(socket, streamId)
+        done(items === undefined
+          ? { ok: false, error: { code: 'malformed', message: 'workspace.follow: unexpected baseline shape' } }
+          : { ok: true, value: items })
+        return
+      }
+      if (frame.type === 'error') {
+        done({ ok: false, error: { code: frame.error.code, message: frame.error.message } })
+        return
+      }
+      // `end` without an item: the stream closed before its baseline.
+      done({ ok: false, error: { code: 'transport', message: 'workspace follow ended before the baseline' } })
+    }
+    socket.onerror = () => {
+      done({ ok: false, error: { code: 'transport', message: 'transport failed: socket error' } })
+    }
+    socket.onclose = () => {
+      done({ ok: false, error: { code: 'transport', message: 'transport failed: socket closed' } })
+    }
+  })
 }
 
 /**
- * All sessions (the v1 list has no pagination cursor).
+ * All visible sessions (the list has no pagination cursor; subagent sessions
+ * are host-internal and stay off the roster).
  * @returns the session summary list result.
  */
 export function listSessions(): Promise<RpcResult<SessionSummary[]>> {
-  return callParsed('session.list', {}, parseSessionList, 'session.list')
+  return callParsed('session/list', { _request: {} }, parseSessionList, 'session.list')
 }
 
 /**
@@ -324,7 +359,7 @@ export function listSessions(): Promise<RpcResult<SessionSummary[]>> {
  * @returns the matched session search items.
  */
 export function searchSessions(query: string): Promise<RpcResult<SessionSearchItem[]>> {
-  return callParsed('session.search', { query }, parseSearchList, 'session.search')
+  return callParsed('session/search', { request: { query } }, parseSearchList, 'session.search')
 }
 
 /**
@@ -333,49 +368,59 @@ export function searchSessions(query: string): Promise<RpcResult<SessionSearchIt
  * @returns the created session result.
  */
 export function createSession(workspaceId: string): Promise<RpcResult<CreatedSession>> {
-  return callParsed('session.create', { workspaceId }, parseCreatedSession, 'session.create')
+  return callParsed('session/create', { request: { workspaceId } }, parseCreatedSession, 'session.create')
 }
 
 /**
- * One history window; omit beforeSeq for the tail page.
+ * One message-aligned history page below the follow snapshot cursor.
  * @param sessionId - the session whose history is read.
+ * @param throughSeq - the inclusive log cut held from the follow snapshot.
  * @param beforeSeq - optional exclusive sequence bound for an earlier page.
  * @param maxMessages - page size, default 30.
- * @returns the history page result.
+ * @returns the history page result (records already expanded to events).
  */
-export function history(
+export function pageSessions(
   sessionId: string,
+  throughSeq: number,
   beforeSeq?: number,
   maxMessages = 30,
 ): Promise<RpcResult<HistoryPage>> {
-  return callParsed('session.history', {
-    sessionId,
-    maxMessages,
-    ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-  }, parseHistoryPage, 'session.history')
+  return callParsed('session/page', {
+    request: {
+      address: { kind: 'session', sessionId },
+      throughSeq,
+      maxMessages,
+      ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+    },
+  }, parseHistoryPage, 'session.page')
 }
 
 /**
- * Send one text prompt (queued: the agent picks it up in order).
+ * Send one text prompt (queued: the agent picks it up in order). The
+ * client-minted requestId is persisted on the accepted user message and lets
+ * callers retire their local submission echo.
  * @param sessionId - the session receiving the prompt.
  * @param text - the prompt text.
  * @returns the acceptance result.
  */
 export function prompt(sessionId: string, text: string): Promise<RpcResult<{ accepted: true }>> {
-  return callParsed('session.prompt', {
-    sessionId,
-    mode: 'queue',
-    content: [{ type: 'text', text }],
+  return callParsed('session/prompt', {
+    request: {
+      requestId: randomUUID(),
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text }],
+    },
   }, value => isRecord(value) && value['accepted'] === true ? { accepted: true } : undefined, 'session.prompt')
 }
 
 /**
- * Fresh advisory model directory for one session.
- * @param sessionId - the session whose model directory is read.
- * @returns the model directory result.
+ * Fresh advisory model directory (deployment-wide; a session's own selection
+ * arrives through its projection baseline instead).
+ * @returns the model catalog result.
  */
-export function models(sessionId: string): Promise<RpcResult<SessionModels>> {
-  return callParsed('session.models', { sessionId }, parseModels, 'session.models')
+export function modelCatalog(): Promise<RpcResult<ModelCatalog>> {
+  return callParsed('session/modelCatalog', {}, parseCatalog, 'session.modelCatalog')
 }
 
 /**
@@ -388,11 +433,13 @@ export function selectModel(
   sessionId: string,
   selection: ModelSelection,
 ): Promise<RpcResult<ModelSelection>> {
-  return callParsed('session.selectModel', {
-    sessionId,
-    provider: selection.provider,
-    model: selection.model,
-    ...(selection.reasoningEffort !== undefined ? { reasoningEffort: selection.reasoningEffort } : {}),
+  return callParsed('session/selectModel', {
+    request: {
+      sessionId,
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort !== undefined ? { reasoningEffort: selection.reasoningEffort } : {}),
+    },
   }, parseSelected, 'session.selectModel')
 }
 
@@ -403,5 +450,5 @@ export function selectModel(
  * @returns the normalized title and its sequence number.
  */
 export function renameSession(sessionId: string, title: string): Promise<RpcResult<{ title: string; seq: number }>> {
-  return callParsed('session.rename', { sessionId, title }, parseRenamed, 'session.rename')
+  return callParsed('session/rename', { request: { sessionId, title } }, parseRenamed, 'session.rename')
 }

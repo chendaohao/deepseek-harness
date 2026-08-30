@@ -3,13 +3,13 @@
  * and the page-lifetime live-event client. Deliberately plain React state —
  * no router, no state library: the surface is three fixed levels with a back
  * affordance, and every piece of data is fetched on demand. All rendering
- * derives from `session.history` pulls and `session/event` frames; nothing
- * model-visible is held locally.
+ * derives from the follow snapshot, `session/page` pulls, and live
+ * `session/event` frames; nothing model-visible is held locally.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionSummary, WorkspaceView as WorkspaceRow } from '../api.ts'
-import { listWorkspaces } from '../api.ts'
+import { fetchWorkspaceRoster } from '../api.ts'
 import { EventsClient } from '../events.ts'
 import { ChatView } from './ChatView.tsx'
 import { SessionListView } from './SessionListView.tsx'
@@ -123,4 +123,4 @@ export function App() {
   )
 }
 
-export { listWorkspaces }
+export { fetchWorkspaceRoster }

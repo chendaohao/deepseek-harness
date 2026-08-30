@@ -17,6 +17,8 @@
  * closed by `turn/end`.
  */
 
+import { decodeStorageRecord } from '@deepseek-ai/dsh-session/chunk-rows'
+
 /** One tool call attached to an assistant message (callId dedupes repeats). */
 export interface ToolCallInfo {
   /** Tool-call id (synthetic `${name}#${seq}` when the wire omitted it). */
@@ -400,6 +402,45 @@ function applyTurnEnd(state: FoldState, event: WireEvent): void {
       time: event.time,
     })
   }
+}
+
+/**
+ * Convert one page/follow record batch into fold events. An `event` record
+ * passes through; a `chunks` record wraps a packed assistant-delta run and
+ * expands to its member `assistant/chunk` events through the host codec (the
+ * wire row is re-tagged back to its storage form first). Malformed records are
+ * dropped so one bad record never blanks a chat.
+ * @param records - the `SessionHistoryRecord` batch from session/page or a follow snapshot.
+ * @returns the fold events, in record order.
+ */
+export function recordsToWireEvents(records: unknown): WireEvent[] {
+  if (!Array.isArray(records)) return []
+  const out: WireEvent[] = []
+  for (const record of records) {
+    if (!isRecord(record)) continue
+    if (record['type'] === 'event' && isRecord(record['event'])) {
+      const event = record['event']
+      if (typeof event['type'] !== 'string' || typeof event['seq'] !== 'number' || typeof event['time'] !== 'number') continue
+      out.push({ type: event['type'], seq: event['seq'], time: event['time'], data: event['data'] })
+      continue
+    }
+    if (record['type'] === 'chunks' && isRecord(record['event'])) {
+      const row = record['event']
+      const tag = typeof row['type'] === 'string' ? row['type'].replace(/^chunkrow\//, '') : ''
+      if (tag !== 'text-chunks' && tag !== 'reasoning-chunks' && tag !== 'tool-call-chunks') continue
+      if (typeof row['seq'] !== 'number' || typeof row['time'] !== 'number' || !isRecord(row['data'])) continue
+      try {
+        // The wire event re-tags the storage row (`chunkrow/<tag>`, seq0/time0
+        // hoisted into the envelope); the codec validates the round trip.
+        for (const event of decodeStorageRecord({ type: tag, seq0: row['seq'], time0: row['time'], data: row['data'] })) {
+          out.push({ type: event.type, seq: event.seq, time: event.time, data: event.data })
+        }
+      } catch {
+        // A malformed packed row is corrupt input, not a renderable chat.
+      }
+    }
+  }
+  return out
 }
 
 /**
