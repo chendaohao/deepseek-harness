@@ -110,6 +110,57 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Longest excerpt line shown for a localized strip failure; longer lines end with an ellipsis. */
+const STRIP_EXCERPT_LINE_CHARS = 200
+
+/**
+ * Localize a type-strip failure to its first failing program line and append
+ * a numbered excerpt. Node's `stripTypeScriptTypes` reports the parser's
+ * message only — no line, column, or code frame — and a model that cannot
+ * see where parsing stopped cannot correct the program (one malformed
+ * quoting run repeated an identical parse error for 75 consecutive steps).
+ * Parsing is prefix-deterministic: every line prefix containing the first
+ * offending token fails with the identical message, so the smallest such
+ * prefix bisects to the failing line in a logarithmic number of strips.
+ * The wrap adds exactly one line and the strip is position-preserving, so
+ * excerpt line numbers are the program's own.
+ * @param program - the model's program, as received by `run()`.
+ * @param error - the thrown strip failure.
+ * @returns The failure message: the parser text plus a `first syntax error
+ *   at program line N` pointer and a numbered excerpt around that line, or
+ *   the plain message when the error is not a syntax error or no line
+ *   prefix reproduces it.
+ */
+function localizedStripMessage(program: string, error: unknown): string {
+  const base = messageOf(error)
+  if (!(error instanceof SyntaxError) || base === '') return base
+  const lines = program.split('\n')
+  /** Whether the program's first `n` lines wrapped and stripped fail with the full program's message. */
+  const prefixFails = (n: number): boolean => {
+    try {
+      stripTypeScriptTypes(STRIP_WRAP.prefix + lines.slice(0, n).join('\n') + STRIP_WRAP.suffix)
+      return false
+    } catch (prefixError) {
+      return prefixError instanceof Error && prefixError.message === base
+    }
+  }
+  if (!prefixFails(lines.length)) return base
+  let low = 1
+  let high = lines.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (prefixFails(middle)) high = middle
+    else low = middle + 1
+  }
+  const excerpt: string[] = []
+  for (let number = Math.max(1, low - 1); number <= Math.min(lines.length, low + 1); number += 1) {
+    const text = lines[number - 1] ?? ''
+    const shown = text.length > STRIP_EXCERPT_LINE_CHARS ? `${text.slice(0, STRIP_EXCERPT_LINE_CHARS)}…` : text
+    excerpt.push(`${number === low ? '>' : ' '} ${String(number).padStart(3)} | ${shown}`)
+  }
+  return `${base}\nfirst syntax error at program line ${low}:\n${excerpt.join('\n')}`
+}
+
 /** Resolve after a worker pipe emits all queued data, or closes/errors during termination. */
 function waitForPipeDrain(stream: Readable): Promise<void> {
   if (stream.readableEnded || stream.destroyed) return Promise.resolve()
@@ -305,7 +356,9 @@ export class WorkerThreadCodeRuntime extends CodeRuntime {
       // A program that does not survive the type-strip (syntax error,
       // non-erasable syntax like `enum`) is a program failure, reported the
       // same way a thrown exception would be — and no worker ever spawns.
-      return this.failureBeforeWorker({ kind: 'exception', message: messageOf(error) })
+      // Node reports the parser message only, so localize the first failing
+      // line before the failure reaches the model.
+      return this.failureBeforeWorker({ kind: 'exception', message: localizedStripMessage(request.program, error) })
     }
 
     return await this.execute(request, code, bindings)

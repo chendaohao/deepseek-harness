@@ -891,3 +891,57 @@ describe('WorkerThreadCodeRuntime — seam misuse and lifecycle', () => {
     expect(ctx.get('codeRuntime')).toBeUndefined()
   })
 })
+
+describe('WorkerThreadCodeRuntime — strip-failure localization (real workers)', () => {
+  it('points at the line whose nested quoting breaks the parse', async () => {
+    const { runtime } = await setup()
+    // The real-world shape: a shell command with raw double quotes inside a
+    // double-quoted JS string — the string ends early and the parser meets
+    // `exit` where it expected a delimiter.
+    const result = await runtime.run({
+      program: [
+        'const first = await tools.bash({ command: "pwd" });',
+        'const res = await tools.bash({ command: "git show abc^:f.ts | head; echo "exit=$?"", description: "Final grep" });',
+        'return res.stdout.text;',
+      ].join('\n'),
+      bindings: tools({ bash: async () => ({ stdout: { text: '' } }) }),
+    })
+    expect(result.error?.kind).toBe('exception')
+    expect(result.error?.message).toContain('first syntax error at program line 2')
+    expect(result.error?.message).toContain('echo "exit=$?"')
+  })
+
+  it('names the deep line when earlier lines parse cleanly', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: [
+        'const a = 1;',
+        'const b = 2;',
+        'const c = 3;',
+        'const d = { cmd: "git show f | head; echo "exit=$?"" };',
+        'return a + b + c;',
+      ].join('\n'),
+      bindings: [],
+    })
+    expect(result.error?.kind).toBe('exception')
+    expect(result.error?.message).toContain('first syntax error at program line 4')
+    // The excerpt marks the failing line and shows its neighbors.
+    expect(result.error?.message).toContain('>   4 | const d = { cmd: "git show f | head; echo "exit=$?"" };')
+    expect(result.error?.message).toContain('  5 | return a + b + c;')
+  })
+
+  it('localizes a single-line program to line 1', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({ program: 'const x = { a: "b };', bindings: [] })
+    expect(result.error?.kind).toBe('exception')
+    expect(result.error?.message).toContain('first syntax error at program line 1')
+  })
+
+  it('leaves in-worker thrown errors unlocalized', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({ program: 'throw new Error("boom")', bindings: [] })
+    expect(result.error?.kind).toBe('exception')
+    expect(result.error?.message).toContain('boom')
+    expect(result.error?.message).not.toContain('first syntax error at program line')
+  })
+})
