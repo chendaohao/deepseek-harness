@@ -457,3 +457,25 @@
 .root[data-phase='settling'] .composerSeat {
   visibility: hidden;
 }
+
+/* Narrow viewports: the title row stacks its two fixed-width groups
+   (title cluster with mode badge + background-job trigger, then the
+   Session-log utilities) instead of letting the cluster overflow onto the
+   utilities. Stacking keeps every control fully visible and clickable on
+   phone widths where the two groups together are wider than the column. */
+@media (max-width: 640px) {
+  .titleRow {
+    flex-direction: column;
+    align-items: flex-start;
+    row-gap: 6px;
+  }
+
+  .titleCluster {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .headerUtilities {
+    margin-left: 0;
+  }
+}
