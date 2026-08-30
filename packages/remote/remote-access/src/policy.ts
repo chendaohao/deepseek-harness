@@ -83,6 +83,13 @@ interface AttemptWindow {
 export function createAccessPolicy(secret: Buffer, devices: DeviceRegistry, options: {
   pairMaxAttempts?: number
   pairWindowMs?: number
+  /**
+   * Login URL handed to a just-paired device instead of the bare `/` root:
+   * the webserver's browser-auth fence is a second layer behind this gate, and
+   * the returned URL's launch-token visit mints the fence cookie. Undefined
+   * falls back to `/`.
+   */
+  indexLoginUrl?: () => string | undefined
   now?: () => number
   clientAddress?: (req: IncomingMessage) => string | undefined
 } = {}): AccessPolicy {
@@ -122,7 +129,7 @@ export function createAccessPolicy(secret: Buffer, devices: DeviceRegistry, opti
     const deviceId = devices.register(deviceName(req.headers['user-agent']), now())
     const { value } = mintCookie(secret, deviceId, now())
     res.writeHead(302, {
-      location: '/',
+      location: options.indexLoginUrl?.() ?? '/',
       'set-cookie': COOKIE_NAME + '=' + value + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=' + String(COOKIE_MAX_AGE_SECONDS),
     })
     res.end()

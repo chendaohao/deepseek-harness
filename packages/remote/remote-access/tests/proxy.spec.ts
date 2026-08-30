@@ -200,12 +200,14 @@ describe('HTTP relaying', () => {
 describe('WebSocket relaying', () => {
   let echoPort = 0
   let wss: WebSocketServer | undefined
+  let upgradeRequestHeaders: Record<string, unknown> | undefined
 
   beforeEach(async () => {
     wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
     await new Promise<void>((resolve) => { wss!.once('listening', resolve) })
     echoPort = (wss.address() as AddressInfo).port
-    wss.on('connection', (socket) => {
+    wss.on('connection', (socket, request) => {
+      upgradeRequestHeaders = request.headers
       socket.on('message', (data, isBinary) => { socket.send(data, { binary: isBinary }) })
     })
   })
@@ -244,6 +246,21 @@ describe('WebSocket relaying', () => {
       client.on('open', () => { resolve({ code: 101 }) })
     })
     await expect(rejected).resolves.toEqual({ code: 401 })
+  })
+
+  it('forwards the visitor cookie on the upstream dial so the fence authenticates the upgrade', async () => {
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => true, handlePairing: () => false },
+    })
+    const echoed = new Promise<string>((resolve) => {
+      const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port) + '/api/remote.mux', { headers: { cookie: 'dsh_remote=v2.device' } })
+      // Delay the frame until the upstream handshake completes, so the upgrade request headers are recorded.
+      client.on('open', () => { void sleepMs(150).then(() => { client.send('ping') }) })
+      client.on('message', () => { resolve(String(upgradeRequestHeaders?.cookie ?? '')); client.close() })
+    })
+    await expect(echoed).resolves.toBe('dsh_remote=v2.device')
   })
 
   it('cuts an established relayed WebSocket when the device is revoked', async () => {

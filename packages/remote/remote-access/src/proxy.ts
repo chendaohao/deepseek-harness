@@ -166,7 +166,13 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
     }
     wss.handleUpgrade(req, socket, head, (downstream) => {
       /* v8 ignore next -- node:http always sets url on server upgrade requests */
-      const upstream = new WebSocket('ws://' + targetHost + ':' + String(targetPort) + (req.url ?? ''))
+      const upstream = new WebSocket('ws://' + targetHost + ':' + String(targetPort) + (req.url ?? ''), {
+        // The webserver's browser-auth fence authenticates the upstream
+        // upgrade by cookie. Relay the visitor's Cookie header so a tunneled
+        // upgrade passes it exactly like the relayed HTTP requests do; an
+        // anonymous dial is rejected and tears the pair down mid-handshake.
+        ...(req.headers.cookie === undefined ? {} : { headers: { cookie: req.headers.cookie } }),
+      })
       upstreamClients.add(upstream)
       upstream.on('close', () => { upstreamClients.delete(upstream) })
       const pending: { data: RawData; isBinary: boolean }[] = []

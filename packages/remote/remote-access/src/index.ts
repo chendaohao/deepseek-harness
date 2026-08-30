@@ -56,13 +56,23 @@ export const Config: z<Config> = z.object({
   resetSecret: z.boolean().default(false),
 })
 
+/** Connection-service face the pair bridge needs; structural so this package keeps its dependency set. */
+interface IndexLoginConnection {
+  /**
+   * Application root URL carrying the process launch token.
+   * @param baseUrl - canonical browser origin without credentials.
+   * @returns the root URL whose visit mints the browser-auth cookie.
+   */
+  authenticatedUrl(baseUrl: string): string
+}
+
 /**
  * The remote-access Service (ctx key remoteAccess): pairing gate, device
  * registry, reverse proxy, tunnel lifecycle, and the URL/QR + control-plane
  * presentation of the capability.
  */
 export class RemoteAccess extends Service {
-  static inject = ['remoteTunnel', 'webServer', 'shellEnv']
+  static inject = ['remoteTunnel', 'webServer', 'shellEnv', 'connection']
   static Config = Config
 
   private secret: Buffer | undefined
@@ -96,7 +106,21 @@ export class RemoteAccess extends Service {
       this.emitDeviceChange()
       if (structural) void this.persistDevices()
     }
-    const policy = createAccessPolicy(this.secret, this.devices)
+    const policy = createAccessPolicy(this.secret, this.devices, {
+      // Local extension: the webserver's browser-auth fence (connection) is a
+      // second layer behind the pairing gate. Hand the just-paired device the
+      // launch-token login URL so its 302 mints the authority cookie over the
+      // rewritten loopback Host; without it every paired tunnel visit stops at
+      // the fence's 401. Structural typing keeps remote-access free of a
+      // package dependency on the connection capability.
+      indexLoginUrl: () => {
+        const connection = (this.ctx as Context & { connection?: IndexLoginConnection }).connection
+        const session = this.session
+        return connection === undefined || session === undefined
+          ? undefined
+          : connection.authenticatedUrl(session.url)
+      },
+    })
     // The webserver binds either the loopback address or the all-interfaces
     // wildcard; only the wildcard needs mapping to a connectable destination.
     const targetHost = this.ctx.webServer.host === '0.0.0.0' ? '127.0.0.1' : this.ctx.webServer.host

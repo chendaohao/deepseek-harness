@@ -69,6 +69,8 @@ beforeEach(async () => {
   context.provide('remoteTunnel', tunnel)
   shellEnvRegister = vi.fn<(contributor: unknown) => () => void>(() => () => {})
   context.provide('shellEnv', { register: shellEnvRegister })
+  // The pair bridge injects the connection face for the fence-login redirect.
+  context.provide('connection', { authenticatedUrl: (baseUrl: string) => baseUrl + '/?token=fake-launch-token' })
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 })
 
