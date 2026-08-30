@@ -5,6 +5,7 @@ import {
   RemoteStreamError,
   type RemoteStreamOptions,
 } from '@deepseek-ai/dsh-api-gateway/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import {
   createSessionControlStream,
@@ -96,9 +97,15 @@ class ScriptedSessionRemote implements SessionTransportRemote {
 
   constructor(
     private readonly generations: FollowGeneration[],
-    private readonly pages: RemoteResult<SessionPage>[],
+    /** Page outcomes; a Promise entry lets a fixture keep a page pending forever. */
+    private readonly pages: (RemoteResult<SessionPage> | Promise<RemoteResult<SessionPage>>)[],
     private readonly controlFrames: readonly SessionControlFrame[] = [],
     private readonly holdControl = true,
+    /** Per-generation control frames; each generation yields its own slice. */
+    private readonly controlGenerations: {
+      readonly frames: readonly SessionControlFrame[]
+      readonly hold?: boolean
+    }[] = [],
   ) {}
 
   async *follow(request: SessionFollowRequest, signal = new AbortController().signal): AsyncIterable<SessionFollowFrame> {
@@ -120,12 +127,17 @@ class ScriptedSessionRemote implements SessionTransportRemote {
     this.pageRequests.push(request)
     const result = this.pages.shift()
     if (result === undefined) throw new Error('no scripted Session page')
-    return Promise.resolve(result)
+    return typeof result === 'object' && typeof (result as Promise<RemoteResult<SessionPage>>).then === 'function'
+      ? result as Promise<RemoteResult<SessionPage>>
+      : Promise.resolve(result as RemoteResult<SessionPage>)
   }
 
   async *control(signal = new AbortController().signal): AsyncIterable<SessionControlFrame> {
-    for (const frame of this.controlFrames) yield frame
-    if (this.holdControl && !signal.aborted) {
+    const generation = this.controlGenerations.shift()
+    const frames = generation?.frames ?? this.controlFrames
+    for (const frame of frames) yield frame
+    const hold = generation?.hold ?? this.holdControl
+    if (hold && !signal.aborted) {
       await new Promise<void>((resolve) => {
         signal.addEventListener('abort', () => { resolve() }, { once: true })
       })
@@ -248,6 +260,83 @@ describe('Session Client stream adapters', () => {
     expect(remote.pageRequests).toEqual([])
     expect(changes.map(change => change.type)).toEqual(['replace', 'append', 'replace'])
     expect(carrierFailed).toHaveBeenCalledWith(lost)
+    await stream.dispose()
+  })
+
+  it('restarts the event journal when the carrier fails during a hanging gap-repair page', async () => {
+    // The mux socket recycle fails the carrier while the journal's gap
+    // repair is waiting on an HTTP page that never settles. The Session
+    // adapter wires carrierFailed to restart(), which aborts the hung page
+    // generation and opens the replacement from a fresh snapshot — the
+    // message list recovers without depending on the page.
+    const lost = new RemoteStreamCarrierError('socket recycled on foreground return')
+    const remote = new ScriptedSessionRemote(
+      [
+        {
+          frames: [snapshot(1, [entry(0), entry(1)]), entry(3)],
+          terminal: lost,
+        },
+        { frames: [snapshot(3, [entry(0), entry(1), entry(2), entry(3)])], hold: true },
+      ],
+      [new Promise<RemoteResult<SessionPage>>(() => {})],
+    )
+    const changes: SessionJournalChange[] = []
+    const carrierFailed = vi.fn()
+    const stream = new SessionEventStream(sessionClient(remote), ADDRESS, {
+      publish: (change) => { changes.push(change) },
+      carrierFailed,
+      failed: vi.fn(),
+    })
+
+    await stream.open({})
+    // seq 3 arrives while the page for seq 2 hangs; then the carrier dies.
+    await vi.waitFor(() => { expect(carrierFailed).toHaveBeenCalledOnce() })
+    // The restart opens a second follow generation whose snapshot replaces
+    // the window, including the previously missing seq 2.
+    await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
+    await vi.waitFor(() => {
+      expect(changes.map(change => change.type)).toEqual(['replace', 'replace'])
+    })
+    expect(changes.at(-1)).toMatchObject({
+      type: 'replace',
+      entries: [entry(0), entry(1), entry(2), entry(3)],
+    })
+    expect(remote.signals[0]?.aborted).toBe(true)
+    await stream.dispose()
+  })
+
+  it('reopens the control stream with a fresh baseline after carrier failure', async () => {
+    const baselineA: SessionControlFrame = {
+      type: 'baseline',
+      value: { queues: {}, jobs: {}, projections: {} },
+    }
+    const baselineB: SessionControlFrame = {
+      type: 'baseline',
+      value: { queues: { ['session-1' as SessionId]: [] }, jobs: {}, projections: {} },
+    }
+    // The first generation ends after its baseline, which the adapter
+    // classifies as a retryable carrier end and answers with restart(); the
+    // second generation (held, like a live host) delivers its fresh baseline
+    // without any supervisor backoff.
+    const remote = new ScriptedSessionRemote([], [], [], true, [
+      { frames: [baselineA], hold: false },
+      { frames: [baselineB], hold: true },
+    ])
+    const accepted: SessionControlFrame[] = []
+    const carrierFailed = vi.fn()
+    const stream = createSessionControlStream(sessionClient(remote), {
+      accept: (frame) => { accepted.push(frame) },
+      carrierFailed,
+      failed: vi.fn(),
+    })
+
+    stream.start()
+    await vi.waitFor(() => { expect(accepted).toHaveLength(2) })
+    expect(carrierFailed).toHaveBeenCalledTimes(1)
+    expect(carrierFailed.mock.calls[0]?.[0]).toMatchObject({
+      message: 'session control stream ended without a terminal result',
+    })
+    expect(accepted).toEqual([baselineA, baselineB])
     await stream.dispose()
   })
 

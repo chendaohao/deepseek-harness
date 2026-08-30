@@ -382,6 +382,19 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
       (error: unknown) => ({ type: 'page-error' as const, error }),
     )
     while (true) {
+      // The generation's signal aborts the moment the carrier fails or the
+      // stream restarts. A page request racing that boundary can lag behind
+      // the abort (a hung HTTP leg, a tunnel edge), and waiting for it would
+      // starve the replacement opening item already queued on the iterator.
+      // The replacement path consumes that item instead, so the journal
+      // recovers without ever depending on the page settling.
+      if (signal.aborted) {
+        return this.awaitReplacementGeneration(
+          generation,
+          iterator,
+          this.nextResult(iterator),
+        )
+      }
       const pending = this.nextResult(iterator)
       const next = pending.then(
         value => ({ type: 'next' as const, value }),
@@ -393,8 +406,15 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
         return { type: 'page', page: result.value }
       }
       if (result.type === 'page-error') {
-        if (!signal.aborted || this.stream.signal.aborted) throw result.error
-        return this.awaitReplacementGeneration(generation, iterator, pending)
+        if (this.stream.signal.aborted) throw result.error
+        // The page may have failed exactly because the carrier died while it
+        // was in flight (the race returned before the loop-top abort check
+        // ran again): hand the iterator over to the replacement generation.
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the carrier can abort while the page promise settles.
+        if (signal.aborted) {
+          return this.awaitReplacementGeneration(generation, iterator, pending)
+        }
+        throw result.error
       }
       this.releaseNext()
       if (result.type === 'next-error') throw result.error

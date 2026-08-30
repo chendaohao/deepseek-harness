@@ -195,15 +195,21 @@ describe('Session Controller Client apply', () => {
     expect(bench.ctx.typert.contexts.getClient('agent')).toBeUndefined()
   })
 
-  it('waits for a Host generation before retrying the control stream', async () => {
+  it('reopens the control stream immediately on carrier loss instead of waiting for a Host generation', async () => {
     const accept = vi.spyOn(ClientSessions.prototype, 'handleControlFrame')
     const bench = await mount()
     await flush()
     expect(accept.mock.calls.filter(([frame]) => frame.type === 'baseline')).toHaveLength(1)
 
+    // A carrier loss (mux socket recycle) restarts the control stream right
+    // away: the fresh baseline re-establishes queues/jobs/projections while
+    // the event journal repairs through its own pages. The supervisor must
+    // not wait for a new Host generation (which the phone-web foreground
+    // resync does not publish) — that wait is exactly what froze the message
+    // list behind a hanging gap-repair page.
     bench.api.failStreams(new RemoteStreamCarrierError('offline'))
     await flush()
-    expect(accept.mock.calls.filter(([frame]) => frame.type === 'baseline')).toHaveLength(1)
+    expect(accept.mock.calls.filter(([frame]) => frame.type === 'baseline')).toHaveLength(2)
 
     bench.publishGeneration(GENERATION)
     await flush()
