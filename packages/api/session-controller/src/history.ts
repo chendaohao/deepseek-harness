@@ -22,6 +22,8 @@ import type {
 } from './types.ts'
 
 const DEFAULT_MAX_MESSAGES = 50
+/** Live-follow buffer bound: events appended while the consumer drains are queued here. */
+const DEFAULT_MAX_BUFFERED_EVENTS = 10_000
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
 /** Implements cold-safe history operations delegated by the Session Controller. */
@@ -89,6 +91,8 @@ export class SessionHistoryController {
     const { address } = request
     const target = addressId(address)
     const buffered: SessionEvent[] = []
+    /** Set when the producer outran the buffer; the pump loop reports it. */
+    const overflow = { flag: false }
     let snapshotCursor: number | undefined
     let wake: (() => void) | undefined
     const notify = (): void => {
@@ -104,6 +108,11 @@ export class SessionHistoryController {
     this.closeFollowers.add(close)
     const disposeEvent = this.ctx.on('session/event', (session, event) => {
       if (session.id !== target) return
+      // A consumer that cannot keep up (a suspended phone leg, a slow tunnel)
+      // would otherwise accumulate every appended event in memory forever.
+      // The listener cannot throw (observers are contained), so overflow is
+      // flagged here and reported by the pump loop below.
+      if (buffered.length >= DEFAULT_MAX_BUFFERED_EVENTS) overflow.flag = true
       buffered.push(event)
       notify()
     }, { global: true })
@@ -115,6 +124,7 @@ export class SessionHistoryController {
       const suffix = session.events.slice(snapshotCursor === undefined
         ? session.firstLiveSeq
         : snapshotCursor + 1)
+      if (buffered.length + suffix.length > DEFAULT_MAX_BUFFERED_EVENTS) overflow.flag = true
       buffered.unshift(...suffix)
       notify()
     }, { global: true })
@@ -148,6 +158,9 @@ export class SessionHistoryController {
       }
       let nextSeq = cursor + 1
       while (!follower.closed && !signal.aborted) {
+        if (overflow.flag) {
+          reject('stream-overflow', 'session follow buffer exceeded', { maxBufferedEvents: DEFAULT_MAX_BUFFERED_EVENTS })
+        }
         const item = buffered.shift()
         if (item === undefined) {
           await new Promise<void>((resolve) => { wake = resolve })

@@ -389,4 +389,32 @@ describe('Session history raw journal', () => {
       await ctx.fiber.dispose()
     }
   })
+
+  it('fails the follow stream when the live buffer overflows', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    const abort = new AbortController()
+    // Take the opening snapshot but never drain again: every append stays in
+    // the follow buffer, so the bound trips and the stream fails loud.
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+    }, abort.signal)[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: 'snapshot' },
+    })
+    for (let index = 0; index < 10_100; index++) {
+      session.append('turn/start', { turn: index })
+    }
+    // The generator rejects: the gateway turns the throw into a stream
+    // error frame, and the client re-follows from a fresh snapshot.
+    await expect(iterator.next()).rejects.toMatchObject({
+      failure: {
+        code: 'stream-overflow',
+        message: 'session follow buffer exceeded',
+      },
+    })
+    await ctx.fiber.dispose()
+  })
 })
