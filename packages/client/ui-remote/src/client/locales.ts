@@ -1,4 +1,4 @@
-/** Desktop remote-control panel copy; the mobile `/m` surface arrives in a later phase. */
+/** Desktop remote-control panel copy plus the mobile `/m` surface transport banners. */
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
@@ -25,6 +25,8 @@ export const zh = {
   'copyLink': '复制链接',
   'pair.unavailable': '隧道未开启，无法生成配对二维码',
   'load.error': '加载远程状态失败',
+  'transport.retrying': '实时连接不可用，正在重试…',
+  'transport.reconnecting': '实时连接已断开，正在重连…',
 } satisfies Record<string, string>
 
 /** The remote namespace key union. */
@@ -55,4 +57,6 @@ export const en = {
   'copyLink': 'Copy link',
   'pair.unavailable': 'Tunnel is closed; no pairing QR code is available',
   'load.error': 'Failed to load remote status',
+  'transport.retrying': 'Connection unavailable; retrying…',
+  'transport.reconnecting': 'Connection lost; reconnecting…',
 } satisfies Record<RemoteKey, string>

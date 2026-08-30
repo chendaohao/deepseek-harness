@@ -385,13 +385,18 @@ export interface ForegroundResyncOptions {
 }
 
 /**
- * Whether this page load runs on a phone-class device: the primary pointer is
- * coarse (touch-primary), with a mobile user-agent fallback for runtimes
- * without `matchMedia`.
+ * Whether this page load runs on a phone-class device: a touch-primary
+ * pointer with no hover capability (phones and small tablets; a laptop
+ * touchscreen has `(hover: hover)` and must not churn streams on tab
+ * switches), with a mobile user-agent fallback for runtimes without
+ * `matchMedia`.
  * @returns whether this page load is phone web.
  */
 export function isPhoneWeb(): boolean {
-  if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) return true
+  if (typeof matchMedia === 'function') {
+    if (matchMedia('(hover: hover)').matches) return false
+    if (matchMedia('(pointer: coarse)').matches) return true
+  }
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
 }
 

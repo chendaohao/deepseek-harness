@@ -20,6 +20,7 @@ import { foldEvents, type RenderMessage, type ToolCallInfo } from '../messages.t
 import { modelMatchesQuery, useRecentModels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ThemeToggle } from '../ThemeToggle.tsx'
 import { errorText, formatTime, staleHostHint, type SessionView } from './App.tsx'
+import { zh as mobileCopy } from '../../client/locales.ts'
 
 /** Props for the chat view. */
 export interface ChatViewProps {
@@ -155,7 +156,7 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
         }, STALL_BANNER_DELAY_MS)
       }
       if (status !== 'down' || tailAppliedRef.current) return
-      setError('实时连接不可用，正在重试…')
+      setError(mobileCopy['transport.retrying'])
       setLoading(false)
     })
     return () => {
@@ -306,7 +307,7 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
       {renameError !== undefined && <p className="mobile-error mobile-pad">{renameError}</p>}
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
       {stalled && messages.length > 0 && (
-        <p className="mobile-muted mobile-pad">实时连接已断开，正在重连…</p>
+        <p className="mobile-muted mobile-pad">{mobileCopy['transport.reconnecting']}</p>
       )}
       <div className="chat-scroll" ref={(ref) => { scrollRef.current = ref ?? undefined }}>
         {hasOlder && (

@@ -287,7 +287,9 @@ function parseRenamed(value: unknown): { title: string; seq: number } | undefine
  * The workspace roster: one `workspace/follow` stream on a short-lived mux
  * socket, resolved with the baseline frame and cancelled. The workspace
  * capability exposes no unary roster read, so the stream's opening baseline is
- * the wire's only point-in-time roster.
+ * the wire's only point-in-time roster. The stream id is a constant because
+ * each call owns its own socket (one logical stream per socket), so the id
+ * never collides across calls.
  * @returns the workspace list result.
  */
 export function fetchWorkspaceRoster(): Promise<RpcResult<WorkspaceView[]>> {
