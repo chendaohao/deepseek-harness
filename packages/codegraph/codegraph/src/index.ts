@@ -33,12 +33,14 @@ import { codegraphChecklistFrame } from './checklist.ts'
 export const name = 'codegraph'
 
 /**
- * No inject declaration: the codegraph MCP connection is started lazily on
- * the first indexed pre-step, by which point the tool registry is mounted in
- * every real deployment (and the checklist folding touches no service at
- * all). An inject list would defer apply until the tools service is provided,
- * which silently skips the plugin in bare-context tests.
+ * Declares the `tools` registry: the MCP connection registers the server's
+ * tools through `ctx.tools` during each sync, and cordis rejects that service
+ * access from a plugin context without this declaration (the access then
+ * throws on every sync and no tool ever registers). A mount context that
+ * provides no `tools` defers `apply` until one appears — bare compositions
+ * must mount a tool registry for this plugin to activate.
  */
+export const inject = ['tools']
 
 /** Default per-tool-call timeout for codegraph MCP tools (ms). */
 const DEFAULT_TOOL_CALL_TIMEOUT_MS = 120_000

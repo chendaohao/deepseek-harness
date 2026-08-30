@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId, SESSION_FORMAT_VERSION, type UserMessage } from '@deepseek-ai/dsh-session'
 import { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as codegraph from '@deepseek-ai/dsh-codegraph'
 
 const mcpMocks = vi.hoisted(() => {
@@ -71,6 +73,8 @@ function stubAgent(cwd: string): Agent {
 type EnteredPreStep = { kind: 'enter'; messages: UserMessage[] }
 
 async function mount(ctx: Context): Promise<void> {
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(codegraph, {})
 }
 
@@ -89,6 +93,18 @@ function textOf(message: UserMessage): string {
 }
 
 describe('dsh-codegraph', () => {
+  it('defers activation until the context provides a tools registry', async () => {
+    const cwd = await tempWorkspace(true)
+    const ctx = new Context()
+    await ctx.plugin(codegraph, {})
+    const agent = stubAgent(cwd)
+    const decision = await drivePreStep(ctx, agent)
+
+    expect(decision.messages.some(message => message.source.kind === codegraph.INSTRUCTION_SOURCE_KIND)).toBe(false)
+    expect(mcpMocks.connections.length).toBe(0)
+    await ctx.fiber.dispose()
+  })
+
   it('injects the checklist and starts the MCP connection for an indexed workspace', async () => {
     const cwd = await tempWorkspace(true)
     const ctx = new Context()
