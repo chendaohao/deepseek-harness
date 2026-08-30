@@ -20,7 +20,7 @@ Status: implemented
 
 - 修复后 `row` 有两个直接子元素（`trailing`、`tools`）；修复前 `row` 只有一个子元素，`tools` 嵌套在 `trailing` 内。
 - 单行宽度（402-330 vw）：tools 在左（81-159）、trailing 在右（222-369）、发送按钮最右——`order: -1` 翻转生效。
-- 分栏宽度（310/290 vw）：行高从 42px 增至 76px，trailing 沉到底行（top 515）右对齐、发送按钮最右，tools 占据顶行（top 555）。
+- 分栏宽度（310/290 vw）：行高从 42px 增至 76px，工具栏确实分栏了，但分栏结果**上下颠倒**——trailing 渲染在 tools 之上（top 515 对 555），当时被误读为成功；由[行归属修复](2026-08-30-composer-toolbar-two-row-inverted-placement.zh.md)纠正。
 - `packages/client/ui-conversation/tests/input-bar.client.spec.tsx`：72/72 通过。
 
 ## 备选方案
@@ -31,8 +31,9 @@ Status: implemented
 
 ## 结果
 
-窄视口下的工具栏现在按提交描述的行为工作：约 330px 以上为单行（tools 在左、主操作最右），低于该宽度为双行（trailing 组——模型座、上下文环、主操作——沉到底行、先填满、右对齐）。桌面和宽屏移动端布局不变（`@media (max-width: 640px)` 块只在断点以下生效）。72 项 input-bar 测试套件保持全绿，因此座席分发、顺序或无障碍契约均未改变。
+窄视口下的工具栏会分成两行，但伴随本提交一起发布的全局 `order: -1` 让两组落在了相反的行上——上方机制段落描述的是意图中的排布，而非实际发布的归属。[行归属修复](2026-08-30-composer-toolbar-two-row-inverted-placement.zh.md)用 `row-reverse` + `wrap-reverse` 加窄屏 order 重置纠正了行归属；嵌套修复本身（行容器的两个直接兄弟元素）仍然有效。桌面和宽屏移动端布局不变（`@media (max-width: 640px)` 块只在断点以下生效）。72 项 input-bar 测试套件保持全绿，因此座席分发、顺序或无障碍契约均未改变。
 
 ## 相关
 
+- [双行输入栏工具栏把两组渲染到了相反的行上](2026-08-30-composer-toolbar-two-row-inverted-placement.zh.md) —— 纠正了本提交 CSS 机制产生的行归属；这里记录的兄弟结构修复仍然有效。
 - [Mobile composer toolbar single-row and model menu](../feature/2026-08-25-mobile-composer-toolbar-single-row-and-model-menu.zh.md) —— 本提交的 CSS 所扩展的窄视口工具栏规则；合并重应用记录记载了双行拆分所基于的 0.1.2 之后的结构。

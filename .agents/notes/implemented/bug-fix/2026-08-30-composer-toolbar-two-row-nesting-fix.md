@@ -20,7 +20,7 @@ Playwright against the real GUI through the mobile-preview proxy (viewports swep
 
 - `row` has two direct children (`trailing`, `tools`) after the fix; before, `row` had one child and `tools` was nested in `trailing`.
 - Single-row widths (402-330 vw): tools left (81-159), trailing right (222-369), send rightmost — the `order: -1` flip works.
-- Split widths (310/290 vw): row height grows 42→76px, trailing sinks to the bottom row (top 515) right-aligned with send rightmost, tools takes the top row (top 555).
+- Split widths (310/290 vw): row height grows 42→76px and the toolbar splits, but the split landed **inverted** — trailing rendered above tools (top 515 vs 555), read as success at the time; corrected by [the inverted-placement fix](2026-08-30-composer-toolbar-two-row-inverted-placement.md).
 - `packages/client/ui-conversation/tests/input-bar.client.spec.tsx`: 72/72 pass.
 
 ## Alternatives considered
@@ -31,8 +31,9 @@ Playwright against the real GUI through the mobile-preview proxy (viewports swep
 
 ## Consequences
 
-The narrow-viewport toolbar now behaves as the commit described: single row down to ≈330px with tools left and the primary action rightmost, two rows below that with the trailing group (model seat, context ring, primary) sunk to the bottom, filled first, right-aligned. Desktop and wide mobile layouts are unchanged (the `@media (max-width: 640px)` block only applies below the breakpoint). The 72-test input-bar suite stays green, so no seat dispatch, ordering, or accessibility contract changed.
+The narrow-viewport toolbar splits into two rows, but with the global `order: -1` this commit shipped, the groups landed on inverted rows — the mechanism paragraph above describes the intended, not the shipped, assignment. [The inverted-placement fix](2026-08-30-composer-toolbar-two-row-inverted-placement.md) corrects the row assignment with `row-reverse` + `wrap-reverse` and an order reset at narrow widths; the nesting fix itself (two direct siblings of the row) remains current. Desktop and wide mobile layouts are unchanged (the `@media (max-width: 640px)` block only applies below the breakpoint). The 72-test input-bar suite stays green, so no seat dispatch, ordering, or accessibility contract changed.
 
 ## Related
 
+- [Two-row composer toolbar rendered the groups on inverted rows](2026-08-30-composer-toolbar-two-row-inverted-placement.md) — corrects the row assignment this commit's CSS mechanism produced; the sibling-structure fix recorded here remains current.
 - [Mobile composer toolbar single-row and model menu](../feature/2026-08-25-mobile-composer-toolbar-single-row-and-model-menu.md) — the narrow-viewport toolbar rules this commit's CSS extends; the merge re-application note records the post-0.1.2 structure the two-row split builds on.
