@@ -21,6 +21,7 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import type { ClientRemote } from '../src/client/index.ts'
 import { apply, inject, RemoteStream } from '../src/client/index.ts'
 import {
+  installForegroundResync,
   RemoteStreamCarrierError,
   RemoteStreamError,
   RemoteStreamMuxClient,
@@ -2355,6 +2356,94 @@ describe('Remote stream client carrier lifecycle', () => {
       disposedSocket.receive({ type: 'end', streamId: 'stale' })
       disposedSocket.drop()
       await expect(disposed).rejects.toThrow('Remote stream client disposed')
+    })
+  })
+
+  it('resume() recycles a healthy socket, fails its streams, and dials immediately', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const client = new RemoteStreamMuxClient()
+      const stream = client.open('feed/follow', {}, new AbortController().signal)[Symbol.asyncIterator]()
+      const pending = stream.next()
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.sent).toHaveLength(1) })
+      const socket = FakeWebSocket.sockets[0]!
+      const { streamId } = JSON.parse(socket.sent[0]!) as { streamId: string }
+      socket.receive({ type: 'item', streamId, value: 'v1' })
+      await expect(pending).resolves.toEqual({ done: false, value: 'v1' })
+
+      client.resume()
+      expect(socket.closedWith).toContainEqual({ code: 4001, reason: 'foreground resync' })
+      // The recycled logical stream fails with a carrier error naming the
+      // resync, so its domain supervisor reopens with a fresh snapshot.
+      await expect(stream.next()).rejects.toThrow('recycled on foreground return')
+      // The replacement dial starts immediately, not behind the backoff.
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(2) })
+      await client.close()
+    })
+  })
+
+  it('resume() cuts a hung dial so the reconnect loop redials', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      FakeWebSocket.autoOpen = false
+      vi.useFakeTimers()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const client = new RemoteStreamMuxClient()
+        client.start()
+        expect(FakeWebSocket.sockets).toHaveLength(1)
+        // A dial that never opens (a tunnel edge swallowing the upgrade)
+        // leaves the loop waiting for events that never fire; resume cuts it.
+        client.resume()
+        expect(FakeWebSocket.sockets[0]!.closedWith).toHaveLength(1)
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(FakeWebSocket.sockets).toHaveLength(2)
+        await client.close()
+      } finally {
+        warn.mockRestore()
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  it('foreground resync installs only on phone web and fires on visible and persisted pageshow', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const client = new RemoteStreamMuxClient()
+      client.start()
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.readyState).toBe(FakeWebSocket.OPEN) })
+      const visibility = new EventTarget()
+      const page = new EventTarget()
+      const visibilityState = { value: 'visible' }
+      const uninstall = installForegroundResync(client, {
+        isPhone: () => true,
+        targets: { visibility, page },
+        visibilityState: () => visibilityState.value,
+      })
+
+      // The visible transition recycles the socket immediately.
+      visibility.dispatchEvent(new Event('visibilitychange'))
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(2) })
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[1]?.readyState).toBe(FakeWebSocket.OPEN) })
+
+      // Hidden transitions and a non-persisted pageshow must not recycle.
+      visibilityState.value = 'hidden'
+      visibility.dispatchEvent(new Event('visibilitychange'))
+      expect(FakeWebSocket.sockets).toHaveLength(2)
+      page.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: false }))
+      expect(FakeWebSocket.sockets).toHaveLength(2)
+
+      // A bfcache restore delivers pageshow with persisted=true.
+      page.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }))
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(3) })
+
+      // Uninstall stops recycling, and desktop web never installs at all.
+      uninstall()
+      visibilityState.value = 'visible'
+      visibility.dispatchEvent(new Event('visibilitychange'))
+      expect(FakeWebSocket.sockets).toHaveLength(3)
+      const desktop = installForegroundResync(client, { isPhone: () => false, targets: { visibility, page } })
+      visibility.dispatchEvent(new Event('visibilitychange'))
+      expect(FakeWebSocket.sockets).toHaveLength(3)
+      desktop()
+      await client.close()
     })
   })
 })

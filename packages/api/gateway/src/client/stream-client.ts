@@ -139,6 +139,33 @@ export class RemoteStreamMuxClient {
     await this.keepAlive
   }
 
+  /**
+   * Force one fresh physical socket: the browser's foreground return on a
+   * phone web. A suspended page's TCP leg can drop frames or die without a
+   * close event while still looking healthy, so any live socket is recycled —
+   * its logical streams fail with a carrier error and their domain
+   * supervisors reopen with fresh snapshots — and a hung dial is cut so the
+   * reconnect loop redials instead of waiting for events a swallowed upgrade
+   * never fires.
+   */
+  resume(): void {
+    if (this.disposed) return
+    const socket = this.socket
+    if (socket === undefined) {
+      this.cancelCandidate?.(new RemoteStreamCarrierError(
+        'api gateway: Remote stream dial superseded by foreground resync',
+      ))
+      return
+    }
+    const error = new RemoteStreamCarrierError(
+      'api gateway: Remote stream socket recycled on foreground return',
+    )
+    this.socket = undefined
+    this.failAll(error)
+    socket.close(4001, 'foreground resync')
+    this.maintain()
+  }
+
   private connect(): Promise<WebSocket> {
     const socket = new WebSocket(remoteStreamUrl())
     const connecting = new Promise<WebSocket>((resolve, reject) => {
@@ -346,3 +373,66 @@ function remoteStreamUrl(): string {
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.href
 }
+
+/** Injection seams for {@link installForegroundResync}. */
+export interface ForegroundResyncOptions {
+  /** Phone-web gate; defaults to {@link isPhoneWeb}. */
+  readonly isPhone?: () => boolean
+  /** Page-lifecycle targets; defaults to the browser `document` and `window`. */
+  readonly targets?: { readonly visibility: EventTarget; readonly page: EventTarget }
+  /** Visibility reader; defaults to `document.visibilityState`. */
+  readonly visibilityState?: () => string
+}
+
+/**
+ * Whether this page load runs on a phone-class device: the primary pointer is
+ * coarse (touch-primary), with a mobile user-agent fallback for runtimes
+ * without `matchMedia`.
+ * @returns whether this page load is phone web.
+ */
+export function isPhoneWeb(): boolean {
+  if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) return true
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+}
+
+/**
+ * Wire the browser's foreground return to one forced socket recycle, and
+ * return the uninstaller. Phone web only by design: a suspended mobile page
+ * loses frames and can lose its TCP leg without a close event, while a
+ * desktop tab switch keeps the socket healthy and must not churn every open
+ * stream. Outside a browser or off a phone this installs nothing.
+ * @param client - the mux client whose socket the foreground return recycles.
+ * @param options - phone gate and page-lifecycle seams for tests.
+ * @returns an uninstaller.
+ */
+export function installForegroundResync(
+  client: RemoteStreamMuxClient,
+  options: ForegroundResyncOptions = {},
+): () => void {
+  if (!(options.isPhone ?? isPhoneWeb)()) return noop
+  const globals = globalThis as {
+    document?: Document
+    window?: EventTarget
+  }
+  const visibilityTarget = options.targets?.visibility ?? globals.document
+  const pageTarget = options.targets?.page ?? globals.window
+  if (visibilityTarget === undefined || pageTarget === undefined) return noop
+  const documentRef = globals.document
+  const readVisibility = options.visibilityState ?? (documentRef === undefined
+    ? (): string => 'visible'
+    : (): string => documentRef.visibilityState)
+  const onVisibility = (): void => {
+    if (readVisibility() === 'visible') client.resume()
+  }
+  const onPageShow = (event: Event): void => {
+    if ((event as PageTransitionEvent).persisted) client.resume()
+  }
+  visibilityTarget.addEventListener('visibilitychange', onVisibility)
+  pageTarget.addEventListener('pageshow', onPageShow)
+  return () => {
+    visibilityTarget.removeEventListener('visibilitychange', onVisibility)
+    pageTarget.removeEventListener('pageshow', onPageShow)
+  }
+}
+
+function noop(): void {}

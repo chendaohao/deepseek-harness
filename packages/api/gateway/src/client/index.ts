@@ -20,6 +20,7 @@ import type {
   TypertRemoteEvent,
 } from '@deepseek-ai/dsh-typert-protocol'
 import {
+  installForegroundResync,
   RemoteStreamCarrierError,
   RemoteStreamError,
   RemoteStreamMuxClient,
@@ -130,6 +131,7 @@ class ClientRemoteService extends Service implements ClientRemote {
   private readonly namespaces = new Map<string, RemoteNamespaceHandle>()
   private readonly streams = new RemoteStreamMuxClient()
   private readonly events: ClientRemoteEvents
+  private stopForegroundResync: (() => void) | undefined
   private mutations = Promise.resolve()
 
   constructor(ctx: Context) {
@@ -142,7 +144,13 @@ class ClientRemoteService extends Service implements ClientRemote {
       connection,
       (endpoint, payload, signal) => this.openRemoteStream(endpoint, payload, signal),
     )
-    if (connection.rpc.open === undefined) this.streams.start()
+    if (connection.rpc.open === undefined) {
+      this.streams.start()
+      // Phone web only: the browser transport owns the mux socket, and a
+      // suspended phone page is the one case whose socket dies without a
+      // close event. The installer is inert off a phone and outside a browser.
+      this.stopForegroundResync = installForegroundResync(this.streams)
+    }
     let disposed = false
     let loop: ReturnType<ConnectionHandle['start']> | undefined
     const start = (): void => {
@@ -157,6 +165,7 @@ class ClientRemoteService extends Service implements ClientRemote {
     ctx.effect(() => async () => {
       disposed = true
       loop?.stop()
+      this.stopForegroundResync?.()
       await this.events.dispose()
       await this.streams.close()
     }, 'api-gateway.client.transport')
