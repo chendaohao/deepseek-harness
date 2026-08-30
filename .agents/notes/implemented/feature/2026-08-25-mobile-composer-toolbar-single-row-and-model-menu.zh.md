@@ -35,6 +35,10 @@ Status: implemented
 
 `pnpm run test:gui` 覆盖客户端套件。布局各分支通过 Playwright 在真实 Chromium 中于 360/375/390/412/430/1280px 视口验证：375px 起单行（`rowH: 42`、`sameLine` 为真）；恢复的活跃会话中上下文环存在（28px）；模型菜单在 375/390/412px 下既不被 56px 左侧栏遮挡也不超出视口；桌面（1280px）菜单位置与模型 chip 宽度（168px）不变。
 
+## 0.1.2-alpha.1 合并后重新应用（2026-08-30）
+
+上游合并重写了 InputBar.module.css（container-type 尺寸查询、.tools 默认不再拉伸、.trailing 增加 margin-left: auto），并删除了 @media (max-width: 640px) 单行块；ModelSelect.module.css 部分（38cqw 上限 + 相对 chip 居中菜单）未受影响、原样保留。单行工具栏已在新结构上重新应用：同样的 @media (max-width: 640px) 块现在设置 .tools { flex: none; gap: 6px }、.trailing { flex: none; justify-content: flex-end; gap: 4px }、.row { gap: 6px; row-gap: 8px }，叠加在新的 wrap/container 布局之上，wrap 仍保留为 375px 以下的安全阀。已通过 pnpm run test:gui（ui-conversation 输入套件，118 个测试）与包 tsdown 构建验证。
+
 ## 相关
 
-- [窄视口 plan chip 点击区域回归测试](../bug-fix/2026-08-06-plan-narrow-viewport-regression.md) — 既有 composer 控制行换行机制（`flex-wrap: wrap` + `margin-left: auto`）的来源；本次变更在其基础上把 ≤640px 视口的默认从"空间不足就换行"改为"尽量保持单行"，760-850px 的换行行为不受影响。
+- [窄视口 plan chip 点击区域回归测试](../../archived/bug-fix/2026-08-06-plan-narrow-viewport-regression.md) — 既有 composer 控制行换行机制（`flex-wrap: wrap` + `margin-left: auto`）的来源；本次变更在其基础上把 ≤640px 视口的默认从"空间不足就换行"改为"尽量保持单行"，760-850px 的换行行为不受影响。

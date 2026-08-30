@@ -35,6 +35,10 @@ Phones 375px and wider show the composer toolbar on one row in every session sta
 
 `pnpm run test:gui` covers the client suites. The layout arms were verified in real Chromium via Playwright at 360/375/390/412/430/1280px: single-row `rowH: 42` with `sameLine` true from 375px up; the context ring present (28px) in restored-active sessions; the model menu neither covered by the 56px sidebar column nor overflowing the viewport at 375/390/412px; desktop (1280px) menu placement and model-chip width (168px) unchanged.
 
+## Re-applied after the 0.1.2-alpha.1 merge (2026-08-30)
+
+The upstream merge rewrote InputBar.module.css (container-type size queries, .tools no longer stretches by default, .trailing gains margin-left: auto) and dropped the @media (max-width: 640px) single-row block; the ModelSelect.module.css half (38cqw cap + chip-centered menu) survived unchanged. The single-row toolbar was re-applied to the new structure: the same @media (max-width: 640px) block now sets .tools { flex: none; gap: 6px }, .trailing { flex: none; justify-content: flex-end; gap: 4px }, and .row { gap: 6px; row-gap: 8px } on top of the new wrap/container layout, keeping the wrap as the below-375px safety valve. Verified by pnpm run test:gui (ui-conversation input suites, 118 tests) and a tsdown bundle of the package.
+
 ## Related
 
-- [Narrow-viewport plan chip click-area regression test](../bug-fix/2026-08-06-plan-narrow-viewport-regression.md) — the existing composer control-row wrap mechanism (`flex-wrap: wrap` + `margin-left: auto`) this change builds on; the ≤640px default shifts from "wrap when space runs out" to "keep one row when possible", while the 760-850px wrap behavior is untouched.
+- [Narrow-viewport plan chip click-area regression test](../../archived/bug-fix/2026-08-06-plan-narrow-viewport-regression.md) — the existing composer control-row wrap mechanism (`flex-wrap: wrap` + `margin-left: auto`) this change builds on; the ≤640px default shifts from "wrap when space runs out" to "keep one row when possible", while the 760-850px wrap behavior is untouched.

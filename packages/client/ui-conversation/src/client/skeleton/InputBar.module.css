@@ -244,6 +244,34 @@
   gap: 12px;
 }
 
+/* Narrow viewports keep the composer toolbar on one row: the attach/mode
+   controls share the row with the model seat and primary action, so the
+   toolbar never splits into two rows on phones (upstream re-application of
+   2026-08-25-mobile-composer-toolbar-single-row). The wrap stays as a safety
+   valve — when the card runs out of row width (very narrow screens), the
+   trailing group falls to its own line instead of overflowing. The tools
+   group does not stretch and every gap tightens, so the trailing group
+   (model seat, context ring, primary action) fits beside it without
+   wrapping. */
+@media (max-width: 640px) {
+  .row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    gap: 6px;
+  }
+
+  .tools {
+    flex: none;
+    gap: 6px;
+  }
+
+  .trailing {
+    flex: none;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+}
+
 /* Attach circle (figma + control): 28px, selector fill, primary glyph. */
 .add {
   display: grid;
