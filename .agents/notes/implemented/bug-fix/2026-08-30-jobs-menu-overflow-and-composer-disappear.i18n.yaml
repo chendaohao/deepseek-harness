@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-jobs-menu-overflow-and-composer-disappear.md
+2026-08-30-jobs-menu-overflow-and-composer-disappear.md: 3f5ebf3e291d87c840d211cd3cf381db9abe1192
+2026-08-30-jobs-menu-overflow-and-composer-disappear.zh.md: 5f88b4903479b4968b50070b5432e59d51bc9f85

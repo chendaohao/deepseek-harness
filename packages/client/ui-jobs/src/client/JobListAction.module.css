@@ -68,6 +68,17 @@
   box-shadow: var(--dsw-shadow-lv3);
 }
 
+/* Narrow viewports: the trigger sits anywhere along the header's actions
+   line, so a left-anchored menu can overflow the right edge. Center the
+   menu on the trigger instead (same posture as the model-select menu),
+   keeping it inside the viewport at every phone width. */
+@media (max-width: 640px) {
+  .menu {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+
 .row {
   display: flex;
   align-items: center;
