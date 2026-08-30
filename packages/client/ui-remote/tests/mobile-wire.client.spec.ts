@@ -307,4 +307,63 @@ describe('EventsClient', () => {
     client.stop()
     vi.useRealTimers()
   })
+
+  it('resume() recycles a live socket into an immediate fresh dial and follow re-open', () => {
+    // One fresh fake socket per dial: resume replaces the leg, so the factory
+    // must hand out a second socket for the assertions below.
+    const created: ReturnType<typeof fakeSocket>[] = []
+    const socketFactory = vi.fn(() => {
+      const next = fakeSocket()
+      created.push(next)
+      return next.socket
+    })
+    const statuses: string[] = []
+    const client = new EventsClient('ws://x/api/remote.mux', { socketFactory, idleTimeoutMs: 0 })
+    client.onStatus((status) => { statuses.push(status) })
+    client.start()
+    client.observe('s1')
+    created[0]!.handlers.onopen?.(undefined)
+    expect(followOpen(created[0]!.sent).payload).toMatchObject({ args: { request: { address: { sessionId: 's1' } } } })
+
+    client.resume()
+    expect(created).toHaveLength(2)
+    expect(created[0]!.close).toHaveBeenCalled()
+    expect(statuses).toEqual(['connecting', 'open', 'down', 'connecting'])
+    created[1]!.handlers.onopen?.(undefined)
+    expect(followOpen(created[1]!.sent).payload).toMatchObject({ args: { request: { address: { sessionId: 's1' } } } })
+    client.stop()
+  })
+
+  it('resume() replaces a pending backed-off dial with an immediate one', async () => {
+    vi.useFakeTimers()
+    const created: ReturnType<typeof fakeSocket>[] = []
+    const socketFactory = vi.fn(() => {
+      const next = fakeSocket()
+      created.push(next)
+      return next.socket
+    })
+    const client = new EventsClient('ws://x/api/remote.mux', { socketFactory, idleTimeoutMs: 0 })
+    client.start()
+    created[0]!.handlers.onopen?.(undefined)
+    // A transport failure schedules the reconnect one base delay out.
+    created[0]!.handlers.onerror?.(undefined)
+
+    client.resume()
+    expect(created).toHaveLength(2)
+    // The cancelled backoff must not stack a second dial behind the fresh one.
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(created).toHaveLength(2)
+    client.stop()
+    vi.useRealTimers()
+  })
+
+  it('resume() is a no-op after stop()', () => {
+    const { socket } = fakeSocket()
+    const socketFactory = vi.fn(() => socket)
+    const client = new EventsClient('ws://x/api/remote.mux', { socketFactory, idleTimeoutMs: 0 })
+    client.start()
+    client.stop()
+    client.resume()
+    expect(socketFactory).toHaveBeenCalledTimes(1)
+  })
 })

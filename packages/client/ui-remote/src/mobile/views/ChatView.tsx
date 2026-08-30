@@ -82,8 +82,11 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
   const [currentModel, setCurrentModel] = useState<ModelSelection | undefined>(undefined)
   const [sheet, setSheet] = useState<'model' | null>(null)
   const [title, setTitle] = useState(session.title)
+  /** True once the transport has stayed non-open past the banner delay. */
+  const [stalled, setStalled] = useState(false)
   const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
   const pendingRef = useRef(false)
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // The snapshot and frame legs race: a live frame can arrive before the open
   // snapshot resolves. Buffer those frames and fold them over the tail when it
   // lands — folding them before would be wiped by the tail's replace, and
@@ -102,6 +105,7 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
     setError(undefined)
     setMessages([])
     setHasOlder(false)
+    setStalled(false)
     tailAppliedRef.current = false
     pendingLiveRef.current = []
     cursorRef.current = undefined
@@ -136,6 +140,20 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
     }
     const unsubscribeSnapshot = events.onSnapshot(applySnapshot)
     const unsubscribeStatus = events.onStatus((status) => {
+      if (status === 'open') {
+        if (stallTimerRef.current !== undefined) {
+          clearTimeout(stallTimerRef.current)
+          stallTimerRef.current = undefined
+        }
+        setStalled(false)
+        return
+      }
+      if (stallTimerRef.current === undefined) {
+        stallTimerRef.current = setTimeout(() => {
+          stallTimerRef.current = undefined
+          setStalled(true)
+        }, STALL_BANNER_DELAY_MS)
+      }
       if (status !== 'down' || tailAppliedRef.current) return
       setError('实时连接不可用，正在重试…')
       setLoading(false)
@@ -143,6 +161,10 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
     return () => {
       unsubscribeSnapshot()
       unsubscribeStatus()
+      if (stallTimerRef.current !== undefined) {
+        clearTimeout(stallTimerRef.current)
+        stallTimerRef.current = undefined
+      }
     }
   }, [events, session.sessionId])
 
@@ -283,6 +305,9 @@ export function ChatView({ session, events, onBack }: ChatViewProps) {
       )}
       {renameError !== undefined && <p className="mobile-error mobile-pad">{renameError}</p>}
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
+      {stalled && messages.length > 0 && (
+        <p className="mobile-muted mobile-pad">实时连接已断开，正在重连…</p>
+      )}
       <div className="chat-scroll" ref={(ref) => { scrollRef.current = ref ?? undefined }}>
         {hasOlder && (
           <button type="button" className="chat-load-older" disabled={loading} onClick={() => { loadOlder() }}>
@@ -404,6 +429,12 @@ function ToolDisclosure({ tools }: { tools: ToolCallInfo[] }) {
 
 const LONG_TEXT_LIMIT = 1600
 const LONG_TEXT_PREVIEW = 800
+/**
+ * How long the transport may stay non-open before the chat shows the stall
+ * line. Healthy idle recycles pass through down → connecting → open within
+ * one round trip and must not flash it.
+ */
+const STALL_BANNER_DELAY_MS = 3_000
 
 /** Long assistant text collapses behind an explicit expand toggle. */
 function CollapsibleText({ text }: { text: string }) {

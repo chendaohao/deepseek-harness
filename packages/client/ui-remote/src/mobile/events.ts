@@ -71,7 +71,13 @@ export function muxUrl(): string {
 
 const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 15_000
-/** Idle watchdog default: the multiplexer pings every 15 s. */
+/**
+ * Idle watchdog default. The multiplexer pings every 30 s
+ * (`websocketHeartbeatIntervalMs`), but as WebSocket control frames — a
+ * browser cannot observe them, and the access proxy does not relay them as
+ * application frames either — so they never reset this watchdog; 45 s of
+ * application-frame silence is the dead-leg signal.
+ */
 const DEFAULT_IDLE_TIMEOUT_MS = 45_000
 const DEFAULT_SNAPSHOT_MAX_MESSAGES = 30
 
@@ -82,7 +88,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Keep one `session/follow` stream open for the observed session, fanning the
  * opening snapshot and validated session/event frames to subscribers, and
- * reconnecting with backoff when the transport fails.
+ * reconnecting with backoff when the transport fails. The browser's foreground
+ * return drives {@link resume} — the deterministic re-sync after a mobile OS
+ * suspended the page.
  */
 export class EventsClient {
   private readonly url: string
@@ -181,6 +189,23 @@ export class EventsClient {
     if (sessionId === this.observedSessionId) return
     this.observedSessionId = sessionId
     if (this.socketOpen) this.syncStream()
+  }
+
+  /**
+   * Force one fresh dial and follow re-open: the browser's foreground return
+   * after the OS suspended the page. A suspended leg can drop frames or die
+   * without a close event while still looking healthy, so any existing socket
+   * is recycled, a pending backed-off dial is replaced by an immediate one,
+   * and the fresh snapshot refolds idempotently over the fold watermark.
+   */
+  resume(): void {
+    if (this.stopped) return
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    if (this.socket !== undefined) this.teardownSocket()
+    this.connectSocket()
   }
 
   private connectSocket(): void {
@@ -292,13 +317,18 @@ export class EventsClient {
   private handleSocketFailure(): void {
     if (this.stopped) return
     if (this.socket === undefined) return
+    this.teardownSocket()
+    this.scheduleReconnect()
+  }
+
+  /** Drop the current leg and stream bookkeeping, reporting the failure. */
+  private teardownSocket(): void {
     this.clearIdleTimer()
     this.socketOpen = false
     this.streamSessionId = undefined
     this.streamId = undefined
     this.emitStatus('down')
     this.closeSocket()
-    this.scheduleReconnect()
   }
 
   private scheduleReconnect(): void {

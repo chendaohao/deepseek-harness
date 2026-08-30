@@ -53,6 +53,8 @@ const { StubEventsClient } = vi.hoisted(() => {
     start(): void {}
     stop(): void {}
     observe(): void {}
+    resumes = 0
+    resume(): void { this.resumes += 1 }
     emit(frame: { type?: unknown; sessionId: string; event: unknown }): void {
       act(() => { for (const listener of [...this.frameListeners]) listener(frame) })
     }
@@ -175,6 +177,29 @@ describe('App state machine', () => {
     fireEvent.click(screen.getByRole('button', { name: '返回' }))
     expect(await screen.findByText('project-alpha')).toBeTruthy()
   })
+
+  it('resumes the live-event client when the page returns to the foreground', () => {
+    mockFetchWorkspaceRoster.mockResolvedValue({ ok: true, value: [] })
+    render(<App />)
+    const client = lastEventsClient()
+    expect(client.resumes).toBe(0)
+
+    const setVisibility = (value: string): void => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value })
+    }
+    // Hidden transitions must not dial.
+    setVisibility('hidden')
+    fireEvent(document, new Event('visibilitychange'))
+    expect(client.resumes).toBe(0)
+    // The visible transition is the one deterministic re-sync moment: a
+    // suspended mobile page loses frames (and often the socket) silently.
+    setVisibility('visible')
+    fireEvent(document, new Event('visibilitychange'))
+    expect(client.resumes).toBe(1)
+    // A bfcache restore delivers pageshow with persisted=true.
+    fireEvent(window, Object.assign(new Event('pageshow'), { persisted: true }))
+    expect(client.resumes).toBe(2)
+  })
 })
 
 describe('WorkspaceView', () => {
@@ -286,6 +311,27 @@ describe('ChatView', () => {
     live.emitSnapshot(snapshotFrame([userEvent(1, '你好')]))
     expect(await screen.findByText('你好')).toBeTruthy()
     expect(screen.queryByText('实时连接不可用，正在重试…')).toBeNull()
+  })
+
+  it('shows the stall line only after the transport stays non-open past the banner delay', () => {
+    vi.useFakeTimers()
+    const live = new StubEventsClient()
+    render(<ChatView session={session} events={asEventsClient(live)} onBack={() => { }} />)
+    live.emitSnapshot(snapshotFrame([userEvent(1, '你好')]))
+    expect(screen.getByText('你好')).toBeTruthy()
+
+    // A healthy idle recycle passes through down → connecting → open within
+    // one round trip and must not flash the stall line.
+    live.emitStatus('down')
+    expect(screen.queryByText('实时连接已断开，正在重连…')).toBeNull()
+    act(() => { vi.advanceTimersByTime(2_000) })
+    expect(screen.queryByText('实时连接已断开，正在重连…')).toBeNull()
+    act(() => { vi.advanceTimersByTime(1_000) })
+    expect(screen.getByText('实时连接已断开，正在重连…')).toBeTruthy()
+
+    live.emitStatus('open')
+    expect(screen.queryByText('实时连接已断开，正在重连…')).toBeNull()
+    vi.useRealTimers()
   })
 
   it('derives the current model from the snapshot projection', async () => {

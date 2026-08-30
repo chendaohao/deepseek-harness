@@ -84,16 +84,32 @@ export function App() {
   const eventsRef = useRef<EventsClient | undefined>(undefined)
 
   // The live-event client lives for the page lifetime: session events keep
-  // the open chat live, and reconnect is automatic.
+  // the open chat live, reconnect is automatic, and the browser's foreground
+  // return forces a fresh dial + snapshot — a suspended mobile page drops
+  // live frames and can lose its socket without a close event, so the
+  // visibility transition is the one deterministic re-sync moment.
   useEffect(() => {
     const events = new EventsClient()
     eventsRef.current = events
     events.start()
-    return () => { events.stop() }
+    const resume = (): void => { events.resume() }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') resume()
+    }
+    const onPageShow = (event: PageTransitionEvent): void => {
+      if (event.persisted) resume()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+      events.stop()
+    }
   }, [])
 
   // Keep the live-event client pointed at the session currently on screen so
-  // its polling fallback can keep that chat fresh when the socket is down.
+  // its follow stream keeps that chat live and its snapshot lands there.
   useEffect(() => {
     eventsRef.current?.observe(route.kind === 'chat' ? route.session.sessionId : undefined)
   }, [route])
