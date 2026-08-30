@@ -1282,9 +1282,9 @@ describe('command launcher chrome and control seats', () => {
     // Capability absent (no projection value): the chip renders nothing.
     expect(view.queryByLabelText(/^访问模式/)).toBeNull()
     // Every seat dispatched, nothing rendered (render passes may repeat; the
-    // seat set is the contract).
-    expect([...new Set(slotCalls.map(c => c.key))]).toEqual([
-      'conversation.input.attachments', 'conversation.input.plan', 'conversation.input.model',
+    // seat set is the contract; render order follows the toolbar DOM, not a contract).
+    expect([...new Set(slotCalls.map(c => c.key))].sort()).toEqual([
+      'conversation.input.attachments', 'conversation.input.model', 'conversation.input.plan',
     ])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()

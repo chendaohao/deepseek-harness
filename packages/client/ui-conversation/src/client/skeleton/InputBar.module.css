@@ -224,8 +224,12 @@
 
 /* figma 75:8208 drew 16 between + and the mode chips and 4 between Plan /
    Read-only; the chip gap widened to 12 so the pill chips read as separate
-   controls. */
+   controls. order: -1 keeps the tools group visually left even though the
+   trailing group precedes it in the DOM (the DOM order puts the primary
+   actions first so wrap-reverse sinks them to the bottom row on narrow
+   viewports). */
 .tools {
+  order: -1;
   gap: 16px;
 }
 
@@ -244,18 +248,16 @@
   gap: 12px;
 }
 
-/* Narrow viewports keep the composer toolbar on one row: the attach/mode
-   controls share the row with the model seat and primary action, so the
-   toolbar never splits into two rows on phones (upstream re-application of
-   2026-08-25-mobile-composer-toolbar-single-row). The wrap stays as a safety
-   valve — when the card runs out of row width (very narrow screens), the
-   trailing group falls to its own line instead of overflowing. The tools
-   group does not stretch and every gap tightens, so the trailing group
-   (model seat, context ring, primary action) fits beside it without
-   wrapping. */
+/* Narrow viewports: the trailing group (model seat, context ring, primary
+   action) is the primary row — wrap-reverse sinks it to the bottom, filled
+   first and right-aligned, while the tools group (attach/access/plan) takes
+   the top row when the toolbar splits. On a single row the DOM order is
+   flipped back by .tools { order: -1 }, so the tools stay left and the
+   trailing stays right exactly as on wide viewports. The wrap stays as a
+   safety valve for content wider than the card. */
 @media (max-width: 640px) {
   .row {
-    flex-wrap: wrap;
+    flex-wrap: wrap-reverse;
     row-gap: 8px;
     gap: 6px;
   }
