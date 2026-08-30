@@ -273,7 +273,7 @@ describe('handlePairing', () => {
     const policy = createAccessPolicy(secret, registry(), {
       now: () => NOW,
       pairMaxAttempts: 1,
-      pairAttemptKey: req => String((req.headers['x-forwarded-for'] as string | undefined) ?? 'unknown'),
+      pairAttemptKey: req => (req.headers['x-forwarded-for'] as string | undefined) ?? 'unknown',
     })
     const first = request({ remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '198.51.100.9' } })
     const second = request({ remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '198.51.100.9' } })

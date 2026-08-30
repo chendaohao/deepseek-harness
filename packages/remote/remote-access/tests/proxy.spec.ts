@@ -283,7 +283,11 @@ describe('WebSocket relaying', () => {
       const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port) + '/api/remote.mux', { headers: { cookie: 'dsh_remote=v2.device' } })
       // Delay the frame until the upstream handshake completes, so the upgrade request headers are recorded.
       client.on('open', () => { void sleepMs(150).then(() => { client.send('ping') }) })
-      client.on('message', () => { resolve(String(upgradeRequestHeaders?.cookie ?? '')); client.close() })
+      client.on('message', () => {
+        const cookie = upgradeRequestHeaders?.cookie
+        resolve(typeof cookie === 'string' ? cookie : '')
+        client.close()
+      })
     })
     await expect(echoed).resolves.toBe('dsh_remote=v2.device')
   })
