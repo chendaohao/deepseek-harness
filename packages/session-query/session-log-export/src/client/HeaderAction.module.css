@@ -34,3 +34,20 @@
 .sessionLogButton span {
   white-space: nowrap;
 }
+
+/* Narrow viewports: the button sheds its minimum width and the label
+   ellipsizes so the badge, job trigger, and this button share one
+   title-row line. */
+@media (max-width: 640px) {
+  .sessionLogButton {
+    min-width: 0;
+    padding: 6px 10px;
+  }
+
+  .sessionLogButton span {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

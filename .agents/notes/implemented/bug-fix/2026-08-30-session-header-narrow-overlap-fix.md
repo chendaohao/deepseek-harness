@@ -10,25 +10,32 @@ On phone-width viewports the conversation session header rendered its two fixed-
 
 ## Decision
 
-Under `@media (max-width: 640px)` (the same breakpoint the composer toolbar uses), stack the title row vertically: `.titleRow { flex-direction: column; align-items: flex-start }`, `.titleCluster { flex-wrap: wrap }`, and `.headerUtilities { margin-left: 0 }`. The cluster keeps its internal wrap so the badge and job trigger fold when they outgrow the cluster, and the utilities row (Session log) lands on its own line below — every control stays fully visible and clickable. Desktop (\>640px) keeps the original single-row layout untouched.
+Under `@media (max-width: 640px)` (the same breakpoint the composer toolbar uses), the title row stacks into two lines with the session title on its own line and the three controls — mode badge (`ui-agent-preset` label), background-job trigger (`ui-jobs`), and the Session-log button (`session-log-export`) — sharing the actions line below it:
+
+- `ConversationSession.tsx` moves `headerActions` out of `titleCluster` into a new `.actionsRow` sibling that also holds `headerUtilities`; `.titleRow { flex-direction: column }` stacks title above actions on narrow viewports while desktop keeps both in one row.
+- Every control participates in flex sizing on the actions line: the badge ellipsizes (its own 180px cap), the job count compresses, and the Session-log button sheds its minimum width (`min-width: 0` + label ellipsis). Nothing wraps or overflows on the actions line at any phone width.
+
+Desktop (\>640px) keeps the original one-row layout untouched.
 
 ## Verification
 
-Playwright against the real GUI through the mobile-preview proxy:
+Playwright against the real GUI through the mobile-preview proxy, session header with 10 live jobs:
 
-- 402px vw: job trigger (152-253, top 45-73) and Session-log button (76-193, top 79-111) no longer overlap (`overlapping: false`); header grows to 143px to hold the stacked rows.
-- 1270px vw: `titleRowDirection` stays `row`, header height 76px, job trigger (556-657) and Session log (1075-1192) widely separated — desktop unchanged.
-- `packages/client/ui-conversation/tests/input-bar.client.spec.tsx` + `packages/client/ui-jobs/tests`: 94/94 pass.
+- 402-330px vw sweep: crumb (title) keeps its full 170px width on its own line; badge (55→38px), job trigger (85→58px), and Session log (92→64px) shrink proportionally on the actions line with `overlapping: false` at every width; header height 110px (two lines).
+- 1270px vw: `titleRowDirection` stays `row`, header height 76px, crumb (300-470), job trigger (822-930), and Session log (1075-1192) on one line — desktop unchanged.
+- `packages/client/ui-conversation/tests`: 335/335 pass.
 
 ## Alternatives considered
 
-**Wrap the title row (`flex-wrap: wrap`) instead of stacking.** Rejected — the two groups' widths (131px cluster + 117px utilities) exactly fill the 248px row, so wrap never triggers; the overlap lives inside the cluster, whose own children overflow onto the utilities.
+**Stack every control on its own line (`titleRow { flex-direction: column }` with the cluster wrapping internally).** Rejected — it works but wastes vertical space (header ~143px): the three controls fit comfortably on one shared line once the badge and job trigger shrink, which the final design does.
 
-**Let the job trigger shrink (ellipsis/icon-only).** Rejected — the trigger is contributed by the `ui-jobs` plugin through the `conversation.session.header.actions` slot; shrinking it inside `ui-conversation` CSS couples the packages and does not help the mode badge that also overflows.
+**Keep the cluster containing the actions and only shrink it in place.** Rejected — the cluster's `flex: 1` absorbs all shrink pressure first, so the Session-log utilities never compress and the job trigger collapses to an ellipsis; moving the actions out of the cluster onto a shared line with the utilities lets flex distribute the available width across all three controls.
+
+**Let the job trigger shrink (ellipsis/icon-only) inside `ui-conversation` CSS.** Rejected — the trigger is contributed by the `ui-jobs` plugin through the `conversation.session.header.actions` slot; shrinking it inside `ui-conversation` CSS couples the packages and does not help the mode badge that also overflows.
 
 ## Consequences
 
-Phone-width sessions stack their header controls: title/badge row, background-job trigger, then Session log — each fully visible and clickable, at the cost of a taller header (~143px vs 76px) on narrow viewports. Desktop and tablet layouts are unchanged. The 94-test suites stay green.
+Phone-width sessions show the full session title on its own line, with the mode badge, background-job trigger, and Session-log button sharing one compressible line below — every control fully visible and clickable at 330px and wider, at the cost of a two-line header (~110px vs 76px) on narrow viewports. Desktop and tablet layouts are unchanged. The 335-test ui-conversation suite stays green.
 
 ## Related
 

@@ -10,25 +10,32 @@ Status: implemented
 
 ## 决定
 
-在 `@media (max-width: 640px)` 下（与 composer 工具栏相同的断点），将标题行垂直堆叠：`.titleRow { flex-direction: column; align-items: flex-start }`、`.titleCluster { flex-wrap: wrap }`、`.headerUtilities { margin-left: 0 }`。簇保持内部换行，徽标和任务触发器在超出簇宽时折行，工具行（Session 日志）落到自己的行——每个控件都完全可见可点。桌面端（\>640px）保持原始单行布局不变。
+在 `@media (max-width: 640px)` 下（与 composer 工具栏相同的断点），标题行堆叠成两行：会话标题独占一行，模式徽标（`ui-agent-preset` 标签）、后台任务触发器（`ui-jobs`）和 Session 日志按钮（`session-log-export`）三个控件共享其下的操作行：
+
+- `ConversationSession.tsx` 将 `headerActions` 从 `titleCluster` 移到新的 `.actionsRow` 兄弟元素中，与 `headerUtilities` 并列；窄视口下 `.titleRow { flex-direction: column }` 把标题堆叠在操作行之上，桌面端两者保持一行。
+- 操作行上的每个控件都参与 flex 收缩：徽标省略（其自身 180px 上限）、任务计数压缩、Session 日志按钮去掉最小宽度（`min-width: 0` + 标签省略）。在任何手机宽度下操作行都不会换行或溢出。
+
+桌面端（\>640px）保持原始单行布局不变。
 
 ## 验证
 
-通过 mobile-preview 代理对真实 GUI 使用 Playwright：
+通过 mobile-preview 代理对真实 GUI 使用 Playwright，会话头部有 10 个实时后台任务：
 
-- 402px vw：任务触发器（152-253, top 45-73）与 Session 日志按钮（76-193, top 79-111）不再重叠（`overlapping: false`）；头部增高到 143px 以容纳堆叠的行。
-- 1270px vw：`titleRowDirection` 保持 `row`，头部高度 76px，任务触发器（556-657）与 Session 日志（1075-1192）相距很远——桌面端不变。
-- `packages/client/ui-conversation/tests/input-bar.client.spec.tsx` + `packages/client/ui-jobs/tests`：94/94 通过。
+- 402-330px vw 扫描：crumb（标题）在自己的行保持完整 170px；徽标（55→38px）、任务触发器（85→58px）、Session 日志（92→64px）在操作行按比例收缩，每个宽度下 `overlapping: false`；头部高度 110px（两行）。
+- 1270px vw：`titleRowDirection` 保持 `row`，头部高度 76px，crumb（300-470）、任务触发器（822-930）、Session 日志（1075-1192）在同一行——桌面端不变。
+- `packages/client/ui-conversation/tests`：335/335 通过。
 
 ## 备选方案
 
-**让标题行换行（`flex-wrap: wrap`）而不是堆叠。** 拒绝——两组的宽度（簇 131px + 工具 117px）恰好填满 248px 的行，因此换行永远不会触发；重叠发生在簇内部，其子元素溢出到工具组上。
+**让每个控件各占一行（`titleRow { flex-direction: column }` + 簇内部换行）。** 拒绝——虽然可行但浪费垂直空间（头部约 143px）：三个控件在徽标和任务触发器收缩后可以舒适地共享一行，这正是最终设计。
 
-**让任务触发器收缩（省略号/仅图标）。** 拒绝——触发器由 `ui-jobs` 插件通过 `conversation.session.header.actions` 插槽贡献；在 `ui-conversation` 的 CSS 中收缩它会耦合两个包，而且无助于同样溢出的模式徽标。
+**让簇继续包含操作并只在原地收缩。** 拒绝——簇的 `flex: 1` 会先吸收所有收缩压力，Session 日志工具永远不会压缩，任务触发器被压成省略号；把操作移出簇、与工具共享一行，让 flex 在三个控件之间均匀分配可用宽度。
+
+**在 `ui-conversation` 的 CSS 中让任务触发器收缩（省略号/仅图标）。** 拒绝——触发器由 `ui-jobs` 插件通过 `conversation.session.header.actions` 插槽贡献；在 `ui-conversation` 的 CSS 中收缩它会耦合两个包，而且无助于同样溢出的模式徽标。
 
 ## 结果
 
-手机宽度下的会话头部控件垂直堆叠：标题/徽标行、后台任务触发器、Session 日志——每个都完全可见可点，代价是窄视口下头部更高（约 143px 对比 76px）。桌面和平板布局不变。94 项测试套件保持全绿。
+手机宽度下的会话显示完整标题独占一行，模式徽标、后台任务触发器、Session 日志按钮共享其下的一行可压缩操作行——每个控件在 330px 及以上宽度都完全可见可点，代价是窄视口下头部变为两行（约 110px 对比 76px）。桌面和平板布局不变。335 项 ui-conversation 测试套件保持全绿。
 
 ## 相关
 

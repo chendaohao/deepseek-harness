@@ -137,6 +137,22 @@
   gap: 8px;
 }
 
+/* The actions row (mode badge + job trigger) and the utilities row
+   (Session log) share one line beside the title cluster; the utilities
+   push right within the actions row so the Session-log button stays at
+   the row's end. */
+.actionsRow {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.actionsRow > .headerUtilities {
+  margin-left: auto;
+}
+
 .headerUtilities {
   display: flex;
   flex: none;
@@ -458,24 +474,48 @@
   visibility: hidden;
 }
 
-/* Narrow viewports: the title row stacks its two fixed-width groups
-   (title cluster with mode badge + background-job trigger, then the
-   Session-log utilities) instead of letting the cluster overflow onto the
-   utilities. Stacking keeps every control fully visible and clickable on
-   phone widths where the two groups together are wider than the column. */
+/* Narrow viewports: the title row stacks — the session title (crumbs) on
+   its own line, then the actions row (mode badge + background-job trigger
+   + Session-log button) below it. The actions row keeps one line: every
+   group inside participates in flex sizing, so the badge ellipsizes (its
+   own 180px cap), the job count compresses, and the Session-log button
+   sheds its minimum width as the column narrows. */
 @media (max-width: 640px) {
   .titleRow {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     row-gap: 6px;
   }
 
   .titleCluster {
-    flex-wrap: wrap;
-    row-gap: 4px;
+    flex: none;
+    width: 100%;
+  }
+
+  .actionsRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .headerActions {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .headerActions > * {
+    min-width: 0;
   }
 
   .headerUtilities {
+    flex: 0 1 auto;
+    min-width: 0;
     margin-left: 0;
+  }
+
+  .headerUtilities > * {
+    min-width: 0;
   }
 }
