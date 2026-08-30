@@ -157,9 +157,25 @@ function isValidHostname(value: string): boolean {
 
 /** One named-session ingress config: the pre-registered tunnel under its public hostname, plus the catch-all. */
 function namedIngressConfig(spec: Extract<SessionSpec, { mode: 'named' }>, port: number): string {
+  /* local extension: DSH_TUNNEL_EXTRA_INGRESS env adds extra ingress rules (one per line
+   * "hostname|path|service"), e.g. "dsh.chenhao33685.ccwu.cc|/xiaozhi/ota/*|http://127.0.0.1:18003" */
+  const extra = (process.env.DSH_TUNNEL_EXTRA_INGRESS ?? '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [host, path, service] = line.split('|').map(part => part.trim())
+      if (!host || !service) return null
+      const hostLine =
+        path && path !== '*' ? `  - hostname: ${host}\n    path: ${path}` : `  - hostname: ${host}`
+      return hostLine + '\n    service: ' + service
+    })
+    .filter((line): line is string => line !== null)
   return [
     `tunnel: ${spec.name}`,
     'ingress:',
+    /* extra rules with paths must precede the default (path-less) rule or they are shadowed */
+    ...extra,
     `  - hostname: ${spec.hostname}`,
     `    service: http://127.0.0.1:${String(port)}`,
     '  - service: http_status:404',
