@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-jobs-menu-overflow-and-composer-disappear.md
-2026-08-30-jobs-menu-overflow-and-composer-disappear.md: ad15d03f273dc9216b1ffd52ef9d42b3d7db3de7
-2026-08-30-jobs-menu-overflow-and-composer-disappear.zh.md: 99089e8e01408f2a643b03c1608434907fb3ef84
+2026-08-30-jobs-menu-overflow-and-composer-disappear.md: 715ad63aa2ae200283423e1bed2c8bd9a115565a
+2026-08-30-jobs-menu-overflow-and-composer-disappear.zh.md: bee2916795812f21c8ef0e32333984bd207d1cb6

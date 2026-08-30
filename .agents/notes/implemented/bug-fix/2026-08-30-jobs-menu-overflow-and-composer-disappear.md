@@ -20,17 +20,19 @@ Two mobile-only defects in the session header and composer while background jobs
 
 3. **Center the context-occupancy panel on the viewport on narrow viewports.** The `ContextMeter` panel is `position: absolute; right: 0` to its 28px ring root, which sits beside the send button near the row's end — a 264px panel right-anchored there overflows the viewport's left edge. Under the 640px breakpoint the panel becomes `position: fixed; left: 50%; transform: translateX(-50%); bottom: 120px`: the fixed positioning resolves the 50% against the viewport (not the 28px root, where percentage centering is meaningless), placing the panel dead-center above the composer at every phone width.
 
-4. **Composer disappearance: deferred pending root cause.** Recorded here so the next session continues from the candidate list above instead of re-investigating from scratch.
+4. **The job menu is also pinned to the viewport center, not the trigger.** A trigger-centered menu still reads off-center against the viewport (the trigger sits mid-row): `@media (max-width: 640px)` gives `.menu { position: fixed; top: 120px; left: 50%; transform: translateX(-50%) }`, the same posture as the context panel.
+
+5. **Composer disappearance: deferred pending root cause.** The reporter reproduced it while these UI changes were being rebuilt — i.e. along the client-HMR hot-swap path. `client-hmr` replaces the `ui-conversation` fiber (registry-first teardown, `entry.refresh()`), which unmounts and remounts the conversation slot; the vendor comment documents a dev-only race where a rebuilt frame overlapping an in-flight boot arrival can materialize pre-rebuild bytes, and an apply failure leaves a FAILED fiber with no composer until the next rebuilt frame or a page reload. The composer was NOT reproduced in Playwright probes (reloads, HMR rebuilds, session switches all keep `data-composer-card` visible, phase `active`). Candidate mechanisms recorded: the `settling` hide path (`openState === 'loading'` with a non-summary-blank session), the `ui-approval` `ApprovalPanel` takeover (`pendingInteraction` stuck), the `ui-subagent` read-only composer takeover, or an HMR fiber-swap failure leaving the conversation slot unmounted.
 
 ## Verification
 
 Playwright against the real GUI through the mobile-preview proxy, session with 10 live jobs:
 
-- 402px vw: job menu left 20-356, center 188 == trigger center 188, fully inside the viewport; `elementFromPoint` at menu content hits the menu's `li` (content actually painted and clickable).
-- 340px vw: job menu left 15-323, center == trigger center, fully inside the viewport, content hit-testable.
+- 402px vw: job menu left 33-369 — `viewportCenterDiff: 0`, left/right gaps both 33px (perfect viewport centering), fully inside the viewport; `elementFromPoint` at menu content hits the menu's `li` (content actually painted and clickable).
+- 365px vw: job menu left 16-349, viewport-centered (gaps 16/16), content hit-testable; 330px vw: left 16-314, viewport-centered.
 - 392px vw: context panel left 64-328, centered on the viewport (center diff <= 2px), fully inside the viewport, content hit-testable; 340px vw: left 38-302, viewport-centered, inside.
 - 1270px vw: context panel keeps `position: absolute; right: 0` alignment to its trigger; job menu left-anchored — desktop unchanged.
-- Composer visibility sampled every 2s for 30s while jobs run, across scroll positions (top/middle/bottom) and across session switches: seat stays visible (`visibility: visible`, card top 779) — the disappearing case was not reproduced in these probes.
+- Composer visibility sampled every 2s for 30s while jobs run, across scroll positions (top/middle/bottom), across session switches, across a page reload, and across a client-HMR rebuild of `ui-conversation`: seat stays visible (`visibility: visible`, card top 779, phase `active`, zero console errors) — the disappearing case was not reproduced in these probes.
 - `packages/client/ui-conversation/tests` + `packages/client/ui-jobs/tests`: 357/357 pass.
 
 ## Alternatives considered

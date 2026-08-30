@@ -69,11 +69,15 @@
 }
 
 /* Narrow viewports: the trigger sits anywhere along the header's actions
-   line, so a left-anchored menu can overflow the right edge. Center the
-   menu on the trigger instead (same posture as the model-select menu),
-   keeping it inside the viewport at every phone width. */
+   line, so a left-anchored menu overflows the right edge and a trigger
+   centered menu still reads off-center against the viewport. Pin the menu
+   to the viewport center (fixed, so the 50% resolves against the viewport
+   — the same posture as the context panel and the model-select menu),
+   with vertical placement just below the header actions line. */
 @media (max-width: 640px) {
   .menu {
+    position: fixed;
+    top: 120px;
     left: 50%;
     transform: translateX(-50%);
   }

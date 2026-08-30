@@ -14,13 +14,15 @@ Status: implemented
 
 ## 决定
 
-1. **窄视口下让任务菜单以触发器为中心居中**，镜像模型选择菜单的姿态：在 `@media (max-width: 640px)` 下，`.menu { left: 50%; transform: translateX(-50%) }`。现有的 `max-width: min(400px, calc(100vw - 32px))` 保证它在任何手机宽度下都在视口内。
+1. **窄视口下让任务菜单以视口为中心居中**（不是触发器）——触发器位于行中偏左时，触发器居中的菜单相对视口仍然偏。在 `@media (max-width: 640px)` 下，`.menu { position: fixed; top: 120px; left: 50%; transform: translateX(-50%) }`，与上下文面板相同的姿态。
 
 2. **不要用操作行收缩裁剪弹出层。** 第一个实现给 `.headerActions { overflow: hidden }`（窄断点下）来容纳收缩的徽标/任务触发器；这也裁剪了绝对定位的任务菜单（绘制在头部行下方），导致 10 行内容在 DOM 中存在但从未绘制。移除 overflow；操作及其子元素上的 `min-width: 0` 已足以让行收缩而不裁剪弹出层。
 
 3. **窄视口下让上下文占用面板以视口为中心居中。** `ContextMeter` 面板是相对其 28px 圆环根 `position: absolute; right: 0`，圆环位于行末发送按钮旁——264px 面板在那里右对齐会溢出视口左缘。在 640px 断点下面板变为 `position: fixed; left: 50%; transform: translateX(-50%); bottom: 120px`：fixed 定位让 50% 相对视口解析（而不是 28px 根，那里百分比居中无意义），在任何手机宽度下都让面板在输入框上方正中央。
 
-4. **输入框消失：推迟到根因定位。** 在此记录，让下一个会话从上面的候选列表继续，而不是从头重新调查。
+4. **任务菜单也钉在视口中心，而不是触发器。** 触发器居中的菜单仍相对视口偏（触发器位于行中）：`@media (max-width: 640px)` 下 `.menu { position: fixed; top: 120px; left: 50%; transform: translateX(-50%) }`，与上下文面板相同的姿态。
+
+5. **输入框消失：推迟到根因定位。** 报告者在重建这些 UI 时复现，即 client-HMR 热换路径。`client-hmr` 替换 `ui-conversation` fiber（registry-first 拆除、`entry.refresh()`），卸载并重挂对话插槽；vendor 注释记录了 dev-only 竞态（重建帧与在途引导到达重叠可能物化重建前的字节）以及 apply 失败留下 FAILED fiber 时直到下一个重建帧或页面刷新前没有输入框。Playwright 探测（重载、HMR 重建、会话切换均保持 `data-composer-card` 可见、phase `active`）未复现。候选机制已记录：`settling` 隐藏路径（`openState === 'loading'` 且会话非 summary-blank）、`ui-approval` 的 `ApprovalPanel` 接管（`pendingInteraction` 卡住）、`ui-subagent` 只读输入框接管、或 HMR fiber 交换失败导致对话插槽未挂载。
 
 ## 验证
 
@@ -43,7 +45,7 @@ Status: implemented
 
 ## 结果
 
-任务菜单在触发器下方居中打开，其行在任何手机宽度下都实际绘制且可点击；上下文面板在输入框上方正中央打开，永不溢出。桌面端保持两个表面的原始锚定布局。输入框消失缺陷仍未解决，附有已记录的候选列表；修复在后续变更中落地。
+任务菜单在触发器下方居中打开，其行在任何手机宽度下都实际绘制且可点击；上下文面板在输入框上方正中央打开，永不溢出。桌面端保持两个表面的原始锚定布局。输入框消失缺陷仍未解决；报告者在重建这些 UI 时复现，指向 client-HMR 热换路径（`ui-conversation` fiber 替换导致对话插槽卸载重挂；vendor 注释记录了 dev-only 竞态与 apply 失败留下 FAILED fiber 的可能）。Playwright 探测（重载、HMR 重建、会话切换）均未复现。候选机制已记录；修复在后续变更中落地。
 
 ## 相关
 
