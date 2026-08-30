@@ -18,6 +18,15 @@
   text-overflow: ellipsis;
 }
 
+/* Narrow viewports: the preset name (e.g. "PTC 模式") stays fully readable —
+   the label stops shrinking before its text ellipsizes, and the remaining
+   actions-row controls absorb the squeeze. */
+@media (max-width: 640px) {
+  .label {
+    flex: 0 0 auto;
+  }
+}
+
 .icon {
   flex: none;
   opacity: 0.7;

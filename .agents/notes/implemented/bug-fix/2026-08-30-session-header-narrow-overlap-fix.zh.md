@@ -13,7 +13,7 @@ Status: implemented
 在 `@media (max-width: 640px)` 下（与 composer 工具栏相同的断点），标题行堆叠成两行：会话标题独占一行，模式徽标（`ui-agent-preset` 标签）、后台任务触发器（`ui-jobs`）和 Session 日志按钮（`session-log-export`）三个控件共享其下的操作行：
 
 - `ConversationSession.tsx` 将 `headerActions` 从 `titleCluster` 移到新的 `.actionsRow` 兄弟元素中，与 `headerUtilities` 并列；窄视口下 `.titleRow { flex-direction: column }` 把标题堆叠在操作行之上，桌面端两者保持一行。
-- 操作行上的每个控件都参与 flex 收缩：徽标省略（其自身 180px 上限）、任务计数压缩、Session 日志按钮去掉最小宽度（`min-width: 0` + 标签省略）。在任何手机宽度下操作行都不会换行或溢出。
+- 操作行上的每个控件都参与 flex 收缩：徽标保持完整的预设名（窄断点下 `flex: 0 0 auto`，因此 "PTC 模式" 永不省略）、任务计数压缩、Session 日志按钮去掉最小宽度（`min-width: 0` + 标签省略）。在任何手机宽度下操作行都不会换行或溢出。
 
 桌面端（\>640px）保持原始单行布局不变。
 
@@ -21,7 +21,7 @@ Status: implemented
 
 通过 mobile-preview 代理对真实 GUI 使用 Playwright，会话头部有 10 个实时后台任务：
 
-- 402-330px vw 扫描：crumb（标题）在自己的行保持完整 170px；徽标（55→38px）、任务触发器（85→58px）、Session 日志（92→64px）在操作行按比例收缩，每个宽度下 `overlapping: false`；头部高度 110px（两行）。
+- 402-310px vw 扫描：crumb（标题）在自己的行保持完整 170px；徽标保持完整 68px 的预设名（"PTC 模式"，每个宽度下 `truncated: false`）；任务触发器（72→15px）和 Session 日志（92→57px）在操作行吸收挤压，每个宽度下 `overlapping: false`；头部高度 110px（两行）。
 - 1270px vw：`titleRowDirection` 保持 `row`，头部高度 76px，crumb（300-470）、任务触发器（822-930）、Session 日志（1075-1192）在同一行——桌面端不变。
 - `packages/client/ui-conversation/tests`：335/335 通过。
 

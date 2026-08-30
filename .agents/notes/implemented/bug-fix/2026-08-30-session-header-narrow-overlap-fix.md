@@ -13,7 +13,7 @@ On phone-width viewports the conversation session header rendered its two fixed-
 Under `@media (max-width: 640px)` (the same breakpoint the composer toolbar uses), the title row stacks into two lines with the session title on its own line and the three controls — mode badge (`ui-agent-preset` label), background-job trigger (`ui-jobs`), and the Session-log button (`session-log-export`) — sharing the actions line below it:
 
 - `ConversationSession.tsx` moves `headerActions` out of `titleCluster` into a new `.actionsRow` sibling that also holds `headerUtilities`; `.titleRow { flex-direction: column }` stacks title above actions on narrow viewports while desktop keeps both in one row.
-- Every control participates in flex sizing on the actions line: the badge ellipsizes (its own 180px cap), the job count compresses, and the Session-log button sheds its minimum width (`min-width: 0` + label ellipsis). Nothing wraps or overflows on the actions line at any phone width.
+- Every control participates in flex sizing on the actions line: the badge keeps its full preset name (`flex: 0 0 auto` under the narrow breakpoint, so "PTC 模式" never ellipsizes), the job count compresses, and the Session-log button sheds its minimum width (`min-width: 0` + label ellipsis). Nothing wraps or overflows on the actions line at any phone width.
 
 Desktop (\>640px) keeps the original one-row layout untouched.
 
@@ -21,7 +21,7 @@ Desktop (\>640px) keeps the original one-row layout untouched.
 
 Playwright against the real GUI through the mobile-preview proxy, session header with 10 live jobs:
 
-- 402-330px vw sweep: crumb (title) keeps its full 170px width on its own line; badge (55→38px), job trigger (85→58px), and Session log (92→64px) shrink proportionally on the actions line with `overlapping: false` at every width; header height 110px (two lines).
+- 402-310px vw sweep: crumb (title) keeps its full 170px width on its own line; the badge keeps its full 68px preset name ("PTC 模式", `truncated: false` at every width); job trigger (72→15px) and Session log (92→57px) absorb the squeeze on the actions line with `overlapping: false` at every width; header height 110px (two lines).
 - 1270px vw: `titleRowDirection` stays `row`, header height 76px, crumb (300-470), job trigger (822-930), and Session log (1075-1192) on one line — desktop unchanged.
 - `packages/client/ui-conversation/tests`: 335/335 pass.
 
