@@ -22,7 +22,7 @@ import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from '../tree.ts'
-import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from '../tree.ts'
+import { deriveFlat, deriveGroups, deriveSearchResults, PINNED_KEY, UNGROUPED_KEY } from '../tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
@@ -288,19 +288,27 @@ function SessionTree({
   useNativeDragAcceptance(nativeDragActive)
   const currentGroup = current === undefined
     ? undefined
-    : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
-      ?? UNGROUPED_KEY
+    : (list.byId[current]?.pinned === true
+      ? PINNED_KEY
+      : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
+        ?? UNGROUPED_KEY)
   useEffect(() => {
     if (current === undefined || currentGroup === undefined || Object.hasOwn(groupExpansion, currentGroup)) return
     setGroupExpanded(currentGroup, true)
   }, [current, currentGroup, setGroupExpanded, groupExpansion])
-  const expandedGroups = useMemo(
-    () => Object.entries(groupExpansion).filter(([, expanded]) => expanded).map(([key]) => key),
-    [groupExpansion],
-  )
+  const expandedGroups = useMemo(() => {
+    const recorded = new Set(
+      Object.entries(groupExpansion).filter(([, expanded]) => expanded).map(([key]) => key),
+    )
+    // The pinned section defaults to expanded so pinned sessions stay
+    // visible; only an explicit collapse persists.
+    if (!Object.hasOwn(groupExpansion, PINNED_KEY)) recorded.add(PINNED_KEY)
+    return [...recorded]
+  }, [groupExpansion])
   const ungroupedSessionIds = useMemo(() => {
     const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
-    return list.ids.filter((id: SessionId) => list.byId[id] !== undefined && !accounted.has(id))
+    return list.ids.filter((id: SessionId) =>
+      list.byId[id] !== undefined && !accounted.has(id) && list.byId[id]?.pinned !== true)
   }, [list, workspaces])
   useEffect(() => {
     if (list.phase !== 'ready') return
@@ -309,7 +317,8 @@ function SessionTree({
     const accounts = [
       ...workspaces.map(workspace => ({
         key: workspace.workspaceId as string,
-        sessionIds: workspace.sessionIds.filter(id => list.byId[id] !== undefined),
+        sessionIds: workspace.sessionIds.filter(id =>
+          list.byId[id] !== undefined && list.byId[id]?.pinned !== true),
       })),
       { key: UNGROUPED_KEY, sessionIds: ungroupedSessionIds },
     ]
@@ -332,10 +341,11 @@ function SessionTree({
   const orderedWorkspaces = useMemo(() => {
     return workspaces.map((workspace) => {
       const stored = sessionOrderByAccount[workspace.workspaceId as string]
-      const sessionIds = reconciledSessionOrder(workspace.sessionIds, stored)
+      const account = workspace.sessionIds.filter(id => list.byId[id]?.pinned !== true)
+      const sessionIds = reconciledSessionOrder(account, stored)
       return { ...workspace, sessionIds }
     })
-  }, [sessionOrderByAccount, workspaces])
+  }, [list, sessionOrderByAccount, workspaces])
   const orderedUngroupedSessionIds = useMemo(
     () => reconciledSessionOrder(ungroupedSessionIds, sessionOrderByAccount[UNGROUPED_KEY]),
     [sessionOrderByAccount, ungroupedSessionIds],
@@ -346,8 +356,15 @@ function SessionTree({
       ...(sessionOrderByAccount[UNGROUPED_KEY] === undefined
         ? {}
         : { ungroupedOrder: sessionOrderByAccount[UNGROUPED_KEY] }),
+      ...(sessionOrderByAccount[PINNED_KEY] === undefined
+        ? {}
+        : { pinnedOrder: sessionOrderByAccount[PINNED_KEY] }),
     }),
     [list, orderedWorkspaces, archivedSessionIds, pendingInteractions, expandedGroups, sessionOrderByAccount],
+  )
+  const pinnedSessionIds = useMemo(
+    () => groups.find(group => group.key === PINNED_KEY)?.sessions.map(session => session.id) ?? [],
+    [groups],
   )
   const now = Date.now()
   const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
@@ -367,9 +384,13 @@ function SessionTree({
     if (targetWithoutSourceIndex === -1) return
     const visibleInsertAt = over.half === 'before' ? targetWithoutSourceIndex : targetWithoutSourceIndex + 1
     if (sourceIndex !== -1 && visibleInsertAt === sourceIndex) return
+    // The pinned section keeps a browser-local order like the ungrouped
+    // bucket; only real Workspace accounts write Host order.
     const accountSessionIds = activeDrag.accountKey === UNGROUPED_KEY
       ? orderedUngroupedSessionIds
-      : orderedWorkspaces.find(workspace => workspace.workspaceId === activeDrag.accountKey)?.sessionIds
+      : activeDrag.accountKey === PINNED_KEY
+        ? pinnedSessionIds
+        : orderedWorkspaces.find(workspace => workspace.workspaceId === activeDrag.accountKey)?.sessionIds
     if (accountSessionIds === undefined) return
     const nextOrder = accountSessionIds.filter(id => id !== activeDrag.sessionId)
     let anchor: SessionId | undefined
@@ -398,7 +419,7 @@ function SessionTree({
       if (!collapsedSessionRows(nextGroup).rows.some(node => node.id === activeDrag.sessionId)) return
     }
     setSessionOrder(activeDrag.accountKey, nextOrder.map(id => id as string))
-    if (orderBy === 'updated' || activeDrag.accountKey === UNGROUPED_KEY) return
+    if (orderBy === 'updated' || activeDrag.accountKey === UNGROUPED_KEY || activeDrag.accountKey === PINNED_KEY) return
     insertSessionBefore(activeDrag.accountKey as WorkspaceId, activeDrag.sessionId, anchor).catch((reason: unknown) => {
       console.warn('session reorder rejected:', reason)
     })
@@ -871,6 +892,7 @@ export function WorkspaceBrowser({
   useEffect(() => {
     if (workspacePhase !== 'ready') return
     actions.retainAccountKeys([
+      PINNED_KEY,
       UNGROUPED_KEY,
       FLAT_SESSION_ORDER_KEY,
       ...workspaces.map(workspace => workspace.workspaceId as string),

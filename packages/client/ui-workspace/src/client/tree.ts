@@ -19,6 +19,9 @@ import {
 /** Group key for Sessions outside every Workspace. */
 export const UNGROUPED_KEY = ''
 
+/** Group key for the pinned-sessions section above every Workspace. */
+export const PINNED_KEY = '__pinned__'
+
 /** Pending interaction kinds with dedicated Workspace-row presentation. */
 export type SessionPendingInteractionStatus = 'approval' | 'plan-review' | 'question'
 type SessionPendingInteractions = ReadonlyMap<SessionId, SessionPendingInteractionBase>
@@ -49,13 +52,15 @@ export type SessionOrderBy = 'manual' | 'updated'
 
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
-  /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
+  /** Group key: the workspace id, {@link UNGROUPED_KEY}, or {@link PINNED_KEY}. */
   key: string
-  /** Backing Workspace id; absent only for the ungrouped bucket. */
+  /** Backing Workspace id; absent for the pinned and ungrouped buckets. */
   workspaceId: WorkspaceId | undefined
   cwd: string | undefined
-  /** Workspace creation time (epoch ms); absent only for the ungrouped bucket. */
+  /** Workspace creation time (epoch ms); absent for the pinned and ungrouped buckets. */
   createdAt: number | undefined
+  /** True for the pinned-sessions section above every Workspace. */
+  pinned?: boolean
   label: string
   /** Total visible sessions in the group. */
   sessionCount: number
@@ -92,6 +97,8 @@ export interface TreeView {
   expandedGroups: readonly string[]
   /** Browser-local order for Sessions without a backing Workspace account. */
   ungroupedOrder?: readonly string[]
+  /** Browser-local order for the pinned section above every Workspace. */
+  pinnedOrder?: readonly string[]
 }
 
 interface Group {
@@ -169,8 +176,14 @@ function buildGroup(
   return { key, workspaceId, cwd, createdAt, label, sessions }
 }
 
-/** Apply a stored Ungrouped order and append newly loose Sessions by recency. */
-function orderedUngrouped(members: readonly SessionSummary[], stored: readonly string[]): SessionSummary[] {
+/**
+ * Apply a stored browser-local order and append members missing from it by
+ * recency. Shared by the pinned and ungrouped buckets.
+ * @param members - current visible bucket members.
+ * @param stored - persisted order keys; stale keys are skipped.
+ * @returns members in stored order, then recency for the rest.
+ */
+function orderedByAccount(members: readonly SessionSummary[], stored: readonly string[]): SessionSummary[] {
   const byId = new Map(members.map(session => [session.id as string, session]))
   const included = new Set<string>()
   const ordered: SessionSummary[] = []
@@ -188,19 +201,23 @@ function orderedUngrouped(members: readonly SessionSummary[], stored: readonly s
 }
 
 /**
- * Group Sessions by Host Workspace: one group per entity in stable Host
- * order, with members resolved from sessionIds in their stored order. Sessions
- * outside every Workspace trail in the browser-local Ungrouped order, which
- * falls back to recency before that order is initialized.
+ * Group Sessions by Host Workspace: pinned sessions lead in their own
+ * section above every Workspace (newest pin first), then one group per entity
+ * in stable Host order, with members resolved from sessionIds in their stored
+ * order. Sessions outside every Workspace trail in the browser-local
+ * Ungrouped order, which falls back to recency before that order is
+ * initialized.
  */
 function groupByWorkspace(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archived: ReadonlySet<SessionId>,
   ungroupedOrder: readonly string[] | undefined,
+  pinnedOrder: readonly string[] | undefined,
 ): Group[] {
   const groups: Group[] = []
   const accounted = new Set<SessionId>()
+  const pinned: SessionSummary[] = []
   for (const workspace of workspaces) {
     const members: SessionSummary[] = []
     for (const id of workspace.sessionIds) {
@@ -208,6 +225,11 @@ function groupByWorkspace(
       if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
       accounted.add(id)
       if (!sessionVisible(summary, list.current, archived)) continue
+      // Pinned sessions leave their Workspace account for the pinned section.
+      if (summary.pinned === true) {
+        pinned.push(summary)
+        continue
+      }
       members.push(summary)
     }
     groups.push(buildGroup(
@@ -219,6 +241,22 @@ function groupByWorkspace(
     .map(id => list.byId[id])
     .filter((s): s is SessionSummary =>
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
+    .filter((s) => {
+      if (s.pinned !== true) return true
+      pinned.push(s)
+      return false
+    })
+  if (pinned.length > 0) {
+    groups.unshift(buildGroup(
+      PINNED_KEY,
+      undefined,
+      undefined,
+      undefined,
+      '',
+      pinnedOrder === undefined ? pinned : orderedByAccount(pinned, pinnedOrder),
+      pinnedOrder === undefined ? 'recency' : 'account',
+    ))
+  }
   if (stray.length > 0) {
     groups.push(buildGroup(
       UNGROUPED_KEY,
@@ -226,7 +264,7 @@ function groupByWorkspace(
       undefined,
       undefined,
       '',
-      ungroupedOrder === undefined ? stray : orderedUngrouped(stray, ungroupedOrder),
+      ungroupedOrder === undefined ? stray : orderedByAccount(stray, ungroupedOrder),
       ungroupedOrder === undefined ? 'recency' : 'account',
     ))
   }
@@ -292,16 +330,19 @@ export function deriveGroups(
   const descendants = indexSubagentDescendants(list.byId)
   const currentGroup = list.current === undefined
     ? undefined
-    : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
-        ?? UNGROUPED_KEY
+    : (list.byId[list.current]?.pinned === true
+      ? PINNED_KEY
+      : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
+        ?? UNGROUPED_KEY)
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder)) {
+  for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder, view.pinnedOrder)) {
     const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
       cwd: g.cwd,
       createdAt: g.createdAt,
+      ...(g.key === PINNED_KEY ? { pinned: true } : {}),
       label: g.label,
       sessionCount: g.sessions.length,
       expanded,

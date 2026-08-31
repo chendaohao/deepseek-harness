@@ -25,9 +25,14 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   workspaceId: wid(id), path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
-const view = (expandedGroups: readonly string[] = [], ungroupedOrder?: readonly string[]) => ({
+const view = (
+  expandedGroups: readonly string[] = [],
+  ungroupedOrder?: readonly string[],
+  pinnedOrder?: readonly string[],
+) => ({
   expandedGroups,
   ...(ungroupedOrder === undefined ? {} : { ungroupedOrder }),
+  ...(pinnedOrder === undefined ? {} : { pinnedOrder }),
 })
 const noArchive: readonly SessionId[] = []
 const noAttention: ReadonlyMap<SessionId, SessionPendingInteractionBase> = new Map()
@@ -40,6 +45,33 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(sessions, workspaces, noArchive, noAttention, view(['first']))
     expect(groups.map(group => group.key)).toEqual(['first', 'empty'])
     expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('older'), sid('newer')])
+  })
+
+  it('leads pinned sessions in their own section above every Workspace', () => {
+    const pinnedOld = { ...summary('pinned-old', 5), pinned: true, pinAt: 50 }
+    const pinnedNew = { ...summary('pinned-new', 1), pinned: true, pinAt: 90 }
+    const ordinary = summary('ordinary', 30)
+    const sessions = list(pinnedOld, pinnedNew, ordinary)
+    const workspaces = [workspace('project', ['pinned-old', 'ordinary'])]
+    const groups = deriveGroups(sessions, workspaces, noArchive, noAttention, view(['__pinned__', 'project']))
+    expect(groups.map(group => group.key)).toEqual(['__pinned__', 'project'])
+    expect(groups[0]!.sessions.map(session => session.id))
+      .toEqual([sid('pinned-new'), sid('pinned-old')])
+    expect(groups[0]).toMatchObject({ pinned: true, workspaceId: undefined })
+    // The Workspace keeps only its unpinned member.
+    expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('ordinary')])
+  })
+
+  it('applies a stored pinned order and appends newly pinned Sessions by recency', () => {
+    const pinnedA = { ...summary('pinned-a', 5), pinned: true, pinAt: 50 }
+    const pinnedB = { ...summary('pinned-b', 1), pinned: true, pinAt: 90 }
+    const pinnedC = { ...summary('pinned-c', 3), pinned: true, pinAt: 120 }
+    const sessions = list(pinnedA, pinnedB, pinnedC)
+    const groups = deriveGroups(
+      sessions, [], noArchive, noAttention, view(['__pinned__'], undefined, ['pinned-c', 'pinned-a']),
+    )
+    expect(groups[0]!.sessions.map(session => session.id))
+      .toEqual([sid('pinned-c'), sid('pinned-a'), sid('pinned-b')])
   })
 
   it('projects pending-interaction state into grouped and flat rows', () => {
@@ -245,6 +277,19 @@ describe('deriveGroups', () => {
       { ...list(owned, loose), current: loose.id }, [ws], noArchive, noAttention, view(),
     )
     expect(looseGroups.find(group => group.key === UNGROUPED_KEY)!.containsCurrent).toBe(true)
+  })
+
+  it('marks the pinned section current when the selected session is pinned', () => {
+    const pinned = { ...summary('pinned', 1), pinned: true, pinAt: 90 }
+    const ws = workspace('project', ['pinned'])
+    const groups = deriveGroups(
+      { ...list(pinned), current: pinned.id }, [ws], noArchive, noAttention,
+      view(['__pinned__', 'project']),
+    )
+    // The pinned session left its Workspace account, so the pinned section,
+    // not the Workspace, carries the active folder tint.
+    expect(groups.find(group => group.key === '__pinned__')!.containsCurrent).toBe(true)
+    expect(groups.find(group => group.key === 'project')!.containsCurrent).toBe(false)
   })
 })
 

@@ -369,6 +369,22 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('button', { name: /工作区/ })).toBeNull()
   })
 
+  it('pinned bucket shows the pinned label and no workspace actions', () => {
+    const group: GroupNode = {
+      key: '__pinned__', workspaceId: undefined, cwd: undefined, createdAt: undefined, label: '',
+      pinned: true, sessionCount: 2, expanded: true, containsCurrent: false,
+      sessions: [{
+        id: sid('p1'), title: 'One', blank: false, running: false,
+        runningSubagentCount: 0, completed: false, pinned: true, pinAt: 9, updatedAt: 0,
+      }],
+    }
+    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    expect(screen.getByText('置顶')).toBeTruthy()
+    // No workspace menu, no create button, no hover card (no backing Workspace).
+    expect(screen.queryByRole('button', { name: /工作区/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /新建/ })).toBeNull()
+  })
+
   it('blank New Session rows carry no menu, no time label, and no hover-card time', () => {
     vi.useFakeTimers()
     try {

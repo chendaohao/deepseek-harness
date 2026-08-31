@@ -121,8 +121,11 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
   t: RowTranslate
 }) {
   const row = group
-  // The ungrouped bucket has no workspace title: its label is dictionary copy.
-  const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
+  // The pinned bucket has its own label; the ungrouped bucket has no
+  // workspace title, so its label is dictionary copy.
+  const label = row.pinned === true
+    ? t('group.pinned')
+    : (row.workspaceId === undefined ? t('group.ungrouped') : row.label)
   const active = group.expanded && group.containsCurrent
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
@@ -155,7 +158,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
         <span className={css.title}>{label}</span>
       </span>
       <span className={css.rowActions}>
-        {actions !== undefined && (
+        {actions !== undefined && row.pinned !== true && (
           <Menu
             open={menuOpen}
             onClose={() => { setMenuOpen(false) }}
@@ -183,18 +186,20 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
             )}
           />
         )}
-        <button
-          type="button"
-          className={css.iconButton}
-          aria-label={t('actions.newSession.aria', { name: label })}
-          onClick={(e) => { e.stopPropagation(); onCreate() }}
-        >
-          <IconPlusOutline16 />
-        </button>
+        {row.pinned !== true && (
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={t('actions.newSession.aria', { name: label })}
+            onClick={(e) => { e.stopPropagation(); onCreate() }}
+          >
+            <IconPlusOutline16 />
+          </button>
+        )}
       </span>
     </div>
   )
-  // The ungrouped bucket has no backing Workspace: no card to show.
+  // The pinned and ungrouped buckets have no backing Workspace: no card to show.
   if (row.createdAt === undefined) return ownRow
   return (
     <HoverCard

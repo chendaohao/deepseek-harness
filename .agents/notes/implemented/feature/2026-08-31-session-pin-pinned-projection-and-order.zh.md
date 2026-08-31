@@ -16,7 +16,7 @@ Status: implemented
 
 **`session.setPin` 是 Remote 命令。** `SessionController` 暴露 `@Remote('setPin')`，委托给 `SessionCommandController.setPin()`，经 `ctx.sessionPin` 追加事件。未挂载置顶服务的部署映射为 `pin-unavailable`；其余失败映射为 `internal`。客户端 `ISession` 面新增 `setPin(pinned)`，接受后立即落定 `pinned` 投影单元（高 seq 胜出的规则让稍后到达的控制帧成为无害重放）。
 
-**UI 把置顶作为行菜单动词。** 侧边栏会话行菜单新增 置顶会话/取消置顶；动作经注入的 `pinSession` 回调派发，与归档相同的无对话框、非破坏性姿态。树推导（`deriveGroups`/`deriveFlat`/`deriveSearchResults`）与浏览器最近活动比较器都先把置顶行排前，工作区分组与扁平列表都遵循置顶。
+**UI 把置顶作为行菜单动词，并拥有独立分组。** 侧边栏会话行菜单新增 置顶会话/取消置顶；动作经注入的 `pinSession` 回调派发，与归档相同的无对话框、非破坏性姿态。在工作区分组模式下，置顶会话离开各自的工作区账户，进入位于所有工作区上方的 **置顶** 分组，按置顶时间倒序排列，支持浏览器本地拖拽排序；该分组默认展开、不显示工作区操作按钮，当前会话高亮独立生效。扁平模式（`deriveFlat`）把置顶行保持在单列表顶部。
 
 ## Alternatives considered
 

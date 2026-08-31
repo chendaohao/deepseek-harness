@@ -16,7 +16,7 @@ Session list surfaces ordered rows only by recency (`updatedAt = max(createdAt, 
 
 **`session.setPin` is a Remote command.** `SessionController` exposes `@Remote('setPin')` delegating to `SessionCommandController.setPin()`, which appends the event through `ctx.sessionPin`. A deployment without the pin service maps to `pin-unavailable`; other failures map to `internal`. The client `ISession` face gains `setPin(pinned)`, which settles the `pinned` projection cell immediately on acceptance (higher-seq-wins replays the control frame harmlessly).
 
-**The UI treats pin as a row-menu verb.** The sidebar session row menu gains 置顶会话/取消置顶 (Pin session/Unpin session); the action dispatches through the injected `pinSession` callback, mirroring archive's dialog-free, non-destructive posture. Tree derivations (`deriveGroups`/`deriveFlat`/`deriveSearchResults`) and the browser's recency comparators sort pinned rows first, so both workspace-grouped and flat lists honor the pin.
+**The UI treats pin as a row-menu verb with its own section.** The sidebar session row menu gains 置顶会话/取消置顶 (Pin session/Unpin session); the action dispatches through the injected `pinSession` callback, mirroring archive's dialog-free, non-destructive posture. In workspace-grouped mode, pinned sessions leave their Workspace accounts for a leading **置顶 (Pinned)** section above every Workspace, ordered newest pin first with a browser-local drag order; the section defaults to expanded, shows no workspace actions, and its current session highlights independently. Flat mode (`deriveFlat`) keeps pinned rows at the top of the single list.
 
 ## Alternatives considered
 

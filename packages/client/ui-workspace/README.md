@@ -29,7 +29,9 @@ Use the sidebar to browse Workspaces and their Sessions, reorder them, and start
 
 ### Reordering and view options
 
-View options combine grouping with one browser-persisted Session order per account: **Manual** and **Last updated** apply in either presentation. Entering Last updated performs a complete recency sort and later user prompts or steers promote their Session once; entering Manual preserves every current position and disables later promotion. Dragging edits the current order in either mode; Manual-mode drags for real Workspaces also update the Host Session account, while Ungrouped and flat-list orders remain browser-local. In a collapsed group, drag boundaries follow rendered rows and place the source before intervening hidden rows, so a drag cannot hide its source. Workspace drag order is Host-durable in either Session order mode.
+View options combine grouping with one browser-persisted Session order per account: **Manual** and **Last updated** apply in either presentation. Entering Last updated performs a complete recency sort and later user prompts or steers promote their Session once; entering Manual preserves every current position and disables later promotion. Dragging edits the current order in either mode; Manual-mode drags for real Workspaces also update the Host Session account, while Ungrouped, pinned-section, and flat-list orders remain browser-local. In a collapsed group, drag boundaries follow rendered rows and place the source before intervening hidden rows, so a drag cannot hide its source. Workspace drag order is Host-durable in either Session order mode.
+
+Pinned Sessions live in a leading **Pinned** section above every Workspace: the section appears whenever any visible Session is pinned, defaults to expanded, carries no Workspace menu or create button, and highlights independently when its Session is selected. A pinned Session leaves its Workspace group and the Ungrouped bucket, and unpinning returns it to the account it came from.
 
 ### Search
 
@@ -59,7 +61,7 @@ Each registration declares a **directory-flow child hole** (`single` kind: `conv
 
 ### View state
 
-Once the Workspace list baseline is ready, browser-persisted expansion and Session-order records retain only current Workspace ids plus Ungrouped and the flat-list account. Real Workspaces initialize from `WorkspaceView.sessionIds`, while Ungrouped and the cross-Workspace flat list initialize from recency. The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`, and each visible ordinary row inherits the blue activity indicator while any descendant reached through uninterrupted subagent-origin lineage is running.
+Once the Workspace list baseline is ready, browser-persisted expansion and Session-order records retain only current Workspace ids plus the Pinned section, Ungrouped, and the flat-list account. Real Workspaces initialize from `WorkspaceView.sessionIds`, while the Pinned section, Ungrouped, and the cross-Workspace flat list initialize from recency. The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`, and each visible ordinary row inherits the blue activity indicator while any descendant reached through uninterrupted subagent-origin lineage is running.
 
 ### Hover cards
 
