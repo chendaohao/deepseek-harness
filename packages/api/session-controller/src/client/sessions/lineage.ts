@@ -27,6 +27,10 @@ export interface SessionListEntry {
   cwd?: string
   /** Current host-computed projection values for list consumers. */
   projectionValues?: Readonly<Partial<SessionProjectionMap>>
+  /** Whether the session is pinned above unpinned rows. */
+  pinned?: boolean
+  /** Wall-clock time of the latest pin event; order key inside the pinned group. */
+  pinAt?: number
   /** Finished running while not selected and not yet opened — the sidebar's green "done" reminder (clears on select or the next run). */
   completed: boolean
   /** Lineage indent depth: root = 0; the UI just multiplies by the indent width. */

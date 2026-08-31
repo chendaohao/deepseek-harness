@@ -114,6 +114,12 @@ export interface ISession {
    */
   rename(title: string): Promise<ClientResult<{ title: string; seq: number }>>
   /**
+   * Pin or unpin this session durably.
+   * @param pinned - whether the session should be pinned.
+   * @returns the accepted pin state and its event seq, or the business error.
+   */
+  setPin(pinned: boolean): Promise<ClientResult<{ pinned: boolean; seq: number }>>
+  /**
    * Extend the history window backwards (older messages pagination).
    * @returns completion; failures land in snapshot.openState/loadingOlder.
    */

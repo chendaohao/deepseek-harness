@@ -159,6 +159,13 @@ export class FixtureSession implements SessionFace {
   rename(): never {
     throw new Error(`test session "${this.sessionId}": rename is not stubbed — supply it on the fixture's session face`)
   }
+
+  /**
+   * Fail-loud stub; supply `setPin` on the fixture's session face to exercise it.
+   */
+  setPin(): never {
+    throw new Error(`test session "${this.sessionId}": setPin is not stubbed — supply it on the fixture's session face`)
+  }
 }
 
 /** One live test session: fixture-derived stores plus its minted scope state. */

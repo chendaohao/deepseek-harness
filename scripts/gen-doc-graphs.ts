@@ -340,6 +340,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns the deterministic fallback, latest-title fold, and sole optional asynchronous provider registration.',
   },
   {
+    key: 'sessionPin',
+    pkg: 'session-pin',
+    title: 'Log-backed session pin state',
+    mode: 'core',
+    note: 'Appends durable session/pin events and serves the pinned projection list surfaces order by.',
+  },
+  {
     key: 'systemPrompt',
     pkg: 'system-prompt',
     title: 'System prompt assembly registry',

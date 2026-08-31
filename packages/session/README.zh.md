@@ -51,6 +51,12 @@ session 组让 agent（智能体）的对话在实时 loop 之外持久可复用
 | [`session-title-first-prompt-llm/`](session-title-first-prompt-llm/README.zh.md) | 根据第一条合格的人类消息为会话生成标题 | 注册到 `ctx.sessionTitle` |
 | [`session-title-all-prompts-llm/`](session-title-all-prompts-llm/README.zh.md) | 根据所有合格的人类消息为会话生成标题 | 注册到 `ctx.sessionTitle` |
 
+### 置顶
+
+| 包 | 职责 | ctx key |
+|---|---|---|
+| [`session-pin/`](session-pin/README.zh.md) | 基于日志的会话置顶状态，以 `pinned` 投影提供 | `ctx.sessionPin` |
+
 ### 遥测
 
 | 包 | 职责 | ctx key |

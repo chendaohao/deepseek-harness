@@ -57,6 +57,10 @@ export interface SessionSummary {
    */
   blank: boolean
   updatedAt: number
+  /** Whether the session is pinned above unpinned rows (mirror of the host `pinned` projection). */
+  pinned?: boolean
+  /** Wall-clock time of the latest pin event; order key inside the pinned group. */
+  pinAt?: number
   /** Current host-computed projection values retained by the object layer. */
   projectionValues?: Readonly<Partial<SessionProjectionMap>>
 }
@@ -596,6 +600,8 @@ export class ClientSessions implements ISessions {
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
+        ...(entry.pinned === true ? { pinned: true } : {}),
+        ...(entry.pinAt !== undefined ? { pinAt: entry.pinAt } : {}),
       }
     }
     if (current !== undefined && currentAddress !== undefined) {

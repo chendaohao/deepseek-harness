@@ -22,6 +22,7 @@
     { "path": "../../llm/llm" },
     { "path": "../../session/session-projection" },
     { "path": "../../session/session-title" },
+    { "path": "../../session/session-pin" },
     { "path": "../../subagent/subagent" },
     { "path": "../../util/brand" },
     { "path": "../../util/crypto" },

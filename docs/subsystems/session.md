@@ -672,6 +672,13 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
 @Remote('rename') rename(request: SessionRenameRequest): Promise<SessionRenameValue>
 
 /**
+ * Pin or unpin one Session durably.
+ * @param request - Session identity and requested pin state.
+ * @returns the accepted pin state and durable event sequence.
+ */
+@Remote('setPin') setPin(request: SessionSetPinRequest): Promise<SessionSetPinValue>
+
+/**
  * Fork one cold-readable completed-turn prefix into a new Session.
  * @param request - source Session and optional event anchor.
  * @returns the new Session identity.
@@ -734,6 +741,34 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
 Types: [SessionHeader](persistence.md) · [SessionId](core.md) · [SessionSearchRequest](session-query.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
+
+<a id="ctxsessionpin--sessionpinservice"></a>
+
+### `ctx.sessionPin` — `SessionPinService`
+
+Log-backed session pin service.
+
+```ts cordis-catalog
+/**
+ * Set or clear the pin on one live session by appending a `session/pin`
+ * event. The event log is append-only, so committing the current value
+ * again is allowed; callers that need a no-op read the folded state first.
+ * @param session - live session to pin or unpin.
+ * @param pinned - whether the session should be pinned.
+ * @returns the folded pin snapshot after the append.
+ * @throws {Error} when the session is not live in this store.
+ */
+setPin(session: Session, pinned: boolean): SessionPinSnapshot
+
+/**
+ * Read the latest folded pin state from one live or replayed session.
+ * @param session - session whose log is the pin source of truth.
+ * @returns latest pin snapshot, or `undefined` before any pin event.
+ */
+get(session: Session): SessionPinSnapshot | undefined
+```
+
+Source: [`packages/session/session-pin/src/index.ts`](../../packages/session/session-pin/src/index.ts)
 
 <a id="ctxsessions--sessionstore"></a>
 

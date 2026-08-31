@@ -386,6 +386,27 @@ export class Session implements SessionFace {
   }
 
   /**
+   * Pin: contract session.setPin 1:1. On success settle the 'pinned'
+   * projection cell from the response's `{pinned, seq}` under the store's
+   * higher-seq-wins rule (the push frame arriving later is a no-op replay),
+   * so the list row updates without waiting for the control-stream
+   * projection update.
+   * @param pinned - whether the session should be pinned.
+   * @returns the pin result (accepted pin state + pin event seq).
+   */
+  async setPin(pinned: boolean): Promise<ClientResult<{ pinned: boolean; seq: number }>> {
+    try {
+      const result = toSessionResult(await this.remote.session.setPin({ sessionId: this.sessionId, pinned }))
+      if (result.ok) {
+        this.projections.apply('pinned', { pinned: result.value.pinned, pinAt: Date.now() }, result.value.seq)
+      }
+      return result
+    } catch (error) {
+      return transportResult(error)
+    }
+  }
+
+  /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle;
    * outcomes render as flow nodes, never as a response echo).

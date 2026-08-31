@@ -144,6 +144,8 @@ export class FakeApiClient {
       },
     }))
   onRename: (payload: unknown) => Promise<RpcResponse<{ title: string; seq: number }>> = () => Promise.resolve(ok({ title: 'fk-renamed', seq: 0 }))
+  onSetPin: (payload: unknown) => Promise<RpcResponse<{ pinned: boolean; seq: number }>> =
+    () => Promise.resolve(ok({ pinned: true, seq: 0 }))
   onFork: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-fork' as SessionId }))
   onHistory: (payload: { sessionId: SessionId; throughSeq?: number; beforeSeq?: number; maxMessages?: number })
   => Promise<RpcResponse<SessionPage & { readonly projections?: SessionProjectionBaseline }>> =
@@ -231,6 +233,7 @@ export class FakeApiClient {
           this.onSelectModel(payload),
         ),
         rename: payload => this.remoteResult('session.rename', payload, this.onRename(payload)),
+        setPin: payload => this.remoteResult('session.setPin', payload, this.onSetPin(payload)),
         fork: payload => this.remoteResult('session.fork', payload, this.onFork(payload)),
         prompt: payload => this.remoteResult('session.prompt', payload, this.onPrompt(payload)),
         attachment: payload => this.remoteResult('session.attachment', payload, this.onAttachment(payload)),

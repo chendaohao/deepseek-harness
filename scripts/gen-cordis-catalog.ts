@@ -101,6 +101,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   sessions: 'session.md',
   settings: 'settings.md',
   sessionTitle: 'session-title.md',
+  sessionPin: 'session.md',
   skills: 'skills.md',
   spillStore: 'spill.md',
   storage: 'storage.md',
@@ -651,6 +652,10 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
+  SessionSetPinRequest: 'pin request contract is owned by packages/api/session-controller/src/types.ts',
+  SessionSetPinValue: 'pin response value is owned by packages/api/session-controller/src/types.ts',
+  SessionPinSnapshot: 'pin snapshot is owned by packages/session/session-pin/README.md',
+  SessionPinEventData: 'pin event payload is owned by packages/session/session-pin/README.md',
   RemoteTunnelState: 'tunnel session state union is owned by packages/remote/remote-tunnel/src/types.ts',
   RemoteTunnelSession: 'live tunnel session handle is owned by packages/remote/remote-tunnel/src/index.ts',
   DeviceRecord: 'paired device roster record is owned by packages/remote/remote-access/src/types.ts',

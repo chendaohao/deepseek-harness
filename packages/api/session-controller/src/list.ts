@@ -7,6 +7,8 @@ import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
+// Type-only: pulls the 'pinned' projection key this list orders rows by.
+import type {} from '@deepseek-ai/dsh-session-pin'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
@@ -126,6 +128,7 @@ export class ApiSessionList {
       running: this.ctx.agents.get(session.id)?.status === 'running',
       blank: metadata?.blank ?? session.seq === 0,
       ...listFields(session.header),
+      ...pinFields(projections),
       ...(projections === undefined ? {} : { projections }),
     }
   }
@@ -158,7 +161,7 @@ export class ApiSessionList {
         items.push(result.value)
       }
     }
-    items.sort((left, right) => right.updatedAt - left.updatedAt)
+    items.sort(byListOrder)
     return items
   }
 
@@ -180,6 +183,7 @@ export class ApiSessionList {
       // A large or inaccessible cache miss remains unknown and visible.
       blank: metadata?.blank ?? false,
       ...listFields(header),
+      ...pinFields(projections),
       ...(projections === undefined ? {} : { projections }),
     }
   }
@@ -374,6 +378,30 @@ function reject(code: string, message: string, details: object): never {
 
 function updatedAt(header: SessionHeader, metadata: SessionListMetadata | undefined): number {
   return Math.max(header.createdAt, metadata?.lastPromptAt ?? 0)
+}
+
+/** Mirror the folded pin state onto a list row (absent when the projection is unknown). */
+function pinFields(projections: SessionProjectionHints | undefined): {
+  readonly pinned?: boolean
+  readonly pinAt?: number
+} {
+  const pin = projections?.values.pinned
+  if (pin === undefined || pin.pinned !== true) return {}
+  const fields: { pinned?: boolean; pinAt?: number } = { pinned: true }
+  if (pin.pinAt !== null && pin.pinAt !== undefined) fields.pinAt = pin.pinAt
+  return fields
+}
+
+/** Pinned rows first (newest pin first), then unpinned rows newest-activity first. */
+function byListOrder(left: SessionSummary, right: SessionSummary): number {
+  if (left.pinned !== true && right.pinned === true) return 1
+  if (left.pinned === true && right.pinned !== true) return -1
+  if (left.pinned === true) {
+    const leftPinAt = left.pinAt ?? 0
+    const rightPinAt = right.pinAt ?? 0
+    if (rightPinAt !== leftPinAt) return rightPinAt - leftPinAt
+  }
+  return right.updatedAt - left.updatedAt
 }
 
 function listFields(header: SessionHeader): {

@@ -51,6 +51,12 @@ The group splits into four families: durable storage (persistence seam, backends
 | [`session-title-first-prompt-llm/`](session-title-first-prompt-llm/README.md) | Titles a session from its first eligible human message | registers on `ctx.sessionTitle` |
 | [`session-title-all-prompts-llm/`](session-title-all-prompts-llm/README.md) | Titles a session from all eligible human messages | registers on `ctx.sessionTitle` |
 
+### Pins
+
+| Package | Role | ctx key |
+|---|---|---|
+| [`session-pin/`](session-pin/README.md) | Log-backed session pin state served as the `pinned` projection | `ctx.sessionPin` |
+
 ### Telemetry
 
 | Package | Role | ctx key |

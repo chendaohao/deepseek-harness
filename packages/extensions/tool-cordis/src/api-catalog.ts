@@ -1403,6 +1403,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the accepted title and durable event sequence.',
       },
       {
+        signature: '@Remote(\'setPin\') setPin(request: SessionSetPinRequest): Promise<SessionSetPinValue>',
+        description: 'Pin or unpin one Session durably.',
+        parameters: [{ name: 'request', description: 'Session identity and requested pin state.' }],
+        returns: 'the accepted pin state and durable event sequence.',
+      },
+      {
         signature: '@Remote(\'fork\') fork(request: SessionForkRequest): Promise<SessionForkValue>',
         description: 'Fork one cold-readable completed-turn prefix into a new Session.',
         parameters: [{ name: 'request', description: 'source Session and optional event anchor.' }],
@@ -1544,6 +1550,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'List materialized sessions with cheap per-log change tokens.\n\nRepeated observations of an unchanged log return the same revision. A successful mutating load repair changes the next listed revision. Revisions also distinguish independently backed stores so backend-local counters cannot compare equal across different persistence sources.',
         parameters: [{ name: 'signal', description: 'optional cancellation for backend snapshot-listing work.' }],
         returns: 'one header and opaque revision per materialized session without loading full logs.',
+      },
+    ],
+  },
+  {
+    key: 'sessionPin',
+    summary: 'Log-backed session pin service.',
+    description: 'Log-backed session pin service.',
+    methods: [
+      {
+        signature: 'setPin(session: Session, pinned: boolean): SessionPinSnapshot',
+        description: 'Set or clear the pin on one live session by appending a `session/pin` event. The event log is append-only, so committing the current value again is allowed; callers that need a no-op read the folded state first.',
+        parameters: [{ name: 'session', description: 'live session to pin or unpin.' }, { name: 'pinned', description: 'whether the session should be pinned.' }],
+        returns: 'the folded pin snapshot after the append.',
+        throws: ['{Error} when the session is not live in this store.'],
+      },
+      {
+        signature: 'get(session: Session): SessionPinSnapshot | undefined',
+        description: 'Read the latest folded pin state from one live or replayed session.',
+        parameters: [{ name: 'session', description: 'session whose log is the pin source of truth.' }],
+        returns: 'latest pin snapshot, or `undefined` before any pin event.',
       },
     ],
   },
@@ -4468,10 +4494,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    } & ContextFormed;\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
   },
   {
-    name: 'ModelCatalog',
-    declaration: 'export interface ModelCatalog {\n    readonly default: ModelSelection;\n    readonly routableProviders: readonly string[];\n    readonly groups: readonly ModelProviderGroup[];\n    readonly failures: readonly ModelCatalogFailure[];\n}',
-  },
-  {
     name: 'ModelMessageSource',
     declaration: 'export interface ModelMessageSource extends AssistantProvenance {\n    kind: \'model\';\n}',
   },
@@ -4809,7 +4831,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionErrorDetailsMap',
-    declaration: 'export interface SessionErrorDetailsMap {\n    \'bad-request\': Record<never, never>;\n    cancelled: Record<never, never>;\n    \'session-not-found\': {\n        readonly sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        readonly provider: string;\n        readonly model: string;\n    };\n    \'session-conflict\': {\n        readonly sessionId: SessionId;\n        readonly requestedCwd: string;\n        readonly existingCwd?: string;\n    };\n    \'invalid-time-zone\': {\n        readonly value: string;\n    };\n    \'workspace-attach-failed\': {\n        readonly sessionId: SessionId;\n        readonly workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        readonly workspaceId: string;\n    };\n    \'agent-preset-conflict\': {\n        readonly sessionId: SessionId;\n        readonly requestedPreset: string;\n        readonly existingPreset?: string;\n    };\n    \'agent-preset-not-found\': {\n        readonly agentPreset: string;\n        readonly available: readonly string[];\n    };\n    \'agent-preset-invalid\': {\n        readonly agentPreset: string;\n        readonly reason: string;\n    };\n    \'agent-busy\': {\n        readonly reason: string;\n    };\n    \'attachment-error\': {\n        readonly reason: string;\n    };\n    \'queue-item-not-found\': {\n        readonly itemId: MessageId;\n    };\n    \'steer-unavailable\': {\n        readonly itemId: MessageId;\n    };\n    \'title-invalid\': {\n        readonly sessionId: SessionId;\n    };\n    \'fork-unavailable\': {\n        readonly sessionId: SessionId;\n    /* …truncated — full shape in source */',
+    declaration: 'export interface SessionErrorDetailsMap {\n    \'bad-request\': Record<never, never>;\n    cancelled: Record<never, never>;\n    \'session-not-found\': {\n        readonly sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        readonly provider: string;\n        readonly model: string;\n    };\n    \'session-conflict\': {\n        readonly sessionId: SessionId;\n        readonly requestedCwd: string;\n        readonly existingCwd?: string;\n    };\n    \'invalid-time-zone\': {\n        readonly value: string;\n    };\n    \'workspace-attach-failed\': {\n        readonly sessionId: SessionId;\n        readonly workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        readonly workspaceId: string;\n    };\n    \'agent-preset-conflict\': {\n        readonly sessionId: SessionId;\n        readonly requestedPreset: string;\n        readonly existingPreset?: string;\n    };\n    \'agent-preset-not-found\': {\n        readonly agentPreset: string;\n        readonly available: readonly string[];\n    };\n    \'agent-preset-invalid\': {\n        readonly agentPreset: string;\n        readonly reason: string;\n    };\n    \'agent-busy\': {\n        readonly reason: string;\n    };\n    \'attachment-error\': {\n        readonly reason: string;\n    };\n    \'queue-item-not-found\': {\n        readonly itemId: MessageId;\n    };\n    \'steer-unavailable\': {\n        readonly itemId: MessageId;\n    };\n    \'title-invalid\': {\n        readonly sessionId: SessionId;\n    };\n    \'pin-unavailable\': {\n        readonly sessionId: SessionId;\n     /* …truncated — full shape in source */',
   },
   {
     name: 'SessionEvent',
@@ -4976,6 +4998,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionPersistenceSnapshot {\n    header: SessionHeader;\n    revision: SessionPersistenceRevision;\n}',
   },
   {
+    name: 'SessionPinEventData',
+    declaration: 'export interface SessionPinEventData {\n    readonly pinned: boolean;\n}',
+  },
+  {
+    name: 'SessionPinSnapshot',
+    declaration: 'export interface SessionPinSnapshot extends SessionPinEventData {\n    readonly eventSeq: number;\n    readonly updatedAt: number;\n}',
+  },
+  {
     name: 'SessionPreparation',
     declaration: 'export class SessionPreparation implements Disposable {\n    readonly session: Session;\n    static create(session: Session, options?: SessionPreparationOptions): SessionPreparation;\n    [Symbol.dispose](): void;\n}',
   },
@@ -5086,6 +5116,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSelectModelValue',
     declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n}',
+  },
+  {
+    name: 'SessionSetPinRequest',
+    declaration: 'export interface SessionSetPinRequest {\n    readonly sessionId: SessionId;\n    readonly pinned: boolean;\n}',
+  },
+  {
+    name: 'SessionSetPinValue',
+    declaration: 'export interface SessionSetPinValue {\n    readonly pinned: boolean;\n    readonly seq: number;\n}',
   },
   {
     name: 'SessionStartSource',

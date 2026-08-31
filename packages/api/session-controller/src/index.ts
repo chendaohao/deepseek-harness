@@ -44,6 +44,8 @@ import type {
   SessionRenameRequest,
   SessionRenameValue,
   SessionSearchRequest,
+  SessionSetPinRequest,
+  SessionSetPinValue,
   SessionSearchValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
@@ -304,6 +306,16 @@ export class SessionController extends TypertRemoteService {
   @Remote('rename')
   rename(request: SessionRenameRequest): Promise<SessionRenameValue> {
     return this.commands.rename(request)
+  }
+
+  /**
+   * Pin or unpin one Session durably.
+   * @param request - Session identity and requested pin state.
+   * @returns the accepted pin state and durable event sequence.
+   */
+  @Remote('setPin')
+  setPin(request: SessionSetPinRequest): Promise<SessionSetPinValue> {
+    return this.commands.setPin(request)
   }
 
   /**

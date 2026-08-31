@@ -108,6 +108,14 @@ export function apply(ctx: Context): void {
       const result = await session.rename(title)
       if (!result.ok) throw new Error(result.error.message)
     },
+    pinSession: async (sessionId, pinned) => {
+      // Row → session-face hop: pinning is a per-session verb (ISession),
+      // not a list-service verb; the binding resolves any listed session.
+      const session = sessions.binding(sessionId)?.session
+      if (session === undefined) throw new Error(`unknown session "${sessionId}"`)
+      const result = await session.setPin(pinned)
+      if (!result.ok) throw new Error(result.error.message)
+    },
     forkSession: (sessionId) => {
       sessions.fork({ sessionId, increaseTitle: true })
         .then((childId) => { sessions.open(childId) })

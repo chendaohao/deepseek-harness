@@ -160,6 +160,10 @@ export interface SessionSummary {
   readonly origin?: 'subagent'
   readonly cwd?: string
   readonly projections?: SessionProjectionHints
+  /** Whether the session is pinned above unpinned sessions (mirror of the `pinned` projection). */
+  readonly pinned?: boolean
+  /** Wall-clock time of the latest pin event; order key inside the pinned group. */
+  readonly pinAt?: number
 }
 
 /** One session-content search result. */
@@ -200,6 +204,7 @@ export interface SessionErrorDetailsMap {
   'queue-item-not-found': { readonly itemId: MessageId }
   'steer-unavailable': { readonly itemId: MessageId }
   'title-invalid': { readonly sessionId: SessionId }
+  'pin-unavailable': { readonly sessionId: SessionId }
   'fork-unavailable': { readonly sessionId: SessionId }
   'subagent-not-found': {
     readonly parentSessionId: SessionId
@@ -299,6 +304,19 @@ export interface SessionRenameRequest {
 /** Normalized title and the durable event position that committed it. */
 export interface SessionRenameValue {
   readonly title: string
+  readonly seq: number
+}
+
+/** Session pin request. */
+export interface SessionSetPinRequest {
+  readonly sessionId: SessionId
+  /** Whether the session should be pinned (true) or unpinned (false). */
+  readonly pinned: boolean
+}
+
+/** Accepted pin state and the durable event position that committed it. */
+export interface SessionSetPinValue {
+  readonly pinned: boolean
   readonly seq: number
 }
 

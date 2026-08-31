@@ -258,6 +258,38 @@ describe('deriveFlat', () => {
     expect(rows.map(row => row.id)).toEqual([sid('child'), sid('tie-a'), sid('tie-b'), sid('parent')])
   })
 
+  it('sorts pinned sessions first by pin time, then unpinned by recency', () => {
+    const pinnedOld = { ...summary('pinned-old', 5), pinned: true, pinAt: 50 }
+    const pinnedNew = { ...summary('pinned-new', 1), pinned: true, pinAt: 90 }
+    const recent = summary('recent', 30)
+    const rows = deriveFlat(list(recent, pinnedOld, pinnedNew), noArchive, noAttention)
+    expect(rows.map(row => row.id)).toEqual([sid('pinned-new'), sid('pinned-old'), sid('recent')])
+    expect(rows[0]).toMatchObject({ pinned: true, pinAt: 90 })
+  })
+
+  it('treats a missing pinAt as the epoch and falls through equal pins to recency', () => {
+    const pinnedNoPinAt = { ...summary('pinned-no-pin', 8), pinned: true }
+    const pinnedEqualA = { ...summary('pinned-equal-a', 20), pinned: true, pinAt: 90 }
+    const pinnedEqualB = { ...summary('pinned-equal-b', 10), pinned: true, pinAt: 90 }
+    const recent = summary('recent', 30)
+    // Alternating pinned/unpinned input exercises both pin ranking directions,
+    // the missing pinAt falls back to the epoch from either side, and pinAt
+    // ties fall through to the updatedAt order.
+    const rows = deriveFlat(list(pinnedNoPinAt, pinnedEqualA, recent), noArchive, noAttention)
+    const pinnedBack = deriveFlat(list(pinnedEqualA, recent, pinnedNoPinAt), noArchive, noAttention)
+    const rowsWithTie = deriveFlat(
+      list(pinnedEqualA, pinnedEqualB, { ...summary('pinned-equal-c', 50), pinned: true, pinAt: 90 }),
+      noArchive,
+      noAttention,
+    )
+    expect(rowsWithTie.map(row => row.id))
+      .toEqual([sid('pinned-equal-c'), sid('pinned-equal-a'), sid('pinned-equal-b')])
+    expect(rows.map(row => row.id))
+      .toEqual([sid('pinned-equal-a'), sid('pinned-no-pin'), sid('recent')])
+    expect(pinnedBack.map(row => row.id))
+      .toEqual([sid('pinned-equal-a'), sid('pinned-no-pin'), sid('recent')])
+  })
+
   it('hides subagent-origin rows but keeps ordinary forks', () => {
     const parent = summary('parent', 1)
     const fork = { ...summary('fork', 2), parentId: parent.id }

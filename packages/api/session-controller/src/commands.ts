@@ -40,6 +40,8 @@ import type {
   SessionRenameRequest,
   SessionRenameValue,
   SessionSelectModelRequest,
+  SessionSetPinRequest,
+  SessionSetPinValue,
   SessionSelectModelValue,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
@@ -174,6 +176,31 @@ export class SessionCommandController {
       reject(
         'internal',
         `failed to rename session "${request.sessionId}": ${String(error)}`,
+        {},
+      )
+    }
+  }
+
+  /**
+   * Pin or unpin one Session by appending a durable `session/pin` event.
+   * @param request - Session identity and requested pin state.
+   * @returns the accepted pin state and durable event sequence.
+   */
+  async setPin(request: SessionSetPinRequest): Promise<SessionSetPinValue> {
+    const agent = await this.resolveAgent(request.sessionId)
+    const pins = this.ctx.get('sessionPin')
+    if (pins === undefined) {
+      reject('pin-unavailable', 'pinning is unavailable: this deployment mounts no session-pin service', {
+        sessionId: request.sessionId,
+      })
+    }
+    try {
+      const accepted = pins.setPin(agent.session, request.pinned)
+      return { pinned: accepted.pinned, seq: accepted.eventSeq }
+    } catch (error) {
+      reject(
+        'internal',
+        `failed to set pin on session "${request.sessionId}": ${String(error)}`,
         {},
       )
     }

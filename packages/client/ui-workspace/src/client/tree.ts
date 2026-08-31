@@ -37,6 +37,10 @@ export interface SessionNode {
   runningSubagentCount: number
   /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
   completed: boolean
+  /** Whether the session is pinned above unpinned rows. */
+  pinned: boolean
+  /** Wall-clock time of the latest pin event; order key inside the pinned group. */
+  pinAt?: number
   updatedAt: number
 }
 
@@ -111,8 +115,18 @@ export function workspaceLabel(cwd: string | undefined): string {
   return base !== '' ? base : cwd
 }
 
-/** Recency comparator: newest first, id as the deterministic tiebreak (ids are unique per group). */
+/**
+ * Recency comparator: pinned rows first (newest pin first), then newest
+ * first, id as the deterministic tiebreak (ids are unique per group).
+ */
 function byRecency(a: SessionSummary, b: SessionSummary): number {
+  if (a.pinned === true && b.pinned !== true) return -1
+  if (a.pinned !== true && b.pinned === true) return 1
+  if (a.pinned === true) {
+    const aPinAt = a.pinAt ?? 0
+    const bPinAt = b.pinAt ?? 0
+    if (bPinAt !== aPinAt) return bPinAt - aPinAt
+  }
   if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt
   return a.id < b.id ? -1 : 1
 }
@@ -244,6 +258,8 @@ function sessionNode(
     running: s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
     completed: s.completed === true,
+    pinned: s.pinned === true,
+    ...(s.pinAt === undefined ? {} : { pinAt: s.pinAt }),
     updatedAt: s.updatedAt,
     ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
   }

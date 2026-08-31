@@ -648,6 +648,20 @@ Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/sch
 
 Source: [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts)
 
+<a id="sessionpin--log-only"></a>
+
+#### `session/pin` — log-only
+
+```ts persistence-catalog
+/**
+ * Latest-wins session pin snapshot. Log-only: it never enters the model
+ * surface or derived history.
+ */
+'session/pin': SessionPinEventData
+```
+
+Source: [`packages/session/session-pin/src/index.ts:47`](../packages/session/session-pin/src/index.ts)
+
 <a id="sessiontitle--log-only"></a>
 
 #### `session/title` — log-only
