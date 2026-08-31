@@ -918,14 +918,19 @@ export class SessionManager {
 
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
-      // List rows read the generic 'title' projection key (host-computed unit
-      // value; there is no dedicated title frame).
+      // List rows read the generic 'title' and 'pinned' projection keys
+      // (host-computed unit values; there are no dedicated frames). The
+      // control stream lands projection updates here, so the pinned bit and
+      // its ordering timestamp stay live without a list re-pull.
       const projectionStore = this.projectionStores.get(summary.sessionId)
       const title = projectionStore?.get('title')
+      const pin = projectionStore?.get('pinned') as
+        | { readonly pinned: boolean; readonly pinAt: number | null } | undefined
       const projectionValues = projectionStore?.values()
       return {
         ...summary,
         ...(typeof title === 'string' && title !== '' ? { title } : {}),
+        ...(pin?.pinned === true ? { pinned: true, ...(pin.pinAt === null ? {} : { pinAt: pin.pinAt }) } : {}),
         ...(projectionValues === undefined ? {} : { projectionValues }),
       }
     })
@@ -937,6 +942,7 @@ export class SessionManager {
         && prev.blank === entry.blank
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
+        && prev.pinned === entry.pinned && prev.pinAt === entry.pinAt
         && prev.projectionValues === entry.projectionValues
         && prev.completed === entry.completed
       ) return prev

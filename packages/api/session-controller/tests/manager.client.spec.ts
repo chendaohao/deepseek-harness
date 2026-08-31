@@ -151,6 +151,30 @@ describe('list lifecycle', () => {
     expect(manager.getListSnapshot().items.find(item => item.sessionId === S1)?.title).toBeUndefined()
   })
 
+  it('surfaces a pin from the control projection frame without a list re-pull', async () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(fakeRemote(api))
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1)] as never[] }))
+    await manager.refreshList()
+    expect(manager.getListSnapshot().items[0]?.pinned).toBeUndefined()
+
+    // The host pushes the committed pin projection after session.setPin.
+    manager.handleControlFrame({
+      type: 'projection', sessionId: S1, key: 'pinned',
+      value: { pinned: true, pinAt: 500 }, seq: 4,
+    })
+    const item = manager.getListSnapshot().items[0]
+    expect(item?.pinned).toBe(true)
+    expect(item?.pinAt).toBe(500)
+
+    // Unpin through the same frame path drops the row out of the pinned set.
+    manager.handleControlFrame({
+      type: 'projection', sessionId: S1, key: 'pinned',
+      value: { pinned: false, pinAt: 600 }, seq: 5,
+    })
+    expect(manager.getListSnapshot().items[0]?.pinned).toBeUndefined()
+  })
+
   it('seeds cold titles from the list rows\' projections block under higher-seq-wins', async () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(fakeRemote(api))
