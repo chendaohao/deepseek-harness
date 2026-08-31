@@ -97,8 +97,17 @@ export function HoverCard({
       if (wrapper === null) return
       const r = wrapper.getBoundingClientRect()
       const h = cardRef.current?.offsetHeight ?? 0
-      const top = r.top + h > window.innerHeight - 8 ? window.innerHeight - h - 8 : r.top
-      setPos({ left: r.right + 8, top })
+      const w = cardRef.current?.offsetWidth ?? 0
+      // Each axis prefers its natural seat and clamps inside an 8px viewport
+      // margin, inner bound first: a card wider or taller than the viewport
+      // minus both margins keeps its near edge on screen and clips the far
+      // one, as in Menu's clamp. The card is unmeasurable on this first pass
+      // (it mounts with pos), so the correction effect below finishes the
+      // clamp.
+      const top = h > 0 ? Math.max(8, Math.min(r.top, window.innerHeight - h - 8)) : r.top
+      const preferred = r.right + 8
+      const left = w > 0 ? Math.max(8, Math.min(preferred, window.innerWidth - w - 8)) : preferred
+      setPos({ left, top })
     }
     place()
     window.addEventListener('scroll', place, true)
@@ -109,16 +118,18 @@ export function HoverCard({
     }
   }, [open])
 
-  // The first placement ran before the card mounted (height read 0): once the
-  // card's real height is measurable, correct the bottom-edge clamp. The
-  // correction converges — a clamped top satisfies the guard, so it runs once.
+  // The first placement ran before the card mounted (both dimensions read 0):
+  // once the card's real size is measurable, finish both edge clamps. The
+  // correction converges — clamped values satisfy the guards, so it runs once.
   useLayoutEffect(() => {
     if (!open || pos === null) return
     /* v8 ignore next -- the card is mounted whenever pos is set, so the ref is attached here. */
-    const h = cardRef.current?.offsetHeight ?? 0
-    if (pos.top + h > window.innerHeight - 8) {
-      setPos({ left: pos.left, top: window.innerHeight - h - 8 })
-    }
+    const card = cardRef.current
+    const h = card?.offsetHeight ?? 0
+    const w = card?.offsetWidth ?? 0
+    const top = h > 0 ? Math.max(8, Math.min(pos.top, window.innerHeight - h - 8)) : pos.top
+    const left = w > 0 ? Math.max(8, Math.min(pos.left, window.innerWidth - w - 8)) : pos.left
+    if (top !== pos.top || left !== pos.left) setPos({ left, top })
   }, [open, pos])
 
   const copy = async (text: string): Promise<void> => {

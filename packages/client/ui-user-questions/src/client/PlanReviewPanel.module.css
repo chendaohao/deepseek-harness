@@ -66,14 +66,21 @@
 
 .footer {
   display: flex;
+  /* Wrap, don't overflow: the three decision controls are shrink-0 and wider
+     than a narrow card, whose overflow: hidden would clip the approve capsule
+     past the viewport. When the row fits, wrap and the row gap are inert. */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  /* Row gap (8) for the wrapped line pair is tighter than the 12 column gap. */
+  gap: 8px 12px;
   flex-shrink: 0;
-  gap: 12px;
   padding: 8px 16px 12px;
 }
 
 .feedback {
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 16px;
   color: var(--dsw-alias-state-error-primary);
   font-size: 11px;
@@ -85,6 +92,10 @@
   align-items: center;
   flex-shrink: 0;
   gap: 8px;
+  /* Right-pins the controls on their own wrapped line (a lone item under
+     space-between would sit left); when the row fits, the auto margin takes
+     the same free space space-between would. */
+  margin-left: auto;
 }
 
 /* The discuss verb stays a quiet text button beside the two decision

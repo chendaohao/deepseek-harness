@@ -11,6 +11,10 @@
   cursor: pointer;
   font-size: 14px;
   line-height: 22px;
+  /* Single line, so the min-content width is the whole label: a wrapping
+     action row moves the intact capsule to the next line instead of stacking
+     the label's characters (CJK has a break point between every pair). */
+  white-space: nowrap;
   color: var(--dsw-alias-label-primary);
   background: transparent;
   padding: 0 14px;

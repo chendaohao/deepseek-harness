@@ -26,14 +26,16 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
-/* Primary card is 218 wide in the design across both hosts. */
+/* Primary card is 218 wide in the design across both hosts. The viewport cap
+   (24 = 2 × the portal MARGIN in Menu.tsx) keeps a label-wide list inside a
+   phone, where the portal clamp would otherwise have no legal x. */
 .list {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 100;
   min-width: 218px;
-  max-width: 360px;
+  max-width: min(360px, calc(100vw - 24px));
 }
 
 /* Portal mode: fixed in the viewport, coordinates supplied inline from the

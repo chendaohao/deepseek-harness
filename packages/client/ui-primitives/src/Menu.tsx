@@ -137,8 +137,12 @@ export function Menu({ open, anchor, items, selectedId, selectedIds, onSelect, o
         y = side === 'bottom' ? r.bottom + 4 : r.top - lh - 4
       }
 
-      if (lw > 0) x = Math.min(Math.max(x, MARGIN), vw - lw - MARGIN)
-      if (lh > 0) y = Math.min(Math.max(y, MARGIN), vh - lh - MARGIN)
+      // Inner bound first: a list wider (or taller) than the viewport minus
+      // both margins makes the right-hand bound smaller than MARGIN, and an
+      // outer-min would push the card off the left/top edge. Keeping the
+      // margin wins means the far edge clips instead of the near one.
+      if (lw > 0) x = Math.max(MARGIN, Math.min(x, vw - lw - MARGIN))
+      if (lh > 0) y = Math.max(MARGIN, Math.min(y, vh - lh - MARGIN))
 
       setFixedPos({ left: x, top: y })
     }

@@ -96,6 +96,10 @@
 
 .footer {
   display: flex;
+  /* Wrap, don't overflow: the buttons are nowrap capsules and a third one
+     would exceed the 332px content column, whose dialog overflow: hidden
+     clips it; flex-end keeps each wrapped line right-aligned. */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;

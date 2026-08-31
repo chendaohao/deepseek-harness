@@ -62,6 +62,10 @@
 
 .actionRow {
   display: flex;
+  /* Wrap, don't overflow: the two capsules are shrink-0 and together exceed a
+     narrow card, whose overflow: hidden would clip the approve capsule past
+     the viewport; flex-end keeps each wrapped line right-aligned. */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding: 14px 16px;

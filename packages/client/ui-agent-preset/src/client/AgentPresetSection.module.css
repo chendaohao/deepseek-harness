@@ -285,15 +285,19 @@
   content: attr(data-tip);
   position: absolute;
   bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
+  /* Grows leftward from the button's trailing edge, not centered: the footer
+     buttons sit at the card's trailing edge, where a centered bubble extends
+     past a phone viewport. The cap keeps a long tip inside the viewport and
+     wraps it instead. */
+  right: 0;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 48px));
   padding: 3px 8px;
   border-radius: 6px;
   background: var(--dsw-alias-label-primary);
   color: var(--dsw-alias-bg-layer-3);
   font-size: 11px;
   line-height: 17px;
-  white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   transition: opacity .12s;

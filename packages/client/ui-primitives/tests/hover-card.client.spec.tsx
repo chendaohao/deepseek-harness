@@ -407,6 +407,26 @@ describe('HoverCard', () => {
     }
   })
 
+  it('corrects the right-edge clamp once the mounted card width is measurable', () => {
+    // First placement reads width 0 (card not yet mounted) and keeps the
+    // unclamped side seat; the post-mount correction re-clamps with the real
+    // width.
+    window.innerWidth = 300
+    const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 244 })
+    try {
+      const { wrapper } = mount()
+      stubAnchorRect(screen.getByText('row'), { top: 40, right: 280 })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      const card = screen.getByText('card body').parentElement as HTMLElement
+      // 300 - 244 - 8 = 48, instead of the preferred 280 + 8.
+      expect(card.style.left).toBe('48px')
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetWidth', offsetWidth)
+    }
+  })
+
   it('clamps inside placement itself when the card is already measured (resize path)', () => {
     window.innerHeight = 300
     const { wrapper } = mount()

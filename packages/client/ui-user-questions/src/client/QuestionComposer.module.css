@@ -100,6 +100,10 @@
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+  /* Right-pins the actions on their own wrapped line (a lone item under
+     space-between would sit left); when the row fits, the auto margin takes
+     the same free space space-between would. */
+  margin-left: auto;
 }
 
 .pager {
@@ -400,9 +404,15 @@
 
 .footer {
   display: flex;
+  /* Wrap, don't overflow: on a narrow card the shrink-0 pager and action
+     buttons exceed the row, and the card's overflow: hidden would clip the
+     submit capsule past the viewport. A wrapped line keeps every control on
+     screen; when the row fits, wrap and the row gap are inert. */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  /* Row gap (8) for the wrapped line pair is tighter than the 12 column gap. */
+  gap: 8px 12px;
   flex-shrink: 0;
   margin-top: 12px;
   padding: 0 10px 0 18px;
