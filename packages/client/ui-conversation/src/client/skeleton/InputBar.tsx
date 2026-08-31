@@ -13,7 +13,7 @@
  * trigger instead of a parallel tree.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
@@ -342,6 +342,134 @@ export function InputBar({
     ? null
     : <PermissionSelect key={sessionId} value={permissions} locked={locked} command={command} t={t} />
 
+  // Toolbar controls in visual left-to-right order, later reversed into the
+  // row's packing order by `order` (see css.row). The DOM keeps the visual
+  // order so tab order follows the eye.
+  const toolbarItems = ((): Array<{ key: string; node: ReactNode }> => {
+    const items: Array<{ key: string; node: ReactNode }> = [
+      {
+        key: 'add',
+        node: (
+          <Tooltip label={t('input.commands')} side="top" delayMs={500}>
+            <button
+              type="button"
+              className={css.add}
+              aria-label={t('input.commands')}
+              aria-haspopup="listbox"
+              aria-expanded={commandMenuOpen}
+              disabled={locked || toggleCommandMenu === undefined}
+              onMouseDown={keepFocus}
+              onClick={onToggleCommandMenu}
+            >
+              <IconPlusOutline16 size={14} />
+            </button>
+          </Tooltip>
+        ),
+      },
+      { key: 'access', node: accessSelect },
+      { key: 'plan', node: sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked }) },
+      { key: 'left', node: leftItems },
+      { key: 'right', node: rightItems },
+      { key: 'model', node: sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked }) },
+      { key: 'ctx', node: <ContextMeter useProjection={useProjection} t={t} /> },
+    ]
+    if (interruptible) {
+      items.push({
+        key: 'stop',
+        node: (
+          <Tooltip label={t('input.stop')} side="top" delayMs={500}>
+            <button
+              type="button"
+              className={css.primary}
+              aria-label={t('input.stop')}
+              disabled={stop === undefined}
+              onMouseDown={keepFocus}
+              onClick={stop}
+            >
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
+              </svg>
+            </button>
+          </Tooltip>
+        ),
+      })
+    }
+    items.push({
+      key: 'send',
+      node: (
+        <Tooltip label={primaryLabel} side="top" delayMs={500}>
+          <button
+            type="button"
+            className={css.primary}
+            aria-label={primaryLabel}
+            disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
+            onMouseDown={keepFocus}
+            onClick={onPrimary}
+          >
+            {primaryStops ? (
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
+              </svg>
+            )}
+          </button>
+        </Tooltip>
+      ),
+    })
+    return items.filter(item => item.node !== null && item.node !== undefined)
+  })()
+  // The packing order the row lays out in (send first) is the reverse of the
+  // visual order above; kept in a ref so the measured split reads the order
+  // of the render it measures.
+  const toolbarOrderRef = useRef<Array<string>>([])
+  toolbarOrderRef.current = toolbarItems.map(item => item.key)
+
+  // The wrap split. Flex lines all pack from the main-start edge, so the
+  // bottom-first fill (primary controls packed right-to-left) falls out of
+  // row-reverse + wrap-reverse, but the overflow row's left-to-right packing
+  // needs one measured margin: the first control that does not fit carries an
+  // auto main-start margin that absorbs the overflow line's free width and
+  // pins its group to the opposite edge. Measured against the row's content
+  // box and the live control widths; a no-op setState guard keeps the
+  // ResizeObserver feedback loop convergent.
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const itemRefs = useRef(new Map<string, HTMLDivElement>())
+  const [split, setSplit] = useState<{ wrapped: boolean; pinKey: string | null }>({ wrapped: false, pinKey: null })
+  const measureSplit = useCallback(() => {
+    const row = rowRef.current
+    if (row === null) return
+    const keys = [...toolbarOrderRef.current].reverse()
+    const widths = keys.map(key => itemRefs.current.get(key)?.offsetWidth ?? 0)
+    const style = getComputedStyle(row)
+    const available = row.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    const gap = parseFloat(style.columnGap) || 0
+    let used = widths[0] ?? 0
+    let pinIndex: number | null = null
+    for (let i = 1; i < widths.length; i += 1) {
+      const width = widths[i] ?? 0
+      if (used + gap + width > available) {
+        pinIndex = i
+        break
+      }
+      used += gap + width
+    }
+    const next = pinIndex === null
+      ? { wrapped: false, pinKey: null }
+      : { wrapped: true, pinKey: keys[pinIndex] ?? null }
+    setSplit(prev => (prev.wrapped === next.wrapped && prev.pinKey === next.pinKey ? prev : next))
+  }, [])
+  useLayoutEffect(() => { measureSplit() })
+  useEffect(() => {
+    const row = rowRef.current
+    if (row === null || typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(() => measureSplit())
+    observer.observe(row)
+    return () => { observer.disconnect() }
+  }, [measureSplit])
+
   // Claim ghost hint: rendered by CSS as generated content after the last
   // paragraph while the claim's args are blank (a hint implies a single-line
   // token draft). The translated per-command hint wins over the claim's own.
@@ -444,69 +572,29 @@ export function InputBar({
             <DecoratorPortals editor={workspaceTrigger ? null : editor} />
           </div>
         </div>
-        <div className={css.row}>
-          <div className={css.trailing}>
-            {rightItems}
-            {sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked })}
-            <ContextMeter useProjection={useProjection} t={t} />
-            {interruptible && (
-              <Tooltip label={t('input.stop')} side="top" delayMs={500}>
-                <button
-                  type="button"
-                  className={css.primary}
-                  aria-label={t('input.stop')}
-                  disabled={stop === undefined}
-                  onMouseDown={keepFocus}
-                  onClick={stop}
-                >
-                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                    <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-                  </svg>
-                </button>
-              </Tooltip>
-            )}
-            <Tooltip label={primaryLabel} side="top" delayMs={500}>
-              <button
-                type="button"
-                className={css.primary}
-                aria-label={primaryLabel}
-                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
-                onMouseDown={keepFocus}
-                onClick={onPrimary}
-              >
-                {primaryStops ? (
-                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                    <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                    <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
-                  </svg>
-                )}
-              </button>
-            </Tooltip>
-          </div>
-          <div className={css.tools}>
-            <Tooltip label={t('input.commands')} side="top" delayMs={500}>
-              <button
-                type="button"
-                className={css.add}
-                aria-label={t('input.commands')}
-                aria-haspopup="listbox"
-                aria-expanded={commandMenuOpen}
-                disabled={locked || toggleCommandMenu === undefined}
-                onMouseDown={keepFocus}
-                onClick={onToggleCommandMenu}
-              >
-                <IconPlusOutline16 size={14} />
-              </button>
-            </Tooltip>
-            <div className={css.modes}>
-              {accessSelect}
-              {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
+        <div
+          ref={rowRef}
+          className={clsx(css.row, split.wrapped && css.rowWrapped)}
+          data-toolbar-wrapped={split.wrapped || undefined}
+        >
+          {toolbarItems.map((item, index) => (
+            <div
+              key={item.key}
+              ref={(el) => {
+                if (el === null) itemRefs.current.delete(item.key)
+                else itemRefs.current.set(item.key, el)
+              }}
+              className={clsx(css.tool, item.key === 'model' && css.toolModel)}
+              style={{
+                order: toolbarItems.length - 1 - index,
+                // The measured overflow start absorbs its line's free width,
+                // pinning the top row left; every other control packs tight.
+                marginRight: split.pinKey === item.key ? 'auto' : undefined,
+              }}
+            >
+              {item.node}
             </div>
-            {leftItems}
-          </div>
+          ))}
         </div>
       </div>
       {footer}

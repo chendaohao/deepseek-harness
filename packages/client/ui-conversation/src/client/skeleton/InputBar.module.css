@@ -194,13 +194,21 @@
   min-height: 52px;
 }
 
-/* Toolbar: attach + Plan + Read-only on the left; model + send on the right
-   (figma Input_Bottom chrome). */
+/* Toolbar: the composer controls as flat siblings in visual left-to-right
+   DOM order (tab order follows the eye); `order` reverses the layout packing
+   so the row packs right-to-left starting from the primary action, and
+   wrap-reverse sinks the first packed line. The bottom row therefore fills
+   first — primary action, context, model, then plan/access as they fit —
+   right-aligned, while the measured split (the inline auto margin on the
+   first control that did not fit, see InputBar.tsx) pins the overflow
+   controls to the left edge of the top row. On a single row the model seat's
+   auto margin gathers the free width into the middle gap: tools left,
+   primary right, at every viewport width. */
 .row {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: row-reverse;
+  flex-wrap: wrap-reverse;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   /* 2px moved from the bottom pad to the top: the whole control row sits 2px
      lower in the card (it read too high against the textarea) while the card
@@ -214,71 +222,37 @@
   container-type: inline-size;
 }
 
-.tools,
-.modes,
-.trailing {
+.tool {
   display: flex;
   align-items: center;
+  flex: none;
   min-width: 0;
 }
 
-/* figma 75:8208 drew 16 between + and the mode chips and 4 between Plan /
-   Read-only; the chip gap widened to 12 so the pill chips read as separate
-   controls. order: -1 keeps the tools group visually left even though the
-   trailing group precedes it in the DOM. The narrow-viewport block below
-   resets it: under wrap-reverse the order value decides which group packs
-   into the first line, and the first line is the one wrap-reverse sinks. */
-.tools {
-  order: -1;
-  gap: 16px;
+/* figma 75:8208 drew 16 between + and the mode chips; the base gap is 12, so
+   the attach control carries the extra 4 on wide viewports. */
+.toolAdd {
+  margin-right: 4px;
 }
 
-.modes {
-  gap: 12px;
-}
-
-.trailing {
-  flex: none;
-  /* Wrap keeps the left mode chips and the right controls apart when the card
-     runs out of row width: the trailing group (model + send) moves to its own
-     line instead of the left group shrinking until its chip overlaps the
-     model trigger (external:107). The auto margin re-anchors it right on the
-     wrapped line; on a single line space-between already pins it right. */
+/* Single-row free-width gatherer; cleared when the toolbar wraps so the
+   bottom row packs tight against its right edge. */
+.toolModel {
   margin-left: auto;
-  gap: 12px;
 }
 
-/* Narrow viewports: the trailing group (model seat, context ring, primary
-   action) is the primary row — when the toolbar splits, it fills the bottom
-   row, right-aligned with send rightmost, while the tools group (attach/
-   access/plan) takes the top row, left-aligned. Mechanism: row-reverse puts
-   the DOM-first trailing group at the main-start (right) edge, wrap-reverse
-   sinks the first packed line — trailing packs first once tools' order reset
-   restores DOM packing order — and tools' auto margin-right pins it to the
-   opposite (left) edge on its own line. A single row keeps tools left and
-   trailing right because the same main-start/margin pairing holds on one
-   line. Wide viewports keep the order:-1 flip above. */
+.rowWrapped .toolModel {
+  margin-left: 0;
+}
+
+/* Narrow phones tighten the gaps; the wrap mechanics are width-independent. */
 @media (max-width: 640px) {
   .row {
-    flex-direction: row-reverse;
-    flex-wrap: wrap-reverse;
     gap: 6px;
   }
 
-  .tools {
-    order: 0;
-    flex: none;
-    gap: 6px;
-    margin-right: auto;
-  }
-
-  .trailing {
-    flex: none;
-    justify-content: flex-end;
-    gap: 4px;
-    /* The row-reverse main start anchors this group right; the wide-value
-       auto margin would fight tools' auto margin for the same gap. */
-    margin-left: 0;
+  .toolAdd {
+    margin-right: 0;
   }
 }
 
