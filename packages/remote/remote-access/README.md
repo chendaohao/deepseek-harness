@@ -28,8 +28,9 @@ Indirectly, through the `DSH_REMOTE_URL` shell-env contribution this package reg
 
 None; the contribution adds one per-shell environment value and does not touch request assembly.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **UI-scoped privileged plane** — the Web UI keeps settings, credentials, and agent-preset authoring in a per-session memory scope on non-loopback pages, and native host dialogs stay local; the endpoints themselves sit behind pairing auth. Host-plane exposure behind pairing auth waits for the auth layer to earn real-world mileage.
 - **One-time pairing tokens** — the QR encodes a single-use token with a 15-minute TTL; after it is consumed or expires, mint a fresh one from the in-GUI panel's refresh action or by restarting `dsh web --remote`. `--remote-reset` rotates the secret and revokes every device.

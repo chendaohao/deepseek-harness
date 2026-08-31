@@ -27,8 +27,9 @@ None, as the remote surfaces render logged state over the `/api` wire and never 
 
 None; the panel and `/m` page assemble no model requests.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **The control plane is loopback-only** — tunnel traffic is refused, so the desktop panel reads empty/error states when the host tunnel is off or the browser is remote.
 - **One QR at a time** — a fresh issuance invalidates the previous token, so the panel shows a single QR, not a rotating set.

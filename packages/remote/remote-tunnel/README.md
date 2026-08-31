@@ -32,8 +32,9 @@ None, as the package owns tunnel transport only; no URL, ticket, or cookie reach
 
 None; this package neither assembles nor sends a provider request.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **Single provider** — cloudflared tunnels are the only backend; the Service is the seam a frp/Tailscale provider would replace, but no provider registry exists until a second provider needs one.
 - **Quick mode is ephemeral** — TryCloudflare assigns a random subdomain per session and Cloudflare positions quick tunnels for testing; deployments needing stable domains register a named tunnel (`mode: named`) as documented above.

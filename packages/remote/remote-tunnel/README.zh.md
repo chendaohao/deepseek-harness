@@ -32,8 +32,9 @@ None, as the package owns tunnel transport only; no URL, ticket, or cookie reach
 
 None; this package neither assembles nor sends a provider request.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与暂缓事项
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **单一 provider** — 目前只有 cloudflared 隧道一种后端；Service 即未来 frp/Tailscale provider 可替换的接缝，但在第二个 provider 出现前不引入注册表。
 - **快速模式是临时的** — TryCloudflare 每次会话分配随机子域名，Cloudflare 将快速隧道定位为测试用途；需要固定域名的部署按上文注册命名隧道（`mode: named`）。

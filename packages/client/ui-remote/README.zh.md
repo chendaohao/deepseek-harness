@@ -27,8 +27,9 @@ Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标
 
 无；面板与 `/m` 页不组装模型请求。
 
-<a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与暂缓事项
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **控制面仅限 loopback** —— 隧道流量被拒绝，因此 host 隧道关闭或浏览器处于远程时，桌面面板读到的是空/错误状态。
 - **一次只有一个二维码** —— 新签发会使上一个 token 失效，面板展示单个二维码而非轮换集合。

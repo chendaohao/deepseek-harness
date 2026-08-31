@@ -29,22 +29,34 @@ Match order is fixed: exact table first, then longest matching prefix, then the 
 ## Config
 
 ```ts type-equiv
-/** Web server listen and response-compression config. */
+/** Gateway config: the listen address and transport tuning. */
 interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
-  /** Response compression for socket-backed HTTP requests. @default 'none' */
-  compression?: 'none' | 'gzip'
-  /** Gzip DEFLATE level from 0 through 9. @default 1 */
-  compressionLevel?: number
-  /** Minimum known response length eligible for gzip; unknown-length streams are eligible. @default 1024 */
+  /**
+   * Response compression: 'auto' negotiates per request (brotli preferred,
+   * gzip fallback), 'br' and 'gzip' force a codec when the client accepts it,
+   * 'none' disables. SSE and other non-compressible bodies always pass
+   * through uncompressed. Defaults to 'auto'.
+   */
+  compression?: CompressionMode
+  /**
+   * Minimum body size in bytes before compression applies; smaller known
+   * bodies ship identity (the codec setup would cost more than it saves).
+   */
   compressionThresholdBytes?: number
+  /**
+   * Idle keep-alive timeout for the HTTP server in milliseconds (Node default
+   * 5000). Slow mobile links benefit from a longer-lived connection; raise
+   * the default to 30s unless a reverse proxy in front wants to own it.
+   */
+  keepAliveTimeoutMs?: number
 }
 ```
 
-`host` accepts only `127.0.0.1` (default posture) and `0.0.0.0` (deliberate network exposure). The carrier itself owns no TLS, authentication, or Origin policy, so a non-loopback bind exposes the server unless the composition supplies those controls. `compression` defaults to `none`; the shipped Web bundle selects gzip level 1 with a 1024-byte threshold. The shipped `dsh web` command selects loopback and rejects `--host 0.0.0.0`; its Connection plugin supplies Host/Origin checks plus browser-session authentication for every Host API route and stream. Other compositions own their bind and route-authentication policy. The dist location is an assembly fact of the frontend plugin that claims the seat.
+`host` accepts only `127.0.0.1` (default posture) and `0.0.0.0` (deliberate network exposure). The carrier itself owns no TLS, authentication, or Origin policy, so a non-loopback bind exposes the server unless the composition supplies those controls. `compression` defaults to `auto` (negotiated per request, brotli preferred); `keepAliveTimeoutMs` defaults to 30000 ms. The shipped `dsh web` command selects loopback and rejects `--host 0.0.0.0`; its Connection plugin supplies Host/Origin checks plus browser-session authentication for every Host API route and stream. Other compositions own their bind and route-authentication policy. The dist location is an assembly fact of the frontend plugin that claims the seat.
 
 ## The service
 
