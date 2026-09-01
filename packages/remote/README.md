@@ -15,3 +15,5 @@ The remote-access capability family: exposing the local Web GUI over a public HT
 
 `remote-access` consumes the `remoteTunnel` Service and the host webserver port; the shipped Web composition enables both rows from the `dsh web --remote` flag ([web-app patch](../bundle/web-app/cordis.patch.yml)). The [mobile control surface (`/m`)](../client/ui-remote/README.md) is a pure consumer of the pairing gate and the `/api` protocol.
 
+- [Remote access subsystem](../../docs/subsystems/remote-access.md) — the pairing gate, device registry, tunnel Service contract, and control-plane surfaces.
+

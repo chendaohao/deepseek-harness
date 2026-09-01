@@ -1,12 +1,13 @@
 /** Cold Session history pagination and live-event source. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { Deque } from '@deepseek-ai/dsh-deque'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-session'
 import { isChunkRow, packChunkRuns, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   SessionAddress,
   SessionChunkRun,
@@ -57,15 +58,15 @@ export class SessionHistoryController {
     const sourceLog = source.events
     const sourceCursor = sourceLog.at(-1)?.seq ?? -1
     if (request.throughSeq > sourceCursor) {
-      reject(
-        'bad-request',
+      throw new RemoteError(
+        'gateway/bad-request',
         `session page through seq ${String(request.throughSeq)} is past cursor ${String(sourceCursor)}`,
         {},
       )
     }
     /* v8 ignore next -- Session and persistence validation guarantee a dense zero-based event prefix. */
     if (request.throughSeq >= 0 && sourceLog[request.throughSeq]?.seq !== request.throughSeq) {
-      reject('internal', `session log does not contain through seq ${String(request.throughSeq)}`, {})
+      throw new RemoteError('gateway/internal', `session log does not contain through seq ${String(request.throughSeq)}`, {})
     }
     const page = paginate(
       sourceLog,
@@ -90,7 +91,7 @@ export class SessionHistoryController {
     validateFollowRequest(request)
     const { address } = request
     const target = addressId(address)
-    const buffered: SessionEvent[] = []
+    const buffered = new Deque<SessionEvent>()
     /** Set when the producer outran the buffer; the pump loop reports it. */
     const overflow = { flag: false }
     let snapshotCursor: number | undefined
@@ -112,8 +113,8 @@ export class SessionHistoryController {
       // would otherwise accumulate every appended event in memory forever.
       // The listener cannot throw (observers are contained), so overflow is
       // flagged here and reported by the pump loop below.
-      if (buffered.length >= DEFAULT_MAX_BUFFERED_EVENTS) overflow.flag = true
-      buffered.push(event)
+      if (buffered.size >= DEFAULT_MAX_BUFFERED_EVENTS) overflow.flag = true
+      buffered.pushBack(event)
       notify()
     }, { global: true })
     const disposeCreated = this.ctx.on('session/created', (session) => {
@@ -124,8 +125,10 @@ export class SessionHistoryController {
       const suffix = session.events.slice(snapshotCursor === undefined
         ? session.firstLiveSeq
         : snapshotCursor + 1)
-      if (buffered.length + suffix.length > DEFAULT_MAX_BUFFERED_EVENTS) overflow.flag = true
-      buffered.unshift(...suffix)
+      if (buffered.size + suffix.length > DEFAULT_MAX_BUFFERED_EVENTS) overflow.flag = true
+      for (let index = suffix.length - 1; index >= 0; index -= 1) {
+        buffered.pushFront(suffix[index] as SessionEvent)
+      }
       notify()
     }, { global: true })
     const onAbort = (): void => { notify() }
@@ -159,16 +162,16 @@ export class SessionHistoryController {
       let nextSeq = cursor + 1
       while (!follower.closed && !signal.aborted) {
         if (overflow.flag) {
-          reject('stream-overflow', 'session follow buffer exceeded', { maxBufferedEvents: DEFAULT_MAX_BUFFERED_EVENTS })
+          throw new RemoteError('session/stream-overflow', 'session follow buffer exceeded', { maxBufferedEvents: DEFAULT_MAX_BUFFERED_EVENTS })
         }
-        const item = buffered.shift()
+        const item = buffered.popFront()
         if (item === undefined) {
           await new Promise<void>((resolve) => { wake = resolve })
           continue
         }
         if (item.seq < nextSeq) continue
         if (item.seq !== nextSeq) {
-          reject('internal', `session event stream skipped seq ${String(nextSeq)}`, {})
+          throw new RemoteError('gateway/internal', `session event stream skipped seq ${String(nextSeq)}`, {})
         }
         nextSeq++
         yield entryFor(item)
@@ -224,22 +227,22 @@ function projectionBlock(
 
 function validatePageRequest(request: SessionPageRequest): void {
   if (!Number.isSafeInteger(request.throughSeq) || request.throughSeq < -1) {
-    reject('bad-request', 'throughSeq must be an integer greater than or equal to -1', {})
+    throw new RemoteError('gateway/bad-request', 'throughSeq must be an integer greater than or equal to -1', {})
   }
   if (request.beforeSeq !== undefined
     && (!Number.isSafeInteger(request.beforeSeq) || request.beforeSeq < 0)) {
-    reject('bad-request', 'beforeSeq must be a non-negative safe integer', {})
+    throw new RemoteError('gateway/bad-request', 'beforeSeq must be a non-negative safe integer', {})
   }
   if (request.maxMessages !== undefined
     && (!Number.isSafeInteger(request.maxMessages) || request.maxMessages <= 0)) {
-    reject('bad-request', 'maxMessages must be a positive safe integer', {})
+    throw new RemoteError('gateway/bad-request', 'maxMessages must be a positive safe integer', {})
   }
 }
 
 function validateFollowRequest(request: SessionFollowRequest): void {
   if (request.maxMessages !== undefined
     && (!Number.isSafeInteger(request.maxMessages) || request.maxMessages <= 0)) {
-    reject('bad-request', 'maxMessages must be a positive safe integer', {})
+    throw new RemoteError('gateway/bad-request', 'maxMessages must be a positive safe integer', {})
   }
 }
 
@@ -254,34 +257,34 @@ function validateAddress(
 ): void {
   if (address.kind === 'session') {
     if (header.origin === 'subagent') {
-      reject('agent-busy', 'subagent Sessions require their durable parent address', {
+      throw new RemoteError('session/agent-busy', 'subagent Sessions require their durable parent address', {
         reason: 'use subagent delivery for this child session',
       })
     }
     return
   }
   if (header.origin !== 'subagent' || header.parentSession !== address.parentSessionId) {
-    reject('subagent-unauthorized', 'subagent does not belong to the supplied parent', {
+    throw new RemoteError('subagent/unauthorized', 'subagent does not belong to the supplied parent', {
       childSessionId: address.childSessionId,
     })
   }
   const identity = projections?.values.subagent
   if (identity === null) {
-    reject('subagent-catalog-diagnostic', 'subagent descriptor is corrupt', {
+    throw new RemoteError('subagent/catalog-diagnostic', 'subagent descriptor is corrupt', {
       parentSessionId: address.parentSessionId,
       childSessionId: address.childSessionId,
       reason: 'corrupt',
     })
   }
   if (identity === undefined || identity.seq < (header.seedLength ?? 0)) {
-    reject('subagent-catalog-diagnostic', 'subagent descriptor is unavailable', {
+    throw new RemoteError('subagent/catalog-diagnostic', 'subagent descriptor is unavailable', {
       parentSessionId: address.parentSessionId,
       childSessionId: address.childSessionId,
       reason: 'unsupported',
     })
   }
   if (identity.mode !== address.mode) {
-    reject('subagent-unauthorized', 'subagent mode does not match the supplied address', {
+    throw new RemoteError('subagent/unauthorized', 'subagent mode does not match the supplied address', {
       childSessionId: address.childSessionId,
     })
   }
@@ -289,16 +292,12 @@ function validateAddress(
 
 function rejectNotFound(address: SessionAddress): never {
   if (address.kind === 'session') {
-    reject('session-not-found', `session "${address.sessionId}" not found`, { sessionId: address.sessionId })
+    throw new RemoteError('session/not-found', `session "${address.sessionId}" not found`, { sessionId: address.sessionId })
   }
-  reject('subagent-not-found', 'subagent is unavailable', {
+  throw new RemoteError('subagent/not-found', 'subagent is unavailable', {
     parentSessionId: address.parentSessionId,
     childSessionId: address.childSessionId,
   })
-}
-
-function reject(code: string, message: string, details: object): never {
-  throw new TypertRemoteFailure({ code, message, details })
 }
 
 function paginate(

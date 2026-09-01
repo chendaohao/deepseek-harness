@@ -89,7 +89,7 @@ export class ModelDirectory {
    *   (a selection carrying no effort). A plain model switch leaves it unset
    *   so the host restores any remembered effort for the picked route.
    */
-  async select(selection: ModelSelection, explicitEffort = false): Promise<void> {
+  async select(selection: ModelSelection, explicitEffort: boolean = false): Promise<void> {
     this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'selecting'; s.error = null })

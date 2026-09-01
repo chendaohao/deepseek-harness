@@ -77,7 +77,7 @@ describe('sessions.setPin', () => {
     expect(response.ok).toBe(false)
     if (!response.ok) {
       expect(response.error).toMatchObject({
-        code: 'pin-unavailable',
+        code: 'session/pin-unavailable',
         details: { sessionId: source.id },
       })
     }

@@ -48,7 +48,11 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-/** Fold the latest `session/pin` event from a session's event log. */
+/**
+ * Fold the latest `session/pin` event from a session's event log.
+ * @param events - the session's event log rows.
+ * @returns the pin snapshot carried by the latest pin event, or undefined when none exists.
+ */
 export function foldSessionPin(
   events: readonly { readonly type: string; readonly seq: number; readonly time: number; readonly data: unknown }[],
 ): SessionPinSnapshot | undefined {

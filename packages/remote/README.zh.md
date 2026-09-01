@@ -15,3 +15,5 @@ kind: "package-group"
 
 `remote-access` 消费 `remoteTunnel` Service 与宿主 Web 服务器端口；随附的 Web 组合通过 `dsh web --remote` 旗标启用这两个行（[web-app patch](../bundle/web-app/cordis.patch.yml)）。[移动控制面（`/m`）](../client/ui-remote/README.zh.md) 是配对闸门与 `/api` 协议的纯消费者。
 
+- [远程接入子系统](../../docs/subsystems/remote-access.zh.md) — 配对闸门、设备注册表、隧道 Service 契约与控制面。
+

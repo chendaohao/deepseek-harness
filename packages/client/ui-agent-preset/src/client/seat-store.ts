@@ -10,7 +10,9 @@
  * deployment default again, matching the workspace picker beside it.
  */
 
-import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Type-only: pulls the ctx.remote merge into this program.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
@@ -53,7 +55,7 @@ export class AgentPresetSeatController {
   private staged: string | undefined
 
   constructor(
-    private readonly remote: Pick<ClientRemote, 'agentPresets'>,
+    private readonly ctx: ClientContext,
     /** The session the hero is about to hand over to, when there is one. */
     private readonly currentSession: () => Pick<
       SessionSummary,
@@ -70,7 +72,7 @@ export class AgentPresetSeatController {
   * @returns once the snapshot reflects the host.
   */
   async load(): Promise<void> {
-    const roster = await readRoster(this.remote)
+    const roster = await readRoster(this.ctx)
     if (!roster.ok) {
       this.set({ error: roster.error })
       return
@@ -207,7 +209,7 @@ export class AgentPresetSeatController {
     session: Pick<SessionSummary, 'id' | 'blank' | 'projectionValues'>,
   ): Promise<void> {
     try {
-      const result = await this.remote.agentPresets.select(session.id, staged)
+      const result = await this.ctx.remote.agentPresets.select(session.id, staged)
       // Only this pick is spent: a newer stage set while the RPC was in
       // flight belongs to the next apply and must survive this completion.
       if (this.staged === staged) this.staged = undefined
@@ -236,6 +238,7 @@ export class AgentPresetSeatController {
         error: messageOf(error),
         current: this.staged ?? presetOf(session) ?? '',
       })
+      return
     }
   }
 }

@@ -63,7 +63,10 @@ function browserSocket(url: string): WebSocketLike {
   return new WebSocket(url) as unknown as WebSocketLike
 }
 
-/** Resolve the same-origin remote-mux URL with the WS protocol scheme. */
+/**
+ * Resolve the same-origin remote-mux URL with the WS protocol scheme.
+ * @returns the mux endpoint URL with the ws(s) scheme.
+ */
 export function muxUrl(): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}/api/remote.mux`

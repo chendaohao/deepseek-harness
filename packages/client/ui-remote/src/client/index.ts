@@ -25,9 +25,17 @@ import type { RemoteDeviceRecord, RemoteTunnelState } from './remote-types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
-    /** The device roster changed: a device paired, was revoked, or its liveness advanced. */
+    /**
+     * The device roster changed: a device paired, was revoked, or its liveness advanced.
+     * @mode emit
+     * @param devices - the full roster after the change.
+     */
     'remote/devices/change'(devices: RemoteDeviceRecord[]): void
-    /** One tunnel session reported a durable fact: open, ended, or failed. */
+    /**
+     * One tunnel session reported a durable fact: open, ended, or failed.
+     * @mode emit
+     * @param state - the tunnel state after the change.
+     */
     'remote-tunnel/state'(state: RemoteTunnelState): void
   }
 }

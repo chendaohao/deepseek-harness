@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import { AgentPresetSeatController } from '../src/client/seat-store.ts'
 
@@ -47,7 +48,8 @@ function seat(
   rig: { pending: PendingSelect[]; remote: Pick<ClientRemote, 'agentPresets'> },
   currentSession: () => CurrentSession,
 ): AgentPresetSeatController {
-  return new AgentPresetSeatController(rig.remote, currentSession)
+  const ctx = { remote: rig.remote } as unknown as ClientContext
+  return new AgentPresetSeatController(ctx, currentSession)
 }
 
 const BLANK_S1: CurrentSession = {

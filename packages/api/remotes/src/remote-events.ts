@@ -6,7 +6,7 @@
  * type-only.
  */
 
-import { SESSION_CONTROLLER_REMOTE_EVENTS } from '@deepseek-ai/dsh-api-session-controller/remote-events'
+import type {} from '@deepseek-ai/dsh-api-session-controller/remote-events'
 import type { TypertForwardableEventEntry } from '@deepseek-ai/dsh-typert-protocol'
 // Type-only: pull the remote-access/tunnel Events merges into both faces, so
 // the forwarded-event list below (and every `ctx.remote.$on` key face) sees
@@ -21,7 +21,11 @@ import type {} from '@deepseek-ai/dsh-remote-tunnel/types'
 export const API_REMOTE_FORWARDED_EVENTS = [
   { event: 'agent-preset/selected', mode: 'emit' },
   { event: 'approval/request', mode: 'waterfall' },
-  ...SESSION_CONTROLLER_REMOTE_EVENTS.map(event => ({ event, mode: 'emit' as const })),
+  { event: 'api-session/activity', mode: 'emit' },
+  { event: 'api-session/added', mode: 'emit' },
+  { event: 'api-session/error', mode: 'emit' },
+  { event: 'api-session/removed', mode: 'emit' },
+  { event: 'api-session/status', mode: 'emit' },
   { event: 'commands/change', mode: 'emit' },
   { event: 'credentials/reference-updated', mode: 'emit' },
   { event: 'cordis/request-run', mode: 'emit' },

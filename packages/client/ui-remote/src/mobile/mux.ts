@@ -27,17 +27,31 @@ export interface WebSocketLike {
   close(): void
 }
 
-/** Send one logical-stream open request (gateway client-message shape). */
+/**
+ * Send one logical-stream open request (gateway client-message shape).
+ * @param socket - the multiplexer socket to send on.
+ * @param streamId - client-minted logical stream id.
+ * @param endpoint - gateway route the stream opens.
+ * @param payload - open payload forwarded to the route.
+ */
 export function muxOpen(socket: WebSocketLike, streamId: string, endpoint: string, payload: unknown): void {
   socket.send(JSON.stringify({ type: 'open', streamId, endpoint, payload }))
 }
 
-/** Send one logical-stream cancel request (gateway client-message shape). */
+/**
+ * Send one logical-stream cancel request (gateway client-message shape).
+ * @param socket - the multiplexer socket to send on.
+ * @param streamId - logical stream id to cancel.
+ */
 export function muxCancel(socket: WebSocketLike, streamId: string): void {
   socket.send(JSON.stringify({ type: 'cancel', streamId }))
 }
 
-/** Parse one server frame; `undefined` when unrelated or malformed. */
+/**
+ * Parse one server frame; `undefined` when unrelated or malformed.
+ * @param data - raw frame payload from the socket.
+ * @returns the parsed frame, or undefined when unrelated or malformed.
+ */
 export function parseMuxFrame(data: unknown): MuxServerFrame | undefined {
   if (typeof data !== 'string') return undefined
   let parsed: unknown

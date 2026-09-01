@@ -410,10 +410,8 @@ describe('Session history raw journal', () => {
     // The generator rejects: the gateway turns the throw into a stream
     // error frame, and the client re-follows from a fresh snapshot.
     await expect(iterator.next()).rejects.toMatchObject({
-      failure: {
-        code: 'stream-overflow',
-        message: 'session follow buffer exceeded',
-      },
+      code: 'session/stream-overflow',
+      message: 'session follow buffer exceeded',
     })
     await ctx.fiber.dispose()
   })
