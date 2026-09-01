@@ -19,7 +19,11 @@ export interface ModelSelectInjected {
   /**
    * Select a complete provider/model/reasoning selection.
    * @param selection - model selection and optional adapter-owned effort.
+   * @param explicitEffort - whether the effort dimension was explicitly
+   *   exercised (an effort-pane pick, including an explicit provider default);
+   *   a plain model switch leaves it unset so the host restores any remembered
+   *   effort for the picked route.
    * @returns whether the host accepted the selection.
    */
-  select: (selection: ModelSelection) => Promise<boolean>
+  select: (selection: ModelSelection, explicitEffort?: boolean) => Promise<boolean>
 }

@@ -113,21 +113,66 @@ export class SessionCommandController {
   }
 
   /**
-   * Validate and install one Session-local model selection.
-   * @param request - Session identity and requested model selection.
+   * Validate and install one Session-local model selection. A plain model
+   * switch (no effort) resolves the adapter default first, then the route's
+   * remembered effort when one exists; an explicit effort is honored as sent
+   * and remembered for the resolved route; an explicit provider-default pick
+   * clears the memory. Memory writes are best-effort like the default save.
+   * @param request - Session identity, requested selection, and effort explicitness.
    * @returns the normalized selection installed for the Session.
    */
   async selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     const agent = await this.resolveAgent(request.sessionId)
     return this.agents.serializeImageAdmission(agent, async () => {
       try {
-        const resolved = await this.ctx.llm.resolveCallConfig({
+        const defaults = this.ctx.agentDefaultModel
+        // Memory writes are best-effort like the default-selection save:
+        // the switch applies to this session either way, and a read-only
+        // settings provider must not make model switching fail.
+        const rememberEffort = async (provider: string, model: string, effort: string): Promise<void> => {
+          try {
+            await defaults.rememberEffort?.(provider, model, effort)
+          } catch (error) {
+            this.ctx.logger.warn(`session-controller: the effort choice applies to this session but was not remembered: ${String(error)}`)
+          }
+        }
+        const forgetEffort = async (provider: string, model: string): Promise<void> => {
+          try {
+            await defaults.forgetEffort?.(provider, model)
+          } catch (error) {
+            this.ctx.logger.warn(`session-controller: the effort choice applies to this session but was not forgotten: ${String(error)}`)
+          }
+        }
+        let resolved = await this.ctx.llm.resolveCallConfig({
           provider: request.provider,
           model: request.model,
-          ...(request.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: ReasoningEffortId(request.reasoningEffort) }),
         })
+        if (request.reasoningEffort !== undefined) {
+          resolved = await this.ctx.llm.resolveCallConfig({
+            provider: request.provider,
+            model: request.model,
+            reasoningEffort: ReasoningEffortId(request.reasoningEffort),
+          })
+          if (resolved.reasoningEffort !== undefined) {
+            await rememberEffort(resolved.provider, resolved.model, String(resolved.reasoningEffort))
+          }
+        } else if (request.reasoningEffortExplicit === true) {
+          await forgetEffort(resolved.provider, resolved.model)
+        } else {
+          const remembered = defaults.rememberedEffort?.(resolved.provider, resolved.model)
+          if (remembered !== undefined && remembered !== resolved.reasoningEffort) {
+            const restored = await this.ctx.llm.resolveCallConfig({
+              provider: resolved.provider,
+              model: resolved.model,
+              reasoningEffort: ReasoningEffortId(remembered),
+            })
+            // The route stopped offering the remembered level since it was
+            // chosen: resolution normalized it to the default, so the memory
+            // is stale and dropped; the default stands.
+            if (restored.reasoningEffort === remembered) resolved = restored
+            else await forgetEffort(resolved.provider, resolved.model)
+          }
+        }
         const selected: AgentModelSelection = {
           provider: resolved.provider,
           model: resolved.model,

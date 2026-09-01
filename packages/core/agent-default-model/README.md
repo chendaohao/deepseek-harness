@@ -56,6 +56,10 @@ await ctx.agentDefaultModel.saveSelection({ provider, model, reasoningEffort: 'h
 
 Without a settings provider, `saveSelection()` is a no-op and the composition entry remains current. The service does not validate catalog membership: a provider route may serve an unadvertised model, and the consumer that opens a model request owns availability diagnostics.
 
+### Per-model effort memory
+
+The settings section also carries `reasoningEfforts`, a map of explicitly chosen reasoning efforts keyed by `provider/model`. `rememberedEffort()` reads one route's choice; `rememberEffort()` records a validated explicit pick; `forgetEffort()` clears a route's choice for an explicit provider-default pick. A selection write preserves the map, so changing the default never drops the choices other models remember. Without a settings provider the memory is empty and the writes are no-ops.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -79,7 +83,7 @@ The service is a composition entry with a settings-backed source. The plugin con
 
 ### Behavior notes
 
-Both public methods are thin reads and writes over that source: `currentSelection()` returns a fresh detached object so a caller can hold it without aliasing service state, and `saveSelection()` writes the whole selection through `ctx.settings` when present.
+The public methods are thin reads and writes over that source: `currentSelection()` returns a fresh detached object so a caller can hold it without aliasing service state, `saveSelection()` writes the whole selection through `ctx.settings` when present, and the three effort-memory methods read or patch the `reasoningEfforts` map in the same section. `saveSelection()` rebuilds the section wholesale, so it carries the current map along to keep the per-model memory intact.
 
 </details>
 

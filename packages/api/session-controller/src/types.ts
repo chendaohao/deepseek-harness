@@ -288,6 +288,13 @@ export interface SessionCreateValue {
 /** Session model-selection request. */
 export interface SessionSelectModelRequest extends ModelSelection {
   readonly sessionId: SessionId
+  /**
+   * Whether the effort dimension was explicitly exercised. An explicit
+   * provider-default pick (no reasoningEffort with this true) clears the
+   * route's remembered effort; a plain model switch omits it so the host
+   * restores any remembered effort for the route.
+   */
+  readonly reasoningEffortExplicit?: boolean
 }
 
 /** Accepted model selection after Host resolution. */

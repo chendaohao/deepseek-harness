@@ -691,4 +691,87 @@ describe('Web session model selection', () => {
     })
     await ctx.fiber.dispose()
   })
+
+  it('restores a remembered effort on a plain model switch and drops a stale one', async () => {
+    const { ctx, sessionId } = await harness()
+    const memory = new Map<string, string>()
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      rememberedEffort: (provider, model) => memory.get(`${provider}/${model}`),
+      rememberEffort: (provider, model, effort) => { memory.set(`${provider}/${model}`, effort) },
+      forgetEffort: (provider, model) => { memory.delete(`${provider}/${model}`) },
+      cwd: '/tmp',
+    })
+
+    // A remembered level the model still offers is restored over the default.
+    memory.set('deepseek-official/deepseek-chat', 'max')
+    const restored = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
+    })))
+    expect(restored.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'max',
+    })
+    expect(currentSelection(ctx, sessionId)).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'max',
+    })
+
+    // A remembered level the model no longer offers normalizes to the default
+    // and the stale memory is dropped.
+    memory.set('deepseek-official/deepseek-reasoner', 'medium')
+    const stale = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner',
+    })))
+    expect(stale.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'high',
+    })
+    expect(memory.has('deepseek-official/deepseek-reasoner')).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('remembers an explicit effort and clears it with an explicit provider default', async () => {
+    const { ctx, sessionId } = await harness()
+    const memory = new Map<string, string>()
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      rememberedEffort: (provider, model) => memory.get(`${provider}/${model}`),
+      rememberEffort: (provider, model, effort) => { memory.set(`${provider}/${model}`, effort) },
+      forgetEffort: (provider, model) => { memory.delete(`${provider}/${model}`) },
+      cwd: '/tmp',
+    })
+
+    const picked = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'max',
+    })))
+    expect(picked.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'max',
+    })
+    expect(memory.get('deepseek-official/deepseek-chat')).toBe('max')
+
+    // An explicit provider-default pick (explicit, no effort) clears the memory.
+    const cleared = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffortExplicit: true,
+    })))
+    expect(cleared.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high',
+    })
+    expect(memory.has('deepseek-official/deepseek-chat')).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('applies the switch even when the memory write fails', async () => {
+    const { ctx, sessionId } = await harness()
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      rememberEffort: () => Promise.reject(new Error('read-only document')),
+      cwd: '/tmp',
+    })
+
+    const accepted = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'max',
+    })))
+    expect(accepted.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'max',
+    })
+    await ctx.fiber.dispose()
+  })
 })

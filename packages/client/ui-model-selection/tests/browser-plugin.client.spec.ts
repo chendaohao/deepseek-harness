@@ -79,12 +79,15 @@ async function bench() {
     },
     selectModel: (payload: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string }) => {
       calls.select += 1
+      // Mirror the real host: a plain pick resolves the model's declared
+      // default effort rather than carrying none through the wire.
+      const advertised = GROUPS.flatMap(group => group.models)
+        .find(model => model.id === payload.model)
+      const effort = payload.reasoningEffort ?? advertised?.reasoning?.defaultEffort
       selected = {
         provider: payload.provider,
         model: payload.model,
-        ...payload.reasoningEffort === undefined
-          ? {}
-          : { reasoningEffort: payload.reasoningEffort },
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
       }
       projections.get(payload.sessionId)?.set({ lastUsed: null, next: selected })
       return Promise.resolve({ ok: true as const, value: { selected } })

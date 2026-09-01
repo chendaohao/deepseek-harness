@@ -88,6 +88,30 @@ describe('AgentDefaultModelConfig', () => {
     await bench.ctx.fiber.dispose()
   })
 
+  it('remembers, reads, and forgets an explicit effort per exact model route', async () => {
+    const bench = await boot()
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBeUndefined()
+
+    await bench.defaultModel.rememberEffort('acme-gateway', 'acme-large', 'high')
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('high')
+    // Routes are keyed independently.
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-plain')).toBeUndefined()
+
+    await bench.defaultModel.forgetEffort('acme-gateway', 'acme-large')
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBeUndefined()
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('keeps the per-model memory when a selection write replaces the section', async () => {
+    const bench = await boot()
+    await bench.defaultModel.rememberEffort('acme-gateway', 'acme-large', 'high')
+    await bench.defaultModel.saveSelection({
+      provider: 'other-gateway', model: 'other-model', reasoningEffort: ReasoningEffortId('off'),
+    })
+    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('high')
+    await bench.ctx.fiber.dispose()
+  })
+
   it('keeps the composition entry when no settings provider is mounted', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentDefaultModelConfig, { provider: 'p', model: 'm' })

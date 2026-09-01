@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-31-model-selector-search-recent-effort-memory.md
+2026-08-31-model-selector-search-recent-effort-memory.md: ed9a97902d2c8594f491ff8a0e40ea1af4eb92c8
+2026-08-31-model-selector-search-recent-effort-memory.zh.md: 6513ade6fedd367b3f6efd6597fcd5ade82408e0

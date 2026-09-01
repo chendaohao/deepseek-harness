@@ -82,6 +82,9 @@ export interface TestSessionRemoteDefaults {
   readonly coldBlankProbeMaxBytes?: number
   readonly nativeOpen?: boolean
   readonly saveDefaultModelSelection?: (selection: AgentModelSelection) => void | Promise<void>
+  readonly rememberedEffort?: (provider: string, model: string) => string | undefined
+  readonly rememberEffort?: (provider: string, model: string, effort: string) => void | Promise<void>
+  readonly forgetEffort?: (provider: string, model: string) => void | Promise<void>
   readonly openPath?: (path: string, signal: AbortSignal) => Promise<void>
   readonly canOpenPath?: () => boolean
 }
@@ -175,6 +178,9 @@ function installControllers(
       saveSelection: async (selection: AgentModelSelection) => {
         await defaults.saveDefaultModelSelection?.(selection)
       },
+      rememberedEffort: (provider: string, model: string) => defaults.rememberedEffort?.(provider, model),
+      rememberEffort: (provider: string, model: string, effort: string) => defaults.rememberEffort?.(provider, model, effort),
+      forgetEffort: (provider: string, model: string) => defaults.forgetEffort?.(provider, model),
     } as never)
   }
   if (ctx.get('llm') === undefined) {

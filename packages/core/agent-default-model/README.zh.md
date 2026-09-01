@@ -56,6 +56,10 @@ await ctx.agentDefaultModel.saveSelection({ provider, model, reasoningEffort: 'h
 
 未挂载设置提供方时，`saveSelection()` 不执行任何操作，组合配置项仍为当前值。该服务不校验目录成员关系：提供方路由可以服务未在目录中公布的模型；发起模型请求的消费方负责可用性诊断。
 
+### 按模型记忆推理强度
+
+设置分节还携带 `reasoningEfforts`，一张以 `provider/model` 为键、记录用户显式选择过的推理强度的映射。`rememberedEffort()` 读取某条路由的选择；`rememberEffort()` 记录一次通过校验的显式选择；`forgetEffort()` 在用户显式选择「提供方默认」时清除某条路由的选择。选择写入会保留该映射，因此更改默认值不会丢弃其他模型记住的选择。未挂载设置提供方时记忆为空，写入均为空操作。
+
 -----
 
 <a id="understand-the-implementation"></a>
