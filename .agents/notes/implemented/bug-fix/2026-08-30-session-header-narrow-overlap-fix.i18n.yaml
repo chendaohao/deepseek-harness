@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-session-header-narrow-overlap-fix.md
-2026-08-30-session-header-narrow-overlap-fix.md: 8fdcfc09fbd889fff01f55db48deb009b4ed3d1c
-2026-08-30-session-header-narrow-overlap-fix.zh.md: e61ec4fca173b09c8e2fec69d1e1cfb910f0cb07
+2026-08-30-session-header-narrow-overlap-fix.md: d8c9bc7ceeed6d85b2fb6689fb5bb570ec568883
+2026-08-30-session-header-narrow-overlap-fix.zh.md: d0e1f5b1dec77738bfd460f6a9904086c2e9d30e

@@ -15,6 +15,8 @@ Status: implemented
 - `ConversationSession.tsx` 将 `headerActions` 从 `titleCluster` 移到新的 `.actionsRow` 兄弟元素中，与 `headerUtilities` 并列；窄视口下 `.titleRow { flex-direction: column }` 把标题堆叠在操作行之上，桌面端两者保持一行。
 - 操作行上的每个控件都参与 flex 收缩：徽标保持完整的预设名（窄断点下 `flex: 0 0 auto`，因此 "PTC 模式" 永不省略）、任务计数压缩、Session 日志按钮去掉最小宽度（`min-width: 0` + 标签省略）。在任何手机宽度下操作行都不会换行或溢出。
 
+随后修正了行的 flex 分配，使 crumbs 无法挤压控件：`.titleCluster` 按内容尺寸（`flex: 0 1 auto`，承受挤压且其 crumbs 省略），`.actionsRow` 保留剩余空间但不收缩（`flex: 1 0 auto`），窄断点把操作行钉住（`flex: none`），三个控件在长 crumbs 下也绝不会压缩消失。
+
 桌面端（\>640px）保持原始单行布局不变。
 
 ## 验证

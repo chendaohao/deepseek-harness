@@ -69,9 +69,11 @@
   min-height: 32px;
 }
 
+/* Content-sized, not growing: the actions row packs against the crumbs, and
+   this cluster takes the squeeze (crumbs ellipsize) when the row is tight. */
 .titleCluster {
   display: flex;
-  flex: 1;
+  flex: 0 1 auto;
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -143,7 +145,7 @@
    the row's end. */
 .actionsRow {
   display: flex;
-  flex: 1;
+  flex: 1 0 auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -494,6 +496,7 @@
 
   .actionsRow {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 8px;
     min-width: 0;

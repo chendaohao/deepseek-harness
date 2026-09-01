@@ -15,6 +15,8 @@ Under `@media (max-width: 640px)` (the same breakpoint the composer toolbar uses
 - `ConversationSession.tsx` moves `headerActions` out of `titleCluster` into a new `.actionsRow` sibling that also holds `headerUtilities`; `.titleRow { flex-direction: column }` stacks title above actions on narrow viewports while desktop keeps both in one row.
 - Every control participates in flex sizing on the actions line: the badge keeps its full preset name (`flex: 0 0 auto` under the narrow breakpoint, so "PTC 模式" never ellipsizes), the job count compresses, and the Session-log button sheds its minimum width (`min-width: 0` + label ellipsis). Nothing wraps or overflows on the actions line at any phone width.
 
+The row's flex distribution was later corrected so the crumbs cannot squeeze the controls: `.titleCluster` is content-sized (`flex: 0 1 auto`, it takes the squeeze and its crumbs ellipsize) while `.actionsRow` keeps the slack without shrinking (`flex: 1 0 auto`), and the narrow breakpoint pins the actions line (`flex: none`) so the three controls never compress away under a long crumb.
+
 Desktop (\>640px) keeps the original one-row layout untouched.
 
 ## Verification
