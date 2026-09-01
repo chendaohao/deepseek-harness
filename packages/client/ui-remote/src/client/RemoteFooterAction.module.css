@@ -35,6 +35,7 @@
   padding: 0;
   border: none;
   border-radius: 50%;
+  corner-shape: round;
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-primary);

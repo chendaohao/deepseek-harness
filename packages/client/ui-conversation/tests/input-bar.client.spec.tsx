@@ -1303,10 +1303,10 @@ describe('command launcher chrome and control seats', () => {
     // Every seat dispatched, nothing rendered (render passes may repeat; the
     // seat set is the contract; render order follows the toolbar DOM, not a contract).
     expect([...new Set(slotCalls.map(c => c.key))].sort()).toEqual([
-      'conversation.input.overlay', 'conversation.input.attachments',
-      'conversation.input.plan', 'conversation.input.left',
-      'conversation.input.right', 'conversation.input.model',
-      'conversation.composer.dock',
+      'conversation.composer.dock', 'conversation.input.attachments',
+      'conversation.input.left', 'conversation.input.model',
+      'conversation.input.overlay', 'conversation.input.plan',
+      'conversation.input.right',
     ])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()

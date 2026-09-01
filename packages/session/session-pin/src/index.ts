@@ -108,7 +108,7 @@ export class SessionPinService extends Service {
       throw new Error(`session "${session.id}" is not live in this store`)
     }
     session.append('session/pin', { pinned })
-    const snapshot = foldSessionPin(session.events)
+    const snapshot = foldSessionPin(session.snapshotEvents())
     /* v8 ignore next -- unreachable: the append above just committed a session/pin event. */
     if (snapshot === undefined) throw new Error('pin state failed to fold')
     return snapshot
@@ -120,7 +120,7 @@ export class SessionPinService extends Service {
    * @returns latest pin snapshot, or `undefined` before any pin event.
    */
   get(session: Session): SessionPinSnapshot | undefined {
-    return foldSessionPin(session.events)
+    return foldSessionPin(session.snapshotEvents())
   }
 }
 

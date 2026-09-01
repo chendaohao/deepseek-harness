@@ -17,9 +17,9 @@ describe('SessionPinService', () => {
     const snapshot = ctx.sessionPin.setPin(session, true)
     expect(snapshot).toMatchObject({ pinned: true })
     expect(snapshot.eventSeq).toBeGreaterThanOrEqual(0)
-    const event = session.events.findLast(item => item.type === 'session/pin')
+    const event = session.snapshotEvents().findLast(item => item.type === 'session/pin')
     expect(event?.data).toEqual({ pinned: true })
-    expect(foldSessionPin(session.events)?.pinned).toBe(true)
+    expect(foldSessionPin(session.snapshotEvents())?.pinned).toBe(true)
 
     const unpinned = ctx.sessionPin.setPin(session, false)
     expect(unpinned).toMatchObject({ pinned: false })

@@ -52,7 +52,7 @@ async function tempWorkspace(withIndex: boolean): Promise<string> {
 
 function stubAgent(cwd: string): Agent {
   const id = SessionId('s1')
-  const session = Session.create(id, [], { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
+  const session = Session.create(id, [], { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd, isSeeded: false })
   return {
     ctx: new Context(),
     id: SessionId('a1'),

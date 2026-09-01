@@ -18,7 +18,7 @@ import {
 const sid = (id: string): Session['id'] => id as Session['id']
 
 function header(id: string, createdAt: number): SessionHeader {
-  return { version: 0, id: sid(id), createdAt, cwd: '/proj' }
+  return { version: 0, id: sid(id), createdAt, cwd: '/proj', isSeeded: false }
 }
 
 function request<P>(payload: P): P {

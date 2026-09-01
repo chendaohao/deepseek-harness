@@ -357,7 +357,7 @@ export class Session implements SessionFace {
     try {
       const result = toSessionResult(await this.remote.session.setPin({ sessionId: this.sessionId, pinned }))
       if (result.ok) {
-        this.projections.apply('pinned', { pinned: result.value.pinned, pinAt: Date.now() }, result.value.seq)
+        this.projections.apply('pinned', { pinned: result.value.pinned, pinAt: Date.now() }, SessionSeq(result.value.seq))
       }
       return result
     } catch (error) {

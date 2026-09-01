@@ -58,7 +58,7 @@ describe('sessions.setPin', () => {
     expect(pinned.ok).toBe(true)
     if (!pinned.ok) return
     expect(pinned.value).toEqual({ pinned: true, seq: 0 })
-    const event = source.events.findLast(item => item.type === 'session/pin')
+    const event = source.snapshotEvents().findLast(item => item.type === 'session/pin')
     expect(event?.seq).toBe(pinned.value.seq)
     expect(event?.data).toEqual({ pinned: true })
     expect(ctx.sessionPin.get(source)?.pinned).toBe(true)

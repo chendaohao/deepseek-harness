@@ -169,7 +169,7 @@ describe('agent/request-error', () => {
     expect(adapter.requests[0]?.reasoningEffort).toBe(ReasoningEffortId('high'))
     expect(adapter.requests[1]?.reasoningEffort).toBeUndefined()
     // Both attempts log their own header, so the degraded request is honest.
-    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(2)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'request/header')).toHaveLength(2)
   })
 
   it('does not drop the effort for a failure that is not an effort rejection', async () => {
@@ -195,7 +195,7 @@ describe('agent/request-error', () => {
     // and the turn errors after a single attempt.
     expect(adapter.requests).toHaveLength(1)
     expect(adapter.requests[0]?.reasoningEffort).toBe(ReasoningEffortId('high'))
-    expect(agent.session.events.find(event => event.type === 'turn/end')).toMatchObject({
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
       data: { reason: { kind: 'error' } },
     })
   })
