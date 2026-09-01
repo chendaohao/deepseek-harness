@@ -927,10 +927,17 @@ export class SessionManager {
       const pin = projectionStore?.get('pinned') as
         | { readonly pinned: boolean; readonly pinAt: number | null } | undefined
       const projectionValues = projectionStore?.values()
+      // The projection is authoritative for the pin fields: an unpin frame
+      // must clear a stale host summary (pinned: true from an earlier list
+      // pull), or the row stays in the pinned set until the next re-pull.
+      // Absence of the projection keeps the summary's own fields.
+      const { pinned: _summaryPinned, pinAt: _summaryPinAt, ...summaryRow } = summary
       return {
-        ...summary,
+        ...(pin === undefined ? summary : summaryRow),
         ...(typeof title === 'string' && title !== '' ? { title } : {}),
-        ...(pin?.pinned === true ? { pinned: true, ...(pin.pinAt === null ? {} : { pinAt: pin.pinAt }) } : {}),
+        ...(pin?.pinned === true
+          ? { pinned: true, ...(pin.pinAt === null ? {} : { pinAt: pin.pinAt }) }
+          : {}),
         ...(projectionValues === undefined ? {} : { projectionValues }),
       }
     })

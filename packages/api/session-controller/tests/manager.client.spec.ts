@@ -21,6 +21,8 @@ type SummaryOver = Partial<{
   cwd: string
   parentSessionId: SessionId
   origin: 'subagent'
+  pinned: boolean
+  pinAt: number
 }>
 
 function summary(sessionId: SessionId, over: SummaryOver = {}) {
@@ -173,6 +175,26 @@ describe('list lifecycle', () => {
       value: { pinned: false, pinAt: 600 }, seq: 5,
     })
     expect(manager.getListSnapshot().items[0]?.pinned).toBeUndefined()
+  })
+
+  it('clears a stale host-summary pin when the unpin projection frame lands', async () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(fakeRemote(api))
+    // The host list pull after a pin carries pinned:true in the summary; it
+    // stays in the row until a re-pull unless the projection overrides it.
+    api.onList = () => Promise.resolve(ok({
+      items: [summary(S1, { pinned: true, pinAt: 500 })] as never[],
+    }))
+    await manager.refreshList()
+    expect(manager.getListSnapshot().items[0]).toMatchObject({ pinned: true, pinAt: 500 })
+
+    manager.handleControlFrame({
+      type: 'projection', sessionId: S1, key: 'pinned',
+      value: { pinned: false, pinAt: 600 }, seq: 5,
+    })
+    const item = manager.getListSnapshot().items[0]
+    expect(item?.pinned).toBeUndefined()
+    expect(item?.pinAt).toBeUndefined()
   })
 
   it('seeds cold titles from the list rows\' projections block under higher-seq-wins', async () => {

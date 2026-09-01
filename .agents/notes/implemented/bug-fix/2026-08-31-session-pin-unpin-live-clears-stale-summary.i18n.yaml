@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-31-session-pin-unpin-live-clears-stale-summary.md
+2026-08-31-session-pin-unpin-live-clears-stale-summary.md: 65600c3cc27f699689269c4b6aeaa0f895a5c47d
+2026-08-31-session-pin-unpin-live-clears-stale-summary.zh.md: 7b71c97c0cb84c979905cb4e1cada246aa6f36c0
