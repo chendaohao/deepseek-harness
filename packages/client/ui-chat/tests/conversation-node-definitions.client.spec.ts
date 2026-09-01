@@ -1718,6 +1718,7 @@ describe('built-in conversation node Definitions', () => {
 
   it('hides a model-retry chain once the retried step settles (live append)', () => {
     const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
+    value.activateTarget('chat')
     const append = (seq: number, type: string, data: unknown, extra: Record<string, unknown> = {}): void => {
       value.append(at(seq, type, data, extra))
       value.flush()

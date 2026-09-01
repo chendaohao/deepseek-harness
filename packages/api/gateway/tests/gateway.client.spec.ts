@@ -2560,6 +2560,7 @@ describe('Remote stream client carrier lifecycle', () => {
   it('resume() recycles a healthy socket, fails its streams, and dials immediately', async () => {
     await withFakeWebSocket('https://harness.example', async () => {
       const client = new RemoteStreamMuxClient()
+      client.start()
       const stream = client.open('feed/follow', {}, new AbortController().signal)[Symbol.asyncIterator]()
       const pending = stream.next()
       await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.sent).toHaveLength(1) })

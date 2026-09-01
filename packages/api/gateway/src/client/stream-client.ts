@@ -151,18 +151,22 @@ export class RemoteStreamMuxClient {
   resume(): void {
     if (this.disposed) return
     const socket = this.socket
-    if (socket === undefined) {
-      this.cancelCandidate?.(new RemoteStreamCarrierError(
-        'api gateway: Remote stream dial superseded by foreground resync',
-      ))
-      return
-    }
     const error = new RemoteStreamCarrierError(
       'api gateway: Remote stream socket recycled on foreground return',
     )
-    this.socket = undefined
-    this.failAll(error)
-    socket.close(4001, 'foreground resync')
+    if (socket !== undefined) {
+      this.socket = undefined
+      this.failAll(error)
+      socket.close(4001, 'foreground resync')
+    } else {
+      // A hung dial (never-opened candidate): cut the stale connect task so
+      // the fresh attempt starts immediately instead of waiting for events a
+      // swallowed upgrade never fires.
+      this.cancelCandidate?.(error)
+    }
+    // The old connect task (if any) settled against the recycled candidate;
+    // drop it so the fresh dial starts immediately.
+    this.keepAlive = undefined
     this.maintain()
   }
 
@@ -286,7 +290,7 @@ export class RemoteStreamMuxClient {
     )
     this.keepAlive = task
     void task.then(() => {
-      this.keepAlive = undefined
+      if (this.keepAlive === task) this.keepAlive = undefined
     })
   }
 
