@@ -147,8 +147,10 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`@testing-library/react`](https://github.com/testing-library/react-testing-library) | MIT |
 | [`@tsdown/css`](https://github.com/rolldown/tsdown) | MIT |
 | [`@types/babel__code-frame`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
+| [`@types/compression`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/js-yaml`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/jsdom`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
+| [`@types/negotiator`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/node`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/picomatch`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/qrcode-terminal`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |

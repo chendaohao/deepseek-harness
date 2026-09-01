@@ -13,7 +13,7 @@
  * trigger instead of a parallel tree.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
@@ -39,13 +39,13 @@ import css from './InputBar.module.css'
 
 export type InputBarProps = ComposerBarProps
 
-export function InputBar({
+export const InputBar = memo(function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
   resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
   workspacePickerOpen = false, onRequestWorkspace,
-  placeholder, accessory, overlay, leftItems, rightItems, footer,
+  placeholder, accessory,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -370,8 +370,8 @@ export function InputBar({
       },
       { key: 'access', node: accessSelect },
       { key: 'plan', node: sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked }) },
-      { key: 'left', node: leftItems },
-      { key: 'right', node: rightItems },
+      { key: 'left', node: input === undefined || sessionId === undefined ? null : renderSlot('conversation.input.left', {}) },
+      { key: 'right', node: input === undefined || sessionId === undefined ? null : renderSlot('conversation.input.right', {}) },
       { key: 'model', node: sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked }) },
       { key: 'ctx', node: <ContextMeter useProjection={useProjection} t={t} /> },
     ]
@@ -531,7 +531,9 @@ export function InputBar({
         onClick={workspaceTrigger ? onRequestWorkspace : undefined}
         onPointerDown={workspaceTrigger ? (e) => { e.stopPropagation() } : undefined}
       >
-        {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
+        {sessionId !== undefined && (
+          <div className={css.overlayAnchor}>{renderSlot('conversation.input.overlay', {})}</div>
+        )}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {renderSlot('conversation.input.attachments', {
           attachments,
@@ -599,7 +601,9 @@ export function InputBar({
           ))}
         </div>
       </div>
-      {footer}
+      {variant === 'composer' && input !== undefined && sessionId !== undefined
+        ? renderSlot('conversation.composer.dock', {})
+        : null}
     </div>
   )
-}
+})
