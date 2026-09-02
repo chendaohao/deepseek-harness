@@ -682,9 +682,8 @@ function ModelSheet({ sessionId, current, onCurrent, onClose }: {
                   onClick={() => {
                     setCollapsed((previous) => {
                       const next = new Set(previous)
-                      if (next.has(group.id)) next.delete(group.id)
-                      else next.add(group.id)
-                      return next
+                      if (next.has(group.id)) { next.delete(group.id); return next }
+                      return next.add(group.id)
                     })
                   }}
                 >

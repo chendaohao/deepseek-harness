@@ -809,5 +809,5 @@ function imageRefsIn(content: unknown): readonly ImageAttachmentRef[] {
 
 /** Narrow a generated Session Remote failure to its service-owned error vocabulary. */
 function toSessionResult<T>(result: RemoteResult<T>): ClientResult<T> {
-  return result.ok ? result : { ok: false, error: result.error as RemoteFailure }
+  return result.ok ? result : { ok: false, error: result.error }
 }

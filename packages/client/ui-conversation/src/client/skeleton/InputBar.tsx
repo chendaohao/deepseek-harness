@@ -467,7 +467,7 @@ export const InputBar = memo(function InputBar({
   useEffect(() => {
     const row = rowRef.current
     if (row === null || typeof ResizeObserver !== 'function') return
-    const observer = new ResizeObserver(() => measureSplit())
+    const observer = new ResizeObserver(() => { measureSplit() })
     observer.observe(row)
     return () => { observer.disconnect() }
   }, [measureSplit])

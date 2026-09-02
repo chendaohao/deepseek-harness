@@ -408,9 +408,9 @@ function pinFields(projections: SessionProjectionHints | undefined): {
   readonly pinAt?: number
 } {
   const pin = projections?.values.pinned
-  if (pin === undefined || pin.pinned !== true) return {}
+  if (pin === undefined || !pin.pinned) return {}
   const fields: { pinned?: boolean; pinAt?: number } = { pinned: true }
-  if (pin.pinAt !== null && pin.pinAt !== undefined) fields.pinAt = pin.pinAt
+  if (pin.pinAt !== null) fields.pinAt = pin.pinAt
   return fields
 }
 

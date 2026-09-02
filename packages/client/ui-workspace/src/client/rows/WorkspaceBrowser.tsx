@@ -308,7 +308,7 @@ function SessionTree({
   const ungroupedSessionIds = useMemo(() => {
     const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
     return list.ids.filter((id: SessionId) =>
-      list.byId[id] !== undefined && !accounted.has(id) && list.byId[id]?.pinned !== true)
+      list.byId[id] !== undefined && !accounted.has(id) && list.byId[id].pinned !== true)
   }, [list, workspaces])
   useEffect(() => {
     if (list.phase !== 'ready') return
@@ -318,7 +318,7 @@ function SessionTree({
       ...workspaces.map(workspace => ({
         key: workspace.workspaceId as string,
         sessionIds: workspace.sessionIds.filter(id =>
-          list.byId[id] !== undefined && list.byId[id]?.pinned !== true),
+          list.byId[id] !== undefined && list.byId[id].pinned !== true),
       })),
       { key: UNGROUPED_KEY, sessionIds: ungroupedSessionIds },
     ]

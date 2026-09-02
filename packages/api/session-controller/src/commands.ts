@@ -132,14 +132,14 @@ export class SessionCommandController {
         // settings provider must not make model switching fail.
         const rememberEffort = async (provider: string, model: string, effort: string): Promise<void> => {
           try {
-            await defaults.rememberEffort?.(provider, model, effort)
+            await defaults.rememberEffort(provider, model, effort)
           } catch (error) {
             this.ctx.logger.warn(`session-controller: the effort choice applies to this session but was not remembered: ${String(error)}`)
           }
         }
         const forgetEffort = async (provider: string, model: string): Promise<void> => {
           try {
-            await defaults.forgetEffort?.(provider, model)
+            await defaults.forgetEffort(provider, model)
           } catch (error) {
             this.ctx.logger.warn(`session-controller: the effort choice applies to this session but was not forgotten: ${String(error)}`)
           }
@@ -160,7 +160,7 @@ export class SessionCommandController {
         } else if (request.reasoningEffortExplicit === true) {
           await forgetEffort(resolved.provider, resolved.model)
         } else {
-          const remembered = defaults.rememberedEffort?.(resolved.provider, resolved.model)
+          const remembered = defaults.rememberedEffort(resolved.provider, resolved.model)
           if (remembered !== undefined && remembered !== resolved.reasoningEffort) {
             const restored = await this.ctx.llm.resolveCallConfig({
               provider: resolved.provider,
