@@ -549,9 +549,16 @@ export const InputBar = memo(function InputBar({
             its content and .scroll — capped at 14 lines in CSS — is the only
             thing that scrolls. Chips are decorator portals inside the same
             surface, so wrapping, caret geometry, and scrolling are the
-            browser's own. */}
+            browser's own. Grid stacking (not absolute overlay) keeps the
+            placeholder in flow: a long placeholder wraps on narrow cards and
+            raises the empty draft instead of spilling past its one line. */}
         <div ref={scrollRef} className={css.scroll} data-input-scroll>
           <div className={css.grow}>
+            {empty && !claimActive && (
+              <div aria-hidden className={css.placeholder} data-composer-placeholder>
+                {placeholderText}
+              </div>
+            )}
             <ComposerContentEditable
               editor={workspaceTrigger ? null : editor}
               editable={editable}
@@ -568,11 +575,6 @@ export const InputBar = memo(function InputBar({
               onKeyDown={workspaceTrigger ? onWorkspaceKeyDown : undefined}
               style={hint === null ? undefined : { '--dsh-composer-hint': JSON.stringify(hint) } as CSSProperties}
             />
-            {empty && !claimActive && (
-              <div aria-hidden className={css.placeholder} data-composer-placeholder>
-                {placeholderText}
-              </div>
-            )}
             <DecoratorPortals editor={workspaceTrigger ? null : editor} />
           </div>
         </div>

@@ -68,6 +68,17 @@
   transform: rotate(180deg);
 }
 
+/* Narrow composer: drop the effort suffix so the row keeps fitting. The
+   trigger title still carries "model · effort", and the menu shows the
+   effort selection once opened. Shares the PermissionSelect's 460px cut and
+   the composer row's anonymous container (CSS modules hash container-names
+   per module, so the query stays anonymous too). */
+@container (max-width: 460px) {
+  .trigger .triggerEffort {
+    display: none;
+  }
+}
+
 .menu {
   position: absolute;
   right: 0;

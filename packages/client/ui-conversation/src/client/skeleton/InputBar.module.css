@@ -131,10 +131,16 @@
   margin-top: 8px;
 }
 
-/* Auto-grow anchor: the contenteditable is in normal flow and sets the
-   draft's height; the placeholder rides it absolutely. */
+/* Auto-grow anchor: the placeholder and the contenteditable share one grid
+   cell, so both are in flow — the taller of the two sets the empty draft's
+   height (a long placeholder wraps on narrow cards instead of spilling),
+   while typed content outgrows the placeholder and the editor takes over. */
 .grow {
-  position: relative;
+  display: grid;
+}
+
+.grow > * {
+  grid-area: 1 / 1;
 }
 
 /* Machine pending dot (adjudicating / submitting). */
@@ -185,10 +191,11 @@
 }
 
 /* figma 34:10434: #ADB2B8 light / #81858C dark — the caption pair exactly.
-   Right inset mirrors .input's 8px pad (the other 4px sits on .scroll). */
+   Paddings mirror .input's (4/8/0/16): the two share one grid cell, so the
+   placeholder's box must land its first line exactly on the editor's. */
 .placeholder {
-  position: absolute;
-  inset: 4px 8px auto 16px;
+  min-width: 0;
+  padding: 4px 8px 0 16px;
   color: var(--dsw-alias-label-caption);
   pointer-events: none;
   user-select: none;
