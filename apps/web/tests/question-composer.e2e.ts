@@ -213,6 +213,37 @@ describe('web e2e: resident question composer round trip', () => {
         expect(squeeze.spill).toBeLessThan(0.6)
       }
       await page.setViewportSize(original)
+
+      // Phone-geometry cap: the 60vh term tracks the LARGEST viewport (URL
+      // bar hidden, keyboard closed), so on a phone it can promise more
+      // height than the live column has. [data-question-key] is the takeover
+      // FRAME (card plus its 16px of vertical padding): with the measured
+      // term it caps at the live scrollport; with a viewport-unit-only cap
+      // the sticky seat would run taller and clip the card header above the
+      // scroll edge, where scrolling cannot reach it. The 300px column is
+      // where the measured term governs; 520px is a real phone band where
+      // the title and the footer pager must both stay on screen. The cap
+      // publishes through the seat ResizeObserver, so each size polls until
+      // the frame settles instead of assuming the first post-resize paint.
+      const frameOverflow = async (): Promise<number> => composer.evaluate((frame) => {
+        const scroller = document.querySelector<HTMLElement>('[data-conversation-scroll]')
+        if (scroller === null) return Number.POSITIVE_INFINITY
+        return frame.getBoundingClientRect().height - scroller.getBoundingClientRect().height
+      })
+      const chromeVisible = async (): Promise<boolean> => composer.evaluate((frame) => {
+        const scroller = document.querySelector<HTMLElement>('[data-conversation-scroll]')
+        const title = frame.querySelector<HTMLElement>('h2')
+        const footer = frame.querySelector<HTMLElement>('footer')
+        if (scroller === null || title === null || footer === null) return false
+        const scrollerBox = scroller.getBoundingClientRect()
+        return title.getBoundingClientRect().top >= scrollerBox.top - 0.6
+          && footer.getBoundingClientRect().bottom <= scrollerBox.bottom + 0.6
+      })
+      await page.setViewportSize({ width: 360, height: 300 })
+      await expect.poll(frameOverflow, { timeout: 5_000 }).toBeLessThanOrEqual(0.6)
+      await page.setViewportSize({ width: 360, height: 520 })
+      await expect.poll(chromeVisible, { timeout: 5_000 }).toBe(true)
+      await page.setViewportSize(original)
     }
 
     // Multi-line custom answer: the field is a textarea whose hidden mirror

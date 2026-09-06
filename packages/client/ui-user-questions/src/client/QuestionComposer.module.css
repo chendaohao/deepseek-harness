@@ -16,8 +16,18 @@
   max-width: var(--dsh-chat-content-width);
   /* Composer seat sits in a fixed-height conversation column (overflow
      hidden): cap the card against the viewport and scroll the option list
-     so header and footer actions stay reachable on long batches. */
-  max-height: min(60vh, 520px);
+     so header and footer actions stay reachable on long batches. The
+     measured term keeps that cap honest on phones, where vh tracks the
+     LARGEST viewport (URL bar hidden, keyboard closed) and can promise more
+     height than the live column has: a seat taller than its scrollport
+     clips the card header above the scroll edge where scrolling cannot
+     reach it. ConversationRoot publishes the live scrollport clientHeight;
+     16px is the frame's own vertical padding. */
+  max-height: min(
+    60vh,
+    520px,
+    calc(var(--dsh-conversation-viewport-height, 100dvh) - 16px)
+  );
   padding: 0 0 10px;
   border: 0;
   --dsw-elevation-stroke-color: var(--dsw-alias-border-l2-darkmode-thin);
