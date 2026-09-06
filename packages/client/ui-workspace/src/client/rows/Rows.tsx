@@ -5,7 +5,7 @@
  * except workspace Rename/Delete and session Rename/Fork/Archive; the session
  * and workspace hover cards are suppressed while a menu is open.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   HoverCard, IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16,
@@ -376,12 +376,15 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.onFork - fork a session at its last completed turn.
  * @param props.onArchive - archive a session by id.
  * @param props.onTogglePin - pin or unpin a session (row menu action; commits without a dialog).
+ * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional draggable-row wiring.
  * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onTogglePin, drag, flat = false, t }: {
+export function SessionNodeItem({
+  node, currentId, now, onOpen, onRename, onFork, onArchive, onTogglePin, onReveal, drag, flat = false, t,
+}: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -394,6 +397,8 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onArchive: (id: SessionNode['id']) => void
   /** Pin or unpin this session (row menu action; commits without a dialog). */
   onTogglePin: (id: SessionNode['id'], pinned: boolean) => void
+  /** Scroll this row into view after search navigation, then acknowledge it. */
+  onReveal?: (() => void) | undefined
   /** Present only on draggable rows (workspace-group sessions outside search). */
   drag?: RowDragProps | undefined
   /** The row is rendered without a parent Workspace header. */
@@ -407,6 +412,12 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const primaryStatus = statuses[0]
   const showStatus = primaryStatus.state !== 'done' || row.completed
   const [menuOpen, setMenuOpen] = useState(false)
+  const rowRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (onReveal === undefined) return
+    rowRef.current?.scrollIntoView({ block: 'nearest' })
+    onReveal()
+  }, [onReveal])
   // Archive hides the row through the registry-global archive set and never
   // touches the session log, so it is not styled as destructive and needs no
   // confirmation dialog.
@@ -420,6 +431,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
     <div
+      ref={rowRef}
       className={clsx(
         css.sessionRow, selected && css.selected, menuOpen && css.menuOpen,
         flat && !showStatus && css.flatSessionRowWithoutStatus,

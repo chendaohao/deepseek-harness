@@ -18,7 +18,7 @@ import {
 const sid = (id: string): Session['id'] => id as Session['id']
 
 function header(id: string, createdAt: number): SessionHeader {
-  return { version: 0, id: sid(id), createdAt, cwd: '/proj', isSeeded: false }
+  return { version: 2, id: sid(id), createdAt, cwd: '/proj', isSeeded: false }
 }
 
 function request<P>(payload: P): P {
@@ -82,7 +82,6 @@ describe('session list pin ordering', () => {
     const remote = createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/tmp',
-      coldBlankProbeMaxBytes: 0,
     })
 
     const response = await remote.list(request({}))
