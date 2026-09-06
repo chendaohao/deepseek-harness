@@ -83,6 +83,7 @@ export const RELEASED_V0_EVENT_DISPOSITIONS: Readonly<Record<string, ReleasedV0P
     ['sessionId', 'throughSeq'],
   ),
   'session/end-seed': disposition([]),
+  'session/pin': disposition(['pinned']),
   'session/title': disposition(['title', 'messageSeqs', 'source']),
   'session/title-llm-request': disposition(
     ['titleProvider', 'messageSeqs', 'route', 'system', 'messages', 'maxTokens'],

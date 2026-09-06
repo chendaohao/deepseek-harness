@@ -180,6 +180,9 @@ export function assertReleasedPayloadSemantics(event: SessionFormatEvent, versio
       return
     case 'session/end-seed':
       return
+    case 'session/pin':
+      booleanValue(data['pinned'], `${label} pinned`)
+      return
     case 'session/title':
       nonEmptyString(data['title'], `${label} title`)
       seqArray(data['messageSeqs'], event.seq, `${label} messageSeqs`, false)

@@ -214,6 +214,21 @@ describe('released Session format v0 to v1', () => {
     expect(migrated).toEqual({ ...source, header: { ...source.header, version: 1 } })
   })
 
+  it('migrates a v0 log carrying session/pin events appended during the v0 era', () => {
+    const header = {
+      type: 'session', version: 0, id: 'pinned-era', createdAt: 1, delegationDepth: 0,
+    }
+    const rows = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      { type: 'session/pin', seq: 1, time: 2, data: { pinned: true } },
+      { type: 'session/pin', seq: 2, time: 3, data: { pinned: false } },
+      { type: 'turn/end', seq: 3, time: 4, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const source = releasedV0SessionFormatCodec.decodeArtifact(header, rows)
+    expect(sessionFormatV0ToV1.migrate(source))
+      .toEqual({ ...source, header: { ...source.header, version: 1 } })
+  })
+
   it('keeps the v1 physical codec vocabulary-neutral for current growth and a future source freeze', () => {
     const physicalHeader = {
       type: 'session', version: 1, id: 'ordinary-growth', createdAt: 1, delegationDepth: 0,

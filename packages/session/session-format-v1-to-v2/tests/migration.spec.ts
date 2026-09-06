@@ -33,6 +33,26 @@ describe('sessionFormatV1ToV2', () => {
     expect(() => sessionFormatV1ToV2.migrateHeader({ ...header, version: 0 })).toThrow(/v1 header/)
   })
 
+  it('carries session/pin events through the stream embedding unchanged', () => {
+    const source: SessionFormatArtifact = {
+      header: {
+        version: 1,
+        id: 'v1-pinned',
+        createdAt: 1,
+        isSeeded: false,
+        delegationDepth: 0,
+      },
+      inheritedEventCount: 0,
+      events: [
+        event('turn/start', 0, 100, { turn: 1 }),
+        event('session/pin', 1, 105, { pinned: true }),
+        event('turn/end', 2, 110, { turn: 1, reason: { kind: 'completed' } }),
+      ],
+    }
+
+    expect(sessionFormatV1ToV2.migrate(source).events).toEqual(source.events)
+  })
+
   it('embeds an interleaved successful stream and densely remaps survivors', () => {
     const source: SessionFormatArtifact = {
       header: {

@@ -80,6 +80,7 @@ const validPayloads: Readonly<Record<string, SessionFormatJsonValue>> = {
   },
   'session-log-deepseek/delivery-accepted': { sessionId: 'validation', throughSeq: 0, sessionFormatVersion: 1 },
   'session/end-seed': {},
+  'session/pin': { pinned: true },
   'session/title': { title: 'Title', messageSeqs: [0], source: { kind: 'fallback' } },
   'session/title-llm-request': {
     titleProvider: 'title-1', messageSeqs: [0], route: { provider: 'mock', model: 'mock' },
@@ -210,7 +211,7 @@ function replaceAtPath(value: SessionFormatJsonValue, path: string, replacement:
 describe('released event and payload inventory', () => {
   it('has an executable valid fixture for every frozen released-v0 event type', () => {
     expect(Object.keys(validPayloads).sort()).toEqual([...RELEASED_V0_EVENT_TYPES].sort())
-    expect(RELEASED_V0_EVENT_TYPES).toHaveLength(51)
+    expect(RELEASED_V0_EVENT_TYPES).toHaveLength(52)
     expect(RELEASED_V0_EVENT_TYPES
       .filter(type => type !== 'assistant/chunk')
       .every(type => KNOWN_SESSION_EVENT_TYPES.has(type))).toBe(true)
@@ -580,6 +581,7 @@ describe('released event and payload inventory', () => {
         system: 's', messages: [userMessage], maxTokens: 1,
       }],
       ['session/title', { title: 't', messageSeqs: [0, 0], source: { kind: 'fallback' } }],
+      ['session/pin', { pinned: 'yes' }],
       ['tool/result', { turn: 1, step: 0, message: { ...toolMessage, content: [] } }],
       ['tool/result', {
         turn: 1, step: 0,
