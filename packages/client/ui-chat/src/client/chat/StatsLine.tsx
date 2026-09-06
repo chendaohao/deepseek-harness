@@ -2,7 +2,7 @@
 // Mounted on 'conversation.composer.dock' so it sticks with the composer in the
 // active conversation scrollport (see ConversationRoot data-conversation-scroll).
 
-import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { UseProjection } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
@@ -122,6 +122,9 @@ export interface StatsLineProps {
   t: ChatViewSlotProps['t']
 }
 
+/** Read period a tap-expanded stats line holds before collapsing back. */
+const REVEAL_MS = 3000
+
 /** Render and measure one non-empty statistics line. */
 const StatsLineContent = memo(function StatsLineContent({
   groups,
@@ -132,6 +135,30 @@ const StatsLineContent = memo(function StatsLineContent({
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [truncated, setTruncated] = useState(false)
+  // Tap-to-read (mobile): the strip sits at the viewport floor where a
+  // hover affordance is useless, so a tap on a truncated strip expands the
+  // full line above it and holds it for a short read period; a second tap
+  // collapses it immediately. Click, not pointerdown, so the gesture works
+  // on every touch browser's compatibility-event path.
+  const [revealed, setRevealed] = useState(false)
+  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const toggleReveal = useCallback(() => {
+    if (revealTimer.current !== null) {
+      clearTimeout(revealTimer.current)
+      revealTimer.current = null
+    }
+    setRevealed((current) => {
+      if (current) return false
+      revealTimer.current = setTimeout(() => {
+        revealTimer.current = null
+        setRevealed(false)
+      }, REVEAL_MS)
+      return true
+    })
+  }, [])
+  useEffect(() => () => {
+    if (revealTimer.current !== null) clearTimeout(revealTimer.current)
+  }, [])
   const measure = useCallback(() => {
     const el = rootRef.current
     if (el === null) return
@@ -147,14 +174,20 @@ const StatsLineContent = memo(function StatsLineContent({
   }, [measure])
   useLayoutEffect(measure, [line, measure])
   return (
-    <Tooltip label={line} side="top" delayMs={500} disabled={!truncated}>
-      <div ref={rootRef} className={css.root}>
-        {groups.map((group, i) => (
-          <Fragment key={group}>
-            {i > 0 && <><span className={css.sep} aria-hidden>|</span>{' '}</>}
-            <span>{group}</span>
-          </Fragment>
-        ))}
+    <Tooltip label={line} side="top" delayMs={500} disabled={!truncated || revealed}>
+      <div
+        className={truncated ? `${css.wrap} ${css.wrapInteractive}` : css.wrap}
+        onClick={truncated ? toggleReveal : undefined}
+      >
+        <div ref={rootRef} className={css.root}>
+          {groups.map((group, i) => (
+            <Fragment key={group}>
+              {i > 0 && <><span className={css.sep} aria-hidden>|</span>{' '}</>}
+              <span>{group}</span>
+            </Fragment>
+          ))}
+        </div>
+        {revealed && <div aria-hidden className={css.reveal}>{line}</div>}
       </div>
     </Tooltip>
   )
