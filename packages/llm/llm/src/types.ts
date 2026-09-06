@@ -279,6 +279,8 @@ export interface LlmDiscoveredModel {
   contextWindow?: number
   /** Maximum output tokens, when disclosed. */
   maxTokens?: number
+  /** Input modalities the endpoint declares, when it names any this harness knows. */
+  input?: readonly ('text' | 'image')[]
 }
 
 /** One adapter-discovered model; catalog membership is advisory, not request validation. */

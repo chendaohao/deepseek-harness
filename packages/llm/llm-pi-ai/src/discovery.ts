@@ -68,6 +68,11 @@ interface ListingTopProvider {
   max_completion_tokens?: unknown
 }
 
+/** Modality spellings an entry may nest under an `architecture` object. */
+interface ListingArchitecture {
+  input_modalities?: unknown
+}
+
 /** One entry of a supported `GET /models` reply. */
 interface ListingEntry {
   id?: unknown
@@ -83,6 +88,10 @@ interface ListingEntry {
   max_tokens?: unknown
   max_output_tokens?: unknown
   maxTokens?: unknown
+  /** OpenAI-style top-level modality list. */
+  modalities?: unknown
+  /** OpenRouter nests its modality list under this object. */
+  architecture?: ListingArchitecture | null
   limit?: ListingLimit | null
   top_provider?: ListingTopProvider | null
 }
@@ -91,6 +100,27 @@ interface ListingEntry {
 function capacity(...candidates: readonly unknown[]): number | undefined {
   for (const candidate of candidates) {
     if (typeof candidate === 'number' && Number.isInteger(candidate) && candidate > 0) return candidate
+  }
+  return undefined
+}
+
+/**
+ * The modalities an entry declares, or `undefined` when it names none this
+ * harness knows. Unrecognized spellings are dropped individually — gateways
+ * have coined audio and video terms this build cannot serve, and one such term
+ * beside `text` must not erase the text fact. A list with no recognized term
+ * and a non-list shape both read as "the endpoint said nothing usable", so the
+ * adopted row stays unclaimed and inheritance decides.
+ * @param entry - the raw listing entry.
+ * @returns the recognized modalities, or `undefined`.
+ */
+function declaredModalities(entry: ListingEntry): ('text' | 'image')[] | undefined {
+  const candidates = [entry.modalities, entry.architecture?.input_modalities]
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue
+    const modalities = [...new Set(candidate.filter((modality): modality is 'text' | 'image' =>
+      modality === 'text' || modality === 'image'))]
+    if (modalities.length > 0) return modalities
   }
   return undefined
 }
@@ -219,11 +249,13 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
       entry?.limit?.output,
       entry?.top_provider?.max_completion_tokens,
     )
+    const input = entry === null ? undefined : declaredModalities(entry)
     models.push({
       id,
       name,
       ...contextWindow === undefined ? {} : { contextWindow },
       ...maxTokens === undefined ? {} : { maxTokens },
+      ...input === undefined ? {} : { input },
     })
   }
   return models
@@ -280,6 +312,7 @@ export async function discoverModels(
         name: model.name,
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
+        ...model.input.length > 0 ? { input: [...model.input] } : {},
       }))
     }
   }

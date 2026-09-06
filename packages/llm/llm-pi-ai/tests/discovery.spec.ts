@@ -135,6 +135,33 @@ describe('draft-provider model discovery', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  it('carries the modalities an entry declares and drops the spellings it does not know', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({
+        data: [
+          { id: 'openai-style', modalities: ['text', 'image'] },
+          { id: 'openrouter-style', architecture: { input_modalities: ['text', 'image', 'audio', 'video'] } },
+          { id: 'image-only', modalities: ['image'] },
+          { id: 'unknown-only', modalities: ['audio'] },
+          { id: 'silent' },
+          { id: 'junk-shape', modalities: 'text' },
+        ],
+      }),
+    })
+    const ctx = await harness()
+
+    expect(await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url })).toEqual([
+      { id: 'openai-style', name: 'openai-style', input: ['text', 'image'] },
+      { id: 'openrouter-style', name: 'openrouter-style', input: ['text', 'image'] },
+      { id: 'image-only', name: 'image-only', input: ['image'] },
+      // No recognized term and no list shape both read as "the endpoint said
+      // nothing usable", so the field is absent and inheritance decides.
+      { id: 'unknown-only', name: 'unknown-only' },
+      { id: 'silent', name: 'silent' },
+      { id: 'junk-shape', name: 'junk-shape' },
+    ])
+  })
+
   it('reads an enriched models map using route ids and nested capacities', async () => {
     const server = await listingServer({
       body: JSON.stringify({
@@ -496,10 +523,12 @@ const RECORDED_LISTINGS = [
     file: 'openrouter-2026-09-02.json',
     api: 'openai-completions',
     models: [
-      { id: 'anthropic/claude-fable-5.1', name: 'Anthropic: Claude Fable 5.1', contextWindow: 1_000_000, maxTokens: 128_000 },
+      // The router's input lists name modalities this build does not serve
+      // (`file`, `audio`, `video`), which are dropped individually.
+      { id: 'anthropic/claude-fable-5.1', name: 'Anthropic: Claude Fable 5.1', contextWindow: 1_000_000, maxTokens: 128_000, input: ['text', 'image'] },
       // The router's own aggregate route reports no completion cap.
-      { id: 'openrouter/auto-beta', name: 'Auto Router (Beta)', contextWindow: 2_000_000 },
-      { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek: DeepSeek V4 Flash 0423', contextWindow: 1_048_576, maxTokens: 384_000 },
+      { id: 'openrouter/auto-beta', name: 'Auto Router (Beta)', contextWindow: 2_000_000, input: ['text', 'image'] },
+      { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek: DeepSeek V4 Flash 0423', contextWindow: 1_048_576, maxTokens: 384_000, input: ['text'] },
     ],
   },
   {

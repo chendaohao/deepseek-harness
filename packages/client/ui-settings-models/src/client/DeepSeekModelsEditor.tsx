@@ -74,7 +74,7 @@ export interface DeepSeekModelsValidationFailure {
   index: number
   /** Message key owned by the Models settings section. */
   key: 'modelIdRequired' | 'modelIdDuplicate' | 'modelNameInvalid' | 'modelContextInvalid'
-  | 'modelMaxTokensInvalid'
+  | 'modelMaxTokensInvalid' | 'modelInputInvalid'
 }
 
 /** Convert a schema-validated catalog value into records without dropping hidden fields. */
@@ -117,6 +117,17 @@ export function validateDeepSeekModels(value: unknown): DeepSeekModelsValidation
     if (maxTokens !== undefined
       && (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens <= 0)) {
       return { index, key: 'modelMaxTokensInvalid' }
+    }
+    // The stored shape mirrors the wire: a modality list this adapter knows is
+    // text/image strings. Anything else is a hand-edited value, rejected here
+    // so the save names the row instead of the loader refusing the section.
+    const input = model['input']
+    if (input !== undefined) {
+      if (!Array.isArray(input)) return { index, key: 'modelInputInvalid' }
+      const modalities = input.filter(modality => modality === 'text' || modality === 'image')
+      if (modalities.length !== input.length || !input.includes('text')) {
+        return { index, key: 'modelInputInvalid' }
+      }
     }
   }
   return undefined

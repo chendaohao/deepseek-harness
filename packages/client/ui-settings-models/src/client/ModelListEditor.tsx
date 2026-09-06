@@ -148,6 +148,7 @@ function adopt(candidate: LlmDiscoveredModel): ModelDraft {
     ...candidate.name === undefined ? {} : { name: candidate.name },
     ...candidate.contextWindow === undefined ? {} : { contextWindow: candidate.contextWindow },
     ...candidate.maxTokens === undefined ? {} : { maxTokens: candidate.maxTokens },
+    ...candidate.input === undefined ? {} : { input: [...candidate.input] },
   }
 }
 
@@ -209,7 +210,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
-  const patch = (index: number, next: Record<string, string | number | undefined>): void => {
+  const patch = (index: number, next: Record<string, string | number | readonly string[] | undefined>): void => {
     onChange(models.map((model, at) => {
       if (at !== index) return model
       // Rebuilt rather than spread over: an emptied optional field has to leave
@@ -276,6 +277,24 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }
     onChange([...byId.values()])
     closePicker()
+  }
+
+  /** Whether the row declares image input; an absent or empty list is text-only by inheritance. */
+  const declaresImage = (model: ModelDraft): boolean =>
+    Array.isArray(model['input']) && model['input'].includes('image')
+
+  const setInput = (index: number, modality: 'text' | 'image', on: boolean): void => {
+    /* v8 ignore next -- the checkboxes only render inside an existing row */
+    const stored = models[index]?.['input']
+    const current: readonly ('text' | 'image')[] = Array.isArray(stored)
+      ? stored.filter((value): value is 'text' | 'image' => value === 'text' || value === 'image')
+      : ['text']
+    const next = current.includes(modality)
+      ? (on ? current : current.filter(value => value !== modality))
+      : (on ? [...current, modality] : current)
+    // An emptied list leaves the profile: absent inherits rather than declaring
+    // a model that accepts nothing, which is what [] would mean.
+    patch(index, { input: next.length === 0 ? undefined : next })
   }
 
   const toggle = (id: string): void => {
@@ -433,6 +452,29 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
                 </label>
+                <div className={styles['modelField']} role="group" aria-label={`${t('modelInput')} ${index + 1}`}>
+                  <span className={styles['modelFieldLabel']}>{t('modelInput')}</span>
+                  <div className={styles['modelModalityRow']}>
+                    <label className={styles['modelModality']}>
+                      <input
+                        type="checkbox"
+                        checked
+                        disabled
+                      />
+                      {t('modelInputText')}
+                    </label>
+                    <label className={styles['modelModality']}>
+                      <input
+                        type="checkbox"
+                        checked={declaresImage(model)}
+                        disabled={disabled}
+                        onChange={(event) => { setInput(index, 'image', event.target.checked) }}
+                      />
+                      {t('modelInputImage')}
+                    </label>
+                  </div>
+                  <span className={styles['modelModalityHint']}>{t('modelInputHint')}</span>
+                </div>
               </div>
             )
             : null}
@@ -495,6 +537,9 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                         capacities the endpoint reported are adopted with it and
                         editable in the row that appears. */}
                     <span className={styles['candidateId']}>{candidate.id}</span>
+                    {candidate.input?.includes('image')
+                      ? <span className={styles['candidateModality']}>{t('modelInputImage')}</span>
+                      : null}
                   </label>
                 </li>
               ))}

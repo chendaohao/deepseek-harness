@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Model-list editing, endpoint interrogation, and hand-declared provider creation. */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
@@ -556,6 +556,60 @@ describe('endpoint interrogation', () => {
     expect(firstMutate(mutate).ops[0]?.value).toEqual([
       { id: 'kept', contextWindow: 111 },
       { id: 'fresh', contextWindow: 4096, maxTokens: 2048, name: 'Fresh' },
+    ])
+  })
+
+  it('adopts a candidate\'s declared modalities and shows them in the picker', async () => {
+    const discover = vi.fn(() => Promise.resolve(ok([
+      { id: 'vision-model', input: ['text', 'image'] },
+      { id: 'text-model' },
+    ])))
+    await mountSection({ discover })
+    openEditor('openai')
+
+    fireEvent.click(screen.getByText(en.fetchModels))
+    await screen.findByText(en.fetchTitle)
+    // The badge names which candidates the endpoint says take images; the
+    // text-only one stays unbadged.
+    const visionRow = screen.getByText('vision-model').closest('label')
+    const textRow = screen.getByText('text-model').closest('label')
+    expect(within(visionRow as HTMLElement).queryAllByText(en.modelInputImage)).toHaveLength(1)
+    expect(within(textRow as HTMLElement).queryAllByText(en.modelInputImage)).toHaveLength(0)
+    fireEvent.click(screen.getByText(en.fetchAdopt))
+
+    expandModel(1)
+    const imageBox = within(screen.getByLabelText(`${en.modelInput} 1`).closest('div') as HTMLElement)
+      .getByLabelText<HTMLInputElement>(en.modelInputImage)
+    expect(imageBox.checked).toBe(true)
+  })
+
+  it('writes an image claim from the modality checkbox and can retract it to text-only', async () => {
+    const { mutate } = await mountSection({
+      providers: {
+        openai: { baseURL: 'https://proxy.example/v1', models: [{ id: 'declared', input: ['text', 'image'] }, { id: 'silent' }] },
+      },
+    })
+    openEditor('openai')
+
+    // The stored claim renders as checked; unchecking leaves an explicit
+    // text-only declaration — a correction the user expressed, not a return to
+    // inheritance, which stays a YAML-level fact this page does not masquerade
+    // as owning.
+    expandModel(1)
+    const firstGroup = within(screen.getByLabelText(`${en.modelInput} 1`).closest('div') as HTMLElement)
+    expect(firstGroup.getByLabelText<HTMLInputElement>(en.modelInputImage).checked).toBe(true)
+    fireEvent.click(firstGroup.getByLabelText(en.modelInputImage))
+
+    expandModel(2)
+    const secondGroup = within(screen.getByLabelText(`${en.modelInput} 2`).closest('div') as HTMLElement)
+    expect(secondGroup.getByLabelText<HTMLInputElement>(en.modelInputImage).checked).toBe(false)
+    fireEvent.click(secondGroup.getByLabelText(en.modelInputImage))
+
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([
+      { id: 'declared', input: ['text'] },
+      { id: 'silent', input: ['text', 'image'] },
     ])
   })
 
