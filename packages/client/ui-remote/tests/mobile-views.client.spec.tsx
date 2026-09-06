@@ -458,7 +458,7 @@ describe('fold helpers', () => {
     expect(replayed.map(message => message.text)).toEqual(['你好', 'hi'])
   })
 
-  it('expands a packed chunk-row record into its member delta events', () => {
+  it('drops a packed chunk-row record: the pre-format-v2 transport has no codec on this side', () => {
     const records = [
       { type: 'event', event: userEvent(1, '你好') },
       {
@@ -472,8 +472,7 @@ describe('fold helpers', () => {
       },
     ]
     const page = foldEvents(recordsToWireEvents(records))
-    expect(page.map(message => message.text)).toEqual(['你好', '你好！'])
-    expect(page[1]).toMatchObject({ id: 'assistant,1.0#2', pending: true, time: 1_012 })
+    expect(page.map(message => message.text)).toEqual(['你好'])
   })
 
   it('drops malformed records instead of blanking the page', () => {
