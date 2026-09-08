@@ -105,7 +105,6 @@ cat >"$FORK_ALIAS_BLOCK_FILE" <<'EOF'
       "@deepseek-ai/dsh-mcp-client/src/*": ["./packages/mcp/mcp-client/src/*"],
       "@deepseek-ai/dsh-client-ui-remote": ["./packages/client/ui-remote/src"],
       "@deepseek-ai/dsh-client-ui-remote/client": ["./packages/client/ui-remote/src/client"],
-      "@deepseek-ai/dsh-client-ui-remote/invariant": ["./packages/client/ui-remote/src/invariant.ts"],
 EOF
 
 # One hint per hand-resolved path prefix; printed with the manual queue.
