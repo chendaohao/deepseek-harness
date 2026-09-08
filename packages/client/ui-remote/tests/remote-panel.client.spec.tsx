@@ -47,7 +47,7 @@ function jsonResponse(data: unknown) {
 /** A device record that reads online (fresh liveness). */
 function device(deviceId: string, name: string): RemoteDeviceRecord {
   const now = Date.now()
-  return { deviceId, name, createdAt: now, lastSeen: now }
+  return { deviceId, name, createdAt: now, lastSeen: now, expiresAt: now + 30 * 86_400_000 }
 }
 
 describe('RemoteFooterAction', () => {
@@ -142,7 +142,7 @@ describe('RemotePanel device roster', () => {
 
     expect(await screen.findByText('Phone A')).toBeTruthy()
     expect(screen.getByText('Tablet B')).toBeTruthy()
-    expect(screen.getAllByText('Online')).toHaveLength(2)
+    expect(screen.getAllByText(/Online/)).toHaveLength(2)
     fireEvent.click(screen.getAllByRole('button', { name: 'Revoke' })[0]!)
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/remote/devices/d1/revoke', { method: 'POST' })
@@ -165,7 +165,7 @@ describe('RemotePanel device roster', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
 
     expect(await screen.findByText('Old Phone')).toBeTruthy()
-    expect(screen.getByText('Offline')).toBeTruthy()
+    expect(screen.getByText(/Offline/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/remote/devices/d9/revoke', { method: 'POST' })

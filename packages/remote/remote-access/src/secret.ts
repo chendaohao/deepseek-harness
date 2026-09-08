@@ -20,12 +20,12 @@ export const COOKIE_MAX_AGE_SECONDS = COOKIE_MAX_AGE_DAYS * 86_400
 /** Session-cookie name shared by minting and verification. */
 export const COOKIE_NAME = 'dsh_remote'
 /** HMAC domain separator for session cookies. */
-const COOKIE_CONTEXT = 'dsh-remote-cookie:v2:'
-/** Milliseconds per UTC day; cookie expiry counts by day index. */
+const COOKIE_CONTEXT = 'dsh-remote-cookie:v3:'
+/** Milliseconds per UTC day; the daily cookie-refresh cadence counts by day index. */
 const DAY_MS = 86_400_000
 
 /**
- * The UTC day index used to scope cookie expiry.
+ * The UTC day index anchoring the daily refresh cadence.
  * @param now - current time in epoch milliseconds.
  * @returns the day number (floor of now over one day).
  */
@@ -34,36 +34,33 @@ export function dayIndex(now: number): number {
 }
 
 /**
- * Mint a session-cookie value bound to one device id, plus its expiry day.
+ * Mint a session-cookie value bound to one device id. The value carries no
+ * expiry: admission is the device registry's call (the 30-day inactivity
+ * window slides on use), so a daily use never needs re-pairing.
  * @param secret - the master pairing secret.
  * @param deviceId - the paired device the cookie admits.
- * @param now - current time; expiry counts from its day index.
- * @returns the cookie value and the day it expires.
+ * @returns the cookie value.
  */
-export function mintCookie(secret: Buffer, deviceId: string, now: number): { value: string; expiresDay: number } {
-  const expiresDay = dayIndex(now) + COOKIE_MAX_AGE_DAYS
-  const mac = hmac(secret, COOKIE_CONTEXT, deviceId + '|' + String(expiresDay)).subarray(0, 24)
-  const value = 'v2.' + deviceId + '.' + String(expiresDay) + '.' + base64Url(mac)
-  return { value, expiresDay }
+export function mintCookie(secret: Buffer, deviceId: string): string {
+  const mac = hmac(secret, COOKIE_CONTEXT, deviceId).subarray(0, 24)
+  return 'v3.' + deviceId + '.' + base64Url(mac)
 }
 
 /**
- * Verify a session-cookie value: format, expiry, and HMAC, in constant time.
+ * Verify a session-cookie value: format and HMAC, in constant time.
  * @param secret - the master pairing secret.
  * @param value - the presented cookie value, if any.
- * @param now - current time; the expiry day must not have passed.
- * @returns the admitted device id, or undefined for an unexpired-or-tampered cookie.
+ * @returns the admitted device id, or undefined for a tampered or foreign-version cookie.
  */
-export function verifyCookie(secret: Buffer, value: string | undefined, now: number): string | undefined {
+export function verifyCookie(secret: Buffer, value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   const parts = value.split('.')
-  if (parts.length !== 4 || parts[0] !== 'v2') return undefined
+  if (parts.length !== 3 || parts[0] !== 'v3') return undefined
   const deviceId = parts[1] ?? ''
-  const expiresDay = Number(parts[2])
-  /* v8 ignore next -- a four-part value always has an element at index 3 */
-  const mac = parts[3] ?? ''
-  if (deviceId === '' || !Number.isInteger(expiresDay) || expiresDay < dayIndex(now)) return undefined
-  const expected = hmac(secret, COOKIE_CONTEXT, deviceId + '|' + String(expiresDay)).subarray(0, 24)
+  /* v8 ignore next -- a three-part value always has an element at index 2 */
+  const mac = parts[2] ?? ''
+  if (deviceId === '') return undefined
+  const expected = hmac(secret, COOKIE_CONTEXT, deviceId).subarray(0, 24)
   if (!constantTimeEqual(Buffer.from(mac, 'base64url'), expected)) return undefined
   return deviceId
 }

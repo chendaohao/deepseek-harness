@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-08-sliding-remote-cookie-renewal.md
+2026-09-08-sliding-remote-cookie-renewal.md: c17b650ad8cc524935c2687f66b058d667280908
+2026-09-08-sliding-remote-cookie-renewal.zh.md: ee74d6e0ebdbef4f965c397cbdec5851945e3d2d

@@ -43,18 +43,30 @@ const PAIR_RATE_LIMITED_PAGE = [
   '</main></body></html>',
 ].join('')
 
+/** One gate verdict: admission plus the cookie echo due on the response. */
+export interface AuthorizeResult {
+  /** Whether the request may reach the proxied target. */
+  readonly admitted: boolean
+  /**
+   * A Set-Cookie header value re-issuing the presented cookie with a fresh
+   * Max-Age, due on the first admitted request of each UTC day. Browsers cap
+   * cookie lifetimes client-side while the registry owns real expiry.
+   */
+  readonly cookieRefresh?: string
+}
+
 /** Decisions the proxy asks of the access policy for every request. */
 export interface AccessPolicy {
   /**
-   * Whether the request may reach the proxied target: only a valid device
-   * cookie admits it, and the admitted device must still be live. There is no
-   * Host- or address-based shortcut: behind the tunnel every connection
-   * arrives from the loopback address and the Host header is client-controlled,
-   * so loopback-shaped Hosts are as remote as any other.
+   * Gate one request: only a valid device cookie whose binding is inside its
+   * 30-day inactivity window admits it, and admission slides the window.
+   * There is no Host- or address-based shortcut: behind the tunnel every
+   * connection arrives from the loopback address and the Host header is
+   * client-controlled, so loopback-shaped Hosts are as remote as any other.
    * @param req - incoming HTTP request.
-   * @returns true to forward, false to answer 401 with the pairing page.
+   * @returns the verdict; unadmitted requests answer 401 with the pairing page.
    */
-  authorize(req: IncomingMessage): boolean
+  authorize(req: IncomingMessage): AuthorizeResult
   /**
    * Answer a pairing request at /pair/<token>; never forwards.
    * @param req - incoming HTTP request.
@@ -113,11 +125,16 @@ export function createAccessPolicy(secret: Buffer, devices: DeviceRegistry, opti
     (clientAddress(req) ?? 'unknown') + '|' + (req.headers['user-agent'] ?? ''))
   const windows = new Map<string, AttemptWindow>()
 
-  const authorize = (req: IncomingMessage): boolean => {
-    const deviceId = verifyCookie(secret, cookieValue(req.headers.cookie), now())
-    if (deviceId === undefined || !devices.isLive(deviceId)) return false
-    devices.touch(deviceId, now())
-    return true
+  const authorize = (req: IncomingMessage): AuthorizeResult => {
+    const presented = cookieValue(req.headers.cookie)
+    const deviceId = verifyCookie(secret, presented)
+    const touch = deviceId === undefined ? { admitted: false, dayRolled: false } : devices.touch(deviceId, now())
+    if (!touch.admitted) return { admitted: false }
+    if (!touch.dayRolled || presented === undefined) return { admitted: true }
+    return {
+      admitted: true,
+      cookieRefresh: COOKIE_NAME + '=' + presented + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=' + String(COOKIE_MAX_AGE_SECONDS),
+    }
   }
 
   const handlePairing = (req: IncomingMessage, res: ServerResponse, pathname: string): boolean => {
@@ -141,7 +158,7 @@ export function createAccessPolicy(secret: Buffer, devices: DeviceRegistry, opti
     }
     windows.delete(key)
     const deviceId = devices.register(deviceName(req.headers['user-agent']), now())
-    const { value } = mintCookie(secret, deviceId, now())
+    const value = mintCookie(secret, deviceId)
     res.writeHead(302, {
       location: options.indexLoginUrl?.() ?? '/',
       'set-cookie': COOKIE_NAME + '=' + value + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=' + String(COOKIE_MAX_AGE_SECONDS),

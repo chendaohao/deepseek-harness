@@ -30,6 +30,11 @@ function isOnline(record: RemoteDeviceRecord): boolean {
   return Date.now() - record.lastSeen < DEVICE_ONLINE_WINDOW_MS
 }
 
+/** Whole days until the device's inactivity window ends, floored at zero. */
+function expiryDaysLeft(record: RemoteDeviceRecord): number {
+  return Math.max(0, Math.floor((record.expiresAt - Date.now()) / 86_400_000))
+}
+
 /** The panel's injected props: the remote client plus the locale seat. */
 export interface RemotePanelProps {
   /** Host-connection remote client for the forwarded-event subscriptions. */
@@ -241,6 +246,8 @@ export function RemotePanel({ remote, t }: RemotePanelProps) {
                     </button>
                     <span className={css.deviceStatus}>
                       {isOnline(device) ? t('device.online') : t('device.offline')}
+                      {' · '}
+                      {t('device.expiry', { days: expiryDaysLeft(device) })}
                     </span>
                   </>
                 )}

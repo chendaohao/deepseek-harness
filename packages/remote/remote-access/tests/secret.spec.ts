@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  COOKIE_MAX_AGE_DAYS, COOKIE_NAME, dayIndex, ensurePairingSecret, mintCookie, verifyCookie,
+  COOKIE_NAME, dayIndex, ensurePairingSecret, mintCookie, verifyCookie,
 } from '../src/secret.ts'
 
 const DAY_MS = 86_400_000
@@ -149,30 +149,26 @@ describe('dayIndex', () => {
 describe('device cookies', () => {
   it('round-trips the admitted device id through verifyCookie', () => {
     const secret = randomBytes(32)
-    const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const { value } = mintCookie(secret, DEVICE_ID, now)
-    expect(value).toMatch(/^v2\.[A-Za-z0-9_-]+\.[0-9]+\.[A-Za-z0-9_-]{32}$/)
-    expect(verifyCookie(secret, value, now)).toBe(DEVICE_ID)
-    expect(verifyCookie(secret, value, now + COOKIE_MAX_AGE_DAYS * DAY_MS - 1)).toBe(DEVICE_ID)
+    const value = mintCookie(secret, DEVICE_ID)
+    expect(value).toMatch(/^v3\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{32}$/)
+    expect(verifyCookie(secret, value)).toBe(DEVICE_ID)
   })
 
   it('binds the mac to the device id, so swapping ids invalidates the cookie', () => {
     const secret = randomBytes(32)
-    const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const { value } = mintCookie(secret, DEVICE_ID, now)
-    const swapped = value.replace(DEVICE_ID, 'aAbB09_-cCdD12_ff')
-    expect(verifyCookie(secret, swapped, now)).toBeUndefined()
+    const value = mintCookie(secret, DEVICE_ID)
+    const swapped = value.replace(DEVICE_ID, 'aAbB09_-cCdD12ff')
+    expect(verifyCookie(secret, swapped)).toBeUndefined()
   })
 
-  it('rejects expiry, tampering, malformed values, and a wrong secret', () => {
+  it('rejects tampering, malformed values, foreign versions, and a wrong secret', () => {
     const secret = randomBytes(32)
-    const now = Date.UTC(2026, 7, 14, 12, 0, 0)
-    const { value } = mintCookie(secret, DEVICE_ID, now)
-    expect(verifyCookie(secret, value, now + (COOKIE_MAX_AGE_DAYS + 1) * DAY_MS)).toBeUndefined()
-    expect(verifyCookie(secret, undefined, now)).toBeUndefined()
-    expect(verifyCookie(secret, 'garbage', now)).toBeUndefined()
-    expect(verifyCookie(secret, 'v2.' + DEVICE_ID + '.' + String(dayIndex(now) + 1) + '.AAAA', now)).toBeUndefined()
-    expect(verifyCookie(randomBytes(32), value, now)).toBeUndefined()
+    const value = mintCookie(secret, DEVICE_ID)
+    expect(verifyCookie(secret, undefined)).toBeUndefined()
+    expect(verifyCookie(secret, 'garbage')).toBeUndefined()
+    expect(verifyCookie(secret, 'v2.' + DEVICE_ID + '.' + String(dayIndex(Date.now())) + '.AAAA')).toBeUndefined()
+    expect(verifyCookie(secret, value + '.extra')).toBeUndefined()
+    expect(verifyCookie(randomBytes(32), value)).toBeUndefined()
     expect(COOKIE_NAME).toBe('dsh_remote')
   })
 })

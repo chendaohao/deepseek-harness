@@ -11,7 +11,10 @@ import { createServer, request as httpRequest, type IncomingMessage, type Outgoi
 import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer, type RawData } from 'ws'
-import { PAIR_REQUIRED_PAGE, type AccessPolicy } from './policy.ts'
+import { PROXIED_HEADER } from '@deepseek-ai/dsh-host-webserver'
+import { PAIR_REQUIRED_PAGE, type AccessPolicy, type AuthorizeResult } from './policy.ts'
+
+export { PROXIED_HEADER }
 
 /** Header names never relayed across a proxy hop. */
 const HOP_BY_HOP = new Set([
@@ -21,9 +24,6 @@ const HOP_BY_HOP = new Set([
 
 /** Browser-trust markers normalized away: the main server must see a loopback-shaped request. */
 const BROWSER_TRUST_HEADERS = new Set(['origin', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest', 'sec-fetch-user'])
-
-/** Marker added to every relayed request so the main server can tell tunnel traffic apart. */
-export const PROXIED_HEADER = 'x-dsh-proxied'
 
 /** WebSocket handshake headers, relayed only by the upgrade path. */
 const WEBSOCKET_HEADERS = new Set(['sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol', 'sec-websocket-extensions'])
@@ -62,6 +62,16 @@ function payloadBytes(data: RawData): number {
   return data.length
 }
 
+/** Merge the gate's daily cookie refresh onto the relayed response headers. */
+function withCookieRefresh(headers: OutgoingHttpHeaders, verdict: AuthorizeResult): OutgoingHttpHeaders {
+  if (verdict.cookieRefresh === undefined) return headers
+  // Client-side response headers always carry set-cookie as an array (node
+  // guarantees it), so the refresh appends after the target's own cookies.
+  const existing = headers['set-cookie']
+  const prior = Array.isArray(existing) ? existing : existing === undefined ? [] : [existing]
+  return { ...headers, 'set-cookie': [...prior, verdict.cookieRefresh] }
+}
+
 /** A running proxy: its loopback port and its teardown. */
 export interface RemoteProxyHandle {
   /** The loopback port the tunnel targets. */
@@ -95,7 +105,8 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
     /* v8 ignore next -- node:http always sets url on server requests */
     const rawPath = new URL(req.url ?? '/', 'http://x').pathname
     if (policy.handlePairing(req, res, rawPath)) return
-    if (!policy.authorize(req)) {
+    const verdict = policy.authorize(req)
+    if (!verdict.admitted) {
       res.writeHead(401, {
         'content-type': 'text/html; charset=utf-8',
         'content-length': String(Buffer.byteLength(PAIR_REQUIRED_PAGE)),
@@ -103,10 +114,10 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       res.end(PAIR_REQUIRED_PAGE)
       return
     }
-    relay(req, res)
+    relay(req, res, verdict)
   }
 
-  const relay = (req: IncomingMessage, res: ServerResponse): void => {
+  const relay = (req: IncomingMessage, res: ServerResponse, verdict: AuthorizeResult): void => {
     const headers: OutgoingHttpHeaders = {}
     for (const [name, value] of Object.entries(req.headers)) {
       /* v8 ignore next -- parsed header values are strings or arrays, never undefined */
@@ -126,7 +137,7 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       headers,
     }, (proxyRes) => {
       /* v8 ignore next -- a parsed response always carries a status code */
-      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers)
+      res.writeHead(proxyRes.statusCode ?? 502, withCookieRefresh(proxyRes.headers, verdict))
       proxyRes.pipe(res)
     })
     proxyReq.on('error', (error) => {
@@ -164,7 +175,10 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
   server.on('upgrade', (req, socket, head) => {
     upstreamSockets.add(socket)
     socket.on('close', () => { upstreamSockets.delete(socket) })
-    if (!policy.authorize(req)) {
+    // No response headers exist on the upgrade path, so a day-rolled request
+    // slides the registry window here and the refresh rides the next plain
+    // request (documented semantics).
+    if (!policy.authorize(req).admitted) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
       return
     }
@@ -192,7 +206,7 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       // device. Re-run the policy on an interval so a revocation cuts an
       // established socket too, not just the next HTTP request.
       const reauthorize = setInterval(() => {
-        if (!policy.authorize(req)) closePair()
+        if (!policy.authorize(req).admitted) closePair()
       }, internals.reauthorizeIntervalMs)
       // Relay the upstream's WebSocket pings to the visitor and watch the
       // pongs. A phone that left the network — or whose OS tore the suspended

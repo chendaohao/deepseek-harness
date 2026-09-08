@@ -1,4 +1,4 @@
-/** Desktop remote-control panel copy plus the mobile `/m` surface transport banners. */
+/** Desktop remote-control panel copy. */
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
@@ -13,6 +13,7 @@ export const zh = {
   'devices.empty': '暂无已配对设备',
   'device.online': '在线',
   'device.offline': '离线',
+  'device.expiry': '有效期 {days} 天',
   'device.rename': '改名',
   'device.renameSave': '保存',
   'device.renameCancel': '取消',
@@ -25,8 +26,6 @@ export const zh = {
   'copyLink': '复制链接',
   'pair.unavailable': '隧道未开启，无法生成配对二维码',
   'load.error': '加载远程状态失败',
-  'transport.retrying': '实时连接不可用，正在重试…',
-  'transport.reconnecting': '实时连接已断开，正在重连…',
 } satisfies Record<string, string>
 
 /** The remote namespace key union. */
@@ -45,6 +44,7 @@ export const en = {
   'devices.empty': 'No paired devices',
   'device.online': 'Online',
   'device.offline': 'Offline',
+  'device.expiry': '{days}d left',
   'device.rename': 'Rename',
   'device.renameSave': 'Save',
   'device.renameCancel': 'Cancel',
@@ -57,6 +57,4 @@ export const en = {
   'copyLink': 'Copy link',
   'pair.unavailable': 'Tunnel is closed; no pairing QR code is available',
   'load.error': 'Failed to load remote status',
-  'transport.retrying': 'Connection unavailable; retrying…',
-  'transport.reconnecting': 'Connection lost; reconnecting…',
 } satisfies Record<RemoteKey, string>

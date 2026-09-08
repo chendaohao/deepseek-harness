@@ -58,7 +58,7 @@ describe('authorize', () => {
     for (const host of ['127.0.0.1', '127.0.0.1:8080', 'fake.tunnel.example', '']) {
       // Every request needs the device cookie: behind the tunnel all connections
       // arrive from the loopback address and the Host header is client-controlled.
-      expect(policy.authorize(request({ headers: { host } }))).toBe(false)
+      expect(policy.authorize(request({ headers: { host } })).admitted).toBe(false)
     }
   })
 
@@ -66,21 +66,56 @@ describe('authorize', () => {
     const devices = registry()
     const policy = createAccessPolicy(secret, devices, { now: () => NOW })
     const deviceId = devices.register('mobile', NOW)
-    const { value } = mintCookie(secret, deviceId, NOW)
-    expect(policy.authorize(request({ headers: { host: 'fake.tunnel.example', cookie: COOKIE_NAME + '=' + value } }))).toBe(true)
+    const value = mintCookie(secret, deviceId)
+    expect(policy.authorize(request({ headers: { host: 'fake.tunnel.example', cookie: COOKIE_NAME + '=' + value } })).admitted).toBe(true)
     devices.revoke(deviceId)
-    expect(policy.authorize(request({ headers: { host: 'fake.tunnel.example', cookie: COOKIE_NAME + '=' + value } }))).toBe(false)
+    expect(policy.authorize(request({ headers: { host: 'fake.tunnel.example', cookie: COOKIE_NAME + '=' + value } })).admitted).toBe(false)
   })
 
   it('denies a tampered cookie and refreshes lastSeen for a live one', () => {
     const devices = registry()
     const policy = createAccessPolicy(secret, devices, { now: () => NOW })
     const deviceId = devices.register('mobile', NOW)
-    const { value } = mintCookie(secret, deviceId, NOW)
-    expect(policy.authorize(request({ headers: { cookie: COOKIE_NAME + '=v2.x.y.AAAA' } }))).toBe(false)
-    expect(policy.authorize(request({ headers: { cookie: COOKIE_NAME + '=' + value } }))).toBe(true)
-    expect(policy.authorize(request({ headers: {} }))).toBe(false)
+    const value = mintCookie(secret, deviceId)
+    expect(policy.authorize(request({ headers: { cookie: COOKIE_NAME + '=v2.x.y.AAAA' } })).admitted).toBe(false)
+    expect(policy.authorize(request({ headers: { cookie: COOKIE_NAME + '=' + value } })).admitted).toBe(true)
+    expect(policy.authorize(request({ headers: {} })).admitted).toBe(false)
     expect(devices.snapshot()[0]?.lastSeen).toBeGreaterThanOrEqual(NOW)
+  })
+
+  it('echoes a fresh Max-Age on the first admitted request of each UTC day', () => {
+    const devices = registry()
+    const policy = createAccessPolicy(secret, devices, { now: () => NOW })
+    const deviceId = devices.register('mobile', NOW)
+    const value = mintCookie(secret, deviceId)
+    const cookie = COOKIE_NAME + '=' + value
+    // Same-day requests admit without a refresh.
+    expect(policy.authorize(request({ headers: { cookie } }))).toEqual({ admitted: true })
+    // Crossing the UTC day boundary re-issues the cookie with a fresh Max-Age.
+    const nextDay = NOW + 86_400_000
+    const refreshed = createAccessPolicy(secret, devices, { now: () => nextDay })
+    const verdict = refreshed.authorize(request({ headers: { cookie } }))
+    expect(verdict.admitted).toBe(true)
+    expect(verdict.cookieRefresh).toBe(
+      cookie + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=' + String(COOKIE_MAX_AGE_SECONDS),
+    )
+  })
+
+  it('unbinds a device idle past the 30-day inactivity window', () => {
+    const devices = registry()
+    let now = NOW
+    const policy = createAccessPolicy(secret, devices, { now: () => now })
+    const deviceId = devices.register('mobile', NOW)
+    const value = mintCookie(secret, deviceId)
+    const cookie = COOKIE_NAME + '=' + value
+    // One request just inside the window slides it; the device stays live.
+    now += 30 * 86_400_000 - 60_000
+    expect(policy.authorize(request({ headers: { cookie } })).admitted).toBe(true)
+    // Idle past 30 days from the slid last-seen, the binding auto-unbinds.
+    now += 30 * 86_400_000 + 60_000
+    expect(policy.authorize(request({ headers: { cookie } })).admitted).toBe(false)
+    expect(devices.isLive(deviceId)).toBe(false)
+    expect(devices.snapshot()).toEqual([])
   })
 })
 

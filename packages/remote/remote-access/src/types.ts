@@ -14,13 +14,19 @@ export interface DeviceRecord {
   lastSeen: number
 }
 
+/** One paired device as presented on the control plane and the event bus. */
+export type DeviceView = DeviceRecord & {
+  /** Epoch time the device's 30-day inactivity window ends; daily use slides it forward. */
+  expiresAt: number
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
      * The device roster changed: a device paired, was revoked, or its liveness advanced.
      * @mode emit
-     * @param devices - the live roster snapshot after the change.
+     * @param devices - the live roster view after the change, each record carrying its window expiry.
      */
-    'remote/devices/change'(devices: DeviceRecord[]): void
+    'remote/devices/change'(devices: DeviceView[]): void
   }
 }

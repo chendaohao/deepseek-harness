@@ -44,7 +44,7 @@ beforeEach(async () => {
   })
   await new Promise<void>((resolve) => { target!.listen(0, '127.0.0.1', resolve) })
   targetPort = (target.address() as AddressInfo).port
-  policy = { authorize: () => true, handlePairing: () => false }
+  policy = { authorize: () => ({ admitted: true }), handlePairing: () => false }
 })
 
 afterEach(async () => {
@@ -128,7 +128,7 @@ describe('HTTP relaying', () => {
   })
 
   it('answers 401 with the pairing page when the policy refuses', async () => {
-    const proxy = await startProxy({ authorize: () => false })
+    const proxy = await startProxy({ authorize: () => ({ admitted: false }) })
     const response = await rawRequest(proxy.port, '/', { host: 'fake.tunnel.example' })
     expect(response.status).toBe(401)
     expect(response.headers['content-type']).toContain('text/html')
@@ -137,7 +137,7 @@ describe('HTTP relaying', () => {
 
   it('owns pair paths through the policy without forwarding', async () => {
     const proxy = await startProxy({
-      authorize: () => true,
+      authorize: () => ({ admitted: true }),
       handlePairing: (_req, res, pathname) => {
         if (pathname === '/pair/AAAA') {
           res.writeHead(302, { location: '/' })
@@ -249,7 +249,7 @@ describe('WebSocket relaying', () => {
     proxy = await createRemoteProxy({
       targetPort: echoPort,
       policy: {
-        authorize: req => req.headers['x-authorized'] === 'yes',
+        authorize: req => req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false },
         handlePairing: () => false,
       },
     })
@@ -277,7 +277,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: echoPort,
-      policy: { authorize: () => true, handlePairing: () => false },
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
     })
     const echoed = new Promise<string>((resolve) => {
       const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port) + '/api/remote.mux', { headers: { cookie: 'dsh_remote=v2.device' } })
@@ -320,7 +320,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: upstream.port,
-      policy: { authorize: req => req.headers['x-authorized'] === 'yes', handlePairing: () => false },
+      policy: { authorize: req => req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }, handlePairing: () => false },
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port), { headers: { 'x-authorized': 'yes' } })
     await new Promise<void>((resolve) => { client.on('open', () => { resolve() }) })
@@ -341,7 +341,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: deadPort,
-      policy: { authorize: req => req.headers['x-authorized'] === 'yes', handlePairing: () => false },
+      policy: { authorize: req => req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }, handlePairing: () => false },
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port), { headers: { 'x-authorized': 'yes' } })
     const closed = new Promise<void>((resolve) => { client.on('close', () => { resolve() }) })
@@ -353,7 +353,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: echoPort,
-      policy: { authorize: req => req.headers['x-authorized'] === 'yes', handlePairing: () => false },
+      policy: { authorize: req => req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }, handlePairing: () => false },
     })
     const echoClosed = new Promise<void>((resolve) => {
       wss!.once('connection', (socket) => { socket.on('close', () => { resolve() }) })
@@ -368,7 +368,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: echoPort,
-      policy: { authorize: () => true, handlePairing: () => false },
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
     })
     // The upstream pings on a fast cadence, standing in for the gateway's
     // heartbeat interval; a forwarded ping is the visitor leg's only traffic.
@@ -397,7 +397,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: echoPort,
-      policy: { authorize: () => true, handlePairing: () => false },
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
     })
     // The second unanswered relayed ping exceeds the miss budget: the pair
     // must close, ending the upstream fan-out into the dead leg.
@@ -433,7 +433,7 @@ describe('WebSocket relaying', () => {
     proxy = await createRemoteProxy({
       targetPort: blackholePort,
       policy: {
-        authorize: req => req.headers['x-authorized'] === 'yes',
+        authorize: req => req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false },
         handlePairing: () => false,
       },
     })
@@ -453,7 +453,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: echoPort,
-      policy: { authorize: req => req.headers['x-authorized'] === 'yes', handlePairing: () => false },
+      policy: { authorize: req => req.headers['x-authorized'] === 'yes' ? { admitted: true } : { admitted: false }, handlePairing: () => false },
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port), { headers: { 'x-authorized': 'yes' } })
     const closed = new Promise<number>((resolve) => { client.on('close', (code) => { resolve(code) }) })
@@ -471,7 +471,7 @@ describe('WebSocket relaying', () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: upstream.port,
-      policy: { authorize: () => true, handlePairing: () => false },
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port))
     const closed = new Promise<void>((resolve) => { client.on('close', () => { resolve() }) })

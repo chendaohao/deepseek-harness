@@ -267,13 +267,13 @@ export class RemoteAccess extends Service {
     res.end(JSON.stringify({
       tunnelUrl: this.session?.url ?? null,
       tunnelStatus: this.session === undefined ? 'down' : 'open',
-      devices: this.devices?.snapshot() ?? [],
+      devices: this.devices?.snapshotWithExpiry() ?? [],
     }))
   }
 
   private respondDevices(res: ServerResponse): void {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-    res.end(JSON.stringify({ devices: this.devices?.snapshot() ?? [] }))
+    res.end(JSON.stringify({ devices: this.devices?.snapshotWithExpiry() ?? [] }))
   }
 
   private issuePair(res: ServerResponse): void {
@@ -328,7 +328,7 @@ export class RemoteAccess extends Service {
 
   private emitDeviceChange(): void {
     try {
-      this.ctx.emit('remote/devices/change', this.devices?.snapshot() ?? [])
+      this.ctx.emit('remote/devices/change', this.devices?.snapshotWithExpiry() ?? [])
     } catch (error) {
       // A throwing listener must not abort the proxy request path that fired it.
       this.ctx.logger.error(error)

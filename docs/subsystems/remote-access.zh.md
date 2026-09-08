@@ -2,7 +2,7 @@
 
 [English](remote-access.md) | 中文
 
-远程接入能力：通过公网 HTTPS 隧道与手机配对进入本地 Web GUI，支持可吊销设备会话。[`dsh-remote-tunnel`](../../packages/remote/remote-tunnel) 提供 `ctx.remoteTunnel` Service，启动固定版本且校验 SHA-256 的 cloudflared，每次 open 解析出一个 `RemoteTunnelSession` ——会话的公网 URL 与幂等清理——会话通过 `remote-tunnel/state` 报告状态。[`dsh-remote-access`](../../packages/remote/remote-access) 消费隧道与宿主 Web 服务器端口：配对密钥、可吊销设备注册表、仅监听 loopback 的反向代理及其配对闸门与设备作用域 cookie、终端 URL + 二维码呈现，以及仅桌面可达的 `/remote/*` 控制面（`remote/devices/change` 事件经 allowlist 桥转发）。[`dsh-client-ui-remote`](../../packages/client/ui-remote) 拥有客户端表面：界面内远程面板与独立 `/m` 移动页面。它不属于 agent loop；能力未启用时本机与局域网行为保持不变。
+远程接入能力：通过公网 HTTPS 隧道与手机配对进入本地 Web GUI，支持可吊销设备会话。[`dsh-remote-tunnel`](../../packages/remote/remote-tunnel) 提供 `ctx.remoteTunnel` Service，启动固定版本且校验 SHA-256 的 cloudflared，每次 open 解析出一个 `RemoteTunnelSession` ——会话的公网 URL 与幂等清理——会话通过 `remote-tunnel/state` 报告状态。[`dsh-remote-access`](../../packages/remote/remote-access) 消费隧道与宿主 Web 服务器端口：配对密钥、可吊销设备注册表、仅监听 loopback 的反向代理及其配对闸门与设备作用域 cookie、终端 URL + 二维码呈现，以及仅桌面可达的 `/remote/*` 控制面（`remote/devices/change` 事件经 allowlist 桥转发）。[`dsh-client-ui-remote`](../../packages/client/ui-remote) 拥有客户端表面：界面内远程面板。它不属于 agent loop；能力未启用时本机与局域网行为保持不变。
 
 源码：[`packages/remote/remote-tunnel/src/index.ts`](../../packages/remote/remote-tunnel/src/index.ts) 与 [`packages/remote/remote-access/src/index.ts`](../../packages/remote/remote-access/src/index.ts)
 

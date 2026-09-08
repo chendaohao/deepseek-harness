@@ -7,14 +7,25 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { DeviceRecord } from './types.ts'
+import { dayIndex } from './secret.ts'
+import type { DeviceRecord, DeviceView } from './types.ts'
 
 /** Milliseconds a pairing token stays valid after issuance. */
 export const TOKEN_TTL_MS = 15 * 60_000
+/** Inactivity window after which a device binding auto-unbinds. */
+export const DEVICE_INACTIVITY_MS = 30 * 86_400_000
 /** Device-id length in bytes; base64url output is dot-free so it splits cleanly inside a cookie. */
 const DEVICE_ID_BYTES = 16
 /** Minimum seconds between liveness-change notifications per device. */
 const TOUCH_NOTIFY_MIN_SECONDS = 5
+
+/** One admission touch's outcome. */
+export interface TouchResult {
+  /** Whether the device is admitted: the binding exists and is inside the inactivity window. */
+  readonly admitted: boolean
+  /** The touch crossed a UTC day boundary: the gate re-issues the cookie's Max-Age now. */
+  readonly dayRolled: boolean
+}
 
 /** One-time pairing tokens plus the persistent, revocable device roster. */
 export class DeviceRegistry {
@@ -124,15 +135,29 @@ export class DeviceRegistry {
   }
 
   /**
-   * Refresh a device's last-seen time, notifying at most once per interval.
+   * Refresh a device's last-seen time, sliding its 30-day inactivity window;
+   * a device idle past the window is unbound and denied. Notifies at most
+   * once per interval, and reports UTC day rollover so the gate can refresh
+   * the browser cookie's Max-Age on the response.
    * @param deviceId - the device to touch.
    * @param now - the current epoch time in milliseconds.
+   * @returns the admission verdict and whether the UTC day rolled over.
    */
-  touch(deviceId: string, now: number): void {
+  touch(deviceId: string, now: number): TouchResult {
     const record = this.devices.get(deviceId)
-    if (record === undefined || now - record.lastSeen < TOUCH_NOTIFY_MIN_SECONDS * 1000) return
+    if (record === undefined) return { admitted: false, dayRolled: false }
+    if (now - record.lastSeen >= DEVICE_INACTIVITY_MS) {
+      this.devices.delete(deviceId)
+      this.onChange?.(true)
+      return { admitted: false, dayRolled: false }
+    }
+    const dayRolled = dayIndex(now) > dayIndex(record.lastSeen)
+    if (now - record.lastSeen < TOUCH_NOTIFY_MIN_SECONDS * 1000 && !dayRolled) {
+      return { admitted: true, dayRolled }
+    }
     record.lastSeen = now
     this.onChange?.(false)
+    return { admitted: true, dayRolled }
   }
 
   /**
@@ -159,5 +184,14 @@ export class DeviceRegistry {
    */
   snapshot(): DeviceRecord[] {
     return [...this.devices.values()].reverse()
+  }
+
+  /**
+   * Snapshot of the live roster, newest first, each record carrying the
+   * epoch time its inactivity window ends (lastSeen + 30 days).
+   * @returns the live device views with their expiry instants.
+   */
+  snapshotWithExpiry(): DeviceView[] {
+    return this.snapshot().map(record => ({ ...record, expiresAt: record.lastSeen + DEVICE_INACTIVITY_MS }))
   }
 }

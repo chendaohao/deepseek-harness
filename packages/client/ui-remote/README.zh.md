@@ -1,5 +1,5 @@
 ---
-description: "浏览器侧远程控制表面：桌面配对/设备面板与配对后的 `/m` 移动页，渲染在 remote-access 控制面之上。"
+description: "浏览器侧远程控制表面：桌面配对/设备面板，渲染在 remote-access 控制面之上。"
 kind: "package-reference"
 ---
 # @deepseek-ai/dsh-client-ui-remote
@@ -8,7 +8,7 @@ kind: "package-reference"
 
 ## 概述
 
-Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标入口（`sidebar.footer.action`）打开桌面面板：隧道状态徽标、一次性配对二维码、带逐设备改名与吊销的已配对设备列表，以及停止全部操作。数据走仅桌面的 remote-access 控制面——`GET /remote/state`、`POST /remote/pair/issue`、`POST /remote/devices/<deviceId>/revoke`、`POST /remote/devices/<deviceId>/rename` 与 `POST /remote/stop`——以及面板打开期间转发的 `remote/devices/change` 与 `remote-tunnel/state` 事件。配对后的 `/m` 页复用平台 `/api` 传输与转发事件，以小屏形式渲染同一状态。
+Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标入口（`sidebar.footer.action`）打开桌面面板：隧道状态徽标、一次性配对二维码、带逐设备改名与吊销的已配对设备列表，以及停止全部操作。数据走仅桌面的 remote-access 控制面——`GET /remote/state`、`POST /remote/pair/issue`、`POST /remote/devices/<deviceId>/revoke`、`POST /remote/devices/<deviceId>/rename` 与 `POST /remote/stop`——以及面板打开期间转发的 `remote/devices/change` 与 `remote-tunnel/state` 事件。
 
 ## 目录
 
@@ -25,7 +25,7 @@ Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标
 
 #### KV Cache effect
 
-无；面板与 `/m` 页不组装模型请求。
+无；面板不组装模型请求。
 
 ## 已知限制与暂缓事项
 
@@ -42,8 +42,8 @@ Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标
 ### 开发备注
 
 <details>
-<summary>两个表面如何接线</summary>
+<summary>面板如何接线</summary>
 
-桌面面板通过 `sidebar.footer.action` 槽位挂载，并仅在打开期间订阅转发的 remote 事件。`/m` 页以一个自包含 bundle（`lib/mobile.js`）交付，由本包独立的 tsdown 入口构建；`bundle` 脚本必须先运行，node half 才能服务它。导出纪律遵循 packages/client/AGENTS.md：不跨插件值导入；`ctx.remote`、`ctx.slots`、`ctx.locale` 为注入的 peer。
+桌面面板通过 `sidebar.footer.action` 槽位挂载，并仅在打开期间订阅转发的 remote 事件。导出纪律遵循 packages/client/AGENTS.md：不跨插件值导入；`ctx.remote`、`ctx.slots`、`ctx.locale` 为注入的 peer。
 
 </details>

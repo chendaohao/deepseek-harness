@@ -13,6 +13,8 @@ export interface RemoteDeviceRecord {
   name: string
   createdAt: number
   lastSeen: number
+  /** Epoch time the device's 30-day inactivity window ends; daily use slides it forward. */
+  expiresAt: number
 }
 
 /** Terminal or reporting facts about one tunnel session, discriminated by status. */
