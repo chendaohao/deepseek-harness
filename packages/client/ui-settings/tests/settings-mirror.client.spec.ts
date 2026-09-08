@@ -94,13 +94,14 @@ describe('SettingsDescribeMirror', () => {
     expect(describeCall).toHaveBeenCalledTimes(1)
   })
 
-  it('memory persistence is terminally unavailable and never touches the wire', async () => {
-    const describeCall = vi.fn()
-    const mirror = new SettingsDescribeMirror(ctxWith(describeCall), 'memory')
+  it('falls back to idle after a failed read so the next ensure retries', async () => {
+    const describeCall = vi.fn().mockRejectedValueOnce(new Error('carrier down'))
+    const mirror = new SettingsDescribeMirror(ctxWith(describeCall))
     await mirror.ensure()
-    await mirror.load()
-    expect(mirror.getSnapshot()).toEqual({ status: 'unavailable', view: undefined, error: null })
-    expect(describeCall).not.toHaveBeenCalled()
+    expect(mirror.getSnapshot()).toEqual({ status: 'idle', view: undefined, error: 'carrier down' })
+    describeCall.mockResolvedValueOnce(described([view('theme', 1)]))
+    await mirror.ensure()
+    expect(mirror.getSnapshot()).toEqual({ status: 'ready', view: { writable: true, hasDocument: true, namespaces: [view('theme', 1)] }, error: null })
   })
 
   it('acceptView folds one write answer into the held view without a wire read', async () => {

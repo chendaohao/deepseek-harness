@@ -321,7 +321,7 @@ describe('CardForm', () => {
     const host = stubSettingsScope<Record<string, unknown>>()
     const subject = new CardForm(host.scope, [numberField('timeoutMs')])
 
-    host.publish({ status: 'unavailable' })
+    host.publish({ status: 'unavailable', writable: false })
 
     expect(subject.shell()).toMatchObject({ available: false, writable: false })
   })

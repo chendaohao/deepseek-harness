@@ -84,6 +84,18 @@ export interface ConnectionTrustRequest {
 /** HTTP status returned before dispatch, or undefined when the request may proceed. */
 export type ConnectionRequestRejection = 401 | 403 | undefined
 
+/** Outcome of one authenticated browser request, with the cookie refresh when due. */
+export interface ConnectionAuthenticationVerdict {
+  /** Whether the request carries a valid, unexpired browser cookie. */
+  readonly authenticated: boolean
+  /**
+   * A fresh full-lifetime Set-Cookie value, present when the request crossed a
+   * UTC day since its cookie was issued. Callers owning a response attach it;
+   * upgrade paths have no response headers and drop it.
+   */
+  readonly cookieRefresh?: string
+}
+
 /** Root/index request facts used by the browser-token exchange. */
 export interface ConnectionIndexRequest extends ConnectionTrustRequest {
   readonly method?: string | undefined
@@ -179,9 +191,15 @@ export interface HostConnectionHandle {
    * Apply Connection's Host/Origin checks and browser authentication to
    * another Web route.
    * @param request - request headers from the HTTP or upgrade request.
+   * @param appendHeader - when supplied and the request crossed a UTC day since
+   *   its cookie was issued, receives a fresh full-lifetime Set-Cookie value to
+   *   attach to the response; upgrades have no response headers and drop it.
    * @returns rejection status, or undefined when the route may accept the request.
    */
-  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection
+  requestRejection(
+    request: ConnectionTrustRequest,
+    appendHeader?: (name: 'set-cookie', value: string) => void,
+  ): ConnectionRequestRejection
 
   /**
    * Authenticate one frontend index request, owning a token redirect or 401.

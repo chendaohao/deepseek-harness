@@ -4,6 +4,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { CredentialProvider, CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import type {
+  ConnectionAuthenticationVerdict,
   ConnectionIndexRequest,
   ConnectionIndexResponse,
   ConnectionTrustRequest,
@@ -18,6 +19,11 @@ const COOKIE_PAYLOAD_VERSION = 1
 const STORED_SECRET_VERSION = 1
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/
 const PROCESS_LAUNCH_TOKENS = new WeakMap<object, string>()
+
+/** The UTC day index anchoring the daily cookie-refresh cadence. */
+function dayIndex(now: number): number {
+  return Math.floor(now / DAY_MILLISECONDS)
+}
 
 interface StoredSecretPayload {
   readonly version: typeof STORED_SECRET_VERSION
@@ -287,18 +293,51 @@ export class BrowserAuth {
    * @returns true only for an unexpired cookie signed by this activation's loaded secret.
    */
   isAuthenticated(request: ConnectionTrustRequest): boolean {
+    return this.verify(request) !== undefined
+  }  /**
+   * Verify the presented browser cookie and, when it crossed a UTC day since
+   * its issue, mint a fresh full-lifetime Set-Cookie for the response. Callers
+   * that own a response attach the header; the upgrade paths drop it
+   * (documented semantics: the refresh rides the next plain request).
+   * @param request - request headers carrying Host and Cookie.
+   * @returns the authentication verdict plus the refresh Set-Cookie when due.
+   */
+  authenticate(request: ConnectionTrustRequest): ConnectionAuthenticationVerdict {
+    const payload = this.verify(request)
+    if (payload === undefined) return { authenticated: false }
+    if (dayIndex(Date.now()) <= dayIndex(payload.issuedAt)) return { authenticated: true }
+    const issuedAt = Date.now()
+    const expiresAt = issuedAt + this.maxAgeMilliseconds
+    const fresh = encodeCookie({
+      version: COOKIE_PAYLOAD_VERSION,
+      authority: payload.authority,
+      issuedAt,
+      expiresAt,
+    }, this.secret)
+    return {
+      authenticated: true,
+      cookieRefresh: sessionCookie(
+        cookieName(payload.authority), fresh, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),
+      ),
+    }
+  }
+
+  /** Decode and validate the request's cookie; undefined when absent or unauthenticated. */
+  private verify(request: ConnectionTrustRequest): BrowserCookiePayload | undefined {
     const authority = requestAuthority(request.headers)
     const rawCookie = header(request.headers, 'cookie')
-    if (authority === undefined || rawCookie === undefined) return false
+    if (authority === undefined || rawCookie === undefined) return undefined
     const value = cookieValue(rawCookie, cookieName(authority))
-    if (value === undefined) return false
+    if (value === undefined) return undefined
     const payload = decodeCookie(value, this.secret)
-    if (payload === undefined || payload.authority !== authority) return false
+    if (payload === undefined || payload.authority !== authority) return undefined
     const now = Date.now()
     return payload.issuedAt <= now
       && payload.expiresAt > now
       && payload.expiresAt > payload.issuedAt
       && payload.expiresAt - payload.issuedAt <= this.maxAgeMilliseconds
+      ? payload
+      : undefined
   }
 
   private writeUnauthorized(req: ConnectionIndexRequest, res: ConnectionIndexResponse): void {

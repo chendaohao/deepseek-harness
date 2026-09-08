@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-credentials'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { API_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
+import { factsFrom, runWithRequestFacts } from './request-facts.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
 import { BrowserAuth } from './browser-auth.ts'
 import { HostConnectionService } from './rpc-host.ts'
@@ -44,6 +45,7 @@ export {
 export { HostConnectionService } from './rpc-host.ts'
 
 export { API_PATH } from './api-path.ts'
+export { currentRequestFacts, factsFrom, runWithRequestFacts, type RequestFacts } from './request-facts.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
@@ -126,13 +128,15 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
       kind: 'prefix',
       path: API_PATH,
       handler: async (req, res) => {
-        const rejection = connection.requestRejection(req)
+        const rejection = connection.requestRejection(req, (name, value) => { res.appendHeader(name, value) })
         if (rejection !== undefined) {
           res.writeHead(rejection)
           res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
           return
         }
-        await bridge(req, res, fetchHandler, maxRequestBodyBytes)
+        // Request facts ride AsyncLocalStorage so a deep Remote owner (e.g. the
+        // settings write fence) can observe them without a threaded parameter.
+        await runWithRequestFacts(factsFrom(req), () => bridge(req, res, fetchHandler, maxRequestBodyBytes))
       },
     }
     webCtx.effect(() => webCtx.webServer.register(route), 'client-connection: /api route')

@@ -60,8 +60,6 @@ describe('dsh-workspace-ext bundle', () => {
     expect(rows.find(row => row.id === 'client-ui-remote')).toEqual({
       id: 'client-ui-remote',
       name: '@deepseek-ai/dsh-client-ui-remote',
-      inject: ['webStartup'],
-      config: { enabled: { __jsExpr: 'ctx.webStartup.remote ?? false' } },
     })
     // The mounted plugins are exactly the declared dependencies.
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([

@@ -20,6 +20,13 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
      */
     'settings/conflict': { readonly ns: string; readonly expected: number; readonly actual: number }
     /**
+     * The request arrived through the remote-access proxy (a paired tunnel
+     * client) and the write it addressed is not open to forwarded callers:
+     * settings writes while `forwardedWrite` is off, or a credential write,
+     * which never opens.
+     */
+    'settings/forwarded-write-disabled': { readonly ns?: string }
+    /**
      * The provider refused a valid credential write, for example because a
      * read-only source shadows the reference. The details name only the
      * reference, never the value.

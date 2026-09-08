@@ -70,7 +70,7 @@ function derivedScope(
 ) {
   const ctx = ctxWith(api)
   const mirror = new SettingsDescribeMirror(ctx)
-  const scope = new SettingsScopeController<UiTestSettings>(ctx, spec, mirror, 'host', settingsSchema)
+  const scope = new SettingsScopeController<UiTestSettings>(ctx, spec, mirror, settingsSchema)
   return { mirror, scope }
 }
 
@@ -237,8 +237,8 @@ describe('SettingsScopeController', () => {
     const mutate = vi.fn().mockResolvedValueOnce(ok(view({ preference: 'dark' }, 5)))
     const ctx = ctxWith({ describe: describeCall, mutate })
     const mirror = new SettingsDescribeMirror(ctx)
-    const writer = new SettingsScopeController<UiTestSettings>(ctx, { namespace: 'ui-test' }, mirror, 'host', settingsSchema)
-    const sibling = new SettingsScopeController<UiTestSettings>(ctx, { namespace: 'ui-test' }, mirror, 'host', settingsSchema)
+    const writer = new SettingsScopeController<UiTestSettings>(ctx, { namespace: 'ui-test' }, mirror, settingsSchema)
+    const sibling = new SettingsScopeController<UiTestSettings>(ctx, { namespace: 'ui-test' }, mirror, settingsSchema)
     await mirror.load()
     await writer.set('preference', 'dark')
     expect(describeCall).toHaveBeenCalledTimes(1)
@@ -422,7 +422,7 @@ describe('SettingsScopeController', () => {
       },
     } as never
     const scope = new SettingsScopeController<UiTestSettings>(
-      ctxWith({}), { namespace: 'ui-test' }, mirror, 'host', settingsSchema)
+      ctxWith({}), { namespace: 'ui-test' }, mirror, settingsSchema)
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'dark' }, revision: 1 })
 
     await scope.dispose()
@@ -435,21 +435,21 @@ describe('SettingsScopeController', () => {
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'dark' }, revision: 1 })
   })
 
-  it('keeps a remote browser in memory mode without Host calls', async () => {
-    const describeCall = vi.fn()
-    const mutate = vi.fn()
-    const ctx = ctxWith({ describe: describeCall, mutate })
-    const mirror = new SettingsDescribeMirror(ctx, 'memory')
+  it('carries the describe-determined writable fact into the snapshot', async () => {
+    const ctx = ctxWith({
+      describe: vi.fn().mockResolvedValue(ok({ writable: false, hasDocument: true, namespaces: [view({ preference: 'light' }, 1)] })),
+    })
+    const mirror = new SettingsDescribeMirror(ctx)
     const scope = new SettingsScopeController<UiTestSettings>(
-      ctx, { namespace: 'ui-test' }, mirror, 'memory', settingsSchema)
+      ctx, { namespace: 'ui-test' }, mirror, settingsSchema)
     expect(scope.getSnapshot()).toEqual({
-      status: 'unavailable', value: undefined, revision: undefined, writable: false, mode: 'memory',
+      status: 'loading', value: undefined, base: undefined, user: undefined,
+      revision: undefined, writable: false, mode: 'host',
     })
     await mirror.load()
-    await scope.set('preference', 'dark')
-    await scope.dispose()
-    expect(describeCall).not.toHaveBeenCalled()
-    expect(mutate).not.toHaveBeenCalled()
+    // A forwarded (paired tunnel) client reads the document but its writes
+    // refuse server-side; the snapshot exposes exactly that posture.
+    expect(scope.getSnapshot()).toMatchObject({ status: 'ready', writable: false, value: { preference: 'light' } })
   })
 
   it('carries the composition base and the user layer into the snapshot', async () => {
@@ -520,7 +520,7 @@ describe('SettingsScopeBinder.bind', () => {
     let theme!: SettingsScope<UiTestSettings>
     let locale!: SettingsScope<UiTestSettings>
     new TestRemote(ctx, { settings: { describe: describeCall } })
-    await ctx.plugin(SettingsScopeBinder, { mirror, schema: settingsSchema, persistence: 'host' }).await()
+    await ctx.plugin(SettingsScopeBinder, { mirror, schema: settingsSchema }).await()
     expect(ctx.settingsScope.describe()).toBe(mirror)
     const fiber = ctx.plugin({
       inject: ['remote', 'settingsScope'],
@@ -540,13 +540,13 @@ describe('SettingsScopeBinder.bind', () => {
     expect(theme.getSnapshot()).toMatchObject({ revision: 1 })
   })
 
-  it('binds a remote browser in memory mode without starting a settings read', async () => {
-    const describeCall = vi.fn()
-    const mirror = new SettingsDescribeMirror(ctxWith({ describe: describeCall }), 'memory')
+  it('exposes the binder over the plain mirror/schema config without persistence', async () => {
+    const describeCall = vi.fn().mockResolvedValue(described({ preference: 'dark' }, 1))
+    const mirror = new SettingsDescribeMirror(ctxWith({ describe: describeCall }))
     const ctx = new Context()
     let scope!: SettingsScope<UiTestSettings>
     new TestRemote(ctx, { settings: { describe: describeCall } })
-    await ctx.plugin(SettingsScopeBinder, { mirror, schema: settingsSchema, persistence: 'memory' }).await()
+    await ctx.plugin(SettingsScopeBinder, { mirror, schema: settingsSchema }).await()
     const fiber = ctx.plugin({
       inject: ['remote', 'settingsScope'],
       apply: (plugin: Context) => {
@@ -554,8 +554,7 @@ describe('SettingsScopeBinder.bind', () => {
       },
     })
     await fiber.await()
-    expect(scope.getSnapshot()).toMatchObject({ status: 'unavailable', mode: 'memory', writable: false })
+    expect(scope.getSnapshot()).toMatchObject({ status: 'ready', mode: 'host', writable: true })
     await fiber.dispose()
-    expect(describeCall).not.toHaveBeenCalled()
   })
 })

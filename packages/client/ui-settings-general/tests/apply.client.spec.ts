@@ -173,13 +173,18 @@ describe('ui-settings-general apply', () => {
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
   })
 
-  it('withholds the Host document action off-loopback', async () => {
+  it('withholds the Host document action off-loopback while the mirror still reads', async () => {
     const b = await bench(false)
     declare(b.slots)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
+    // The document action stays loopback-only: the raw settings yaml carries
+    // unredacted secrets, so a forwarded caller never gets the open action.
     expect(b.slots.entries('settings.action')).toEqual([])
-    expect(b.settingsDescribe).not.toHaveBeenCalled()
+    // The read-only mirror now follows the Host document from any surface.
+    await vi.waitFor(() => {
+      expect(b.settingsDescribe).toHaveBeenCalledTimes(1)
+    })
     await fiber.dispose()
     for (const [name] of SEATS) expect(b.slots.entries(name)).toEqual([])
   })

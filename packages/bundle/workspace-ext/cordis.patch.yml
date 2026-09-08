@@ -29,11 +29,8 @@
         enabled: !!js ctx.webStartup.remote ?? false
         resetSecret: !!js ctx.webStartup.remoteReset ?? false
 
-    # Desktop mobile-remote-control trigger beside Settings in the sidebar
-    # foot; the row stays inert (host-side gate alongside remote-access) until
-    # `--remote` enables it. The /m mobile surface is a later phase.
+    # Desktop remote-control trigger beside Settings in the sidebar foot; the
+    # host half is inert (the browser panel rides the remote-access control
+    # plane once `--remote` enables it).
     - id: client-ui-remote
       name: '@deepseek-ai/dsh-client-ui-remote'
-      inject: [webStartup]
-      config:
-        enabled: !!js ctx.webStartup.remote ?? false

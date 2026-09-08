@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { SettingsDescriptor } from '@deepseek-ai/dsh-settings'
 import { RemoteError, remoteErrorOf, remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
+import { runWithRequestFacts } from '@deepseek-ai/dsh-client-connection'
 import SettingsController from '../src/index.ts'
 import { MemorySettings } from '../../../settings/settings/tests/memory.ts'
 
@@ -430,5 +431,70 @@ describe('the settings Remote namespace a configuration page calls', () => {
       .rejects.toMatchObject({ code: 'gateway/cancelled' })
     await expect(controller.openAgentPresetDirectory('second', new AbortController().signal))
       .rejects.toMatchObject({ code: 'gateway/internal', message: 'path open failed: desktop unavailable' })
+  })
+})
+
+describe('the forwarded-write fence on settings writes', () => {
+  it('reports writable false and refuses every write for a forwarded request', async () => {
+    const { controller } = await boot()
+    const described = runWithRequestFacts({ headers: { 'x-dsh-proxied': '1' } }, () => controller.describe())
+    expect(described.writable).toBe(false)
+    const forwarded = (): { headers: Record<string, string> } => ({ headers: { 'x-dsh-proxied': '1' } })
+    for (const call of [
+      () => runWithRequestFacts(forwarded(), () => controller.update(NS, { preference: 'dark' }, undefined)),
+      () => runWithRequestFacts(forwarded(), () => controller.replace(NS, { preference: 'dark' }, undefined)),
+      () => runWithRequestFacts(forwarded(), () => controller.mutate(NS, [], undefined)),
+    ]) {
+      const failure = await Promise.resolve().then(call).catch((error: unknown) => error)
+      expect(remoteErrorOf(failure)).toMatchObject({
+        code: 'settings/forwarded-write-disabled',
+        details: {},
+      })
+    }
+    // The fence fired before any provider work: nothing was written.
+    expect(controller.describe().namespaces[0]?.value).toMatchObject({ preference: 'light' })
+  })
+
+  it('lets forwarded writes through once forwardedWrite is on, and keeps describe truthful', async () => {
+    const ctx = new Context()
+    await ctx.plugin(MemorySettings)
+    ctx.settings.register(NS, Profile)
+    await ctx.plugin(SettingsController, { forwardedWrite: true })
+    const controller = ctx.settingsController
+    const described = runWithRequestFacts({ headers: { 'x-dsh-proxied': '1' } }, () => controller.describe())
+    expect(described.writable).toBe(true)
+    const written = await runWithRequestFacts(
+      { headers: { 'x-dsh-proxied': '1' } },
+      () => controller.update(NS, { preference: 'dark' }, undefined),
+    )
+    expect(written.value).toMatchObject({ preference: 'dark' })
+  })
+
+  it('treats an in-process call with no request facts as the local case', async () => {
+    const { controller } = await boot()
+    expect(controller.describe().writable).toBe(true)
+    await expect(controller.update(NS, { preference: 'dark' }, undefined)).resolves.toMatchObject({
+      value: { preference: 'dark' },
+    })
+  })
+
+  it('ignores the plain header when it is not the proxy marker: only x-dsh-proxied counts', async () => {
+    const { controller } = await boot()
+    const described = runWithRequestFacts({ headers: { 'x-forwarded-for': '203.0.113.9' } }, () => controller.describe())
+    expect(described.writable).toBe(true)
+  })
+
+  it('still reports the provider read-only fact to a forwarded caller', async () => {
+    const ctx = new Context()
+    await ctx.plugin(MemorySettings, { writable: false })
+    ctx.settings.register(NS, Profile)
+    await ctx.plugin(SettingsController, { forwardedWrite: true })
+    const described = runWithRequestFacts(
+      { headers: { 'x-dsh-proxied': '1' } },
+      () => ctx.settingsController.describe(),
+    )
+    // The switch opens the transport fence, not the provider's own writability.
+    expect(described.writable).toBe(false)
+
   })
 })

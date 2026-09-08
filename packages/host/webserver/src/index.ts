@@ -18,6 +18,7 @@ import { renderIndexInjections, type IndexInjection } from './injections.ts'
 
 export { renderIndexInjections } from './injections.ts'
 export type { IndexInjection, IndexInjectionPlacement } from './injections.ts'
+export { PROXIED_HEADER } from './forwarded.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

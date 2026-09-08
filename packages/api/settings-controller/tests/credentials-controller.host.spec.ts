@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
 import { remoteErrorOf, remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
+import { runWithRequestFacts } from '@deepseek-ai/dsh-client-connection'
 import CredentialsController from '../src/credentials.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 
@@ -134,5 +135,38 @@ describe('the credentials Remote namespace a configuration surface calls', () =>
     const controller = await boot({}, LiteralRejectingCredentials)
     const failure = await controller.set('DEEPSEEK_API_KEY', 'sk-live').catch((error: unknown) => error)
     expect(remoteErrorOf(failure)?.message).toBe('the store refused')
+  })
+})
+
+describe('the forwarded-write fence on credentials', () => {
+  it('reports every reference non-writable and refuses set/unset for a forwarded request', async () => {
+    const controller = await boot({ DEEPSEEK_API_KEY: 'sk-seeded' })
+    const described = await runWithRequestFacts(
+      { headers: { 'x-dsh-proxied': '1' } },
+      () => controller.describe(['DEEPSEEK_API_KEY']),
+    )
+    expect(described).toEqual({ DEEPSEEK_API_KEY: { configured: true, source: 'memory', writable: false } })
+    const forwarded = { headers: { 'x-dsh-proxied': '1' } }
+    for (const call of [
+      () => runWithRequestFacts(forwarded, () => controller.set('DEEPSEEK_API_KEY', 'sk-live')),
+      () => runWithRequestFacts(forwarded, () => controller.unset('DEEPSEEK_API_KEY')),
+    ]) {
+      const failure = await Promise.resolve().then(call).catch((error: unknown) => error)
+      expect(remoteErrorOf(failure)).toMatchObject({ code: 'settings/forwarded-write-disabled' })
+    }
+    // The seeded value survived both refused writes.
+    const after = await controller.describe(['DEEPSEEK_API_KEY'])
+    expect(after.DEEPSEEK_API_KEY).toMatchObject({ configured: true })
+  })
+
+  it('stays writable for a local request even with the header on another field', async () => {
+    const controller = await boot()
+    const described = await runWithRequestFacts(
+      { headers: { 'x-forwarded-for': '203.0.113.9' } },
+      () => controller.describe(['DEEPSEEK_API_KEY']),
+    )
+    expect(described).toEqual({ DEEPSEEK_API_KEY: { configured: false, writable: true } })
+    await controller.set('DEEPSEEK_API_KEY', 'sk-live')
+    await expect(controller.unset('DEEPSEEK_API_KEY')).resolves.toBeUndefined()
   })
 })

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-remote",
-  "description": "Remote-control surface for the Web GUI: desktop panel (sidebar footer trigger, tunnel status badge, pairing QR, device roster, revocation) plus the standalone /m mobile interface",
+  "description": "Remote-control surface for the Web GUI: desktop panel (sidebar footer trigger, tunnel status badge, pairing QR, device roster, revocation)",
   "version": "0.1.3-alpha.1",
   "publishConfig": {
     "access": "public"
@@ -71,7 +71,6 @@
   "files": [
     "lib/index.js",
     "lib/client.js",
-    "lib/mobile.js",
     "lib/types/**/*.d.ts"
   ]
 }

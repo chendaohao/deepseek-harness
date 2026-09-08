@@ -25,6 +25,7 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { z } from 'zod'
 import { CredentialsController } from './credentials.ts'
+import { isForwardedRequest } from './forwarded-write.ts'
 import type { AgentPresetDirectoryOpenValue, SettingsDocumentOpenValue } from './types.ts'
 
 export { CredentialsController } from './credentials.ts'
@@ -32,10 +33,19 @@ export type * from './types.ts'
 
 const settingsNamespaceRequestSchema = z.object({ ns: z.string().min(1) })
 
-/** Native document-opening policy. */
+/** Native document-opening and forwarded-write policy. */
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /**
+   * Allow settings and credential writes from requests that arrived through
+   * the remote-access proxy (a paired tunnel client). Default `false`: a
+   * forwarded caller reads everything but every write refuses with
+   * `settings/forwarded-write-disabled`. Direct loopback callers are never
+   * affected. Opening this switch grants tunnel clients the same write reach
+   * the desktop has — including permission presets — minus credential values.
+   */
+  readonly forwardedWrite?: boolean
 }
 
 /** Read abort state afresh after an awaited provider or opener call. */
@@ -86,17 +96,22 @@ declare module '@deepseek-ai/cordis' {
  * `settings/conflict` or `settings/rejected` with the service's message.
  */
 export class SettingsController extends TypertRemoteService {
-  static Config: Schema<Config> = Schema.object({ nativeOpen: Schema.boolean() })
+  static Config: Schema<Config> = Schema.object({
+    nativeOpen: Schema.boolean(),
+    forwardedWrite: Schema.boolean().default(false),
+  })
 
   private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
   private readonly openTextFile: (path: string, signal: AbortSignal) => Promise<void>
   private readonly canOpenPath: () => boolean
+  private readonly forwardedWrite: boolean
 
   /**
    * Register the settings namespace and mount the credentials namespace beside
    * it. Both namespaces stay registered when a provider is absent so calls can
    * return the configuration API's actionable missing-provider diagnostic.
    * @param ctx - Host context where settings and credential providers may be mounted.
+   * @param config - validated {@link Config}.
    */
   constructor(ctx: Context, config: Config = {}, internals: SettingsControllerInternals = {}) {
     super(ctx, 'settingsController', { namespace: 'settings' })
@@ -104,20 +119,34 @@ export class SettingsController extends TypertRemoteService {
     this.openTextFile = internals.openTextFile ?? openNativeTextFile
     this.canOpenPath = internals.canOpenPath
       ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
+    this.forwardedWrite = config.forwardedWrite ?? false
     ctx.plugin(CredentialsController)
+  }
+
+  /** The write fence every write method passes: a forwarded request needs the switch. */
+  private assertWriteAllowed(): void {
+    if (isForwardedRequest() && !this.forwardedWrite) {
+      throw new RemoteError(
+        'settings/forwarded-write-disabled',
+        'settings writes from a forwarded (paired tunnel) client are disabled; enable settingsController.forwardedWrite to allow them',
+        {},
+      )
+    }
   }
 
   /**
    * Describe every registered namespace for a configuration page: redacted
    * layered values plus the serialized schema the page renders its form from.
-   * @returns provider writability, local-document presence, and one view per namespace.
+   * @returns provider writability (false for a forwarded request unless
+   *   {@link Config.forwardedWrite} is on — the client's single writable truth),
+   *   local-document presence, and one view per namespace.
    * @throws RemoteError when no settings provider is mounted.
    */
   @Remote
   describe(): SettingsDescribeValue {
     const settings = this.provider()
     return {
-      writable: settings.writable,
+      writable: settings.writable && (!isForwardedRequest() || this.forwardedWrite),
       hasDocument: settings.documentPath !== undefined,
       namespaces: settings.describe({ redactSecrets: true }).map(namespaceView),
     }
@@ -263,6 +292,7 @@ export class SettingsController extends TypertRemoteService {
     input: Record<string, JsonValue> | SettingsPathOpView[],
     expectedRevision: number | undefined,
   ): Promise<SettingsNamespaceView> {
+    this.assertWriteAllowed()
     const parsed = settingsNamespaceRequestSchema.safeParse({ ns })
     if (!parsed.success) {
       throw new RemoteError('gateway/bad-request', `invalid payload for settings.${mode}`, { issues: parsed.error.issues })

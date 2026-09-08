@@ -439,6 +439,90 @@ function matchesSpecifier(patterns: readonly RegExp[], specifier: string): boole
   return patterns.some(pattern => pattern.test(specifier))
 }
 
+/**
+ * The CSS-inline plugin trio shared by every browser bundle: module CSS becomes
+ * a hashed class map plus a factory-executed style injection, `?inline` text
+ * and global sheets become injected (or exported) strings. Intercepting at
+ * resolveId keeps stylesheets away from tsdown's own css pipeline, which
+ * extracts to a side artifact without a transform sourcemap (rolldown then
+ * warns SOURCEMAP_BROKEN on sourcemap builds) and which a standalone page
+ * would never fetch.
+ *
+ * Relative specifiers resolve against the source tree (`sourceAssetPath`); a
+ * bare package specifier (`katex/dist/katex.min.css`) delegates to rolldown's
+ * resolver with `skipSelf` so the node_modules path comes back absolute.
+ * @param id - bundle id stamped onto the injected style tags.
+ * @returns the plugin list to append after the purity gate.
+ */
+export function cssInlinePlugins(id: string) {
+  return [{
+    name: 'dsh-css-modules-inline',
+    resolveId: {
+      order: 'pre' as const,
+      async handler(this: Resolver, source: string, importer: string | undefined) {
+        if (!source.endsWith('.module.css')) return null
+        const abs = await stylesheetFileId(this, source, importer)
+        return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
+      },
+    },
+    async load(this: Resolver, virtualId: string) {
+      if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
+      const fileId = virtualFileId(CSS_VIRTUAL_PREFIX, virtualId)
+      // The virtual id otherwise hides the physical stylesheet from Rolldown's watch graph.
+      this.addWatchFile(fileId)
+      const source = await readFile(fileId)
+      const { code, exports: cssExports } = transform({
+        filename: fileId,
+        code: source,
+        cssModules: { pattern: '[hash]_[local]' },
+        minify: true,
+      })
+      const classMap: Record<string, string> = {}
+      const exportEntries = Object.entries(cssExports ?? {})
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      for (const [local, exp] of exportEntries) classMap[local] = exp.name
+      return styleInjectionModule(id, fileId, code.toString(), classMap)
+    },
+  }, {
+    name: 'dsh-css-text-inline',
+    resolveId: {
+      order: 'pre' as const,
+      async handler(this: Resolver, source: string, importer: string | undefined) {
+        if (!source.endsWith(`.css${INLINE_CSS_QUERY}`)) return null
+        const stylesheet = source.slice(0, -INLINE_CSS_QUERY.length)
+        const abs = await stylesheetFileId(this, stylesheet, importer)
+        return INLINE_CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
+      },
+    },
+    async load(this: Resolver, virtualId: string) {
+      if (!virtualId.startsWith(INLINE_CSS_VIRTUAL_PREFIX)) return null
+      const fileId = virtualFileId(INLINE_CSS_VIRTUAL_PREFIX, virtualId)
+      this.addWatchFile(fileId)
+      const source = await readFile(fileId)
+      const { code } = transform({ filename: fileId, code: source, minify: true })
+      return `export default ${JSON.stringify(code.toString())};`
+    },
+  }, {
+    name: 'dsh-css-global-inline',
+    resolveId: {
+      order: 'pre' as const,
+      async handler(this: Resolver, source: string, importer: string | undefined) {
+        if (!source.endsWith('.css') || source.endsWith('.module.css')) return null
+        const abs = await stylesheetFileId(this, source, importer)
+        return GLOBAL_CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
+      },
+    },
+    async load(this: Resolver, virtualId: string) {
+      if (!virtualId.startsWith(GLOBAL_CSS_VIRTUAL_PREFIX)) return null
+      const fileId = virtualFileId(GLOBAL_CSS_VIRTUAL_PREFIX, virtualId)
+      this.addWatchFile(fileId)
+      const source = await readFile(fileId)
+      const { code } = transform({ filename: fileId, code: source, minify: true })
+      return styleInjectionModule(id, fileId, code.toString())
+    },
+  }]
+}
+
 function clientConfig(id: string, entry: string): UserConfig {
   const isRequested = (specifier: string): boolean => clientExternals(id).has(specifier)
   return {
@@ -512,72 +596,7 @@ function clientConfig(id: string, entry: string): UserConfig {
           + '(type-only imports are erased and never reach this gate)',
         )
       },
-    }, tscSourceMapPlugin(), {
-      name: 'dsh-css-modules-inline',
-      resolveId: {
-        order: 'pre' as const,
-        handler(source: string, importer: string | undefined) {
-          if (!source.endsWith('.module.css')) return null
-          const abs = importer !== undefined ? sourceAssetPath(source, importer) : source
-          return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
-        },
-      },
-      async load(virtualId: string) {
-        if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
-        const fileId = virtualFileId(CSS_VIRTUAL_PREFIX, virtualId)
-        // The virtual id otherwise hides the physical stylesheet from Rolldown's watch graph.
-        this.addWatchFile(fileId)
-        const source = await readFile(fileId)
-        const { code, exports: cssExports } = transform({
-          filename: fileId,
-          code: source,
-          cssModules: { pattern: '[hash]_[local]' },
-          minify: true,
-        })
-        const classMap: Record<string, string> = {}
-        const exportEntries = Object.entries(cssExports ?? {})
-          .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        for (const [local, exp] of exportEntries) classMap[local] = exp.name
-        return styleInjectionModule(id, fileId, code.toString(), classMap)
-      },
-    }, {
-      name: 'dsh-css-text-inline',
-      resolveId: {
-        order: 'pre' as const,
-        handler(source: string, importer: string | undefined) {
-          if (!source.endsWith(`.css${INLINE_CSS_QUERY}`)) return null
-          const stylesheet = source.slice(0, -INLINE_CSS_QUERY.length)
-          const abs = importer !== undefined ? sourceAssetPath(stylesheet, importer) : stylesheet
-          return INLINE_CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
-        },
-      },
-      async load(virtualId: string) {
-        if (!virtualId.startsWith(INLINE_CSS_VIRTUAL_PREFIX)) return null
-        const fileId = virtualFileId(INLINE_CSS_VIRTUAL_PREFIX, virtualId)
-        this.addWatchFile(fileId)
-        const source = await readFile(fileId)
-        const { code } = transform({ filename: fileId, code: source, minify: true })
-        return `export default ${JSON.stringify(code.toString())};`
-      },
-    }, {
-      name: 'dsh-css-global-inline',
-      resolveId: {
-        order: 'pre' as const,
-        handler(source: string, importer: string | undefined) {
-          if (!source.endsWith('.css') || source.endsWith('.module.css')) return null
-          const abs = importer !== undefined ? sourceAssetPath(source, importer) : source
-          return GLOBAL_CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
-        },
-      },
-      async load(virtualId: string) {
-        if (!virtualId.startsWith(GLOBAL_CSS_VIRTUAL_PREFIX)) return null
-        const fileId = virtualFileId(GLOBAL_CSS_VIRTUAL_PREFIX, virtualId)
-        this.addWatchFile(fileId)
-        const source = await readFile(fileId)
-        const { code } = transform({ filename: fileId, code: source, minify: true })
-        return styleInjectionModule(id, fileId, code.toString())
-      },
-    }],
+    }, tscSourceMapPlugin(), ...cssInlinePlugins(id)],
     outputOptions: {
       entryFileNames: 'client.js',
       sourcemapExcludeSources: false,
@@ -644,4 +663,35 @@ function sourceAssetPath(source: string, importer: string): string {
   const boundary = emitted.indexOf(TYPES_MARKER)
   if (boundary < 0) return emitted
   return resolvePath(emitted.slice(0, boundary), 'src', emitted.slice(boundary + TYPES_MARKER.length))
+}
+
+/** The slice of the rolldown plugin context the stylesheet plugins use. */
+interface Resolver {
+  resolve(source: string, importer?: string, options?: { skipSelf?: boolean }): Promise<{ id: string } | null>
+  addWatchFile(id: string): void
+}
+
+/**
+ * The absolute stylesheet a resolveId specifier names. Relative specifiers map
+ * onto the source tree; a bare package specifier has no importer-relative
+ * position, so rolldown's own resolver (skipping this plugin) locates it.
+ * @param resolver - the hook's `this`, used only for bare specifiers.
+ * @param source - the specifier as written.
+ * @param importer - the importing module's id, undefined for entry modules.
+ * @returns the absolute stylesheet path.
+ */
+async function stylesheetFileId(
+  resolver: Resolver,
+  source: string,
+  importer: string | undefined,
+): Promise<string> {
+  if (importer !== undefined && (source.startsWith('./') || source.startsWith('../'))) {
+    return sourceAssetPath(source, importer)
+  }
+  if (isAbsolute(source)) return source
+  const resolved = await resolver.resolve(source, importer, { skipSelf: true })
+  if (resolved === null) {
+    throw new Error(`tsdown: cssInlinePlugins cannot resolve the stylesheet ${JSON.stringify(source)}`)
+  }
+  return resolved.id
 }

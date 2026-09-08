@@ -262,17 +262,17 @@ describe('edge joins', () => {
     expect(store.store.getSnapshot()).toMatchObject({ status: 'error', error: 'settings down' })
   })
 
-  it('reports a terminally unavailable settings mirror precisely', async () => {
-    const { ctx } = api()
+  it('surfaces the mirror error when no settings answer is ever held', async () => {
+    const { ctx } = api({ describeSettings: () => Promise.reject(new Error('carrier offline')) })
     const store = new ModelsSettingsStore(
       ctx,
       settingsSchema,
-      new SettingsDescribeMirror(ctx, 'memory'),
+      new SettingsDescribeMirror(ctx),
     )
     await store.load()
     expect(store.store.getSnapshot()).toMatchObject({
       status: 'error',
-      error: 'settings are unavailable in this browser',
+      error: 'carrier offline',
     })
   })
 

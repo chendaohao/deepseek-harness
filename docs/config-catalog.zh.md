@@ -222,14 +222,23 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-settings-controller`
 
 ```ts config-catalog
-/** Native document-opening policy. */
+/** Native document-opening and forwarded-write policy. */
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /**
+   * Allow settings and credential writes from requests that arrived through
+   * the remote-access proxy (a paired tunnel client). Default `false`: a
+   * forwarded caller reads everything but every write refuses with
+   * `settings/forwarded-write-disabled`. Direct loopback callers are never
+   * affected. Opening this switch grants tunnel clients the same write reach
+   * the desktop has — including permission presets — minus credential values.
+   */
+  readonly forwardedWrite?: boolean
 }
 ```
 
-来源：[`packages/api/settings-controller/src/index.ts:36`](../packages/api/settings-controller/src/index.ts)
+来源：[`packages/api/settings-controller/src/index.ts:37`](../packages/api/settings-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-workspace-files"></a>
 
@@ -400,22 +409,6 @@ export interface Config {
 ```
 
 来源：[`packages/client/hmr/src/index.ts:31`](../packages/client/hmr/src/index.ts)
-
-<a id="deepseek-aidsh-client-ui-remote"></a>
-
-## `@deepseek-ai/dsh-client-ui-remote`
-
-Requires: `webServer`
-
-```ts config-catalog
-/** Plugin config: activation gate for the /m surface. */
-export interface Config {
-  /** Serve the /m mobile page; false leaves the node half inert. */
-  enabled: boolean
-}
-```
-
-Source: [`packages/client/ui-remote/src/index.ts:22`](../packages/client/ui-remote/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 
@@ -3551,6 +3544,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-permission-presets`（[`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-plan`（[`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-reference`（[`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-remote`（[`packages/client/ui-remote/src/index.ts`](../packages/client/ui-remote/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-renderer`（[`packages/client/ui-renderer/src/index.ts`](../packages/client/ui-renderer/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-schedule`（[`packages/client/ui-schedule/src/index.ts`](../packages/client/ui-schedule/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-session`（[`packages/client/ui-session/src/index.ts`](../packages/client/ui-session/src/index.ts)）

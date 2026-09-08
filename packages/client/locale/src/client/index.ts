@@ -238,7 +238,9 @@ export class LocaleRuntime {
     if (match === undefined) throw new Error(`locale "${id}" is not registered`)
     this.preference = match.id
     if (this.snapshot.active !== match.id) this.publish(match.id, true)
-    void this.host?.set(LOCALE_PREFERENCE_FIELD, match.id)
+    // The write skips only the durable Host store when it refuses forwarded
+    // callers; the in-page switch above still applies for this session.
+    if (this.host?.getSnapshot().writable) void this.host.set(LOCALE_PREFERENCE_FIELD, match.id)
   }
 
   /**

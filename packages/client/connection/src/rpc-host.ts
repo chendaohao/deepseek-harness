@@ -93,10 +93,22 @@ export class HostConnectionService extends Service implements HostConnectionHand
     }
   }
 
-  /** Apply the configured Host/Origin fence, then browser authentication. */
-  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+  /**
+   * Apply the configured Host/Origin fence, then browser authentication.
+   * @param request - request headers from the HTTP or upgrade request.
+   * @param appendHeader - when supplied and the request crossed a UTC day since
+   *   its cookie was issued, receives a fresh full-lifetime Set-Cookie value to
+   *   attach to the response; upgrades have no response headers and drop it.
+   * @returns rejection status, or undefined when the request may proceed.
+   */
+  requestRejection(
+    request: ConnectionTrustRequest,
+    appendHeader?: (name: 'set-cookie', value: string) => void,
+  ): ConnectionRequestRejection {
     if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
-    return this.browserAuth.isAuthenticated(request) ? undefined : 401
+    const verdict = this.browserAuth.authenticate(request)
+    if (verdict.cookieRefresh !== undefined) appendHeader?.('set-cookie', verdict.cookieRefresh)
+    return verdict.authenticated ? undefined : 401
   }
 
   /** Authenticate an index request through the process-token exchange or cookie. */
@@ -166,7 +178,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
       kind: 'prefix',
       path: channel,
       handler: async (req, res) => {
-        const rejection = this.requestRejection(req)
+        const rejection = this.requestRejection(req, (name, value) => { res.appendHeader(name, value) })
         if (rejection !== undefined) {
           res.writeHead(rejection)
           res.end(rejection === 401 ? 'unauthorized' : 'forbidden')

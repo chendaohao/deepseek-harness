@@ -15,6 +15,7 @@ import {
   RemoteError,
 } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
+import { currentRequestFacts } from '@deepseek-ai/dsh-client-connection'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
@@ -95,6 +96,12 @@ class FeedService extends Service {
   *sync(label: string): Iterable<string> {
     yield `${label}:one`
     yield `${label}:two`
+  }
+
+  /** Reports the request facts the stream open observed, for the ALS propagation test. */
+  @Remote({ mode: 'stream' })
+  *proxied(): Iterable<string> {
+    yield String(currentRequestFacts()?.headers['x-dsh-proxied'] === '1')
   }
 
   @Remote({ mode: 'stream' })
@@ -368,6 +375,24 @@ describe('Typert Remote streams', () => {
     expect(String(closeEvent[1])).toBe('Remote stream failure could not be delivered')
     await vi.waitFor(() => { expect(service.returns).toBe(2) })
     expect(service.signals[1]?.aborted).toBe(true)
+  })
+
+  it('propagates the upgrade request facts into every mux stream open', async () => {
+    const { ctx } = await setup(true)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+      headers: { cookie: browserCookie(ctx) },
+    })
+    await once(socket, 'open')
+    const frames: Record<string, unknown>[] = []
+    socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
+    sendOpen(socket, 'facts', 'feed/proxied', {})
+    await vi.waitFor(() => {
+      // The upgrade request carried no x-dsh-proxied header, so the stream
+      // observed none — but the facts channel itself reached the opener.
+      expect(frames).toEqual([{ type: 'item', streamId: 'facts', value: 'false' }, { type: 'end', streamId: 'facts' }])
+    })
+    socket.close()
+    await once(socket, 'close')
   })
 
   it('carries the registered Remote event source and withdraws its active stream', async () => {

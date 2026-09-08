@@ -73,6 +73,9 @@ export function apply(ctx: ClientContext): void {
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
   // The shared SettingsScope mirror updates after document commits and reconnects.
+  // The document action stays loopback-only: the raw settings yaml carries
+  // unredacted secrets, so a forwarded caller never gets the open action even
+  // when forwardedWrite opens the settings namespaces themselves.
   const documentController = ctx.remote.$host.isLoopback
     ? new SettingsDocumentStore(ctx, ctx.settingsScope.describe())
     : undefined

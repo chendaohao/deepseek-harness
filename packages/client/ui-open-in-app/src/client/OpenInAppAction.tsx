@@ -182,6 +182,7 @@ export function OpenInAppAction(props: OpenInAppActionProps): React.JSX.Element 
     <Menu
       open={open}
       align="end"
+      portal
       dense
       selection="fill"
       onClose={() => { setOpen(false) }}

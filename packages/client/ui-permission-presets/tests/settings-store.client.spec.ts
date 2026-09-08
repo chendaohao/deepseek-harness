@@ -207,16 +207,15 @@ describe('permission settings store', () => {
     })
   })
 
-  it('hides the row in a remote browser instead of loading forever', async () => {
-    const describeCall = vi.fn()
+  it('keeps the row read-only and refuses a select when describe reports non-writable', async () => {
     const mutate = vi.fn()
+    const describeCall = vi.fn().mockResolvedValue(ok({ writable: false, hasDocument: false, namespaces: [view('read-only', 1)] }))
     const ctx = { remote: { settings: { describe: describeCall, mutate } } } as never
-    const mirror = new SettingsDescribeMirror(ctx, 'memory')
+    const mirror = new SettingsDescribeMirror(ctx)
     const controller = new PermissionPresetSettingsController(mirror, ctx, schema)
     await controller.load()
-    expect(controller.store.getSnapshot().status).toBe('unavailable')
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', writable: false })
     await controller.select('workspace-write')
-    expect(describeCall).not.toHaveBeenCalled()
     expect(mutate).not.toHaveBeenCalled()
   })
 

@@ -1,6 +1,10 @@
 /**
  * Host owner of the `credentials` Remote namespace: the reference half of
  * `ctx.credentials` as a browser configuration page reads and writes it.
+ * Credential writes never honor the `forwardedWrite` switch: a forwarded
+ * (paired tunnel) client may not store or remove credential values regardless
+ * of configuration, so a tunnel client can change settings but never take over
+ * the API keys the host calls out with.
  *
  * @module @deepseek-ai/dsh-api-settings-controller/src/credentials.ts
  */
@@ -11,6 +15,7 @@ import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
+import { isForwardedRequest } from './forwarded-write.ts'
 
 /**
  * Fan-out bound on one remote `describe` batch. A settings page asks about the
@@ -73,7 +78,9 @@ export class CredentialsController extends TypertRemoteService {
   /**
    * Describe several references for one configuration surface. Batched because
    * a settings page describes every reference its rows name at once, and one
-   * round trip keeps those rows from settling separately.
+   * round trip keeps those rows from settling separately. A forwarded
+   * (paired tunnel) client reads every reference as non-writable: its writes
+   * would refuse anyway, so the view never invites a doomed input.
    * @param refs - reference names, at most {@link MAX_DESCRIBE_REFS}; a name outside the grammar
    *   rejects the whole call as `gateway/bad-request`.
    * @returns one view per requested name, keyed by that name.
@@ -84,20 +91,28 @@ export class CredentialsController extends TypertRemoteService {
     const request = parseRequest('credentials.describe', describeRequestSchema, { refs })
     const branded = request.refs.map(ref => [ref, credentialRef(ref)] as const)
     const credentials = this.provider()
-    const entries = await Promise.all(branded.map(async ([ref, key]) =>
-      [ref, projectCredentialInfo(await credentials.describe(key))] as const))
+    const forwarded = isForwardedRequest()
+    const entries = await Promise.all(branded.map(async ([ref, key]) => {
+      const info = await credentials.describe(key)
+      return [ref, forwarded
+        ? { ...projectCredentialInfo(info), writable: false }
+        : projectCredentialInfo(info)] as const
+    }))
     return Object.fromEntries(entries)
   }
 
   /**
    * Store one value from a configuration surface. The value crosses the wire in
-   * this direction only: no read path returns it.
+   * this direction only: no read path returns it. Refused unconditionally for a
+   * forwarded request — the `forwardedWrite` switch does not reach credentials.
    * @param ref - reference name to store under.
    * @param value - the non-empty secret value.
-   * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
+   * @throws RemoteError when the request is invalid, the request is forwarded, no provider is
+   *   mounted, or the provider refuses the write.
    */
   @Remote
   async set(ref: string, value: string): Promise<void> {
+    this.assertLocalWrite('credentials.set')
     const request = parseRequest('credentials.set', setRequestSchema, { ref, value })
     const branded = credentialRef(request.ref)
     const credentials = this.provider()
@@ -105,16 +120,31 @@ export class CredentialsController extends TypertRemoteService {
   }
 
   /**
-   * Remove one reference from a configuration surface.
+   * Remove one reference from a configuration surface. Refused unconditionally
+   * for a forwarded request — the `forwardedWrite` switch does not reach
+   * credentials.
    * @param ref - reference name to remove.
-   * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
+   * @throws RemoteError when the request is invalid, the request is forwarded, no provider is
+   *   mounted, or the provider refuses the write.
    */
   @Remote
   async unset(ref: string): Promise<void> {
+    this.assertLocalWrite('credentials.unset')
     const request = parseRequest('credentials.unset', unsetRequestSchema, { ref })
     const branded = credentialRef(request.ref)
     const credentials = this.provider()
     await this.write(request.ref, () => credentials.unset(branded))
+  }
+
+  /** Credential writes stay desktop-only even when `forwardedWrite` opens settings. */
+  private assertLocalWrite(method: string): void {
+    if (isForwardedRequest()) {
+      throw new RemoteError(
+        'settings/forwarded-write-disabled',
+        `${method}: credential writes from a forwarded (paired tunnel) client are disabled; manage credentials on the host`,
+        {},
+      )
+    }
   }
 
   /** Resolve the optional provider or report how to supply it. */

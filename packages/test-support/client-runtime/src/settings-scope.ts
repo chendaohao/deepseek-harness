@@ -32,7 +32,7 @@ export interface StubSettingsScope<T> {
 export function stubSettingsScope<T>(): StubSettingsScope<T> {
   let snapshot: SettingsScopeSnapshot<T> = {
     status: 'loading', value: undefined, base: undefined, user: undefined,
-    revision: undefined, writable: false, mode: 'host',
+    revision: undefined, writable: true, mode: 'host',
   }
   const listeners = new Set<() => void>()
   const set = vi.fn(() => Promise.resolve())

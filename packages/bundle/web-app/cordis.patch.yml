@@ -112,8 +112,13 @@
 
     # Configuration-surface reads and writes over Typert Remote. Each method
     # reports an actionable error when its settings-domain provider is absent.
+    # Writes from a forwarded (paired tunnel) client stay refused regardless of
+    # `--remote`: turning them on is an explicit, separate deployment choice on
+    # the workspace-ext remote-access rows (forwardedWrite).
     - id: settings-controller
       name: '@deepseek-ai/dsh-api-settings-controller'
+      config:
+        forwardedWrite: false
 
     # Workspace commands and reconnect-safe projection over Typert Remote.
     - id: workspace-controller

@@ -8,6 +8,7 @@
 import { randomUUID } from 'node:crypto'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
+import { factsFrom, runWithRequestFacts, type RequestFacts } from '@deepseek-ai/dsh-client-connection'
 import { Deque } from '@deepseek-ai/dsh-deque'
 import type { WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -183,6 +184,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private remoteEvents: RegisteredRemoteEventSource | undefined
   private readonly remoteEventClients = new Map<RemoteEventClientId, RemoteEventClient>()
   private readonly pendingRemoteEvents = new Map<RemoteEventId, PendingRemoteEvent>()
+  /** Facts of the most recent mux upgrade; streams opened later run under them. */
+  private requestFacts: RequestFacts | undefined
 
   /**
    * Register the Gateway against the active Typert registry.
@@ -204,7 +207,14 @@ export class TypertGatewayService extends Service implements TypertGateway {
     })
     ctx.inject(['connection', 'webServer'], (webCtx) => {
       const mux = new RemoteStreamMuxServer(
-        (endpoint, payload, signal) => this.openWireStream(endpoint, payload, signal),
+        (endpoint, payload, signal) => {
+          // A mux stream outlives the upgrade request's async context, so the
+          // facts captured at upgrade time are re-installed around every
+          // stream open explicitly rather than relied on to propagate.
+          return this.requestFacts !== undefined
+            ? runWithRequestFacts(this.requestFacts, () => this.openWireStream(endpoint, payload, signal))
+            : this.openWireStream(endpoint, payload, signal)
+        },
         this.wireStream.failure,
         resolved.websocketHeartbeatIntervalMs,
       )
@@ -217,6 +227,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
               rejectRemoteStreamUpgrade(socket, rejection)
               return
             }
+            this.requestFacts = factsFrom(req)
             mux.handleUpgrade(req, socket, head)
           },
         }
