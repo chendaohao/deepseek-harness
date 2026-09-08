@@ -159,9 +159,10 @@ export function recordedSessionFixturePath(path: string, version: number): strin
   return join(dirname(path), sessionFixtureName(fixture.index, version))
 }
 
-/** The shipped composition under test: the dsh-base and dsh-web-app bundle patches over the empty profile root. */
+/** The shipped composition under test: the dsh-base, dsh-web-app, and dsh-workspace-ext bundle patches over the empty profile root. */
 const BASE_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
+const EXT_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/workspace-ext/cordis.patch.yml')
 /** The installation anchor whose dependency surface the profile module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 
@@ -478,10 +479,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // drifting).
   const basePatches = loadOverlayPatches('web e2e scaffold', BASE_PATCH_PATH)
   const surfacePatches = loadOverlayPatches('web e2e scaffold', WEB_PATCH_PATH)
+  const extPatches = loadOverlayPatches('web e2e scaffold', EXT_PATCH_PATH)
   const extraOverlayPatches = options.extraOverlayPath === undefined
     ? []
     : loadOverlayPatches('web e2e scaffold', options.extraOverlayPath)
-  const composedRows = composeEntries([basePatches, surfacePatches, extraOverlayPatches])
+  const composedRows = composeEntries([basePatches, surfacePatches, extPatches, extraOverlayPatches])
   const webRuntimeConfig = composedRows.find(row => row.id === 'web-runtime')?.config as {
     surfaceContext?: boolean
   } | undefined
@@ -489,6 +491,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   const patches: PatchOptions[] = [
     ...basePatches,
     ...surfacePatches,
+    ...extPatches,
     ...extraOverlayPatches,
     // The roster's shipped presets are the plugin's own, bundled inside
     // `dsh-agent-presets` and prepended by it. Pin only the machine-local

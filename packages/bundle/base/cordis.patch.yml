@@ -52,9 +52,6 @@
         fallbackMaxBytes: 40
         maxTitleBytes: 80
 
-    - id: session-pin
-      name: '@deepseek-ai/dsh-session-pin'
-
     - id: session-title-llm
       name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
       config:

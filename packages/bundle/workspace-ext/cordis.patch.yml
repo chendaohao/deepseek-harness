@@ -1,0 +1,39 @@
+# The @deepseek-ai/dsh-workspace-ext bundle patch: fork-local rows for the web
+# profile, applied as the last bundle layer after dsh-web-app. Rows here insert
+# new plugins over the composed tree; none of them overrides a dsh-base or
+# dsh-web-app row, so this bundle restates no upstream configuration.
+#
+# The remote rows read the `webStartup` flag service the same way the
+# dsh-web-app rows do: `inject` defers each row until the service exists, and
+# `dsh --profile web --help` provides no webStartup, so no remote surface
+# activates.
+
+- insert:
+    - id: session-pin
+      name: '@deepseek-ai/dsh-session-pin'
+
+    # Remote access over a public HTTPS tunnel: both rows stay inert until
+    # `--remote` enables them. The tunnel provider owns the cloudflared child;
+    # the access row owns the pairing gate, the loopback reverse proxy, and
+    # the URL + QR-code surface. `--remote-reset` rotates the pairing secret.
+    - id: remote-tunnel
+      name: '@deepseek-ai/dsh-remote-tunnel'
+      inject: [webStartup]
+      config:
+        enabled: !!js ctx.webStartup.remote ?? false
+
+    - id: remote-access
+      name: '@deepseek-ai/dsh-remote-access'
+      inject: [webStartup]
+      config:
+        enabled: !!js ctx.webStartup.remote ?? false
+        resetSecret: !!js ctx.webStartup.remoteReset ?? false
+
+    # Desktop mobile-remote-control trigger beside Settings in the sidebar
+    # foot; the row stays inert (host-side gate alongside remote-access) until
+    # `--remote` enables it. The /m mobile surface is a later phase.
+    - id: client-ui-remote
+      name: '@deepseek-ai/dsh-client-ui-remote'
+      inject: [webStartup]
+      config:
+        enabled: !!js ctx.webStartup.remote ?? false

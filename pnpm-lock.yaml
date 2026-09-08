@@ -331,6 +331,9 @@ importers:
       '@deepseek-ai/dsh-workflow-worker-thread':
         specifier: workspace:^
         version: link:../../packages/workflow/workflow-worker-thread
+      '@deepseek-ai/dsh-workspace-ext':
+        specifier: workspace:^
+        version: link:../../packages/bundle/workspace-ext
       '@deepseek-ai/schemastery':
         specifier: link:../../vendor/schemastery
         version: link:../../vendor/schemastery
@@ -1167,9 +1170,6 @@ importers:
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session/session-persistence-jsonl
-      '@deepseek-ai/dsh-session-pin':
-        specifier: workspace:^
-        version: link:../../session/session-pin
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
         version: link:../../session/session-projection
@@ -1564,9 +1564,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-reference':
         specifier: workspace:^
         version: link:../../client/ui-reference
-      '@deepseek-ai/dsh-client-ui-remote':
-        specifier: workspace:^
-        version: link:../../client/ui-remote
       '@deepseek-ai/dsh-client-ui-renderer':
         specifier: workspace:^
         version: link:../../client/ui-renderer
@@ -1660,18 +1657,9 @@ importers:
       '@deepseek-ai/dsh-message-feedback':
         specifier: workspace:^
         version: link:../../feedback/message-feedback
-      '@deepseek-ai/dsh-remote-access':
-        specifier: workspace:^
-        version: link:../../remote/remote-access
-      '@deepseek-ai/dsh-remote-tunnel':
-        specifier: workspace:^
-        version: link:../../remote/remote-tunnel
       '@deepseek-ai/dsh-session-log-export':
         specifier: workspace:^
         version: link:../../session-query/session-log-export
-      '@deepseek-ai/dsh-session-projection-cache':
-        specifier: workspace:^
-        version: link:../../session/session-projection-cache
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../context/session-reference
@@ -1715,6 +1703,25 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
+
+  packages/bundle/workspace-ext:
+    dependencies:
+      '@deepseek-ai/dsh-client-ui-remote':
+        specifier: workspace:^
+        version: link:../../client/ui-remote
+      '@deepseek-ai/dsh-remote-access':
+        specifier: workspace:^
+        version: link:../../remote/remote-access
+      '@deepseek-ai/dsh-remote-tunnel':
+        specifier: workspace:^
+        version: link:../../remote/remote-tunnel
+      '@deepseek-ai/dsh-session-pin':
+        specifier: workspace:^
+        version: link:../../session/session-pin
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
 
   packages/client/connection:
     dependencies:

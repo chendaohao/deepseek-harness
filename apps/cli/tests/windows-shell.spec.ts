@@ -43,7 +43,7 @@ describe('the shipped shell composition (real bundle layers)', () => {
 
   it('composes the confined pwsh roster on win32 and the bash roster on POSIX from the same rows', () => {
     home = mkdtempSync(join(tmpdir(), 'dsh-windows-home-'))
-    initProfile(join(home, PROFILES_DIR, 'web'), ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    initProfile(join(home, PROFILES_DIR, 'web'), ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-workspace-ext'])
     const profile = loadProfile('dsh', 'web', anchor, home)
     const warnings: string[] = []
     const rows = composeEntries(

@@ -62,6 +62,7 @@ const CATALOG_FIXTURE = join(CATALOG_SNAPSHOT_DIR, 'session.v2.jsonl')
 const CATALOG_EXPECTED = join(CATALOG_SNAPSHOT_DIR, 'catalog.expected.md')
 const BASE_PATCH = fileURLToPath(new URL('../../../packages/bundle/base/cordis.patch.yml', import.meta.url))
 const WEB_PATCH = fileURLToPath(new URL('../../../packages/bundle/web-app/cordis.patch.yml', import.meta.url))
+const EXT_PATCH = fileURLToPath(new URL('../../../packages/bundle/workspace-ext/cordis.patch.yml', import.meta.url))
 const CATALOG_NOW = Date.parse('2099-08-25T12:00:00.000Z')
 const CATALOG_SESSION_ID = SessionId('schedule-catalog-web-e2e')
 const CATALOG_TITLE = 'Active schedule catalog'
@@ -662,10 +663,12 @@ describe.skipIf(MODE === 'record')('web e2e: active Schedule catalog', () => {
     const base = composeEntries([
       loadOverlayPatches('Schedule catalog base roster', BASE_PATCH),
       loadOverlayPatches('Schedule catalog base roster', WEB_PATCH),
+      loadOverlayPatches('Schedule catalog base roster', EXT_PATCH),
     ])
     const scheduled = composeEntries([
       loadOverlayPatches('Schedule catalog overlay roster', BASE_PATCH),
       loadOverlayPatches('Schedule catalog overlay roster', WEB_PATCH),
+      loadOverlayPatches('Schedule catalog overlay roster', EXT_PATCH),
       loadOverlayPatches('Schedule catalog overlay roster', OVERLAY),
     ])
     expect(base.find(entry => entry.id === 'ui-schedule')).toMatchObject({
