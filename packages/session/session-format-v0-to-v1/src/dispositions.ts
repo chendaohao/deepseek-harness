@@ -58,6 +58,8 @@ export const RELEASED_V0_EVENT_DISPOSITIONS: Readonly<Record<string, ReleasedV0P
     ['sourceCommandId', 'maxTokens', 'usage', 'rawOutput', 'llmStreamCall'],
   ),
   'feedback/record': disposition(['text']),
+  'feedback/message-put': disposition(['sessionId', 'item']),
+  'feedback/message-delete': disposition(['sessionId', 'messageId']),
   'goal/change': disposition(
     ['kind', 'version', 'operation'],
     ['goal', 'roundsStarted', 'createdAt', 'updatedAt', 'cleared', 'clearedAt'],

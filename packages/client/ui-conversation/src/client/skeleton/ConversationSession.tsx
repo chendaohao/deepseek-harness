@@ -135,6 +135,9 @@ export function ConversationSessionHeader({
                 {renderSlot('conversation.session.header.utilities', {})}
               </div>
             </div>
+            <div className={css.headerCorner} data-conversation-header-corner="">
+              {renderSlot('conversation.session.header.corner', {})}
+            </div>
           </div>
           {tabs.length > 1 && (
             <div className={css.tabs} role="tablist">
