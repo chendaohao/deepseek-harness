@@ -3029,9 +3029,9 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
-      '@deepseek-ai/dsh-invariants':
+      '@deepseek-ai/dsh-util-crypto':
         specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
+        version: link:../../util/crypto
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -3979,9 +3979,6 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -6814,9 +6811,6 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
       '@deepseek-ai/dsh-remote-tunnel':
         specifier: workspace:^
         version: link:../remote-tunnel
@@ -6842,9 +6836,6 @@ importers:
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:^
         version: link:../../util/home-paths
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:^
         version: link:../../subprocess/subprocess
