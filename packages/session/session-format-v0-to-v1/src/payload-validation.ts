@@ -97,10 +97,7 @@ export function assertReleasedPayloadSemantics(event: SessionFormatEvent, versio
       return
     case 'feedback/message-put': {
       nonEmptyString(data['sessionId'], `${label} sessionId`)
-      const item = data['item']
-      if (item === undefined || item === null || typeof item !== 'object' || Array.isArray(item)) {
-        throw new SessionFormatError(`${label} item must be an object`)
-      }
+      const item = releasedV0Record(data['item'], `${label} item`)
       nonEmptyString(item['messageId'], `${label} item.messageId`)
       literalValue(item['rating'], ['positive', 'negative'], `${label} item.rating`)
       if (item['note'] !== undefined) nonEmptyString(item['note'], `${label} item.note`)

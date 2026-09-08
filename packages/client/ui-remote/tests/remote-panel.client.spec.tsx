@@ -16,7 +16,7 @@ const t: RemoteFooterActionProps['t'] = key => (en as Record<string, string>)[ke
 
 /** Global standard-kit stubs: these components consume none of the hooks. */
 const unusedHook = (() => { throw new Error('unused by remote panel components') }) as never
-const kit = { useSessions: unusedHook, useSessionPendingInteraction: unusedHook, useWorkspaces: unusedHook }
+const kit = { useSessions: unusedHook, useSessionPendingInteraction: unusedHook, useWorkspaces: unusedHook, useResource: unusedHook }
 
 /** A typed remote stub that records `$on` subscriptions for later dispatch. */
 function makeRemote() {

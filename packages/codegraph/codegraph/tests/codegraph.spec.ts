@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId, SESSION_FORMAT_VERSION, type UserMessage } from '@deepseek-ai/dsh-session'
-import { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as codegraph from '@deepseek-ai/dsh-codegraph'
@@ -58,7 +58,10 @@ function stubAgent(cwd: string): Agent {
     id: SessionId('a1'),
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: {
+      nextTurn: [], nextStep: [], clear: () => {}, append: () => {},
+      prepend: () => {}, replace: () => false, remove: () => false, splice: () => [],
+    },
     status: 'idle',
     send: () => {},
     followup: () => {},
