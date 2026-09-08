@@ -294,10 +294,16 @@ for gen in \
 done
 
 # The block was injected whole; a per-alias miss means a hand edit dropped a
-# line that regeneration cannot restore.
+# line that regeneration cannot restore, and a count above one means a hand
+# edit re-added an alias outside the block (vite/esbuild then reports
+# duplicate-object-key).
 while IFS= read -r alias; do
-  grep -qF "$alias" tsconfig.base.json \
-    || die "tsconfig.base.json lost the fork alias $alias; add it back to FORK_ALIAS_BLOCK_FILE in scripts/merge-upstream.sh and rerun --finish"
+  count=$(grep -cF "$alias" tsconfig.base.json || true)
+  if (( count == 0 )); then
+    die "tsconfig.base.json lost the fork alias $alias; add it back to FORK_ALIAS_BLOCK_FILE in scripts/merge-upstream.sh and rerun --finish"
+  elif (( count > 1 )); then
+    die "tsconfig.base.json has $count copies of the fork alias $alias; keep only the block re-injected by scripts/merge-upstream.sh"
+  fi
 done <<'EOF'
 "@deepseek-ai/dsh-mcp-client/src/*"
 "@deepseek-ai/dsh-client-ui-remote"
