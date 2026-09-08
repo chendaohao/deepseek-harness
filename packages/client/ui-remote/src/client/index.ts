@@ -4,8 +4,7 @@
  * status badge, pairing QR, device roster with revocation, and the stop-all
  * action. Data rides the remote-access control plane (`/remote/*` HTTP routes)
  * plus the forwarded `remote/devices/change` and `remote-tunnel/state` events
- * this plugin subscribes to while the panel is open. The `/m` mobile surface
- * arrives in a later phase.
+ * this plugin subscribes to while the panel is open.
  * Export discipline: packages/client/AGENTS.md — no cross-plugin value
  * imports; `ctx.remote`, `ctx.slots`, and `ctx.locale` are injected peers.
  */
