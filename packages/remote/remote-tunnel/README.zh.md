@@ -41,6 +41,10 @@ None; this package neither assembles nor sends a provider request.
 - **安装需一次联网** — `download: allow` 首次使用时从 GitHub 拉取固定版本；离线主机请使用 `system` 或 `binaryPath`。
 
 <a id="dev-note"></a>
+### 不变量归属
+
+未发布运行时不变量伴生文件，因为隧道的子进程生命周期已由本包测试覆盖；没有需要在启动时复核的所属关系。
+
 ### 开发备注
 
 <details>

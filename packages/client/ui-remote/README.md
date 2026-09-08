@@ -35,6 +35,10 @@ None; the panel and `/m` page assemble no model requests.
 - **One QR at a time** — a fresh issuance invalidates the previous token, so the panel shows a single QR, not a rotating set.
 
 <a id="dev-note"></a>
+### Invariant ownership
+
+No runtime invariant companion is published because the surface renders logged state over the /api wire; nothing durable or model-facing needs a boot-time recheck.
+
 ### Dev Note
 
 <details>

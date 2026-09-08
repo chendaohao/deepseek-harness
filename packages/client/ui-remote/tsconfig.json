@@ -34,9 +34,6 @@
       "path": "../locale"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
-    },
-    {
       "path": "../connection/tsconfig.host.json"
     },
     {

@@ -60,6 +60,10 @@ The connection is global: DSH's mcp-client sends no `rootUri`, so the server has
 -----
 
 <a id="model-experience"></a>
+### Invariant ownership
+
+No runtime invariant companion is published because the checklist folding and MCP server registration are covered by the package's tests; no owned relation needs a boot-time recheck.
+
 ## Model Experience
 
 ### CodeGraph checklist and tools

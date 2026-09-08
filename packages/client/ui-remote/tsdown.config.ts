@@ -50,7 +50,7 @@ const SKIP_WORKSPACE_BUILD: UserConfig = { entry: '' }
 export default (({ env }) => {
   if (env?.DSH_BUILD_FACE === 'host') return [SKIP_WORKSPACE_BUILD]
   return [
-    ...clientBundle('@deepseek-ai/dsh-client-ui-remote', ['lib/types/index.js', 'lib/types/invariant.js'])({ env }),
+    ...clientBundle('@deepseek-ai/dsh-client-ui-remote', ['lib/types/index.js'])({ env }),
     standaloneMobile(),
   ]
 })

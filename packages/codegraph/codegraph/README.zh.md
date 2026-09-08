@@ -60,6 +60,10 @@ kind: "package-reference"
 -----
 
 <a id="model-experience"></a>
+### 不变量归属
+
+未发布运行时不变量伴生文件，因为清单折叠与 MCP 服务器注册已由本包测试覆盖；没有需要在启动时复核的所属关系。
+
 ## 模型体验
 
 ### CodeGraph 清单与工具

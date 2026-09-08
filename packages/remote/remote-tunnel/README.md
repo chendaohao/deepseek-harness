@@ -41,6 +41,10 @@ None; this package neither assembles nor sends a provider request.
 - **One network fetch to install** — `download: allow` fetches the pinned release from GitHub on first use; air-gapped hosts use `system` or `binaryPath`.
 
 <a id="dev-note"></a>
+### Invariant ownership
+
+No runtime invariant companion is published because the tunnel's child-process lifecycle is covered by the package's tests; no owned relation needs a boot-time recheck.
+
 ### Dev Note
 
 <details>

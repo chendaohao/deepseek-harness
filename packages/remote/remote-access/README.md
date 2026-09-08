@@ -37,6 +37,10 @@ None; the contribution adds one per-shell environment value and does not touch r
 - **Control plane trusts the loopback bind** — the desktop-only `/remote/*` control plane rejects tunnel-originated traffic through the `x-dsh-proxied` stamp but has no other authentication, so it must be reachable only from the host machine. The shipped Web bundle enforces this by refusing `--host 0.0.0.0`; a hand-composed row that binds the Web server to all interfaces would expose pairing-token issuance and device revocation to the LAN.
 
 <a id="dev-note"></a>
+### Invariant ownership
+
+No runtime invariant companion is published because the pairing-gate and proxy state is covered end-to-end by the package's tests; no owned relation needs a boot-time recheck.
+
 ### Dev Note
 
 <details>

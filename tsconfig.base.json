@@ -208,7 +208,6 @@
       "@deepseek-ai/dsh-client-ui-settings-plugin-inventory": ["./packages/client/ui-settings-plugin-inventory/src"],
       "@deepseek-ai/dsh-client-ui-remote": ["./packages/client/ui-remote/src"],
       "@deepseek-ai/dsh-client-ui-remote/client": ["./packages/client/ui-remote/src/client"],
-      "@deepseek-ai/dsh-client-ui-remote/invariant": ["./packages/client/ui-remote/src/invariant.ts"],
       "@deepseek-ai/dsh-client-locale": ["./packages/client/locale/src"],
       "@deepseek-ai/dsh-client-web": ["./packages/client/web/src"],
       "@deepseek-ai/dsh-schedule/client": ["./packages/schedule/schedule/src/client.ts"],
@@ -240,7 +239,6 @@
       "@deepseek-ai/dsh-mcp-client/src/*": ["./packages/mcp/mcp-client/src/*"],
       "@deepseek-ai/dsh-client-ui-remote": ["./packages/client/ui-remote/src"],
       "@deepseek-ai/dsh-client-ui-remote/client": ["./packages/client/ui-remote/src/client"],
-      "@deepseek-ai/dsh-client-ui-remote/invariant": ["./packages/client/ui-remote/src/invariant.ts"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
       "@deepseek-ai/dsh-acp-app": ["./packages/bundle/acp-app/src"],

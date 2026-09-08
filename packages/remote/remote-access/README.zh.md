@@ -37,6 +37,10 @@ None; the contribution adds one per-shell environment value and does not touch r
 - **控制平面信任 loopback 绑定** — 仅桌面端的 `/remote/*` 控制平面通过 `x-dsh-proxied` 标记拒绝隧道来源流量，但没有其他鉴权，因此必须只从宿主机可达。随附 Web bundle 通过拒绝 `--host 0.0.0.0` 强制这一点；手工组合若把 Web 服务器绑定到所有接口，会把配对 token 签发与设备吊销暴露给局域网。
 
 <a id="dev-note"></a>
+### 不变量归属
+
+未发布运行时不变量伴生文件，因为配对门与代理状态已由本包测试端到端覆盖；没有需要在启动时复核的所属关系。
+
 ### 开发备注
 
 <details>
