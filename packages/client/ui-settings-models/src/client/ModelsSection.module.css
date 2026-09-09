@@ -61,6 +61,47 @@
   gap: 12px;
 }
 
+.rows > li {
+  transition: transform 150ms ease;
+}
+
+/* The manual-reordering handle ahead of the row name. Touch-action keeps the
+   gesture ours on touch screens; grab/grabbing announce the affordance. */
+.dragHandle {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: -6px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: grab;
+  touch-action: none;
+}
+
+.dragHandle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+/* The row under drag: no slide transition of its own (it tracks the pointer
+   1:1), and a shadow so it reads as lifted above the rows sliding aside. */
+.rows > li[class*='rowDragging'] {
+  transition: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0.9;
+}
+
 .rowHead {
   display: flex;
   align-items: center;

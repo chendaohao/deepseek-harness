@@ -12,15 +12,16 @@
  * re-renders from pushed invalidations or the post-apply reload.
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconGripVerticalOutline16, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
 import type { ModelsSettingsStore, ProviderRow } from './store.ts'
+import { writeProviderOrder } from './provider-order.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
@@ -188,6 +189,26 @@ export function providerCopy(template: string, target: ProviderIdentity): string
 }
 
 /**
+ * The id order after dragging one configured row onto another's slot.
+ * @param ids - the configured rows' provider ids in display order.
+ * @param from - index of the dragged row.
+ * @param to - index of the slot it dropped on.
+ * @returns the new order, or the input when the indices coincide.
+ */
+export function reorderedProviderIds(
+  ids: readonly string[],
+  from: number,
+  to: number,
+): readonly string[] {
+  if (from === to || from < 0 || to < 0 || from >= ids.length || to >= ids.length) return ids
+  const moved = [...ids]
+  const [picked] = moved.splice(from, 1)
+  if (picked === undefined) return ids
+  moved.splice(to, 0, picked)
+  return moved
+}
+
+/**
  * Render the Models section content column.
  * @param props - slot-delivered injected dependencies.
  * @returns the section, or null while the shell has not injected yet.
@@ -243,6 +264,89 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     if (deleting) return
     setDeleteTarget(undefined)
     setDeleteFailure(undefined)
+  }
+
+  /**
+   * Drag-to-reorder over the configured rows. The handle captures the
+   * pointer; at drag start one geometry snapshot records every row's top and
+   * height relative to the list (transforms never move these numbers, so
+   * they stay authoritative for the whole gesture, in one coordinate
+   * space). The dragged row's top tracks the pointer; the hovered gap is the
+   * slot whose midpoint the row's center last passed; every other row slides
+   * by the snapshot distance between its slot and the slot it yields to —
+   * real per-row distances, so uneven heights and the list gap never
+   * accumulate error. The DOM order stays fixed until drop; drop commits the
+   * order to the per-device store and reloads.
+   */
+  const [drag, setDrag] = useState<{
+    /** The row under drag (a provider id). */
+    id: string
+    /** Hovered gap: rows 0..gap-1 stay above the dragged row. */
+    gap: number
+    /** The dragged row's current top, in list coordinates. */
+    top: number
+    /** Per-row layout geometry captured at drag start, in list coordinates. */
+    tops: readonly number[]
+    /** Per-row heights captured at drag start, parallel to {@link tops}. */
+    heights: readonly number[]
+    /** Pointer's offset inside the dragged row at grab. */
+    grab: number
+  } | undefined>(undefined)
+  const listRef = useRef<HTMLUListElement | null>(null)
+
+  const startDrag = (provider: string) => (event: React.PointerEvent<HTMLButtonElement>): void => {
+    if (event.button !== 0) return
+    const list = listRef.current
+    if (list === null) return
+    const rows = Array.from(list.children).filter((child): child is HTMLElement =>
+      (child as HTMLElement).dataset.provider !== undefined)
+    const dragged = rows.findIndex(row => row.dataset.provider === provider)
+    const row = rows[dragged]
+    if (row === undefined) return
+    const listTop = list.getBoundingClientRect().top
+    const boxes = rows.map((item) => {
+      const box = item.getBoundingClientRect()
+      return { top: box.top - listTop, height: box.height }
+    })
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDrag({
+      id: provider,
+      gap: dragged,
+      top: boxes[dragged]?.top ?? 0,
+      tops: boxes.map(box => box.top),
+      heights: boxes.map(box => box.height),
+      grab: event.clientY - listTop - (boxes[dragged]?.top ?? 0),
+    })
+  }
+
+  const moveDrag = (event: React.PointerEvent<HTMLElement>): void => {
+    if (drag === undefined || listRef.current === null) return
+    const from = configuredIds.indexOf(drag.id)
+    if (from === -1) return
+    const top = event.clientY - listRef.current.getBoundingClientRect().top - drag.grab
+    const draggedCenter = top + (drag.heights[from] ?? 0) / 2
+    // The gap is where the dragged row's center falls among the other rows'
+    // midpoints: every row above it keeps its slot, the rest yield.
+    let gap = 0
+    for (let index = 0; index < configuredIds.length; index += 1) {
+      if (index === from) continue
+      const midpoint = (drag.tops[index] ?? 0) + (drag.heights[index] ?? 0) / 2
+      if (draggedCenter < midpoint) break
+      gap += 1
+    }
+    setDrag({ ...drag, gap, top })
+  }
+
+  const endDrag = (): void => {
+    const current = drag
+    setDrag(undefined)
+    if (current === undefined) return
+    const from = configuredIds.indexOf(current.id)
+    const order = reorderedProviderIds(configuredIds, from, current.gap)
+    if (order === configuredIds) return
+    writeProviderOrder(order)
+    void controller.load()
   }
 
   const confirmDelete = (): void => {
@@ -304,6 +408,29 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // there is nothing to declare and the entry point stays disabled.
   const protocols = protocolChoices(state.namespaces.get('llm-pi-ai'), schema)
 
+  // Mid-drag displacement per row, in row heights: the dragged row follows
+  // the pointer, and each row between its home slot and the hovered one
+  // slides one slot toward the gap. Everything else stays put. Indexes are
+  // into `configured` (the fixed DOM order).
+  const configuredIds = configured.map(row => row.entry.provider)
+  const dragIndex = drag === undefined ? -1 : configuredIds.indexOf(drag.id)
+  const transformOf = (index: number): string => {
+    if (drag === undefined || dragIndex === -1) return 'none'
+    if (index === dragIndex) return `translateY(${drag.top - (drag.tops[index] ?? 0)}px)`
+    const gap = drag.gap
+    // Downward drag: the rows the dragged one passed slide UP into the slot
+    // vacated above — each moves to where its upper neighbor sits.
+    if (dragIndex < gap && index > dragIndex && index <= gap) {
+      return `translateY(${(drag.tops[index - 1] ?? 0) - (drag.tops[index] ?? 0)}px)`
+    }
+    // Upward drag: the rows the dragged one passed slide DOWN into the slot
+    // vacated below — each moves to the top of its lower neighbor.
+    if (gap < dragIndex && index >= gap && index < dragIndex) {
+      return `translateY(${(drag.tops[index + 1] ?? 0) - (drag.tops[index] ?? 0)}px)`
+    }
+    return 'none'
+  }
+
   return (
     <div className={styles['section']}>
       <h2 className={styles['title']}>{t('title')}</h2>
@@ -316,17 +443,36 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             {providerCopy(t('savedProvider'), savedIdentity)}
           </p>
         )}
-      <ul className={styles['rows']}>
-        {configured.map((row) => {
+      <ul
+        className={styles['rows']}
+        ref={listRef}
+        onPointerMove={drag === undefined ? undefined : moveDrag}
+        onPointerUp={drag === undefined ? undefined : endDrag}
+        onPointerCancel={drag === undefined ? undefined : endDrag}
+      >
+        {configured.map((row, rowIndex) => {
           const target = targetOf(row)
           const namespace = state.namespaces.get(target.settingsNs)
           /* v8 ignore next -- the join marks a row configured only when its namespace resolved */
           if (namespace === undefined) return null
+          const transform = transformOf(rowIndex)
+          const dragging = drag?.id === row.entry.provider
+          const rowStyle = transform === 'none' && !dragging
+            ? undefined
+            : {
+              transform,
+              ...dragging ? { zIndex: 1, position: 'relative' as const } : {},
+            }
           if (needsSetup(row, anyUsable) && !dismissedSetup.has(row.entry.provider)) {
             // First-run posture: the provider exists but has no key — the
             // setup card IS its presence on the page, until the user closes it.
             return (
-              <li key={row.entry.provider} className={styles['setupCard']}>
+              <li
+                key={row.entry.provider}
+                data-provider={row.entry.provider}
+                className={dragging ? `${styles['setupCard']} ${styles['rowDragging']}` : styles['setupCard']}
+                style={rowStyle}
+              >
                 {renderProviderEditor({
                   target,
                   namespace,
@@ -350,8 +496,22 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             && row.apiKeyEnv !== undefined
             && row.credential?.configured === false
           return (
-            <li key={row.entry.provider} className={styles['rowCard']}>
+            <li
+              key={row.entry.provider}
+              data-provider={row.entry.provider}
+              className={dragging ? `${styles['rowCard']} ${styles['rowDragging']}` : styles['rowCard']}
+              style={rowStyle}
+            >
               <div className={styles['rowHead']}>
+                <button
+                  type="button"
+                  className={styles['dragHandle']}
+                  aria-label={t('dragToReorder')}
+                  title={t('dragToReorder')}
+                  onPointerDown={startDrag(row.entry.provider)}
+                >
+                  <IconGripVerticalOutline16 size={14} />
+                </button>
                 <span className={styles['rowIdentity']}>
                   <span className={styles['rowName']}>{row.entry.displayName}</span>
                   {/* Only the adapter can tell a hand-declared route from a

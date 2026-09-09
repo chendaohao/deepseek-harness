@@ -946,3 +946,15 @@ export const IconPinOutline16 = ({ size = 16, className }: IconProps) => (
     />
   </svg>
 )
+
+/** ic_ds_grip_vertical_16: six-dot drag handle for manual row reordering. */
+export const IconGripVerticalOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="6" cy="3.5" r="1.25" fill="currentColor" />
+    <circle cx="10" cy="3.5" r="1.25" fill="currentColor" />
+    <circle cx="6" cy="8" r="1.25" fill="currentColor" />
+    <circle cx="10" cy="8" r="1.25" fill="currentColor" />
+    <circle cx="6" cy="12.5" r="1.25" fill="currentColor" />
+    <circle cx="10" cy="12.5" r="1.25" fill="currentColor" />
+  </svg>
+)

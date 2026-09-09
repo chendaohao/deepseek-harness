@@ -14,6 +14,7 @@ import type {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { applyProviderOrder, readProviderOrder } from './provider-order.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 
 /**
@@ -190,7 +191,11 @@ export class ModelsSettingsStore {
       this.failLoad(generation, mirrored.error ?? 'settings are unavailable in this browser')
       return
     }
-    const providers = joinProviderDirectory(registered.value, declared.value)
+    const providers = applyProviderOrder(
+      joinProviderDirectory(registered.value, declared.value),
+      readProviderOrder(),
+      entry => entry.provider,
+    )
     const writable = mirrored.view.writable
     const views: readonly SettingsNamespaceView[] = mirrored.view.namespaces
     const namespaces = new Map(views.map(view => [view.ns, view]))
