@@ -12,7 +12,7 @@ English | [中文](2026-09-08-tsdown-factory-nested-array.zh.md)
 
 **A workspace tsdown factory returns a flat `UserConfig[]`; when delegating to a shared preset factory, spread or return its result directly, never wrap it in another array literal.**
 
-```ts
+```ts ignore-check
 // wrong: nested UserConfig[][]
 export default (({ env }) => [clientBundle('id', ['lib/types/index.js'])({ env })])
 

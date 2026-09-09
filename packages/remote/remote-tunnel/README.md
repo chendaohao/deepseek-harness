@@ -8,7 +8,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Remote-tunnel capability: the default-exported `RemoteTunnel` Service (`ctx.remoteTunnel`) with its cloudflared provider. `open(port)` spawns a pinned `cloudflared` release (`2026.8.1`, SHA-256-verified per platform against the official release checksums): quick mode runs `tunnel --url http://127.0.0.1:<port> --no-autoupdate` and scans bounded stdout/stderr windows for the `https://<slug>.trycloudflare.com` URL (real cloudflared logs the banner to stderr); named mode writes a per-session ingress config (`tunnel: <name>`, an ingress rule from `<hostname>` to `http://127.0.0.1:<port>`, and the `http_status:404` catch-all) and runs `tunnel --config <file> --no-autoupdate run`, resolving `https://<hostname>` once the child reports the connection registered. Both retry spawn attempts with backoff and resolve a `RemoteTunnelSession`: its `url`, and `close()` stopping the child (SIGTERM, grace, SIGKILL), awaiting exit, and removing the per-session config. Sessions emit `remote-tunnel/state` with `open` (plus URL), `ended` (child exit), or `failed` (attempt budget spent; `open()` rejects with the same message). A session's URL stays readable after `ended` but is dead.
+`dsh-remote-tunnel` exposes a local port on a public HTTPS URL by spawning a pinned, SHA-256-verified `cloudflared` release: quick mode needs no Cloudflare account and mints a random `*.trycloudflare.com` hostname per session; named mode runs a pre-registered tunnel under a stable hostname you own. `open(port)` retries with backoff and resolves a `RemoteTunnelSession` (`url`, `close()`); sessions emit `remote-tunnel/state` with `open`, `ended`, or `failed`. The child runs from a scrubbed environment; misconfiguration fails the load.
+
+## Operation
 
 Config `{enabled, download: 'allow'|'deny'|'system', binaryPath?, mode: 'quick'|'named', name?, hostname?}`: `allow` downloads the pinned asset into `$DSH_HOME/bin` on first use (the macOS tgz extracts through the system tar), `deny` requires an existing `binaryPath`, and `system` runs `cloudflared` from PATH. Quick mode (default) needs no Cloudflare account and mints a random hostname per session; named mode runs a pre-registered tunnel under a stable `hostname`, so restarts keep the same URL, and requires both `name` (the tunnel name or UUID from `cloudflared tunnel create`) and `hostname` (a bare DNS name; the session URL is `https://<hostname>`). Misconfig fails the load: a named mode missing `name` or `hostname`, `name`/`hostname` set outside named mode, a `hostname` that is not a bare DNS name, and a missing `binaryPath` under `deny`. A download whose digest mismatches the pinned hash fails loudly and keeps nothing. `open()` refuses while `enabled` is false and on non-integral or out-of-range ports. The child starts from the scrubbed parent environment (no credential-shaped or `DSH_*` names), which still carries `HOME` so named mode finds `~/.cloudflared/{cert.pem,<tunnel>.json}`.
 
@@ -18,6 +20,7 @@ Restart policy belongs to the consumer: [`dsh-remote-access`](../remote-access/R
 
 ## Table of Contents
 
+- [Operation](#operation)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)

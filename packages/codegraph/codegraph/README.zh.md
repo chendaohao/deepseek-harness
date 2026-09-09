@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-对每个工作区带有 `.codegraph/` 索引的会话，`dsh-codegraph` 在首个 pre-step 批次中折叠注入 CodeGraph 清单，并惰性启动一个 `codegraph serve --mcp` 连接，其工具注册为 `mcp__codegraph__*`（`codegraph_explore`、`codegraph_node`、`codegraph_search`）。没有索引的工作区什么也不获得：无消息、无服务器、无工具。连接是全局的而非按会话——DSH 的 mcp-client 不发送 `rootUri`，因此服务端没有默认项目，代理每次调用都传 `projectPath`（清单中如此说明）。连接失败会记录日志且绝不致命：清单指示代理回退到 `codegraph explore` CLI，失败连接会被丢弃并在下一个会话的首个带索引 pre-step 重启。
+对每个工作区带有 `.codegraph/` 索引的会话，`dsh-codegraph` 在首个 pre-step 批次中折叠注入 CodeGraph 清单，并惰性启动一个 `codegraph serve --mcp` 连接，其工具注册为 `mcp__codegraph__*`。没有索引的工作区什么也不获得：无消息、无服务器、无工具。连接失败会记录日志且绝不致命——清单指示代理回退到 `codegraph explore` CLI，失败连接会被丢弃并在下一个会话的首个带索引 pre-step 重启。连接是全局的而非按会话：DSH 的 mcp-client 不发送 `rootUri`，因此代理每次调用都传 `projectPath`。
 
 ## 目录
 

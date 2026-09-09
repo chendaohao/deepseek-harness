@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-For every session whose workspace carries a `.codegraph/` index, `dsh-codegraph` folds a CodeGraph checklist into the first pre-step batch and lazily starts one `codegraph serve --mcp` connection whose tools register as `mcp__codegraph__*` (`codegraph_explore`, `codegraph_node`, `codegraph_search`). Workspaces without an index get nothing: no message, no server, no tools. The connection is global, not per-session — DSH's mcp-client sends no `rootUri`, so the server has no default project and agents pass `projectPath` per call (the checklist says so). Connection failures are logged and never fatal: the checklist tells agents to fall back to the `codegraph explore` CLI, and a failed connection is discarded and restarted on the next session's first indexed pre-step.
+For every session whose workspace carries a `.codegraph/` index, `dsh-codegraph` folds a CodeGraph checklist into the first pre-step batch and lazily starts one `codegraph serve --mcp` connection whose tools register as `mcp__codegraph__*`. Workspaces without an index get nothing: no message, no server, no tools. Connection failures are logged and never fatal — the checklist tells agents to fall back to the `codegraph explore` CLI, and a failed connection is discarded and restarted on the next session's first indexed pre-step. The connection is global, not per-session: DSH's mcp-client sends no `rootUri`, so agents pass `projectPath` per call.
 
 ## Table of Contents
 

@@ -294,7 +294,9 @@ export class BrowserAuth {
    */
   isAuthenticated(request: ConnectionTrustRequest): boolean {
     return this.verify(request) !== undefined
-  }  /**
+  }
+
+  /**
    * Verify the presented browser cookie and, when it crossed a UTC day since
    * its issue, mint a fresh full-lifetime Set-Cookie for the response. Callers
    * that own a response attach the header; the upgrade paths drop it

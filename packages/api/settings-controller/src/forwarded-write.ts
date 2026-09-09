@@ -12,6 +12,7 @@ import { currentRequestFacts } from '@deepseek-ai/dsh-client-connection'
  * Whether the current request (per {@link currentRequestFacts}) arrived through
  * the remote-access proxy. No facts installed means a direct in-process caller
  * or an unforwarded HTTP request: the local desktop case, always allowed.
+ * @returns true when the request facts carry the proxy's forwarded marker.
  */
 export function isForwardedRequest(): boolean {
   const facts = currentRequestFacts()

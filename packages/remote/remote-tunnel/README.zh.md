@@ -8,7 +8,11 @@ kind: "package-reference"
 
 ## 概述
 
-远程隧道能力：默认导出的 `RemoteTunnel` Service（`ctx.remoteTunnel`）及其 cloudflared provider。`open(port)` 启动固定版本（`2026.8.1`，按官方发布校验和逐平台验证 SHA-256）的 `cloudflared`：快速模式以 `tunnel --url http://127.0.0.1:<port> --no-autoupdate` 运行，在有界的 stdout/stderr 窗口内扫描 `https://<slug>.trycloudflare.com` URL（真实 cloudflared 把横幅日志写到 stderr）；named 模式会写入一份会话级 ingress 配置（`tunnel: <name>`，一条从 `<hostname>` 到 `http://127.0.0.1:<port>` 的 ingress 规则，以及 `http_status:404` 兜底规则），并以 `tunnel --config <file> --no-autoupdate run` 运行，子进程报告连接注册后解析出 `https://<hostname>`。两种模式都带退避地重试启动尝试，最终解析出 `RemoteTunnelSession`：其 `url`，以及停止子进程（SIGTERM、宽限、SIGKILL）、等待退出并移除会话级配置的 `close()`。会话以 `remote-tunnel/state` 事件报告 `open`（含 URL）、`ended`（子进程退出）或 `failed`（尝试预算耗尽；`open()` 以相同消息拒绝）。会话 `ended` 后 `url` 仍可读但已失效。
+`dsh-remote-tunnel` 通过 spawn 一个锁定版本、按官方校验和 SHA-256 验证的 `cloudflared` 发布物，把本地端口暴露到公网 HTTPS URL：快速模式无需 Cloudflare 账号，每个会话铸一个随机 `*.trycloudflare.com` 域名；named 模式在自有稳定域名下运行预注册隧道。`open(port)` 带退避重试并 resolve 一个 `RemoteTunnelSession`（`url`、`close()`）；会话发出 `remote-tunnel/state` 的 `open`、`ended` 或 `failed`。子进程运行于净化后的环境；配置错误在加载时响亮失败。
+
+-----
+<a id="operation"></a>
+## 运行
 
 配置 `{enabled, download: 'allow'|'deny'|'system', binaryPath?, mode: 'quick'|'named', name?, hostname?}`：`allow` 首次使用时把固定版本的产物下载到 `$DSH_HOME/bin`（macOS tgz 通过系统 tar 解包），`deny` 要求提供已存在的 `binaryPath`，`system` 从 PATH 运行 `cloudflared`。快速模式（默认）无需 Cloudflare 账号，每次会话分配随机主机名；named 模式运行已注册的隧道并挂到稳定的 `hostname`，因此重启后 URL 不变，且要求同时提供 `name`（`cloudflared tunnel create` 得到的隧道名或 UUID）与 `hostname`（裸 DNS 名；会话 URL 为 `https://<hostname>`）。错误配置在加载期即失败：named 缺 `name`/`hostname`、非 named 模式却设置了 `name`/`hostname`、`hostname` 不是裸 DNS 名、`deny` 下缺少 `binaryPath`。下载内容与固定哈希不符时大声失败且不留残余。`enabled` 为 false 或端口非整数/越界时 `open()` 拒绝执行。子进程从经过清洗的父环境启动（不含凭据形状或 `DSH_*` 的名称），但仍携带 `HOME`，因此 named 模式能找到 `~/.cloudflared/{cert.pem,<tunnel>.json}`。
 
@@ -18,6 +22,7 @@ named 模式需要先在部署所属的 Cloudflare 账号下一次性注册隧�
 
 ## 目录
 
+- [运行](#operation)
 - [模型体验](#model-experience)
 - [已知限制与暂缓事项](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)

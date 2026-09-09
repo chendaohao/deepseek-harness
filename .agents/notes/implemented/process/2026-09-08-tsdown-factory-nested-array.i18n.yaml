@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-08-tsdown-factory-nested-array.md
-2026-09-08-tsdown-factory-nested-array.md: 2ac314e88f681531ac73cb0af83b695da96e8fc6
-2026-09-08-tsdown-factory-nested-array.zh.md: caee40477873e5d3f8bea65c44d4a2ff383dc92b
+2026-09-08-tsdown-factory-nested-array.md: a0c8813ade0f41d69f54b162325c97afb76fde66
+2026-09-08-tsdown-factory-nested-array.zh.md: 24df3919c66fac2dbf08a746078937765563ea72

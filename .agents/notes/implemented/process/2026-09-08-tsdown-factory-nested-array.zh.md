@@ -12,7 +12,7 @@ Status: implemented
 
 **workspace tsdown 工厂返回扁平的 `UserConfig[]`；委托共享预设工厂时直接返回或展开其结果，绝不再包一层 `[]`。**
 
-```ts
+```ts ignore-check
 // wrong: nested UserConfig[][]
 export default (({ env }) => [clientBundle('id', ['lib/types/index.js'])({ env })])
 
