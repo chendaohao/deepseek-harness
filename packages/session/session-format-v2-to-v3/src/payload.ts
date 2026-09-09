@@ -7,7 +7,11 @@ import { RELEASED_V2_EVENT_DISPOSITIONS } from '@deepseek-ai/dsh-session-format-
 
 /** Audited surface event names; all other admitted events are log-only. */
 export const SURFACE_TYPES: ReadonlySet<string> = new Set(['system/message', 'user/message', 'assistant/message', 'tool/result'])
-const SOURCE_KINDS = new Set(['user', 'plugin', 'model', 'tool', 'agent-instructions', 'session-reference', 'team-message', 'goal', 'skill-invocation', 'skill-catalog', 'coordinator', 'subagent-report', 'subagent-settled', 'webhook', 'agent-message'])
+// Fork extension: the codegraph plugin writes its checklist-injection marker
+// into user/message sources (packages/codegraph), so fork V2 logs carry a kind
+// upstream never sees. Migration passes sources through unchanged; the V3
+// reader projects unknown kinds by their durable kind string.
+const SOURCE_KINDS = new Set(['user', 'plugin', 'model', 'tool', 'agent-instructions', 'session-reference', 'team-message', 'goal', 'skill-invocation', 'skill-catalog', 'coordinator', 'subagent-report', 'subagent-settled', 'webhook', 'agent-message', 'codegraph-instructions'])
 
 /**
  * Require a JSON object at the durable input boundary.
@@ -116,6 +120,12 @@ function assertSource(message: SessionFormatJsonObject): void {
     keys(source, ['kind', 'form', 'senderSessionId'], [], 'agent-message source')
     if (source['form'] !== 'relay' || typeof source['senderSessionId'] !== 'string' || source['senderSessionId'].length === 0) {
       throw new SessionFormatError('agent-message source requires relay form and senderSessionId')
+    }
+  }
+  if (source['kind'] === 'codegraph-instructions') {
+    keys(source, ['kind', 'form'], [], 'codegraph-instructions source')
+    if (source['form'] !== 'instructions') {
+      throw new SessionFormatError('codegraph-instructions source requires the instructions form')
     }
   }
 }

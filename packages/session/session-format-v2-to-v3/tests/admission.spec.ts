@@ -58,6 +58,20 @@ describe('durable V3 admission failures', () => {
     expect(() =>{  assertEvent(extension, 2) }).toThrow(/unclassified/)
   })
 
+  it('admits the fork codegraph checklist source through V2 migration with its instructions form', () => {
+    const codegraph = event('user/message', { ...user, source: { kind: 'codegraph-instructions', form: 'instructions' } }, { surfaceOp: 'append' })
+    expect(() =>{  assertEvent(codegraph, 2) }).not.toThrow()
+    const output = migrate([...opening, codegraph, event('step/end', { turn: 1, step: 1 })])
+    expect((output.events.find(value => value.type === 'user/message')?.data as SessionFormatJsonObject)['source']).toEqual({ kind: 'codegraph-instructions', form: 'instructions' })
+  })
+
+  it.each([
+    { kind: 'codegraph-instructions', form: 'baseline' },
+    { kind: 'codegraph-instructions', form: 'instructions', extra: 1 },
+  ])('refuses malformed codegraph source shapes %j', (source) => {
+    expect(() =>{  assertEvent(event('user/message', { ...user, source }, { surfaceOp: 'append' }), 2) }).toThrow(/codegraph-instructions source/)
+  })
+
   it.each([0, -1, 1.5])('rejects invalid system step coordinates %s', (step) => {
     expect(() => releasedV3SessionFormatCodec.encodeEvent(event('system/message', { ...system, step }, { surfaceOp: 'append' }))).toThrow()
   })
