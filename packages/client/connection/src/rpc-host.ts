@@ -1,5 +1,6 @@
 /** Host registry and HTTP adapter for generic Connection RPC channels. */
 
+import { brotliDecompressSync, gunzipSync, unzipSync } from 'node:zlib'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
@@ -31,6 +32,12 @@ import type {
 const INVALID_REQUEST_RPC_ID = RpcId('invalid-request')
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
 const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
+
+/** Upper bound for one decompressed RPC JSON body. Mobile browsers compress
+ * uploads (`content-encoding: gzip`), and a compressed body expands here, so
+ * the bound applies to the decoded size — below the bridge's 300 MiB buffered
+ * raw cap, since JSON text compresses at roughly an order of magnitude. */
+const MAX_DECOMPRESSED_BODY_BYTES = 64 * 1024 * 1024
 
 interface ConnectionRpcInterceptor {
   readonly matches: ConnectionRpcEndpointMatcher
@@ -237,8 +244,14 @@ function rpcFetchHandler(
 
       let body: unknown
       try {
-        body = await request.json()
-      } catch {
+        body = JSON.parse(await decodeRequestBody(request))
+      } catch (error) {
+        if (error instanceof UnsupportedContentEncodingError) {
+          return new Response(`unsupported content-encoding ${JSON.stringify(error.encoding)}`, { status: 415 })
+        }
+        if (error instanceof BodyLimitError) {
+          return new Response('decompressed body exceeds the RPC limit', { status: 413 })
+        }
         return new Response('body is not JSON', { status: 400 })
       }
 
@@ -263,6 +276,46 @@ function rpcFetchHandler(
       }
     },
   }
+}
+
+/** A `content-encoding` this RPC bridge refuses to decode. */
+class UnsupportedContentEncodingError extends Error {
+  constructor(readonly encoding: string) {
+    super(`unsupported content-encoding ${JSON.stringify(encoding)}`)
+  }
+}
+
+/** Decompressed body outgrew {@link MAX_DECOMPRESSED_BODY_BYTES}. */
+class BodyLimitError extends Error {
+  constructor() {
+    super('decompressed body exceeds the RPC limit')
+  }
+}
+
+/**
+ * Read one RPC request body, decoding the upload compression mobile browsers
+ * apply on metered networks (`content-encoding: gzip`). WHATWG `fetch` never
+ * decodes request bodies, so the codec runs here, at the JSON parse point
+ * every `/api` RPC body reaches.
+ * @param request - buffered-mode Fetch request from the HTTP bridge.
+ * @returns the decompressed JSON text.
+ */
+async function decodeRequestBody(request: Request): Promise<string> {
+  const raw = Buffer.from(await request.arrayBuffer())
+  const encoding = request.headers.get('content-encoding')?.trim().toLowerCase()
+  if (encoding === undefined || encoding === '' || encoding === 'identity') return raw.toString('utf8')
+  if (encoding !== 'gzip' && encoding !== 'x-gzip' && encoding !== 'deflate' && encoding !== 'br') {
+    throw new UnsupportedContentEncodingError(encoding)
+  }
+  // Sync decode: the bridge has already buffered the whole body, so the bytes
+  // are in memory and a codec error is just a 400. unzipSync sniffs the zlib
+  // wrapper — the zlib-wrapped spelling and the raw deflate stream some
+  // clients emit decode through one call.
+  const decoded = encoding === 'br'
+    ? brotliDecompressSync(raw)
+    : encoding === 'gzip' || encoding === 'x-gzip' ? gunzipSync(raw) : unzipSync(raw)
+  if (decoded.byteLength > MAX_DECOMPRESSED_BODY_BYTES) throw new BodyLimitError()
+  return decoded.toString('utf8')
 }
 
 function invalidEnvelopeResponse(body: unknown, issues: readonly object[]): Response {
