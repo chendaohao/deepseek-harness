@@ -148,7 +148,6 @@ export const SERVICE_PAGE: Record<string, string> = {
  * to a model as `cordis_runtime_inspect what:"client"`).
  */
 export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
-  agent: 'not a service: the DX accessor field on Agent.ctx (root accessor defaulting to undefined) — docs/subsystems/core.md owns the Agent handle',
   appReady: 'not a service: launcher-provided successful-startup signal — packages/boot/cmdline/README.md owns the launcher contract',
   appExit: 'not a service: launcher-provided bounded process-exit callback — packages/boot/cmdline/README.md owns the launcher contract',
   cmdlineArgs: 'not a service: launcher-provided immutable app argument accessor — packages/boot/cmdline/README.md owns the launcher contract',
@@ -416,6 +415,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   CreateGoalRequest: 'goal.md',
   EditGoalRequest: 'goal.md',
   GoalBlockReason: 'goal.md',
+  GoalActivationChanged: 'goal.md',
   GoalChanged: 'goal.md',
   GoalRef: 'goal.md',
   GoalView: 'goal.md',
@@ -695,6 +695,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   RemoteTunnelState: 'tunnel session state union is owned by packages/remote/remote-tunnel/src/types.ts',
   RemoteTunnelSession: 'live tunnel session handle is owned by packages/remote/remote-tunnel/src/index.ts',
   DeviceRecord: 'paired device roster record is owned by packages/remote/remote-access/src/types.ts',
+  DeviceView: 'client-facing device view is owned by packages/remote/remote-access/src/types.ts',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',

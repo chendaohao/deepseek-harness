@@ -226,7 +226,9 @@ Host service backing the generated `ctx.remote.credentials` namespace. It carrie
 /**
  * Describe several references for one configuration surface. Batched because
  * a settings page describes every reference its rows name at once, and one
- * round trip keeps those rows from settling separately.
+ * round trip keeps those rows from settling separately. A forwarded
+ * (paired tunnel) client reads every reference as non-writable: its writes
+ * would refuse anyway, so the view never invites a doomed input.
  * @param refs - reference names, at most {@link MAX_DESCRIBE_REFS}; a name outside the grammar
  *   rejects the whole call as `gateway/bad-request`.
  * @returns one view per requested name, keyed by that name.
@@ -236,17 +238,22 @@ Host service backing the generated `ctx.remote.credentials` namespace. It carrie
 
 /**
  * Store one value from a configuration surface. The value crosses the wire in
- * this direction only: no read path returns it.
+ * this direction only: no read path returns it. Refused unconditionally for a
+ * forwarded request — the `forwardedWrite` switch does not reach credentials.
  * @param ref - reference name to store under.
  * @param value - the non-empty secret value.
- * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
+ * @throws RemoteError when the request is invalid, the request is forwarded, no provider is
+ *   mounted, or the provider refuses the write.
  */
 @Remote async set(ref: string, value: string): Promise<void>
 
 /**
- * Remove one reference from a configuration surface.
+ * Remove one reference from a configuration surface. Refused unconditionally
+ * for a forwarded request — the `forwardedWrite` switch does not reach
+ * credentials.
  * @param ref - reference name to remove.
- * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
+ * @throws RemoteError when the request is invalid, the request is forwarded, no provider is
+ *   mounted, or the provider refuses the write.
  */
 @Remote async unset(ref: string): Promise<void>
 ```

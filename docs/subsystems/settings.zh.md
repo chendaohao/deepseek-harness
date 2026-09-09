@@ -286,7 +286,9 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
 /**
  * Describe every registered namespace for a configuration page: redacted
  * layered values plus the serialized schema the page renders its form from.
- * @returns provider writability, local-document presence, and one view per namespace.
+ * @returns provider writability (false for a forwarded request unless
+ *   {@link Config.forwardedWrite} is on — the client's single writable truth),
+ *   local-document presence, and one view per namespace.
  * @throws RemoteError when no settings provider is mounted.
  */
 @Remote describe(): SettingsDescribeValue

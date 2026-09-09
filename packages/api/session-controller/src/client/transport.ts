@@ -27,6 +27,7 @@ import {
 } from './sessions/history-records.ts'
 import type { SessionEventLikeEntry, SessionLiveEventEntry } from './contract/events.ts'
 import type { SessionRemotes } from './sessions/remotes.ts'
+import { assertSessionWireEvent } from './session-wire-event.ts'
 
 export {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -195,6 +196,7 @@ export class SessionEventStream extends RemoteJournalStream<
       ...(request.maxMessages === undefined ? {} : { maxMessages: request.maxMessages }),
     }, signal)) {
       if (frame.type === 'snapshot') {
+        for (const record of frame.records) assertSessionWireEvent(record.event)
         if (frame.assistantStream === undefined) {
           throw new RemoteError(
             'gateway/internal',
@@ -226,6 +228,7 @@ export class SessionEventStream extends RemoteJournalStream<
         yield { type: 'notification', notification: frame.frame }
         continue
       }
+      assertSessionWireEvent(frame.event)
       yield { type: 'entry', entry: frame }
     }
   }
@@ -241,6 +244,7 @@ export class SessionEventStream extends RemoteJournalStream<
       signal,
     )
     if (!result.ok) throw result.error
+    for (const record of result.value.records) assertSessionWireEvent(record.event)
     return result.value
   }
 

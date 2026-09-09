@@ -889,6 +889,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     name: 'TranslateNS',
     declaration: 'export type TranslateNS<N extends keyof LocaleNamespaceMap & string> = Translate<LocaleKeysOf<N>>;',
   },
+  {
+    name: 'WorkspaceView',
+    declaration: 'export interface WorkspaceView {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}',
+  },
 ]
 
 /** The inherited `ctx` API (cordis core + loader/hmr/timer), in curated order. */

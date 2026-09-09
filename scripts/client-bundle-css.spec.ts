@@ -10,7 +10,7 @@ import { clientBundle } from '../packages/client/tsdown.client.ts'
 
 interface CssPlugin {
   name: string
-  resolveId?: { order: 'pre'; handler: (source: string, importer?: string) => string | null }
+  resolveId?: { order: 'pre'; handler: (source: string, importer?: string) => Promise<string | null> | string | null }
   load?: (this: { addWatchFile(id: string): void }, id: string) => Promise<string | null>
 }
 
@@ -35,7 +35,7 @@ describe('client bundle CSS Modules', () => {
       const importer = join(root, 'index.ts')
       await writeFile(stylesheet, '.root { color: red; }\n')
       const plugin = cssPlugin('dsh-css-modules-inline')
-      const virtualId = plugin.resolveId?.handler?.('./Fixture.module.css', importer)
+      const virtualId = await plugin.resolveId?.handler?.('./Fixture.module.css', importer)
       if (typeof virtualId !== 'string' || plugin.load === undefined) {
         throw new Error('CSS Modules plugin hooks are incomplete')
       }
@@ -59,7 +59,7 @@ describe('client bundle global CSS', () => {
       const importer = join(root, 'index.ts')
       await writeFile(stylesheet, 'body { color: red; }\n')
       const plugin = cssPlugin('dsh-css-global-inline')
-      const virtualId = plugin.resolveId?.handler?.('./base.css', importer)
+      const virtualId = await plugin.resolveId?.handler?.('./base.css', importer)
       if (typeof virtualId !== 'string' || plugin.load === undefined) {
         throw new Error('global CSS plugin hooks are incomplete')
       }
@@ -82,7 +82,7 @@ describe('client bundle global CSS', () => {
       const importer = join(root, 'index.ts')
       await writeFile(stylesheet, 'body { color: red; }\n')
       const plugin = cssPlugin('dsh-css-text-inline')
-      const virtualId = plugin.resolveId?.handler?.('./base.css?inline', importer)
+      const virtualId = await plugin.resolveId?.handler?.('./base.css?inline', importer)
       if (typeof virtualId !== 'string' || plugin.load === undefined) {
         throw new Error('inline CSS plugin hooks are incomplete')
       }

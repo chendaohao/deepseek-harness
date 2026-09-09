@@ -67,9 +67,9 @@ The device roster changed: a device paired, was revoked, or its liveness advance
 /**
  * The device roster changed: a device paired, was revoked, or its liveness advanced.
  * @mode emit
- * @param devices - the live roster snapshot after the change.
+ * @param devices - the live roster view after the change, each record carrying its window expiry.
  */
-'remote/devices/change'(devices: DeviceRecord[]): void
+'remote/devices/change'(devices: DeviceView[]): void
 ```
 
 Source: [`packages/remote/remote-access/src/types.ts`](../../packages/remote/remote-access/src/types.ts)

@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   createSessionTestRemote,
@@ -18,7 +18,7 @@ import {
 const sid = (id: string): Session['id'] => id as Session['id']
 
 function header(id: string, createdAt: number): SessionHeader {
-  return { version: 2, id: sid(id), createdAt, cwd: '/proj', isSeeded: false }
+  return { version: SESSION_FORMAT_VERSION, id: sid(id), createdAt, cwd: '/proj', isSeeded: false }
 }
 
 function request<P>(payload: P): P {
