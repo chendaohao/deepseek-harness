@@ -1,7 +1,7 @@
 /** Host registry and HTTP adapter for generic Connection RPC channels. */
 
-import { brotliDecompressSync, gunzipSync, unzipSync } from 'node:zlib'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { brotliDecompressSync, gunzipSync, inflateRawSync, unzipSync } from 'node:zlib'
+import { Context, Service, type LoggerService } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   RpcId,
@@ -180,7 +180,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     handler: ConnectionRpcHandler,
   ): () => Promise<void> {
     assertChannel(channel)
-    const fetchHandler = rpcFetchHandler(channel, handler)
+    const fetchHandler = rpcFetchHandler(channel, handler, this.ctx.logger)
     const route: WebRoute = {
       kind: 'prefix',
       path: channel,
@@ -211,7 +211,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     }
     const interceptor: ConnectionRpcInterceptor = {
       matches,
-      fetchHandler: rpcFetchHandler(channel, handler),
+      fetchHandler: rpcFetchHandler(channel, handler, this.ctx.logger),
     }
     return owner.effect(() => {
       if (this.interceptors.has(channel)) {
@@ -228,6 +228,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
 function rpcFetchHandler(
   channel: string,
   handler: ConnectionRpcHandler,
+  logger: LoggerService,
 ): ConnectionFetchHandler {
   return {
     requestBodyMode: () => 'buffered',
@@ -252,7 +253,12 @@ function rpcFetchHandler(
         if (error instanceof BodyLimitError) {
           return new Response('decompressed body exceeds the RPC limit', { status: 413 })
         }
-        return new Response('body is not JSON', { status: 400 })
+        // The body never reached a handler, and a client reports only the
+        // status: name the media type, encoding, and codec failure in the log
+        // and in the response, the way the 415 arm names the encoding.
+        const failure = `body is not JSON (content-type ${JSON.stringify(mediaType)}, content-encoding ${JSON.stringify(request.headers.get('content-encoding'))}): ${String(error)}`
+        logger.warn(`connection: ${endpoint} ${failure}`)
+        return new Response(failure, { status: 400 })
       }
 
       const envelope = clientRequestSchema.safeParse(body)
@@ -308,14 +314,27 @@ async function decodeRequestBody(request: Request): Promise<string> {
     throw new UnsupportedContentEncodingError(encoding)
   }
   // Sync decode: the bridge has already buffered the whole body, so the bytes
-  // are in memory and a codec error is just a 400. unzipSync sniffs the zlib
-  // wrapper — the zlib-wrapped spelling and the raw deflate stream some
-  // clients emit decode through one call.
+  // are in memory and a codec error is just a 400.
   const decoded = encoding === 'br'
     ? brotliDecompressSync(raw)
-    : encoding === 'gzip' || encoding === 'x-gzip' ? gunzipSync(raw) : unzipSync(raw)
+    : encoding === 'gzip' || encoding === 'x-gzip' ? gunzipSync(raw) : inflateDeflate(raw)
   if (decoded.byteLength > MAX_DECOMPRESSED_BODY_BYTES) throw new BodyLimitError()
   return decoded.toString('utf8')
+}
+
+/**
+ * Decode one `deflate` body. `unzipSync` accepts the zlib-wrapped and gzip
+ * spellings only, while some clients send the raw stream, so a failed wrapped
+ * decode falls through to the raw codec.
+ * @param raw - the buffered compressed bytes.
+ * @returns the decompressed bytes.
+ */
+function inflateDeflate(raw: Buffer): Buffer {
+  try {
+    return unzipSync(raw)
+  } catch {
+    return inflateRawSync(raw)
+  }
 }
 
 function invalidEnvelopeResponse(body: unknown, issues: readonly object[]): Response {

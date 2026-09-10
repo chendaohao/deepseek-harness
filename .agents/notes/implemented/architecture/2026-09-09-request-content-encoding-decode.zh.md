@@ -20,7 +20,7 @@ Status: implemented
 | --- | --- |
 | 缺省 / 空 / `identity` | 原样直读，行为不变 |
 | `gzip` / `x-gzip` | `gunzipSync` |
-| `deflate` | `unzipSync`（嗅探 zlib 包裹，zlib 包裹与部分客户端发出的裸 deflate 流都能解码） |
+| `deflate` | `unzipSync`，包裹解码失败时回退到 `inflateRawSync`：`unzipSync` 只认 zlib 包裹与 gzip 拼写，而部分客户端发出的是裸流 |
 | `br` | `brotliDecompressSync`——与 webserver 已协商的响应压缩对称 |
 | 其它 | 415，消息指名该编码 |
 
@@ -38,8 +38,9 @@ Status: implemented
 
 - 压缩上传端到端可用：`llm/listProviders`、`session/list` 以及其余所有 buffered `/api` POST 都在解析前解码。
 - 未知编码以 415 响亮失败，不再伪装成误导性的 400，且失败消息指名编码。
+- 400 分支在响应体里指名 endpoint、媒体类型与客户端发来的 `content-encoding`，并同时写日志，无法解码的请求体因此既能从客户端自己的调试工具、也能从部署导出日志的地方诊断出来。
 - upstream 带有同样的缺口；本 Note 让 fork 补丁及其理由在 upstream PR 吸收它之前得以留存。
 
 ## Verification
 
-`packages/client/connection/tests/rpc-body-decode.host.spec.ts` 以挂载的 `HostConnectionService` 共享处理器驱动完整组合（围栏桩、共享处理器分发、interceptor 接收）：gzip、deflate 两种拼写、br、`x-gzip`、未压缩与 `identity` 直读、未知编码 → 415、损坏压缩字节 → 400、80 MiB 膨胀 → 413、65 MiB 未压缩体不受解码上限影响。connection 全套（16 文件 176 测试）原样通过。真机路径验证：gzip 体 curl 经公网隧道 URL 在修复前 400、服务重启后 200。
+`packages/client/connection/tests/rpc-body-decode.host.spec.ts` 以挂载的 `HostConnectionService` 共享处理器驱动完整组合（围栏桩、共享处理器分发、interceptor 接收）：gzip、deflate 两种拼写、br、`x-gzip`、未压缩与 `identity` 直读、未知编码 → 415、损坏压缩字节 → 400、指名编码的 400 诊断、80 MiB 膨胀 → 413、65 MiB 未压缩体不受解码上限影响。connection 全套（16 文件 178 测试）通过。真机路径验证：gzip 体 curl 经公网隧道 URL 在修复前 400、服务重启后 200。

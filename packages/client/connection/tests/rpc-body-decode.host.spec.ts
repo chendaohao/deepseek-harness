@@ -3,7 +3,7 @@
  * decodes request bodies, so the /api JSON parse point owns the codec.
  * Driven through the mounted HostConnectionService so the fence, bridge, and
  * rpcFetchHandler composition stay in the loop. */
-import { brotliCompressSync, deflateSync, gzipSync } from 'node:zlib'
+import { brotliCompressSync, deflateRawSync, deflateSync, gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import type { ClientRequest } from '../src/rpc.ts'
 import { RpcId } from '../src/rpc.ts'
@@ -11,11 +11,23 @@ import { HostConnectionService } from '../src/rpc-host.ts'
 import type { BrowserAuth } from '../src/browser-auth.ts'
 import { Context } from '@deepseek-ai/cordis'
 
+/** Cordis severity order is error/info/warn/debug, and an exporter drops every
+ * message above its threshold; this admits all four. */
+const ADMIT_EVERY_LEVEL = 3
+
 async function mounted(): Promise<{
   connection: HostConnectionService
+  logs: () => string[]
   dispose: () => Promise<void>
 }> {
   const ctx = new Context()
+  const messages: string[] = []
+  // The Context's built-in sink stops at info, so the decode-failure diagnostic
+  // needs a sink that admits warn to be observable here.
+  ctx.logger.exporter({
+    levels: { default: ADMIT_EVERY_LEVEL },
+    export: (message) => { messages.push(String(message.args[0])) },
+  })
   const fiber = ctx.plugin((pluginCtx) => {
     new HostConnectionService(pluginCtx, [], {
       authenticate: () => ({ authenticated: true }),
@@ -24,6 +36,7 @@ async function mounted(): Promise<{
   await fiber.await()
   return {
     connection: ctx.get('connection') as HostConnectionService,
+    logs: () => messages,
     dispose: () => fiber.dispose(),
   }
 }
@@ -38,12 +51,15 @@ function envelope(): ClientRequest {
 }
 
 /** Drive one compressed/uncompressed POST through the shared handler.
- * @returns the transport status and the payload the RPC handler received. */
+ * @returns the transport status, the response body text, the payload the RPC
+ * handler received, and the messages the Context logger buffered. */
 async function decodeOutcome(headers: Record<string, string>, raw: Buffer): Promise<{
   status: number
+  body: string
   payload: unknown
+  logs: string[]
 }> {
-  const { connection, dispose } = await mounted()
+  const { connection, logs, dispose } = await mounted()
   try {
     let received: unknown
     const withdraw = connection.rpc.intercept(
@@ -62,7 +78,7 @@ async function decodeOutcome(headers: Record<string, string>, raw: Buffer): Prom
     })
     const response = await shared.fetch(request)
     await withdraw()
-    return { status: response.status, payload: received }
+    return { status: response.status, body: await response.text(), payload: received, logs: logs() }
   } finally {
     await dispose()
   }
@@ -84,6 +100,15 @@ describe('connection rpc request-body content-encoding', () => {
     const { status, payload } = await decodeOutcome(
       { 'content-type': 'application/json', 'content-encoding': 'deflate' },
       deflateSync(Buffer.from(message)),
+    )
+    expect(status).toBe(200)
+    expect(payload).toEqual({ args: {} })
+  })
+
+  it('decodes the raw deflate spelling', async () => {
+    const { status, payload } = await decodeOutcome(
+      { 'content-type': 'application/json', 'content-encoding': 'deflate' },
+      deflateRawSync(Buffer.from(message)),
     )
     expect(status).toBe(200)
     expect(payload).toEqual({ args: {} })
@@ -138,6 +163,17 @@ describe('connection rpc request-body content-encoding', () => {
       Buffer.from('not gzip'),
     )
     expect(status).toBe(400)
+  })
+
+  it('names the media type and encoding on the 400 it answers', async () => {
+    const { status, body, logs } = await decodeOutcome(
+      { 'content-type': 'application/json', 'content-encoding': 'deflate' },
+      Buffer.from('not deflate'),
+    )
+    expect(status).toBe(400)
+    expect(body).toContain('content-encoding "deflate"')
+    expect(logs.at(-1)).toContain('llm/listProviders body is not JSON')
+    expect(logs.at(-1)).toContain('content-encoding "deflate"')
   })
 
   it('answers 413 when the decompressed body outgrows the limit', async () => {

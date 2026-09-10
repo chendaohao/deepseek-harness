@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-09-request-content-encoding-decode.md
-2026-09-09-request-content-encoding-decode.md: eb71dedcb153c825ea0ba4c1f614f9944481bf2b
-2026-09-09-request-content-encoding-decode.zh.md: 11f82ae2c1fcd4e998096415241013891717c500
+2026-09-09-request-content-encoding-decode.md: 76eba54f6d1d29fd3cb95b0bb2a6da56dacbefc3
+2026-09-09-request-content-encoding-decode.zh.md: 550e41c4b3881b61a58f5feeff3d880b9674c097

@@ -20,7 +20,7 @@ The gap predates the merge (upstream master has the same hole); the merge only m
 | --- | --- |
 | absent / empty / `identity` | unchanged passthrough |
 | `gzip` / `x-gzip` | `gunzipSync` |
-| `deflate` | `unzipSync` (sniffs the zlib wrapper, so the zlib-wrapped spelling and the raw deflate stream some clients emit both decode) |
+| `deflate` | `unzipSync`, falling back to `inflateRawSync` when the wrapped decode fails: `unzipSync` accepts the zlib-wrapped and gzip spellings only, while some clients emit the raw stream |
 | `br` | `brotliDecompressSync` — symmetric with the response compression the webserver already negotiates |
 | anything else | 415 with a message naming the encoding |
 
@@ -38,8 +38,9 @@ The gap predates the merge (upstream master has the same hole); the merge only m
 
 - Compressed uploads work end to end: `llm/listProviders`, `session/list`, and every other buffered `/api` POST decode before parsing.
 - Unknown encodings fail loud with 415 instead of a misleading 400, and the failure names the encoding.
+- The 400 arm names the endpoint, media type, and `content-encoding` in its response body and in the log, so an undecodable body is diagnosable from the client's own debugging tools and from wherever the deployment exports its logger.
 - Upstream carries the same gap; the note exists so the fork patch and its rationale survive until an upstream PR can absorb it.
 
 ## Verification
 
-`packages/client/connection/tests/rpc-body-decode.host.spec.ts` drives the mounted `HostConnectionService` shared handler through the full composition (fence stub, shared-handler dispatch, interceptor receipt): gzip, both deflate spellings, br, `x-gzip`, uncompressed and `identity` passthrough, unknown encoding → 415, corrupt compressed bytes → 400, 80 MiB expansion → 413, and a 65 MiB uncompressed body unaffected by the decode cap. The full connection suite (16 files, 176 tests) passes unchanged. Real-path verification: a gzip-body curl through the public tunnel URL returned 400 before the fix and 200 after the service restart.
+`packages/client/connection/tests/rpc-body-decode.host.spec.ts` drives the mounted `HostConnectionService` shared handler through the full composition (fence stub, shared-handler dispatch, interceptor receipt): gzip, both deflate spellings, br, `x-gzip`, uncompressed and `identity` passthrough, unknown encoding → 415, corrupt compressed bytes → 400, the 400 diagnostic naming the encoding, 80 MiB expansion → 413, and a 65 MiB uncompressed body unaffected by the decode cap. The full connection suite (16 files, 178 tests) passes. Real-path verification: a gzip-body curl through the public tunnel URL returned 400 before the fix and 200 after the service restart.
