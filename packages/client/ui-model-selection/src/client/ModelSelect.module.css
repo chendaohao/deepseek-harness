@@ -73,7 +73,8 @@
 }
 
 /* Icon-only floor: past continuous shrink (effort ellipsizes away first, then
-   the name), a 360px composer row leaves the 45cqw cap too little for a
+   the name), the row width the composer's side rail and clearances leave on
+   phones (248px at a 360px viewport) keeps the 38cqw cap too small for a
    legible name, so the text yields to the Models glyph. Same anonymous
    container as PermissionSelect's 460px cut (InputBar .row); the full name
    stays reachable through the trigger's title and aria-label. */
@@ -391,15 +392,7 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* Narrow viewports: the composer's app sidebar occupies the left edge, so a
-   right-anchored menu (right: 0 relative to the chip) expands leftward and
-   underlaps that column. Center the menu on the chip instead (left: 50% +
-   translateX(-50%)) — the chip sits clear of the sidebar on these widths, so
-   the menu does too, while vertical placement above the chip is unchanged. */
-@media (max-width: 640px) {
-  .menu {
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
-  }
-}
+/* Placement is the component's own: the portaled card sets an inline left
+   clamped inside the viewport (ModelSelect.tsx place()). No CSS transform
+   may shift .menu — one would offset the card away from its computed left
+   and push it off-screen on phone widths. */
