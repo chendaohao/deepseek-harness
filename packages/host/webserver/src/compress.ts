@@ -6,7 +6,8 @@
  * body is compressible (status, content-type, known length vs threshold) and
  * pipes the body through the codec — or passes it through untouched. SSE
  * (text/event-stream) always passes through, so streaming latency is
- * unchanged. The facade forwards the event surface (close/drain) and the
+ * unchanged. The facade forwards the header-mutation surface (setHeader,
+ * appendHeader, removeHeader), the event surface (close/drain), and the
  * writable-state getters the carrier and its handlers rely on.
  * @module @deepseek-ai/dsh-host-webserver/compress
  */
@@ -135,7 +136,7 @@ export function decideCompression(
  * Accept-Encoding, compression disabled) — the common curl/back-end case.
  * The facade defers header commitment until the first body write so the
  * decision sees the handler's content-type and status; until then the
- * response behaves exactly like the original (setHeader/writeHead getters
+ * response behaves exactly like the original (setHeader/writeHead/appendHeader
  * included). After commitment, writes pass through the codec or straight to
  * the socket (SSE and other non-compressible bodies keep zero added latency).
  * @param res - the response to wrap.
@@ -199,6 +200,22 @@ export function maybeCompressResponse(
     },
     setHeader(name: string, value: string | number | readonly string[]): void {
       pendingHeaders[name.toLowerCase()] = value as string | number | string[]
+    },
+    appendHeader(name: string, value: string | readonly string[]): void {
+      // A handler's Set-Cookie append (daily browser-cookie refresh, multiple
+      // cookies) must survive the deferred commit: appending into the pending
+      // set keeps it ahead of the first body write, and after commitment the
+      // real response owns the throw for a sent-header append.
+      if (committed) {
+        res.appendHeader(name, value)
+        return
+      }
+      const key = name.toLowerCase()
+      const existing = pendingHeaders[key]
+      // A prior single value (including a numeric header) becomes the first
+      // element of the appended list; header values reach the wire as text.
+      const prior = existing === undefined ? [] : Array.isArray(existing) ? existing : [String(existing)]
+      pendingHeaders[key] = [...prior, ...(typeof value === 'string' ? [value] : value)]
     },
     getHeader(name: string): string | number | string[] | undefined {
       return pendingHeaders[name.toLowerCase()]

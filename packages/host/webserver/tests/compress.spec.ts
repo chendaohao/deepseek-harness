@@ -3,12 +3,15 @@
  * booted through the vendored Loader mounts the webserver row, and every
  * assertion observes the served HTTP surface — brotli/gzip negotiation,
  * threshold and MIME gating, SSE passthrough, content-length removal, Vary,
- * and the no-compression path when the client sends no Accept-Encoding.
+ * and the no-compression path when the client sends no Accept-Encoding. The
+ * closing unit block drives the facade's header surface against a minimal
+ * response stand-in, reaching the after-commit arm no served response can.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
 import { connect } from 'node:net'
+import type { ServerResponse } from 'node:http'
 import { gunzipSync, brotliDecompressSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,6 +21,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '../src/index.ts'
+import { maybeCompressResponse } from '../src/compress.ts'
 
 const BODY = 'export const s = "dsh-compression-spec-' + 'x'.repeat(2048) + '"'
 
@@ -117,6 +121,20 @@ async function loadComposition(compression: string): Promise<Context> {
       res.end()
     },
   })
+  // The daily browser-cookie refresh appends Set-Cookie through the route's
+  // response before the body write, the way the /api carrier appends a
+  // refreshed session cookie; a facade missing that method throws inside the
+  // handler and the carrier answers 400 for every request of the new UTC day.
+  server.register({
+    kind: 'exact',
+    path: '/refresh',
+    handler: (_req, res) => {
+      res.appendHeader('set-cookie', 'dsh=one; Path=/')
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.appendHeader('set-cookie', 'dsh=two; Path=/')
+      res.end(JSON.stringify({ ok: true, pad: 'z'.repeat(2048) }))
+    },
+  })
   return context
 }
 
@@ -125,6 +143,8 @@ interface RawResult {
   status: number
   bytes: Buffer
   headers: Record<string, string>
+  /** Every header line in wire order, so repeated names (set-cookie) stay visible. */
+  headerList: Array<[string, string]>
 }
 
 /**
@@ -159,10 +179,14 @@ async function raw(port: number, path: string, headers: Record<string, string> =
       const headText = whole.subarray(0, headEnd).toString('latin1')
       const status = Number(/HTTP\/1\.[01] (\d+)/.exec(headText)?.[1] ?? 0)
       const out: Record<string, string> = {}
+      const headerList: Array<[string, string]> = []
       for (const line of headText.split('\r\n').slice(1)) {
         const colon = line.indexOf(':')
         if (colon === -1) continue
-        out[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim()
+        const name = line.slice(0, colon).trim().toLowerCase()
+        const value = line.slice(colon + 1).trim()
+        out[name] = value
+        headerList.push([name, value])
       }
       let body = whole.subarray(headEnd + 4)
       // The compressed responses carry no content-length, so the server uses
@@ -181,7 +205,7 @@ async function raw(port: number, path: string, headers: Record<string, string> =
         }
         body = Buffer.concat(decoded)
       }
-      resolve({ status, bytes: body, headers: out })
+      resolve({ status, bytes: body, headers: out, headerList })
     })
     socket.on('error', reject)
   })
@@ -264,5 +288,60 @@ describe('compression negotiation and gating', () => {
     // applied, so the body ships as-is.
     expect(got.headers['content-encoding']).toBeUndefined()
     expect(got.bytes.toString()).toBe(BODY)
+  })
+
+  it('carries every handler Set-Cookie append on a compressed response', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition('auto')
+    const got = await raw(loaded.webServer.port, '/refresh', { 'accept-encoding': 'br' })
+    expect(got.status).toBe(200)
+    expect(got.headerList.filter(([name]) => name === 'set-cookie').map(([, value]) => value))
+      .toEqual(['dsh=one; Path=/', 'dsh=two; Path=/'])
+    expect(got.headers['content-encoding']).toBe('br')
+    expect(JSON.parse(brotliDecompressSync(got.bytes).toString())).toEqual({ ok: true, pad: 'z'.repeat(2048) })
+  })
+})
+
+/** Identity-path stand-in for the response the facade wraps: it records the
+ * committed header set and every append that bypasses the pending set. */
+class StandInResponse {
+  readonly committedHeaders: Record<string, string | string[] | number> = {}
+  readonly appended: Array<[string, string | readonly string[]]> = []
+  writeHead(_status: number, headers: Record<string, string | string[] | number>): this {
+    Object.assign(this.committedHeaders, headers)
+    return this
+  }
+  write(): boolean { return true }
+  end(): this { return this }
+  on(): this { return this }
+  once(): this { return this }
+  off(): this { return this }
+  appendHeader(name: string, value: string | readonly string[]): void { this.appended.push([name, value]) }
+  destroy(): void {}
+}
+
+describe('compression facade header surface', () => {
+  it('merges appends into the deferred header set', () => {
+    const standIn = new StandInResponse()
+    const facade = maybeCompressResponse(standIn as unknown as ServerResponse, 'br', 1024)
+    facade.appendHeader('set-cookie', 'dsh=one; Path=/')
+    facade.appendHeader('set-cookie', ['dsh=two; Path=/', 'dsh=three; Path=/'])
+    facade.setHeader('x-count', 3)
+    facade.appendHeader('x-count', '4')
+    facade.writeHead(200, { 'content-type': 'application/octet-stream' })
+    facade.end()
+    expect(standIn.committedHeaders['set-cookie'])
+      .toEqual(['dsh=one; Path=/', 'dsh=two; Path=/', 'dsh=three; Path=/'])
+    expect(standIn.committedHeaders['x-count']).toEqual(['3', '4'])
+  })
+
+  it('delegates an append made after the deferred commit to the wrapped response', () => {
+    const standIn = new StandInResponse()
+    const facade = maybeCompressResponse(standIn as unknown as ServerResponse, 'br', 1024)
+    facade.writeHead(200, { 'content-type': 'application/octet-stream' })
+    // The first body write commits the pending headers; the wrapped response
+    // then owns the sent-header verdict for a late append.
+    facade.write('body')
+    facade.appendHeader('set-cookie', 'dsh=late; Path=/')
+    expect(standIn.appended).toEqual([['set-cookie', 'dsh=late; Path=/']])
   })
 })
