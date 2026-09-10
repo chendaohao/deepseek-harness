@@ -28,6 +28,10 @@ interface RemoteTunnelSession {
 
 会话在 URL 就绪时报告 `open`，子进程退出时报告 `ended`（URL 仍可读但已失效），启动尝试预算耗尽时报告 `failed`；`open()` 以最终 `failed` 相同的消息拒绝。二进制解析策略、校验过的下载以及配对/cookie 词汇详见两个包的 README。
 
+## 配对设备的可达范围
+
+配对设备抵达的 Web GUI 与 loopback 浏览器相同，只有一处由部署决定的差别：它的请求带 remote-access 代理的转发标记，因此 `settings.describe` 对每个 namespace 都回答 `writable: false`，`settings.update`、`settings.replace` 与 `settings.mutate` 一律拒绝，直到部署启用 `settingsController.forwardedWrite` 配置字段；凭据写入无论该字段是否开启都对转发调用方拒绝。loopback 请求不带标记，永不被围栏，而设置 namespace 对配对设备始终可读。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

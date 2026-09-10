@@ -28,6 +28,10 @@ interface RemoteTunnelSession {
 
 A session reports `open` once its URL is ready, `ended` when the child exits (the URL stays readable but dead), and `failed` when the spawn-attempt budget is spent; `open()` rejects with the same message a final `failed` carries. The binary resolution policy, the verified download, and the pairing/cookie vocabulary live in the two package READMEs.
 
+## Paired-client reach
+
+A paired device reaches the same Web GUI a loopback browser reaches, with one deployment-controlled difference: its requests carry the remote-access proxy's forwarded marker, so `settings.describe` answers `writable: false` for every namespace and `settings.update`, `settings.replace`, and `settings.mutate` refuse until the deployment enables the `settingsController.forwardedWrite` config field; credential writes refuse for a forwarded caller whether or not that field is on. Loopback requests carry no marker and are never fenced, and the settings namespaces stay readable to a paired device either way.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
