@@ -1,56 +1,25 @@
-.sessionLogButton {
+/* The right Sidebar's 28px round header icon button: a 28px circle around a
+   15px glyph, level with the header's corner controls. */
+.moreButton {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  height: 26px;
-  padding: 5px 10px;
-  gap: 5px;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: 13px;
-  color: var(--dsw-alias-label-primary);
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  color: var(--dsw-alias-label-secondary);
   background: transparent;
-  font-family: var(--dsw-font-family);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 16px;
+  border: none;
+  border-radius: 28px;
   cursor: pointer;
 }
 
-.sessionLogButton:hover:not(:disabled) {
+.moreButton svg {
+  width: 15px;
+  height: 15px;
+}
+
+.moreButton:hover {
   background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.sessionLogButton:disabled {
-  color: var(--dsw-alias-label-dimmed);
-  cursor: wait;
-}
-
-.sessionLogButton span,
-.sessionLogButton svg {
-  flex: none;
-}
-
-.sessionLogButton svg {
-  color: var(--dsw-alias-label-secondary);
-}
-
-.sessionLogButton span {
-  white-space: nowrap;
-}
-
-/* Narrow viewports: the button sheds its minimum width and the label
-   ellipsizes so the badge, job trigger, and this button share one
-   title-row line. */
-@media (max-width: 640px) {
-  .sessionLogButton {
-    min-width: 0;
-    padding: 6px 10px;
-  }
-
-  .sessionLogButton span {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 }

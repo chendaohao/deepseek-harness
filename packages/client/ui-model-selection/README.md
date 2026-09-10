@@ -29,7 +29,7 @@ Mount this plugin alongside `ui-conversation` and the commands package; the comp
 
 ### Model and effort
 
-Models stay grouped by provider; rows show the model name plus the provider name on a secondary line when the row sits outside its own provider group (search hits and the recently-used section). Catalog descriptions remain available to other consumers. The composer's model pane scales past one provider: a search box filters the catalog flat by model/provider name, a pinned recently-used section re-offers the last picks the current catalog still advertises (per-device `localStorage`, shared with the mobile sheet), and each provider collapses under its own header. The `/model` popup applies the selected model's default effort; the composer can then choose any advertised effort. An adapter without reasoning metadata leaves the Effort row absent; there is no arbitrary effort input.
+Models stay grouped by provider; rows show the model name plus the provider name on a secondary line when the row sits outside its own provider group (search hits and the recently-used section). Catalog descriptions remain available to other consumers. The composer's model pane scales past one provider: a search box filters the catalog flat by model/provider name, a pinned recently-used section re-offers the last picks the current catalog still advertises (per-device `localStorage`, shared with the mobile sheet), and each provider collapses under its own header. The `/model` popup shows provider names and catalog descriptions; it localizes the two built-in DeepSeek descriptions and leaves external provider descriptions verbatim. The popup applies the selected model's default effort; the composer can then choose any advertised effort. An adapter without reasoning metadata leaves the Effort row absent; there is no arbitrary effort input.
 
 A plain model pick names the route alone: the host restores the user's explicitly chosen effort for that exact route when one is remembered, falling back to the model default. An explicit effort pick is remembered per route; picking the provider default explicitly clears the route's memory. A pick the model cannot take is normalized to its declared default and announced through a transient toast.
 
@@ -45,7 +45,7 @@ When the Host reports that no adapter serves the session's route, this plugin ra
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-Two entries over ONE per-session directory owned by `ModelDirectoryResolver` (`ctx.modelDirectories`): the `/model` popupSelect contribution (registered through `ctx.commandUi`) and the composer's named `conversation.input.model` seat both load the session's advisory directory through `session.models` and submit through `session.selectModel` via the same `ModelDirectory` instance, so a switch made in either entry is what the other shows next. Directory loads and selections share a generation counter so an older response never overwrites a newer one; a connection reset drops every resident projection and repulls the Host-restored selection. Directories are per-session, resolved lazily, and disposed with the session scope; addressed subagent sessions expose neither entry. Every resident directory refetches directly on forwarded `llm/adapters-updated` and `settings/document-updated` owner events.
+Two entries over ONE per-session directory owned by `ModelDirectoryResolver` (`ctx.modelDirectories`): the `/model` popupSelect contribution (registered through `ctx.commandUi`) and the composer's named `conversation.input.model` seat both load the session's advisory directory through `session.models` and submit through `session.selectModel` via the same `ModelDirectory` instance, so a switch made in either entry is what the other shows next. Directory loads and selections share a generation counter so an older response never overwrites a newer one; a connection reset drops every resident projection and repulls the Host-restored selection before display. Directories are per-session, resolved lazily, and disposed with the session scope; addressed subagent sessions expose neither entry. Every resident directory refetches directly on forwarded `llm/adapters-updated` and `settings/document-updated` owner events.
 
 </details>
 
@@ -93,4 +93,4 @@ None.
 
 </details>
 
-**Runtime invariant:** No companion is published. A single command contribution registration whose disposal is proven by the HMR-safety spec — it emits no cordis events and owns no cross-plugin mutable state.
+**Runtime invariant:** No companion is published. The plugin registers a single command contribution, and the HMR-safety spec proves that the registration is disposed correctly. The plugin emits no Cordis events and owns no cross-plugin mutable state.

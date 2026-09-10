@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md
-2026-08-31-released-session-format-migrations.md: d1a3fce74b82f82523d665ca20262ead1b55fb49
-2026-08-31-released-session-format-migrations.zh.md: f175a2d24acfb19f4e3e34705e635ddb12e4d661
+2026-08-31-released-session-format-migrations.md: c36727e56101405644e525bbad4235e46b734853
+2026-08-31-released-session-format-migrations.zh.md: 8c72cd213eff51194efe96896a52495543b6f2a9

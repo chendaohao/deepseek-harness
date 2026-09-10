@@ -612,7 +612,7 @@ export const InputBar = memo(function InputBar({
             raises the empty draft instead of spilling past its one line. */}
         <div ref={scrollRef} className={css.scroll} data-input-scroll>
           <div className={css.grow}>
-            {empty && !claimActive && (
+            {draft === '' && attachments.length === 0 && !claimActive && (
               <div aria-hidden className={css.placeholder} data-composer-placeholder>
                 {placeholderText}
               </div>

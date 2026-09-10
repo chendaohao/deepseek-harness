@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/api/settings-controller/README.md
 README.md: 788df40a1028a1dbde7db80603998737c2447647
-README.zh.md: 44dd4b59567a5a5a906e8e298a7f4af041003c3c
+README.zh.md: 58c667d641165b8536d70442034188d413739482
