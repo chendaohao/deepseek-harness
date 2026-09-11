@@ -17,7 +17,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { ChangeEvent, CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPaperclipOutline16, IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
@@ -278,12 +278,20 @@ export const InputBar = memo(function InputBar({
   // registration survives re-renders without re-arming per keystroke.
   const gate = useRef({
     locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
-    intakeFiles, uploadsPending, showToast, t,
+    intakeFiles, uploadsPending, showToast, t, canAcceptDrop,
   })
   gate.current = {
     locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
-    intakeFiles, uploadsPending, showToast, t,
+    intakeFiles, uploadsPending, showToast, t, canAcceptDrop,
   }
+
+  useEffect(() => {
+    if (keyboard === undefined) return
+    return keyboard.bindFilePicker({
+      available: () => gate.current.canAcceptDrop && fileInputRef.current !== null,
+      open: () => { fileInputRef.current?.click() },
+    })
+  }, [keyboard])
 
   useEffect(() => {
     if (editor === null || keyboard === undefined) return
@@ -407,23 +415,6 @@ export const InputBar = memo(function InputBar({
           </Tooltip>
         ),
       },
-      {
-        key: 'attach',
-        node: (
-          <Tooltip label={t('file.attach')} side="top" delayMs={500}>
-            <button
-              type="button"
-              className={css.add}
-              aria-label={t('file.attach')}
-              disabled={subagent !== null || locked || machineBusy || addFiles === undefined}
-              onMouseDown={keepFocus}
-              onClick={() => { fileInputRef.current?.click() }}
-            >
-              <IconPaperclipOutline16 size={14} />
-            </button>
-          </Tooltip>
-        ),
-      },
       { key: 'access', node: accessSelect },
       { key: 'plan', node: sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked }) },
       { key: 'left', node: input === undefined || sessionId === undefined ? null : renderSlot('conversation.input.left', {}) },
@@ -539,8 +530,7 @@ export const InputBar = memo(function InputBar({
     : null
   const hint = ((): string | null => {
     if (rawHint === null) return null
-    // Claim tokens have the `/name ` format (trailing space); trim to the bare name.
-    const commandName = input?.claim?.token.slice(1).trim() ?? ''
+    const commandName = input?.claim?.name ?? ''
     const hintKey = `hint.${commandName === 'goal' && hasGoal ? 'goal.active' : commandName}`
     // Dynamic lookup by claimed command name: unknown commands miss the
     // dictionary and keep the machine's own hint, so the call is wide.

@@ -201,6 +201,14 @@
   color: var(--dsw-alias-label-caption);
 }
 
+.input[data-composer-composing] p:last-child::after {
+  content: none;
+}
+
+.input[data-composer-composing] + .placeholder {
+  visibility: hidden;
+}
+
 /* figma 34:10434: #ADB2B8 light / #81858C dark — the caption pair exactly.
    Paddings mirror .input's (4/8/0/16): the two share one grid cell, so the
    placeholder's box must land its first line exactly on the editor's. */

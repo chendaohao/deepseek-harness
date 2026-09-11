@@ -88,7 +88,10 @@ export function apply(ctx: ClientContext): void {
         if (ns !== AGENT_PRESET_SETTINGS_NS) return
         refresh()
       }),
-      ctx.on('connection/reset', () => { refresh() }),
+      ctx.on('connection/reset', () => {
+        refresh()
+        for (const read of rosterReaders) read()
+      }),
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-agent-preset: settings refresh')
@@ -99,6 +102,7 @@ export function apply(ctx: ClientContext): void {
   // unbound with it, so the section's face reads the current binding per
   // render and simply hides the button while no flow exists.
   let creatorDraft: (() => void) | undefined
+  let activeSeat: AgentPresetSeatController | undefined
 
   // The conversation send path awaits a staged pick through this root-level
   // service (read structurally via ctx.get, never imported): the seat itself
@@ -117,7 +121,7 @@ export function apply(ctx: ClientContext): void {
       return state.current === undefined ? undefined : state.byId[state.current]
     })
     seatGate.pendingApply = () => seat.pendingApply()
-
+    activeSeat = seat
     const seatInjected = (): AgentPresetSeatInjected => ({
       hooks: { agentPresetSeat: seat.store },
       load: () => seat.load(),
@@ -155,6 +159,7 @@ export function apply(ctx: ClientContext): void {
       // on: the chip's list-change applier composes the blank session the
       // workspace connect produces or reuses.
       creatorDraft = () => {
+        if (!section.store.getSnapshot().showPicker) return
         // The introduce cue makes the chip announce the pick the user never
         // made on this screen — the stage happened back in settings.
         seat.stage('cordis', true)
@@ -181,11 +186,22 @@ export function apply(ctx: ClientContext): void {
         // The seat died with this scope: the root-level gate returns to its
         // no-op so the send path never awaits a dead controller.
         seatGate.pendingApply = () => Promise.resolve()
+        activeSeat = undefined
         chip()
         label()
       }
     }, 'ui-agent-preset: new-session chip and header label')
   })
+
+  /** Capture the exact blank Session one Settings action may update. */
+  const captureBlankSessionSync = (): ((id: string) => Promise<string | undefined>) => {
+    const seat = activeSeat
+    const sessionId = seat?.blankSessionId()
+    return async (id: string) => {
+      if (seat === undefined || sessionId === undefined || activeSeat !== seat) return undefined
+      return await seat.syncBlankSession(sessionId, id)
+    }
+  }
 
   const sectionInjected = (): AgentPresetSectionInjected => ({
     hooks: { agentPresetSection: section.store },
@@ -201,7 +217,8 @@ export function apply(ctx: ClientContext): void {
     ...creatorDraft === undefined ? {} : { startCreatorDraft: creatorDraft },
     confirmDelete: (id: string | null) => { section.confirmDelete(id) },
     remove: () => section.remove(),
-    makeDefault: (id: string) => section.makeDefault(id),
+    makeDefault: (id: string) => section.makeDefault(id, captureBlankSessionSync()),
+    setPickerVisible: (showPicker: boolean) => section.setPickerVisible(showPicker, captureBlankSessionSync()),
   })
 
   // Ordered after Models: choosing a model is routine, and composing an
