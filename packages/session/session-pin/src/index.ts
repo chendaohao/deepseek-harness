@@ -108,6 +108,7 @@ export class SessionPinService extends Service {
       throw new Error(`session "${session.id}" is not live in this store`)
     }
     session.append('session/pin', { pinned })
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const snapshot = foldSessionPin(session.snapshotEvents())
     /* v8 ignore next -- unreachable: the append above just committed a session/pin event. */
     if (snapshot === undefined) throw new Error('pin state failed to fold')
@@ -120,6 +121,7 @@ export class SessionPinService extends Service {
    * @returns latest pin snapshot, or `undefined` before any pin event.
    */
   get(session: Session): SessionPinSnapshot | undefined {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     return foldSessionPin(session.snapshotEvents())
   }
 }

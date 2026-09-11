@@ -112,6 +112,7 @@ async function hasCodegraphIndex(cwd: string, signal?: AbortSignal): Promise<boo
 /** The checklist message already visible in this agent session's history, if any. */
 function visibleChecklist(agent: Agent): UserMessage | undefined {
   for (const seq of agent.session.surface.nodes.toReversed()) {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const event = agent.session.snapshotEvents()[seq]
     if (event?.type === 'user/message'
       && event.data.source.kind === INSTRUCTION_SOURCE_KIND) return event.data
