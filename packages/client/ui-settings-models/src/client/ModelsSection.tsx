@@ -12,7 +12,7 @@
  * re-renders from pushed invalidations or the post-apply reload.
  */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, IconGripVerticalOutline16, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
@@ -21,7 +21,7 @@ import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
 import type { ModelsSettingsStore, ProviderRow } from './store.ts'
-import { writeProviderOrder } from './provider-order.ts'
+import { applyProviderOrder, writeProviderOrder } from './provider-order.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
@@ -203,6 +203,7 @@ export function reorderedProviderIds(
   if (from === to || from < 0 || to < 0 || from >= ids.length || to >= ids.length) return ids
   const moved = [...ids]
   const [picked] = moved.splice(from, 1)
+  /* v8 ignore next -- the bounds check above proves the index holds an element */
   if (picked === undefined) return ids
   moved.splice(to, 0, picked)
   return moved
@@ -275,16 +276,18 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
    * slot whose midpoint the row's center last passed; every other row slides
    * by the snapshot distance between its slot and the slot it yields to —
    * real per-row distances, so uneven heights and the list gap never
-   * accumulate error. The DOM order stays fixed until drop; drop commits the
-   * order to the per-device store and reloads.
+   * accumulate error.
+   *
+   * The follow stays off the render path: the pointer position lives in
+   * {@link gesture}, one animation frame per move writes the dragged row's
+   * transform straight to its node, and React re-renders only when the
+   * hovered gap changes.
    */
   const [drag, setDrag] = useState<{
     /** The row under drag (a provider id). */
     id: string
     /** Hovered gap: rows 0..gap-1 stay above the dragged row. */
     gap: number
-    /** The dragged row's current top, in list coordinates. */
-    top: number
     /** Per-row layout geometry captured at drag start, in list coordinates. */
     tops: readonly number[]
     /** Per-row heights captured at drag start, parallel to {@link tops}. */
@@ -292,16 +295,80 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     /** Pointer's offset inside the dragged row at grab. */
     grab: number
   } | undefined>(undefined)
+
+  /**
+   * The dropped row held at its released position for one frame: the list
+   * reorders under it in that commit, and the transition then carries it from
+   * `offset` (its distance from the slot it now occupies) into that slot.
+   */
+  const [settling, setSettling] = useState<{ id: string; offset: number } | undefined>(undefined)
+
+  /**
+   * The order the rows render in between a drop and the directory reload that
+   * confirms it. The order is a per-device browser preference the drop already
+   * persisted, so rendering the reload's answer alone would show the row snap
+   * back to the slot it left for as long as that round trip takes.
+   */
+  const [pendingOrder, setPendingOrder] = useState<readonly string[] | undefined>(undefined)
+
   const listRef = useRef<HTMLUListElement | null>(null)
+  const draggedRef = useRef<HTMLLIElement | null>(null)
+  /** Live pointer state of the gesture in flight; null outside one. */
+  const gesture = useRef<{
+    /** Pointer's clientY at the latest move. */
+    clientY: number
+    /** The dragged row's index, which the order holds for the whole gesture. */
+    from: number
+    /** The dragged row's top, in list coordinates, from the latest frame. */
+    top: number
+    /** The dragged row's captured top, the origin its follow is measured from. */
+    home: number
+    /** Scheduled follow frame, or null when none is pending. */
+    frame: number | null
+  } | null>(null)
+
+  /**
+   * Write one frame of the follow: the dragged row's transform, and the gap
+   * its center currently falls in.
+   * @returns the hovered gap, or undefined when no gesture is live.
+   */
+  const followPointer = (): number | undefined => {
+    const current = drag
+    const list = listRef.current
+    const state = gesture.current
+    /* v8 ignore next -- the follow frame is cancelled at drop and the move
+       listener leaves with `drag`, so a live frame always has all three */
+    if (current === undefined || list === null || state === null) return undefined
+    state.top = state.clientY - list.getBoundingClientRect().top - current.grab
+    const row = draggedRef.current
+    /* v8 ignore next -- the dragged row renders for the whole gesture */
+    if (row !== null) row.style.transform = `translateY(${state.top - state.home}px)`
+    // The gap is where the dragged row's center falls among the other rows'
+    // midpoints: every row above it keeps its slot, the rest yield.
+    /* v8 ignore next -- `from` selects a row of the captured geometry */
+    const draggedCenter = state.top + (current.heights[state.from] ?? 0) / 2
+    let gap = 0
+    for (let index = 0; index < configuredIds.length; index += 1) {
+      if (index === state.from) continue
+      /* v8 ignore next -- `index` walks the same captured rows */
+      const midpoint = (current.tops[index] ?? 0) + (current.heights[index] ?? 0) / 2
+      if (draggedCenter < midpoint) break
+      gap += 1
+    }
+    if (gap !== current.gap) setDrag({ ...current, gap })
+    return gap
+  }
 
   const startDrag = (provider: string) => (event: React.PointerEvent<HTMLButtonElement>): void => {
     if (event.button !== 0) return
     const list = listRef.current
+    /* v8 ignore next -- the handler is bound to a button inside this list */
     if (list === null) return
     const rows = Array.from(list.children).filter((child): child is HTMLElement =>
       (child as HTMLElement).dataset.provider !== undefined)
     const dragged = rows.findIndex(row => row.dataset.provider === provider)
     const row = rows[dragged]
+    /* v8 ignore next -- the handle that started the drag belongs to one of these rows */
     if (row === undefined) return
     const listTop = list.getBoundingClientRect().top
     const boxes = rows.map((item) => {
@@ -310,44 +377,70 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     })
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
+    /* v8 ignore next -- `dragged` selects a row, so its captured box exists */
+    const home = boxes[dragged]?.top ?? 0
+    gesture.current = { clientY: event.clientY, from: dragged, top: home, home, frame: null }
     setDrag({
       id: provider,
       gap: dragged,
-      top: boxes[dragged]?.top ?? 0,
       tops: boxes.map(box => box.top),
       heights: boxes.map(box => box.height),
-      grab: event.clientY - listTop - (boxes[dragged]?.top ?? 0),
+      grab: event.clientY - listTop - home,
     })
   }
 
   const moveDrag = (event: React.PointerEvent<HTMLElement>): void => {
-    if (drag === undefined || listRef.current === null) return
-    const from = configuredIds.indexOf(drag.id)
-    if (from === -1) return
-    const top = event.clientY - listRef.current.getBoundingClientRect().top - drag.grab
-    const draggedCenter = top + (drag.heights[from] ?? 0) / 2
-    // The gap is where the dragged row's center falls among the other rows'
-    // midpoints: every row above it keeps its slot, the rest yield.
-    let gap = 0
-    for (let index = 0; index < configuredIds.length; index += 1) {
-      if (index === from) continue
-      const midpoint = (drag.tops[index] ?? 0) + (drag.heights[index] ?? 0) / 2
-      if (draggedCenter < midpoint) break
-      gap += 1
-    }
-    setDrag({ ...drag, gap, top })
+    const state = gesture.current
+    /* v8 ignore next -- this handler is attached only while a drag is live */
+    if (drag === undefined || state === null) return
+    state.clientY = event.clientY
+    if (state.frame !== null) return
+    state.frame = requestAnimationFrame(() => {
+      state.frame = null
+      followPointer()
+    })
   }
 
   const endDrag = (): void => {
     const current = drag
+    const state = gesture.current
+    /* v8 ignore next -- as above: drop and cancel are bound only during a drag */
+    if (current === undefined || state === null) return
+    if (state.frame !== null) {
+      cancelAnimationFrame(state.frame)
+      state.frame = null
+    }
+    // Flush the last pointer position before the gesture state goes away: a
+    // drop arriving between two frames still lands in the slot it is over.
+    /* v8 ignore next -- the flush measures wherever the gesture state is still in place, which it is here */
+    const slot = followPointer() ?? current.gap
+    const released = state.top
+    gesture.current = null
+    /* v8 ignore next -- the dragged row stays mounted for the whole gesture */
+    if (draggedRef.current !== null) draggedRef.current.style.transform = ''
     setDrag(undefined)
-    if (current === undefined) return
-    const from = configuredIds.indexOf(current.id)
-    const order = reorderedProviderIds(configuredIds, from, current.gap)
+    const order = reorderedProviderIds(configuredIds, state.from, slot)
     if (order === configuredIds) return
+    // The row is held where the pointer released it while the list reorders
+    // under it, then transitions the remaining distance into its slot.
+    /* v8 ignore next -- `slot` is a gap among the rows the gesture captured */
+    setSettling({ id: current.id, offset: released - (current.tops[slot] ?? released) })
+    setPendingOrder(order)
     writeProviderOrder(order)
-    void controller.load()
+    void controller.load().then(() => {
+      // A later drop owns `pendingOrder` by now; only this drop's own order
+      // may be retired by this reload's answer.
+      setPendingOrder(previous => (previous === order ? undefined : previous))
+    })
   }
+
+  // Release the held row one frame after the reorder painted, so the transform
+  // it drops animates from the released position rather than the old layout.
+  useEffect(() => {
+    if (settling === undefined) return undefined
+    const frame = requestAnimationFrame(() => { setSettling(undefined) })
+    return () => { cancelAnimationFrame(frame) }
+  }, [settling])
 
   const confirmDelete = (): void => {
     /* v8 ignore next -- the action only renders with a target and is disabled while a deletion is pending */
@@ -393,7 +486,12 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // One fact decides both first-run postures on this page and the onboarding
   // step: whether the user already has a provider to talk to.
   const anyUsable = state.rows.some(providerUsable)
-  const configured = state.rows.filter(row => row.configured)
+  const configuredRows = state.rows.filter(row => row.configured)
+  // The drop's own order outranks the directory until the reload that confirms
+  // it lands; both read the same per-device preference, so they agree.
+  const configured = pendingOrder === undefined
+    ? configuredRows
+    : applyProviderOrder(configuredRows, pendingOrder, row => row.entry.provider)
   const configurable = state.rows.filter(row => state.namespaces.has(row.entry.settingsNs))
   const addable = configurable.filter(row => !row.configured)
   const addTarget = adding ? editing : undefined
@@ -409,24 +507,26 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // there is nothing to declare and the entry point stays disabled.
   const protocols = protocolChoices(state.namespaces.get('llm-pi-ai'), schema)
 
-  // Mid-drag displacement per row, in row heights: the dragged row follows
-  // the pointer, and each row between its home slot and the hovered one
-  // slides one slot toward the gap. Everything else stays put. Indexes are
-  // into `configured` (the fixed DOM order).
+  // Mid-drag displacement per row, in row heights: the dragged row follows the
+  // pointer (written to its node per frame, so it renders no transform here),
+  // and each row between its home slot and the hovered one slides one slot
+  // toward the gap. Everything else stays put. Indexes are into `configured`
+  // (the DOM order, which is the pending one once a drop has landed).
   const configuredIds = configured.map(row => row.entry.provider)
   const dragIndex = drag === undefined ? -1 : configuredIds.indexOf(drag.id)
   const transformOf = (index: number): string => {
-    if (drag === undefined || dragIndex === -1) return 'none'
-    if (index === dragIndex) return `translateY(${drag.top - (drag.tops[index] ?? 0)}px)`
+    if (drag === undefined || dragIndex === -1 || index === dragIndex) return 'none'
     const gap = drag.gap
     // Downward drag: the rows the dragged one passed slide UP into the slot
     // vacated above — each moves to where its upper neighbor sits.
     if (dragIndex < gap && index > dragIndex && index <= gap) {
+      /* v8 ignore next -- `index` stays inside the rows the gesture captured */
       return `translateY(${(drag.tops[index - 1] ?? 0) - (drag.tops[index] ?? 0)}px)`
     }
     // Upward drag: the rows the dragged one passed slide DOWN into the slot
     // vacated below — each moves to the top of its lower neighbor.
     if (gap < dragIndex && index >= gap && index < dragIndex) {
+      /* v8 ignore next -- `index` stays inside the rows the gesture captured */
       return `translateY(${(drag.tops[index + 1] ?? 0) - (drag.tops[index] ?? 0)}px)`
     }
     return 'none'
@@ -445,7 +545,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
           </p>
         )}
       <ul
-        className={styles['rows']}
+        className={settling === undefined ? styles['rows'] : `${styles['rows']} ${styles['rowsSettling']}`}
         ref={listRef}
         onPointerMove={drag === undefined ? undefined : moveDrag}
         onPointerUp={drag === undefined ? undefined : endDrag}
@@ -457,13 +557,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
           /* v8 ignore next -- the join marks a row configured only when its namespace resolved */
           if (namespace === undefined) return null
           const transform = transformOf(rowIndex)
-          const dragging = drag?.id === row.entry.provider
-          const rowStyle = transform === 'none' && !dragging
-            ? undefined
-            : {
-              transform,
-              ...dragging ? { zIndex: 1, position: 'relative' as const } : {},
-            }
+          const dragged = drag?.id === row.entry.provider
+          const holding = settling !== undefined && settling.id === row.entry.provider ? settling : undefined
+          const rowStyle = holding !== undefined
+            ? { transform: `translateY(${holding.offset}px)`, zIndex: 1, position: 'relative' as const }
+            : dragged
+              ? { zIndex: 1, position: 'relative' as const }
+              : transform === 'none' ? undefined : { transform }
+          const lift = dragged ? styles['rowDragging'] : holding === undefined ? undefined : styles['rowSettling']
           const error = row.entry.error === undefined
             ? null
             : <p role="alert" className={styles['error']}>{row.entry.error}</p>
@@ -474,7 +575,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
               <li
                 key={row.entry.provider}
                 data-provider={row.entry.provider}
-                className={dragging ? `${styles['setupCard']} ${styles['rowDragging']}` : styles['setupCard']}
+                className={styles['setupCard']}
                 style={rowStyle}
               >
                 {error}
@@ -504,7 +605,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             <li
               key={row.entry.provider}
               data-provider={row.entry.provider}
-              className={dragging ? `${styles['rowCard']} ${styles['rowDragging']}` : styles['rowCard']}
+              ref={dragged ? draggedRef : undefined}
+              className={lift === undefined ? styles['rowCard'] : `${styles['rowCard']} ${lift}`}
               style={rowStyle}
             >
               <div className={styles['rowHead']}>

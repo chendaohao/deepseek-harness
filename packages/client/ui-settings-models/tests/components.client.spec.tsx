@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** Section, setup-card, and hand-written editor behavior over a scripted wire face. */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
@@ -23,6 +23,7 @@ import { createModelsOperations } from '../src/client/operations.ts'
 import type { ModelsOperations } from '../src/client/operations.ts'
 import type { ProviderRow } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
+import { PROVIDER_ORDER_KEY } from '../src/client/provider-order.ts'
 import { settingsSchema } from './settings-schema.client.ts'
 
 afterEach(cleanup)
@@ -1528,6 +1529,218 @@ describe('ModelsSection', () => {
     )
     expect(failure).toBe('credential is read-only')
     expect(mutate).not.toHaveBeenCalled()
+  })
+
+  describe('provider row dragging', () => {
+    const ROW_HEIGHT = 60
+    /** Row pitch: the card height plus the list gap. */
+    const ROW_STEP = 68
+    const LIST_TOP = 100
+    /** Where inside the row the grip is taken, from its top. */
+    const GRAB = 30
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      localStorage.removeItem(PROVIDER_ORDER_KEY)
+    })
+
+    beforeEach(() => {
+      Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', { value: () => {}, configurable: true, writable: true })
+    })
+
+    afterEach(() => { Reflect.deleteProperty(HTMLElement.prototype, 'setPointerCapture') })
+
+    /** A viewport rect carrying only the two fields the gesture reads. */
+    function rect(top: number, height: number): DOMRect {
+      return { top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top } as DOMRect
+    }
+
+    /** Lay the rows out as equal, evenly spaced cards under a fixed list top. */
+    function stubRowGeometry(): void {
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        if (this.tagName === 'UL') return rect(LIST_TOP, 3 * ROW_STEP)
+        if (this.dataset.provider === undefined) return rect(0, 0)
+        const list = this.closest('ul')
+        const rows = list === null
+          ? []
+          : [...list.children].filter(child => (child as HTMLElement).dataset.provider !== undefined)
+        return rect(LIST_TOP + rows.indexOf(this) * ROW_STEP, ROW_HEIGHT)
+      })
+    }
+
+    /** The default wire document with a third provider configured, so a drag has a slot to cross. */
+    function threeConfiguredRows(): SettingsNamespaceView[] {
+      return wireNamespaces().map((view) => {
+        if (view.ns !== 'llm-pi-ai') return view
+        const providers = (view.value as { providers: Record<string, JsonValue> }).providers
+        return {
+          ...view,
+          value: {
+            providers: { ...providers, anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY', baseURL: 'https://anthropic' } },
+          },
+        }
+      })
+    }
+
+    async function mountDraggableRows() {
+      const scripted = scriptedFace()
+      scripted.face.settings.describe.mockResolvedValue(remoteOk({
+        writable: true, hasDocument: false, namespaces: threeConfiguredRows(),
+      }))
+      return mountFace(scripted)
+    }
+
+    /** The rows the fixture configures, in directory order. */
+    const CONFIGURED = ['deepseek-official', 'openai', 'anthropic', 'zombie']
+
+    /** The rendered rows' provider ids, in DOM order. */
+    function renderedIds(): Array<string | undefined> {
+      return screen.getAllByRole('listitem').map(row => row.dataset.provider)
+    }
+
+    /** Grab the grip of the row at `index` and move the pointer `delta` pixels down it. */
+    function pressRow(index: number): { row: HTMLElement; handle: HTMLElement } {
+      const row = screen.getAllByRole('listitem')[index]!
+      const handle = within(row).getByRole('button', { name: en.dragToReorder })
+      fireEvent.pointerDown(handle, { clientX: 10, clientY: LIST_TOP + GRAB, pointerId: 7, button: 0 })
+      return { row, handle }
+    }
+
+    it('follows the pointer and slides the rows it passes', async () => {
+      stubRowGeometry()
+      await mountDraggableRows()
+      const { row } = pressRow(0)
+
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      await waitFor(() => { expect(row.style.transform).toBe('translateY(80px)') })
+      // The row it crossed yields its slot; the one below the gap stays put.
+      expect(screen.getAllByRole('listitem')[1]!.style.transform).toBe('translateY(-68px)')
+      expect(screen.getAllByRole('listitem')[2]!.style.transform).toBe('')
+
+      // Moves arriving inside one frame coalesce onto the scheduled one.
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB + 90, pointerId: 7 })
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB + 100, pointerId: 7 })
+      await waitFor(() => { expect(row.style.transform).toBe('translateY(100px)') })
+    })
+
+    it('drops into the crossed slot, holding the row while the list reorders under it', async () => {
+      stubRowGeometry()
+      const { face } = await mountDraggableRows()
+      const { row } = pressRow(0)
+
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      fireEvent.pointerUp(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+
+      expect(renderedIds()).toEqual(['openai', 'deepseek-official', 'anthropic', 'zombie'])
+      expect(face.llm.listProviders).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(localStorage.getItem(PROVIDER_ORDER_KEY) ?? 'null')).toEqual([
+        'openai', 'deepseek-official', 'anthropic', 'zombie',
+      ])
+      // The released row still covers its slot's top by the distance it was held at.
+      const held = screen.getAllByRole('listitem')[1]!
+      expect(held.style.transform).toBe('translateY(12px)')
+
+      // One frame later the transform comes off and the transition takes it in.
+      await waitFor(() => { expect(held.style.transform).toBe('') })
+    })
+
+    it('holds the dropped order while the confirming reload is still in flight', async () => {
+      stubRowGeometry()
+      const { face } = await mountDraggableRows()
+      const { row } = pressRow(0)
+      face.llm.listProviders.mockReturnValue(new Promise<never>(() => {}))
+
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      fireEvent.pointerUp(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+
+      expect(renderedIds()).toEqual(['openai', 'deepseek-official', 'anthropic', 'zombie'])
+    })
+
+    it('keeps the newest order when an earlier reload lands after a later drop', async () => {
+      stubRowGeometry()
+      const { face } = await mountDraggableRows()
+
+      let land: () => void = () => {}
+      const held = new Promise<void>((resolve) => { land = resolve })
+      let reloads = 0
+      face.llm.listProviders.mockImplementation(() => {
+        reloads += 1
+        if (reloads > 1) return new Promise<never>(() => {})
+        return held.then(() => remoteOk([
+          { id: 'deepseek-official', name: 'DeepSeek' },
+          { id: 'openai', name: 'openai' },
+        ]))
+      })
+
+      const first = pressRow(0)
+      fireEvent.pointerMove(first.row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      fireEvent.pointerUp(first.row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      expect(renderedIds().slice(0, 2)).toEqual(['openai', 'deepseek-official'])
+
+      // A second drop lands while the first one's reload is still held open.
+      const second = pressRow(0)
+      fireEvent.pointerMove(second.row, { clientX: 10, clientY: LIST_TOP + GRAB + 160, pointerId: 7 })
+      fireEvent.pointerUp(second.row, { clientX: 10, clientY: LIST_TOP + GRAB + 160, pointerId: 7 })
+      expect(renderedIds().slice(0, 3)).toEqual(['deepseek-official', 'anthropic', 'openai'])
+
+      await act(async () => { land() })
+      expect(renderedIds().slice(0, 3)).toEqual(['deepseek-official', 'anthropic', 'openai'])
+    })
+
+    it('slides the rows it passes the other way when dragged upward', async () => {
+      stubRowGeometry()
+      await mountDraggableRows()
+      const { row } = pressRow(2)
+
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB - 80, pointerId: 7 })
+      await waitFor(() => { expect(row.style.transform).toBe('translateY(-80px)') })
+      // The row it crossed yields downward; the ones outside the crossed span stay put.
+      expect(screen.getAllByRole('listitem')[1]!.style.transform).toBe('translateY(68px)')
+      expect(screen.getAllByRole('listitem')[0]!.style.transform).toBe('')
+      expect(screen.getAllByRole('listitem')[3]!.style.transform).toBe('')
+
+      fireEvent.pointerUp(row, { clientX: 10, clientY: LIST_TOP + GRAB - 80, pointerId: 7 })
+      expect(renderedIds()).toEqual(['deepseek-official', 'anthropic', 'openai', 'zombie'])
+    })
+
+    it('leaves the order alone when a row is dropped back into its own slot', async () => {
+      stubRowGeometry()
+      const { face } = await mountDraggableRows()
+      const { row } = pressRow(0)
+
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB, pointerId: 7 })
+      fireEvent.pointerUp(row, { clientX: 10, clientY: LIST_TOP + GRAB, pointerId: 7 })
+
+      expect(renderedIds()).toEqual(CONFIGURED)
+      expect(localStorage.getItem(PROVIDER_ORDER_KEY)).toBeNull()
+      expect(face.llm.listProviders).toHaveBeenCalledTimes(1)
+      expect(row.style.transform).toBe('')
+    })
+
+    it('ignores a drag started with a non-primary button', async () => {
+      stubRowGeometry()
+      await mountDraggableRows()
+      const row = screen.getAllByRole('listitem')[0]!
+      const handle = within(row).getByRole('button', { name: en.dragToReorder })
+
+      fireEvent.pointerDown(handle, { clientX: 10, clientY: LIST_TOP + GRAB, pointerId: 7, button: 2 })
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      fireEvent.pointerUp(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+
+      expect(row.style.transform).toBe('')
+      expect(localStorage.getItem(PROVIDER_ORDER_KEY)).toBeNull()
+    })
+
+    it('ends the drag when the platform cancels the pointer', async () => {
+      stubRowGeometry()
+      await mountDraggableRows()
+      const { row } = pressRow(0)
+
+      fireEvent.pointerMove(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      fireEvent.pointerCancel(row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+
+      expect(renderedIds()).toEqual(['openai', 'deepseek-official', 'anthropic', 'zombie'])
+    })
   })
 
 })

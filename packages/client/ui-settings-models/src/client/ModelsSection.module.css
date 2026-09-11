@@ -62,7 +62,13 @@
 }
 
 .rows > li {
-  transition: transform 150ms ease;
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* The drop handoff frame: the list swaps to the pending order while the
+   transforms it already painted come off, so no row may animate that swap. */
+.rowsSettling > li {
+  transition: none;
 }
 
 /* The manual-reordering handle ahead of the row name. Touch-action keeps the
@@ -95,9 +101,18 @@
 }
 
 /* The row under drag: no slide transition of its own (it tracks the pointer
-   1:1), and a shadow so it reads as lifted above the rows sliding aside. */
+   1:1), its own layer for that follow, and a shadow so it reads as lifted
+   above the rows sliding aside. */
 .rows > li[class*='rowDragging'] {
   transition: none;
+  will-change: transform;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0.9;
+}
+
+/* The same row through the one frame the reorder paints under it, before the
+   transition carries it the rest of the way into its slot. */
+.rows > li[class*='rowSettling'] {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   opacity: 0.9;
 }
