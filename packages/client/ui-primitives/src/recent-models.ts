@@ -13,7 +13,7 @@ import { useCallback, useState } from 'react'
 export const RECENT_MODELS_KEY = 'dsh:recent-models'
 
 /** How many recent models are remembered; older entries rotate off. */
-export const RECENT_LIMIT = 6
+export const RECENT_LIMIT = 3
 
 /** One remembered provider/model route. */
 export interface RecentModel {
