@@ -225,6 +225,24 @@ describe('ui-model-selection dual entry', () => {
       .toBe('DeepSeek · Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.')
   })
 
+  it('orders popup rows by the per-device order the Models settings page records', async () => {
+    const stored = new Map([['dsh:provider-order', JSON.stringify(['external', 'deepseek-official'])]])
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, value) },
+    })
+    try {
+      const b = await bench()
+      b.mint('s1')
+      const options = await b.popup().options(projection('s1'), new AbortController().signal)
+      expect(options.map((o: SelectOption) => o.label)).toEqual([
+        'External Flash', 'DeepSeek-V4-Flash', 'DeepSeek-V4-Pro',
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('a seat selection is the current the popup marks active next — one shared state', async () => {
     const b = await bench()
     b.mint('s1')

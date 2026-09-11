@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { applyProviderOrder, IconDataOutline16, readProviderOrder } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDirectoryState } from './directory.ts'
 import { ModelDirectoryResolver } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
@@ -64,7 +64,9 @@ function descriptionOf(
 /** Flatten the directory into popup rows; failure rows are listed for visibility but never selectable. */
 function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): SelectOption[] {
   const rows: SelectOption[] = []
-  for (const group of directory.groups) {
+  // The same per-device order the Models settings page persists, so both
+  // selector entries and the page agree on which provider comes first.
+  for (const group of applyProviderOrder(directory.groups, readProviderOrder(), group => group.id)) {
     for (const model of group.models) {
       const description = descriptionOf(group.id, model, t)
       rows.push({

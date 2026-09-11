@@ -14,7 +14,7 @@ import type {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { applyProviderOrder, readProviderOrder } from './provider-order.ts'
+import { applyProviderOrder, readProviderOrder } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 
 /**

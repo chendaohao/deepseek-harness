@@ -28,6 +28,12 @@ export {
   useRecentModels,
 } from './recent-models.ts'
 export type { RecentModel } from './recent-models.ts'
+export {
+  PROVIDER_ORDER_KEY,
+  readProviderOrder,
+  writeProviderOrder,
+  applyProviderOrder,
+} from './provider-order.ts'
 export { HoverCard } from './HoverCard.tsx'
 export { Modal } from './Modal.tsx'
 export { OnboardingSurface } from './OnboardingSurface.tsx'

@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError, stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import { PROVIDER_ORDER_KEY } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CardForm, numberField, textField } from '../src/client/card-form.ts'
 import { AgentLoopCardController, type AgentLoopSettings } from '../src/client/agent-loop-card-controller.ts'
 import { BashCardController, type BashSettings } from '../src/client/bash-card-controller.ts'
@@ -761,6 +762,38 @@ describe('SubagentModelSelectionCardController', () => {
 
     await vi.waitFor(() => { expect(state().candidates[0]?.provider).toBe('beta') })
     expect(models).toHaveBeenCalledTimes(2)
+  })
+
+  it('orders the catalog by the per-device provider order the Models page records', async () => {
+    const stored = new Map<string, string>([[PROVIDER_ORDER_KEY, JSON.stringify(['beta', 'alpha'])]])
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, value) },
+    })
+    try {
+      const host = stubSettingsScope<SubagentModelSelectionSettings>()
+      host.publish({
+        status: 'ready', writable: true,
+        value: { enabled: true, allowedModels: [] }, user: {},
+      })
+      const catalog = modelsApi({
+        groups: [
+          { id: 'alpha', name: 'Alpha', models: [{ id: 'fast', name: 'Fast' }] },
+          { id: 'beta', name: 'Beta', models: [{ id: 'new', name: 'New' }] },
+        ],
+      })
+      const controller = new SubagentModelSelectionCardController(host.scope, catalog.ctx)
+      const state = () => controller.inject().hooks.subagentModelSelectionCard.getSnapshot()
+
+      // The card groups one section per provider in candidate order, so the
+      // stored order reaches the rendered groups through this list.
+      await vi.waitFor(() => {
+        expect(state().candidates.map(candidate => candidate.provider)).toEqual(['beta', 'alpha'])
+      })
+      controller.dispose()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('suppresses duplicate actions and late save settlements', async () => {

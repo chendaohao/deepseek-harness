@@ -1,10 +1,11 @@
 /**
- * Per-device manual ordering of the Models page provider rows. The order is a
- * browser UI convenience: it lives in localStorage, follows the
- * recent-models precedent, and never reaches the Host — the provider
- * directory itself stays Host-owned, and a paired (forwarded) client stays
- * read-only against settings, so a Host copy would be unwritable from the
- * surfaces this ordering exists for.
+ * Per-device manual ordering of the provider rows the model surfaces list.
+ * The order is a browser display preference: it lives in localStorage, follows
+ * the recent-models precedent, and never reaches the Host. The Models settings
+ * page and the model selector read the one key, so a drag on the settings page
+ * is the order the selector offers next. A paired (forwarded) client keeps its
+ * own copy, because settings stay read-only for it and the adapters it reaches
+ * on a phone differ from the desktop's.
  */
 
 /** localStorage key holding the JSON provider-order list. */

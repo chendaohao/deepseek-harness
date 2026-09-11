@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { RECENT_MODELS_KEY, readRecentModels } from '@deepseek-ai/dsh-client-ui-primitives'
+import { PROVIDER_ORDER_KEY, RECENT_MODELS_KEY, readRecentModels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ComponentProps } from 'react'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
 import { ModelSelect } from '../src/client/ModelSelect.tsx'
@@ -335,6 +335,24 @@ describe('ModelSelect search, recently used, and collapse', () => {
       expect(select).toHaveBeenCalled()
       expect(readRecentModels()[0]).toEqual({ provider: 'anthropic', model: 'claude-opus' })
     })
+  })
+
+  it('orders provider groups by the per-device order the settings page records', () => {
+    const directory = createSnapshotStore<ModelDirectoryState>(state({ groups: multiGroups }))
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={vi.fn().mockResolvedValue(true)}
+      t={t}
+    />)
+    // Written after mount: the menu reads the order when it opens.
+    localStorage.setItem(PROVIDER_ORDER_KEY, JSON.stringify(['anthropic', 'deepseek-official']))
+    fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
+      .toEqual(['Claude Sonnet', 'Claude Opus', 'DeepSeek-V4-Flash', 'DeepSeek-R1'])
   })
 
   it('collapses and expands a provider group', () => {

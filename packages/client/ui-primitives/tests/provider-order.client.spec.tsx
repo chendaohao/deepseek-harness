@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
-/** Per-device provider ordering: persistence, reordering, and store join. */
+/** Per-device provider ordering shared by the Models page and the model selector. */
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   PROVIDER_ORDER_KEY,
   applyProviderOrder,
   readProviderOrder,
   writeProviderOrder,
-} from '../src/client/provider-order.ts'
-import { reorderedProviderIds } from '../src/client/ModelsSection.tsx'
+} from '../src/provider-order.ts'
 
 afterEach(() => { localStorage.removeItem(PROVIDER_ORDER_KEY) })
 
@@ -20,6 +19,11 @@ describe('provider order persistence', () => {
 
   it('yields an empty list on corrupted JSON', () => {
     localStorage.setItem(PROVIDER_ORDER_KEY, '{not json')
+    expect(readProviderOrder()).toEqual([])
+  })
+
+  it('yields an empty list for a non-array value', () => {
+    localStorage.setItem(PROVIDER_ORDER_KEY, JSON.stringify({ provider: 'a' }))
     expect(readProviderOrder()).toEqual([])
   })
 
@@ -44,21 +48,5 @@ describe('applyProviderOrder', () => {
 
   it('returns the rows unchanged for an empty order', () => {
     expect(applyProviderOrder(rows, [], providerOf)).toEqual(rows)
-  })
-})
-
-describe('reorderedProviderIds', () => {
-  const ids = ['a', 'b', 'c']
-
-  it('moves a row onto another slot between the two ends', () => {
-    expect(reorderedProviderIds(ids, 0, 2)).toEqual(['b', 'c', 'a'])
-    expect(reorderedProviderIds(ids, 2, 0)).toEqual(['c', 'a', 'b'])
-    expect(reorderedProviderIds(ids, 1, 2)).toEqual(['a', 'c', 'b'])
-  })
-
-  it('keeps the order for coincident or out-of-range slots', () => {
-    expect(reorderedProviderIds(ids, 1, 1)).toEqual(ids)
-    expect(reorderedProviderIds(ids, -1, 0)).toEqual(ids)
-    expect(reorderedProviderIds(ids, 0, 3)).toEqual(ids)
   })
 })

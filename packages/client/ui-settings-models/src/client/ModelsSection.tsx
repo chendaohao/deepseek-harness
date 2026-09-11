@@ -14,14 +14,15 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, IconGripVerticalOutline16, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  applyProviderOrder, Button, IconGripVerticalOutline16, IconPlusOutline16, Modal, writeProviderOrder,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
 import type { ModelsSettingsStore, ProviderRow } from './store.ts'
-import { applyProviderOrder, writeProviderOrder } from './provider-order.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'

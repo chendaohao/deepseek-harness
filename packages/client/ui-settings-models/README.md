@@ -39,7 +39,7 @@ The collapsed 自定义设置 fold carries the curated extras: `baseURL` for bot
 
 ### Reordering providers
 
-Every row carries a grip handle ahead of its name. Pressing the handle and dragging reorders the rows: the dragged row follows the pointer while the rows it passes slide aside, and dropping commits the order. The order is a per-device browser preference — it lives in `localStorage` under `dsh:provider-order`, survives page reloads and Host restarts, and never reaches the settings document, so a paired (forwarded) client orders its own rows independently. Providers added later append after the ordered ones.
+Every row carries a grip handle ahead of its name. Pressing the handle and dragging reorders the rows: the dragged row follows the pointer while the rows it passes slide aside, and dropping commits the order. The order is a per-device browser preference — it lives in `localStorage` under `dsh:provider-order`, survives page reloads and Host restarts, and never reaches the settings document, so a paired (forwarded) client orders its own rows independently. Providers added later append after the ordered ones. The model selector and the `/model` popup read the same key, so this is the order they offer.
 
 ### Adding and deleting providers
 

@@ -2,6 +2,7 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
+import { applyProviderOrder, readProviderOrder } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { CardShell } from './card-form.ts'
@@ -322,7 +323,10 @@ export class SubagentModelSelectionCardController {
     const response = await this.ctx.remote.session.modelCatalog()
     if (generation !== this.catalogGeneration) return
     if (response.ok) {
-      this.catalogGroups = response.value.groups
+      // The card groups one section per provider, so it follows the same
+      // per-device order the Models settings page persists as the rest of the
+      // model surfaces do; its own candidate order carries that ordering.
+      this.catalogGroups = applyProviderOrder(response.value.groups, readProviderOrder(), group => group.id)
       this.catalogPartial = response.value.failures.length > 0
       this.catalogStatus = 'ready'
     } else {

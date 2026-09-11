@@ -23,7 +23,7 @@ import { createModelsOperations } from '../src/client/operations.ts'
 import type { ModelsOperations } from '../src/client/operations.ts'
 import type { ProviderRow } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
-import { PROVIDER_ORDER_KEY } from '../src/client/provider-order.ts'
+import { PROVIDER_ORDER_KEY } from '@deepseek-ai/dsh-client-ui-primitives'
 import { settingsSchema } from './settings-schema.client.ts'
 
 afterEach(cleanup)

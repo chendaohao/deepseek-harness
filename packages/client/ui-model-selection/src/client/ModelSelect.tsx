@@ -14,7 +14,8 @@
  * The model pane scales past one provider: a search box filters the catalog
  * flat by model/provider name, a pinned recently-used section re-offers the
  * last picks still advertised, and each provider collapses under its own
- * header. Search, recent, and collapse state live entirely in this seat.
+ * header. Provider groups follow the per-device order the Models settings page
+ * persists. Search, recent, collapse, and that order live entirely in this seat.
  * A plain model pick names the route alone so the host restores any
  * remembered effort for it; the effort pane marks its picks explicit.
  */
@@ -26,8 +27,8 @@ import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
-  IconDataOutline16, IconWarningOutline16, modelMatchesQuery, Toast, useRecentModels,
+  applyProviderOrder, IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
+  IconDataOutline16, IconWarningOutline16, modelMatchesQuery, readProviderOrder, Toast, useRecentModels,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
@@ -80,16 +81,23 @@ export function ModelSelect(
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const { recent, record } = useRecentModels()
+  // The provider order the Models settings page persists, re-read on open so a
+  // drag there is what this menu shows next.
+  const [providerOrder, setProviderOrder] = useState<readonly string[]>(() => readProviderOrder())
+  const groups = useMemo(
+    () => applyProviderOrder(state.groups, providerOrder, group => group.id),
+    [state.groups, providerOrder],
+  )
 
   // A model pick names the route alone: the host restores the user's
   // remembered effort for it when one exists, or falls back to the model
   // default — naming the default here would overwrite the memory every switch.
-  const choices = useMemo(() => state.groups.flatMap(group =>
+  const choices = useMemo(() => groups.flatMap(group =>
     group.models.map(model => ({
       group,
       model,
       selection: { provider: group.id, model: model.id } satisfies ModelSelection,
-    }))), [state.groups])
+    }))), [groups])
   const selectedIndex = state.current === null
     ? -1
     : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
@@ -182,6 +190,7 @@ export function ModelSelect(
     setPane('root')
     setQuery('')
     setCollapsed(new Set())
+    setProviderOrder(readProviderOrder())
     setOpen(true)
     reload()
   }
@@ -441,7 +450,7 @@ export function ModelSelect(
                             renderModelOption(model, selection, `${group.id}/${model.id}`, group.name))}
                         </section>
                       )}
-                      {state.groups.map((group) => {
+                      {groups.map((group) => {
                         const headingId = `${id}-${group.id}`
                         const modelsId = `${id}-${group.id}-models`
                         const isCollapsed = collapsed.has(group.id)

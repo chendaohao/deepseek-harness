@@ -14,7 +14,7 @@ dev-workspace 合并 upstream master（dsh 0.1.2-alpha.1）时，composer 的模
 
 在合并基础上同时恢复两种能力。
 
-**搜索、最近使用与可折叠提供方回到 composer 位**，与分支当初发布的形式一致（移动端远程面板本就保留着它们）：搜索框通过共享的 `modelMatchesQuery` 按模型 id/名称或提供方名称对目录做扁平过滤；置顶的「最近使用」分区重新提供当前目录仍公布的最近选择，按设备存于 `localStorage`（键 `dsh:recent-models`，上限 3 条），经 `useRecentModels` 读写；每个提供方可在自己的表头下折叠并显示模型数量角标。搜索、最近与折叠状态全部住在该位内，每次打开重置。键盘行为延伸到搜索框：ArrowDown 进入第一个选项，Escape 先清空查询再退出面板。`role="menu"` 保持合法，输入框位于其外。仅名称的行保持仅名称（分支「隐藏模型选择器描述」的决定不变）；只有恢复的交互与强度回退 toast 复用了之前孤儿化的键。
+**搜索、最近使用与可折叠提供方回到 composer 位**，与分支当初发布的形式一致（移动端远程面板本就保留着它们）：搜索框通过共享的 `modelMatchesQuery` 按模型 id/名称或提供方名称对目录做扁平过滤；置顶的「最近使用」分区重新提供当前目录仍公布的最近选择，按设备存于 `localStorage`（键 `dsh:recent-models`，上限 3 条），经 `useRecentModels` 读写；每个提供方可在自己的表头下折叠并显示模型数量角标。搜索、最近与折叠状态全部住在该位内，每次打开重置。键盘行为延伸到搜索框：ArrowDown 进入第一个选项，Escape 先清空查询再退出面板。`role="menu"` 保持合法，输入框位于其外。仅名称的行保持仅名称（分支「隐藏模型选择器描述」的决定不变）；只有恢复的交互与强度回退 toast 复用了之前孤儿化的键。提供方顺序与该上限现由设备上的各个模型界面共享（[provider-order 说明](../../implemented/feature/2026-09-11-shared-provider-order-across-model-surfaces.zh.md)）。
 
 **按路由的推理强度记忆端到端回归。** `AgentDefaultModelConfig` 新增 `rememberedEffort` / `rememberEffort` / `forgetEffort`，基于 `agent-default-model` 设置分节中的 `reasoningEfforts` 映射（键为 `provider/model`）；`saveSelection` 保留该映射，默认值写入不会丢弃其他路由的选择。`session.selectModel` 载荷新增一个可选线上字段 `reasoningEffortExplicit`。宿主 `selectModel` 命令把强度维度拆成三种状态：普通切换（不带强度）先解析适配器默认值，存在记忆时再用记忆强度重新解析；显式强度选择经过校验并记录到解析后的路由；显式「提供方默认」选择清除该路由的记忆。记忆写入与默认选择保存一样是尽力而为——只读设置提供方不能使模型切换失败。由于 llm 运行时现在把不支持的强度归一化为适配器默认值而非拒绝，过期的记忆等级通过把恢复后的解析结果与记忆比对来识别，归一化掉时即被清除。composer 位与 /model 弹窗的普通选择只提交路由（不预填默认强度，以免每次切换覆盖记忆）；强度面板的选择携带 `explicitEffort: true`，被宿主归一化到模型声明默认值的选择通过瞬时 toast（`effort.normalized`）提示。
 
