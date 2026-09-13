@@ -495,26 +495,31 @@
 }
 
 /* Narrow viewports: the title row stacks — the session title (crumbs) on
-   its own line, then the actions row (mode badge + background-job trigger
-   + Session-log button) below it. The actions row keeps one line: every
-   group inside participates in flex sizing, so the badge ellipsizes (its
-   own 180px cap), the job count compresses, and the Session-log button
-   sheds its minimum width as the column narrows. */
+   its own line, then one control line below it: the actions row (mode
+   badge + background-job trigger + Session-log button) with the corner
+   seat (right-sidebar expand) at its end, so the corner spends no third
+   row. The control line keeps one line: every group inside participates
+   in flex sizing, so the badge ellipsizes (its own 180px cap), the job
+   count compresses, and the Session-log button sheds its minimum width
+   as the column narrows. */
 @media (max-width: 640px) {
   .titleRow {
-    flex-direction: column;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'title title'
+      'actions corner';
+    align-items: center;
     row-gap: 6px;
   }
 
   .titleCluster {
-    flex: none;
-    width: 100%;
+    grid-area: title;
   }
 
   .actionsRow {
+    grid-area: actions;
     display: flex;
-    flex: none;
     align-items: center;
     gap: 8px;
     min-width: 0;
@@ -537,5 +542,12 @@
 
   .headerUtilities > * {
     min-width: 0;
+  }
+
+  /* Level with the utilities on the shared control line; the desktop
+     seat's reach into the header's right padding is undone here. */
+  .headerCorner {
+    grid-area: corner;
+    margin-right: 0;
   }
 }
