@@ -41,6 +41,8 @@ kind: "package-reference"
 
 每行的名称前有一个拖拽把手。按住把手拖动即可重排行：被拖的行跟随指针，其经过的行向两侧滑开，松手即落位。该顺序是每设备的浏览器偏好——存于 `localStorage` 的 `dsh:provider-order` 键之下，跨页面刷新与 Host 重启保持，且从不写入设置文档，因此配对（转发）客户端可以独立排序自己的行。之后新增的提供方排在已排序行的后面。模型选择器与 `/model` 弹窗读取同一个键，因此它们提供的就是这里排出的顺序。
 
+`llm-deepseek` 的 DeepSeek 卡片编辑共用的端点、凭据和模型目录，不提供协议选择器。Cordis YAML 选择 Messages 时，官方端点占位符为 `https://api.deepseek.com/anthropic`；保存卡片不会改写协议配置。
+
 ### 新增与删除提供方
 
 「新增」流程是一张承载休眠目录提供方选择框的卡片——裸挂载的 `llm-pi-ai` 在任何路由存在之前就能提供其完整的已安装 catalog。**添加自定义提供方**声明一条 pi-ai 不提供的路由；创建卡片会索要唯一的 **Provider ID**、端点、协议与至少一个可唯一识别的模型，因为没有东西能为它们兜底。端点必须是可解析的 HTTP 或 HTTPS URL；localhost、IPv4 与 IPv6 字面地址以及自定义端口仍然有效。语法错误会在字段处阻止询问与创建，请求失败则继续作为独立的提供方错误显示。**获取可用模型**通过 `llm/discoverModels` Remote 查询表单显示的端点，因此新增提供方一次即可完成，而非先保存再返回；回复打开的是可搜索选择器而非直接写入，只有点击**添加所选**才会写入。每个选中候选会在提供方公布相应信息时，把 id、显示名、上下文窗口、最大输出 token 数与声明的输入模态复制进可编辑行；已经存在的行保留用户调整过的值。搜索会匹配模型 id 与可选显示名称，且不会清除隐藏项的勾选状态。**全选**会加入可见结果，而**取消全选**会清空全部勾选，以免意外采用隐藏结果。只有用户层单独携带某行时，该行才可删除（删除会恢复组合基线），其确认对话框会指名该提供方。
@@ -73,7 +75,7 @@ kind: "package-reference"
 
 ### 引导协调器
 
-声明步骤在 `src/client/locales.ts` 中持有精确文案，并在 `src/onboarding-copy.ts` 中持有确认版本；回环时它通过既有 settings API 比较并写入 `ui-onboarding.welcomeNoticeVersion`，且只有显式点击「继续」才会记录当前版本。非回环浏览器无法使用这个仅限宿主的 namespace，因此确认只保留在进程内，刷新后声明会再次出现。DeepSeek 步骤在共享引导模态框内以仅凭据模式渲染既有 `ProviderEditor`；`credentials.set` 仍是唯一的机密写入，且不改变任何提供方设置。
+声明步骤在 `src/client/locales.ts` 中持有精确文案，并在 `src/onboarding-copy.ts` 中持有确认版本；回环时它通过既有 settings API 比较并写入 `ui-onboarding.welcomeNoticeVersion`，且只有显式点击「继续」才会记录当前版本。非回环浏览器无法使用这个仅限宿主的 namespace，因此确认只保留在进程内，刷新后声明会再次出现。DeepSeek 步骤面向 `llm-deepseek` 中的 `deepseek-official`，在共享引导模态框内以仅凭据模式渲染既有 `ProviderEditor`；`credentials.set` 仍是唯一的机密写入，且不改变任何提供方设置。
 
 </details>
 

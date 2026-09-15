@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   IconAlarmClockOutline16, IconApiOutline14, IconArchiveOutline20, IconFolderClose16,
-  IconGoalOutline16, IconSendOutline16,
+  IconGoalOutline16, IconSendOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 afterEach(cleanup)
@@ -18,7 +18,7 @@ const iconNames = Object.keys(icons)
 
 describe('ic_ds_ icon set', () => {
   it('exports the full icon set (46 deepsuite + figma extracts + product glyphs outside those sets)', () => {
-    expect(iconNames.length).toBe(80)
+    expect(iconNames.length).toBe(81)
     // The composer menu's own glyphs, pinned by name.
     expect(iconNames).toEqual(expect.arrayContaining(['IconPlanOutline14', 'IconCompactOutline16', 'IconShieldOutline16']))
     // The fork's product glyphs: session pin and manual row reordering.
@@ -42,7 +42,7 @@ describe('ic_ds_ icon set', () => {
   })
 
   it('size and className props land on the root svg', () => {
-    const { container } = render(<IconSendOutline16 size={20} className="x" />)
+    const { container } = render(<IconSendOutline14 size={20} className="x" />)
     const svg = container.querySelector('svg')!
     expect(svg.getAttribute('width')).toBe('20')
     expect(svg.getAttribute('height')).toBe('20')
