@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-composer-toolbar-two-row-nesting-fix.md
-2026-08-30-composer-toolbar-two-row-nesting-fix.md: 63bcb9401b0f97ac4b0287ad62a5dc721bdd369b
-2026-08-30-composer-toolbar-two-row-nesting-fix.zh.md: a82f3056261fc0273e5c079175f7b9a1484e56a8
+2026-08-30-composer-toolbar-two-row-nesting-fix.md: 4852590a2c20f94e10b4e5b42e20c133342a5e30
+2026-08-30-composer-toolbar-two-row-nesting-fix.zh.md: a7e7c336a84f5e90af0444b4be34eade9bf4efa5

@@ -6,7 +6,7 @@ English | [中文](2026-09-08-sliding-remote-cookie-renewal.zh.md)
 
 ## Problem
 
-The device pairing gate lost its sliding renewal in the `b8221b3fbe` rework. The `v2` cookie embedded an expiry day at pairing time and never renewed: a phone that scanned the QR once stopped authenticating exactly 30 days later no matter how often it was used — the opposite of the requested behavior (daily use resets the 30-day window, per the original [remote-device-bindings design] restored from the `28f77a17f7` lineage). The desktop panel gave no visibility into the remaining lifetime, and the second fence — the `/api` browser-session cookie — had the same fixed-lifetime defect: its 30-day `Max-Age` counted from the launch-token visit, so a long-lived paired device also hit the connection fence's 401 after 30 days even with the gate fixed.
+The device pairing gate lost its sliding renewal in the 2026-08-18 revocable-device-model rework. The `v2` cookie embedded an expiry day at pairing time and never renewed: a phone that scanned the QR once stopped authenticating exactly 30 days later no matter how often it was used — the opposite of the requested behavior (daily use resets the 30-day window, per the original [remote-device-bindings design] restored from the 2026-08-16 mobile P1/P2 continuation lineage). The desktop panel gave no visibility into the remaining lifetime, and the second fence — the `/api` browser-session cookie — had the same fixed-lifetime defect: its 30-day `Max-Age` counted from the launch-token visit, so a long-lived paired device also hit the connection fence's 401 after 30 days even with the gate fixed.
 
 ## Decision
 

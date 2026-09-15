@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-09-codegraph-source-kind-v2-v3-migration.md
-2026-09-09-codegraph-source-kind-v2-v3-migration.md: c48fcc0cd6a2e6ef66fd5dc256ae0807252e9642
+2026-09-09-codegraph-source-kind-v2-v3-migration.md: eb7d99c18e3303b2cbdd286bfc2cb68c70ab74a8
 2026-09-09-codegraph-source-kind-v2-v3-migration.zh.md: e97b74086772ddb3372e42f70202e00dfd720367

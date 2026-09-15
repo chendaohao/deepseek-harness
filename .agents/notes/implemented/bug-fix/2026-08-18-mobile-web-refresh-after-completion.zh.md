@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-把 `dev`（`924642767e`）的 connection 包心跳/看门狗实现移植到当前工作分支，并把同一看门狗扩展到 `/m` 移动表面自有的 `EventsClient`：
+把 `dev`（2026-08-15 的原生移动语音应用）的 connection 包心跳/看门狗实现移植到当前工作分支，并把同一看门狗扩展到 `/m` 移动表面自有的 `EventsClient`：
 
 - 宿主 `WebSocketDownlinks` 在每条安静流上每隔 `heartbeatIntervalMs`（Host 插件 Config，默认 15 000 毫秒，0 关闭）发送一条 `stream/heartbeat` 帧，同时也避免隧道边缘回收空闲 socket。
 - 客户端 `ConnectionController` 为每个 generation 运行空闲看门狗（`idleTimeoutMs`，默认 45 000 毫秒 = 三个心跳间隔，0 关闭；loopback 页面默认关闭，因为其 socket 不跨网络边界）。任何帧都会重置计时器；看门狗触发即中止该 generation，由既有退避机器重连并重新同步。

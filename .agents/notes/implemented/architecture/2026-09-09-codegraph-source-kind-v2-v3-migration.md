@@ -27,7 +27,7 @@ The V3 side needed nothing: the codec's `MessageSourceMap` is merge-extensible a
 
 - Every fork V2 session with codegraph-injected messages migrates cleanly; sessions without them are unaffected.
 - The kind list stays closed: a future fork plugin that adds a `MessageSourceMap` kind must extend this admission list in the same change (the type-level `MessageSourceMap` merge does not reach this JSON-level check).
-- `session/title` events carrying `source: { kind: 'fallback' }` are untouched: `assertSource` does not run for `session/title` (it audits Harness messages, not title provenance).
+- `session/title` events carrying `source: { kind: 'fallback' }` are untouched: `assertSource` does not run for `session/title` (it audits Harness messages, not the title's own source field).
 
 ## Verification
 

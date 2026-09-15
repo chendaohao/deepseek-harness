@@ -12,7 +12,7 @@ The remote-access design ([2026-08-14-remote-phone-access](../feature/2026-08-14
 
 ## Decision
 
-Port the connection-package heartbeat/watchdog implementation from `dev` (`924642767e`) into the working branch, and extend the same watchdog to the `/m` mobile surface's own `EventsClient`:
+Port the connection-package heartbeat/watchdog implementation from `dev` (the 2026-08-15 native mobile voice app) into the working branch, and extend the same watchdog to the `/m` mobile surface's own `EventsClient`:
 
 - Host `WebSocketDownlinks` sends a `stream/heartbeat` frame on each quiet stream every `heartbeatIntervalMs` (host plugin Config, default 15 000 ms, 0 disables), which also keeps tunnel edges from reaping idle sockets.
 - Client `ConnectionController` runs a per-generation idle watchdog (`idleTimeoutMs`, default 45 000 ms = three heartbeat intervals, 0 disables; loopback pages default it off because their sockets never cross a network boundary). Any frame resets the timer; a firing watchdog aborts the generation and the existing backoff machine reconnects and resyncs.

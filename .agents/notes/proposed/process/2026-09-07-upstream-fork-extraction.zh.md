@@ -6,16 +6,16 @@ Status: proposed
 
 ## 问题
 
-`dev-workspace` 自上次上游合并基点以来累积了约 85 个 fork 提交、452 个文件，且两侧共同演化：upstream 发布了 0.1.2-rc.1 到 0.1.3-alpha.1，fork 则构建了远程栈、移动端 UI 与会话置顶。fork 与 upstream 的编辑如今在同一区域重叠，因此 fork 的改动无法靠 cherry-pick 提交上游。对 reasoning-effort 提交（`87e95da357`）的试抽取在 `packages/core/agent-loop/src/agent.ts` 三方合并冲突：upstream 的 v2 embedded-assistant-streams 重构（2026-09-01）重写了降级重试所修补的同一区域；web 传输提交（`2ccf8bd2c0`）在 web-app patch 行与文档配对上冲突。没有明确策略，fork 将永久背负约 3.1k 行的 client-UI 合并面加上接缝属主 diff。
+`dev-workspace` 自上次上游合并基点以来累积了约 85 个 fork 提交、452 个文件，且两侧共同演化：upstream 发布了 0.1.2-rc.1 到 0.1.3-alpha.1，fork 则构建了远程栈、移动端 UI 与会话置顶。fork 与 upstream 的编辑如今在同一区域重叠，因此 fork 的改动无法靠 cherry-pick 提交上游。对 reasoning-effort 工作（2026-08-19，"normalize unsupported reasoning efforts and degrade refused ones"）的试抽取在 `packages/core/agent-loop/src/agent.ts` 三方合并冲突：upstream 的 v2 embedded-assistant-streams 重构（2026-09-01）重写了降级重试所修补的同一区域；web 传输工作（2026-08-21，"compress and cache the web transport for slow links"）在 web-app patch 行与文档配对上冲突。没有明确策略，fork 将永久背负约 3.1k 行的 client-UI 合并面加上接缝属主 diff。
 
 ## 提案
 
-分五步有序抽取，每步都是基于 `upstream/master` 的分支，开 PR 前用自己的聚焦测试验证。产生下方冲突清单的配方：从 `upstream/master` 建分支，只对可上游化路径应用提交自身 diff（`git diff <commit>^ <commit> -- <paths> | git apply -3`），解决冲突，跑被触及包的测试与文档门禁。
+分五步有序抽取，每步都是基于 `upstream/master` 的分支，开 PR 前用自己的聚焦测试验证。产生下方冲突清单的配方：从 `upstream/master` 建分支，只对可上游化路径应用该改动自身的 diff（`git diff <commit>^ <commit> -- <paths> | git apply -3`），解决冲突，跑被触及包的测试与文档门禁。
 
-1. **LLM effort 归一化 + 循环降级（重新实现）。** 把 `87e95da357` 的意图移植到 v2 embedded-streams 循环：将 last-resort effort 降级重试（`isEffortRejection`、`dropReasoningEffort`、每步一次重试）重新安放到 upstream 当前 `agent-loop/src/agent.ts` 的请求失败路径；`llm/llm` 的 `resolveCallConfig` 归一化、`llm-pi-ai` 的规范回退、adapter 测试与三个 feature notes 在重新锚定文档后可直接复用。范围外：fork 的 `ui-model-selection`/`ui-remote` 对降级状态的呈现。
-2. **Input-modality 声明（选择性路径）。** 从 `ae6bd16f8d` 只取 `packages/llm/**` 与子系统文档；Models-editor 的改动块等待第 4 步的 client-UI 抽取，因为 `ui-settings-models` 已 fork 分叉。
-3. **Web 传输优化（单一特性）。** Cherry-pick `2ccf8bd2c0`（webserver 压缩 `auto` + keep-alive、静态资源缓存、service worker、传输下行压缩）；冲突限于 web-app patch 行上下文与文档配对——用 upstream 当前文本重述该行解决。
-4. **Client-UI 修复（先提前置）。** 移动端 composer/popups/scrollport 提交依赖 fork 新增的 `ui-primitives` 包；先提议该包，再把修复提交（`8540d115f1`、`3694cf98b7`、`35069a5ead`、`ee1791f205` 等）变基上去。
+1. **LLM effort 归一化 + 循环降级（重新实现）。** 把 2026-08-19 的 reasoning-effort 工作的意图移植到 v2 embedded-streams 循环：将 last-resort effort 降级重试（`isEffortRejection`、`dropReasoningEffort`、每步一次重试）重新安放到 upstream 当前 `agent-loop/src/agent.ts` 的请求失败路径；`llm/llm` 的 `resolveCallConfig` 归一化、`llm-pi-ai` 的规范回退、adapter 测试与三个 feature notes 在重新锚定文档后可直接复用。范围外：fork 的 `ui-model-selection`/`ui-remote` 对降级状态的呈现。
+2. **Input-modality 声明（选择性路径）。** 从 2026-09-06 的 input-modality 工作只取 `packages/llm/**` 与子系统文档；Models-editor 的改动块等待第 4 步的 client-UI 抽取，因为 `ui-settings-models` 已 fork 分叉。
+3. **Web 传输优化（单一特性）。** Cherry-pick 2026-08-21 的 web 传输改动（webserver 压缩 `auto` + keep-alive、静态资源缓存、service worker、传输下行压缩）；冲突限于 web-app patch 行上下文与文档配对——用 upstream 当前文本重述该行解决。
+4. **Client-UI 修复（先提前置）。** 移动端 composer/popups/scrollport 提交依赖 fork 新增的 `ui-primitives` 包；先提议该包，再把修复提交（2026-08-31 与 2026-09-06 的客户端修复等）变基上去。
 5. **特性级决策，被接受前保持 fork 本地。** `session-pin`（插件 + `session/pin` 格式放行 + 置顶优先排序）作为完整特性提议上游；remote 栈只提议 wire 词汇转发的可扩展性，隧道与配对门保持 fork 本地。
 
 fork 专属债务不阻塞上述工作，但应在 UI PR 之前落地：把 `ui-remote` 拆分出 host/client tsconfig face（其 host 半区类型导入了 connection 仅 host face 拥有的类型，face 门禁处方的 client-face 引用会以 TS2878 破坏构建），并把 `/m` 移动表层 56 处硬编码字符串接入 locale 词典。

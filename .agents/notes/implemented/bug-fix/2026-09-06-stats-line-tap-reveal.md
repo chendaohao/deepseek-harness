@@ -30,5 +30,5 @@ Follow-up fix from the same verification session: moving the sizing properties u
 
 ## Related
 
-- Commit 66bcd39185 (touch-device input hygiene, 2026-08-18) — the coarse-pointer tap-tooltip behavior (tap shows the bubble, 3-second auto-dismiss) this change stops relying on for the strip.
+- The 2026-08-18 touch-device input hygiene change — the coarse-pointer tap-tooltip behavior (tap shows the bubble, 3-second auto-dismiss) this change stops relying on for the strip.
 - [Question takeover cards cap at the measured scrollport](2026-09-06-question-card-viewport-cap.md) — the same mobile session's other finding: the takeover card overflow.

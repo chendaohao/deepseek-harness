@@ -6,7 +6,7 @@ English | [中文](2026-08-30-composer-toolbar-two-row-nesting-fix.zh.md)
 
 ## Problem
 
-Commit `acf5410d94` ("two-row composer toolbar puts the primary actions on the bottom row") intended the narrow-viewport composer toolbar to split into two rows: the trailing group (model seat, context ring, primary action) sinks to the bottom row, filled first and right-aligned with send rightmost, while the tools group (attach/access/plan) takes the top row. The mechanism is a flex container whose direct children are the trailing group followed by the tools group, with `flex-wrap: wrap-reverse` on the row and `order: -1` on tools: `wrap-reverse` sinks the first child (trailing) to the bottom line and lifts the second (tools) to the top line, while `order: -1` restores the single-row visual order (tools left, trailing right).
+The two-row composer toolbar fix (2026-08-30, "two-row composer toolbar puts the primary actions on the bottom row") intended the narrow-viewport composer toolbar to split into two rows: the trailing group (model seat, context ring, primary action) sinks to the bottom row, filled first and right-aligned with send rightmost, while the tools group (attach/access/plan) takes the top row. The mechanism is a flex container whose direct children are the trailing group followed by the tools group, with `flex-wrap: wrap-reverse` on the row and `order: -1` on tools: `wrap-reverse` sinks the first child (trailing) to the bottom line and lifts the second (tools) to the top line, while `order: -1` restores the single-row visual order (tools left, trailing right).
 
 The implementation rendered `<div className={css.tools}>` **inside** `<div className={css.trailing}>` instead of as a sibling of it, so the row had exactly one flex child. `wrap-reverse` and `order: -1` both need two sibling children to act on; with one child the toolbar never split — every phone width rendered one row with the tools group nested inside the trailing group.
 
@@ -27,7 +27,7 @@ Playwright against the real GUI through the mobile-preview proxy (viewports swep
 
 **Keep the tools group inside the trailing group and accept the single row.** Rejected — this is the buggy shipped state: the toolbar never splits on any phone width, and the commit's own mechanism (two flex siblings, `wrap-reverse`, `order: -1`) is dead code that misleads the next reader into thinking the split works.
 
-**Restore the pre-merge single-row rules instead of the two-row split.** Rejected — the two-row split is the intended direction (`acf5410d94` describes it as the fix for narrow viewports), and it works once the nesting is corrected; reverting to always-single-row would discard the shipped intent.
+**Restore the pre-merge single-row rules instead of the two-row split.** Rejected — the two-row split is the intended direction (the 2026-08-30 fix describes it as the fix for narrow viewports), and it works once the nesting is corrected; reverting to always-single-row would discard the shipped intent.
 
 ## Consequences
 

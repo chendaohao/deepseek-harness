@@ -14,7 +14,7 @@
 ## 短期（上游抽取启动前）
 
 - [ ] 向上游开 issue/discussion 确认两个设计意向：effort 归一化语义（"拒绝 → 降级" 变更了上游文档化的 no-clamping 决定）与 session-pin 的格式放行（上游当前 0 个 open issue，无撞车）
-- [ ] 从冲突最小的 PR 3（web transport 优化，`2ccf8bd2c0`）开始练手建立上游信任；冲突限于 web-app patch 行上下文与文档配对
+- [ ] 从冲突最小的 PR 3（web transport 优化，2026-08-21 的 web 传输改动）开始练手建立上游信任；冲突限于 web-app patch 行上下文与文档配对
 - [ ] 修 `remote-access.e2e` 假失败：`fake-slug.trycloudflare.com` 依赖本机 DNS，改为 Playwright 路由拦截或环回别名（基线已证实与本机改动无关）
 - [ ] 诊断 `session.client.spec` worker 终止超时（干净 HEAD 复现；用 `dsh-ci-test-reliability` 技能）
 
