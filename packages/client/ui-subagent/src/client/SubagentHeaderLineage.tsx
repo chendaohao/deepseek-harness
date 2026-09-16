@@ -497,6 +497,13 @@ function CatalogDropdown({
   const menuRef = useRef<HTMLDivElement>(null)
   const hoverOpenTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // A pointer that cannot hover fires `mouseenter` only where its hover target
+  // changes, and tapping the same trigger twice changes nothing: the second tap
+  // delivers no `mouseenter`, so a hover-only open leaves the trigger inert
+  // until the target moves elsewhere. Taps own the toggle there.
+  const tapToggles = useRef(typeof window.matchMedia === 'function'
+    ? window.matchMedia('(hover: none)').matches
+    : false)
   const observedCatalogs = useRef(new Set<SessionId>())
   const setCatalogOpenRef = useRef(setCatalogOpen)
   setCatalogOpenRef.current = setCatalogOpen
@@ -711,6 +718,17 @@ function CatalogDropdown({
     }
   }
 
+  /** What the trigger does when activated: an ancestor crumb navigates; a leaf trigger toggles where no pointer can hover. */
+  const activate = openTitle !== undefined
+    ? (): void => {
+      cancelHoverOpen()
+      if (open) changeOpen(false)
+      openTitle()
+    }
+    : tapToggles.current
+      ? (): void => { changeOpen(!open) }
+      : undefined
+
   return (
     <div
       className={`${css.root} ${variant === 'switcher' ? css.switcherRoot : ''}`}
@@ -734,13 +752,7 @@ function CatalogDropdown({
             descendants.runningCount > 0 ? runningCountKey : totalCountKey,
             { count: descendants.runningCount > 0 ? descendants.runningCount : descendantCount },
           )}
-        onClick={openTitle === undefined
-          ? undefined
-          : () => {
-            cancelHoverOpen()
-            if (open) changeOpen(false)
-            openTitle()
-          }}
+        onClick={activate}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowDown') return
           event.preventDefault()

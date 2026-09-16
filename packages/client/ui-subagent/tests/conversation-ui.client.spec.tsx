@@ -16,6 +16,7 @@ afterEach(() => {
   cleanup()
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 const PARENT = 'parent' as SessionId
@@ -266,6 +267,18 @@ describe('SubagentHeaderLineage', () => {
     fireEvent.mouseLeave(trigger.parentElement!)
     view.unmount()
     await advance(120)
+  })
+
+  it('toggles the catalog on tap when the pointer cannot hover', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true }) as MediaQueryList))
+    render(<SubagentHeaderLineage {...props(catalog())} />)
+    const trigger = screen.getByRole('button', { name: /2 个子代理/ })
+
+    // No `mouseenter` arrives twice for one trigger, so the tap opens and closes.
+    fireEvent.click(trigger)
+    expect(screen.getByRole('tree')).toBeTruthy()
+    fireEvent.click(trigger)
+    expect(screen.queryByRole('tree')).toBeNull()
   })
 
   it('repositions an open catalog after viewport resize and document scroll', () => {
