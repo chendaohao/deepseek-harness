@@ -70,6 +70,8 @@ kind: "package-reference"
 
 带类型的 `SessionQueryError` 失败携带稳定代码：搜索配置为关闭时 `SESSION_QUERY_SEARCH_DISABLED`；索引无法打开或对账时 `SESSION_QUERY_INDEX_FAILED`；搜索目标不存在时 `SESSION_QUERY_SESSION_NOT_FOUND`；语料库在分页之间变化时 `SESSION_QUERY_STALE_CURSOR`——请重试完整的搜索调用；游标不属于该请求时 `SESSION_QUERY_INVALID_CURSOR`。取消在同步 SQLite 调用之间被尊重；已在 JavaScript 线程上执行的语句无法被中断。
 
+某条存量日志若被其格式迁移边永久拒绝——即 `SessionFormatUnsupportedError`——会被排除在索引之外，并以 `warn` 级别连同会话 id 报告一次，而不是让整次 observation 失败。拒绝是**该条来源**的既定属性：重试无法索引它，其他任何会话的内容也不依赖它；因此为了它而拒绝查询全部其余会话，等于用一次搜索整体不可换来一条日志不可搜。只有该错误类别会被跳过；后端失败与损坏仍然使 observation 失败，因为它们可能在重试后消失，或属于存储而非单条来源。被跳过的会话内容保持不可搜，直到能读取它的构建为其建立索引。
+
 -----
 
 <a id="understand-the-implementation"></a>

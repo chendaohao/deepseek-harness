@@ -2,7 +2,7 @@ import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { DatabaseSync } from 'node:sqlite'
-import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import SessionStore, { SessionLogOffset, SessionSeq, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
@@ -1817,6 +1817,53 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     expect(reader.header).toMatchObject(meta)
     await expect(reader.read()).resolves.toMatchObject({ events: [{ seq: SessionSeq(0) }] })
     await reader.close()
+    await persistence.dispose()
+  })
+
+  it('indexes every readable Session when one stored log is permanently refused', async () => {
+    const persistenceRoot = await temporaryPath('sessions-refused')
+    const searchPath = await temporaryPath('derived-refused.db')
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    const persistence = await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+
+    const readable = header('readable', 10, { cwd: '/work' })
+    const writer = await ctx.sessionPersistence.create(readable)
+    await writer.append(messageEvents('surviving needle'))
+    await writer.close()
+
+    // A structurally valid released-v0 log carrying an event this build's frozen
+    // inventory does not admit. The format edge refuses it permanently, so no
+    // retry can index it — but that says nothing about the other Sessions.
+    const refused = header('refused', 11, { cwd: '/work' })
+    await mkdir(join(persistenceRoot, '--work--', refused.id), { recursive: true })
+    await writeFile(join(persistenceRoot, '--work--', refused.id, 'session.jsonl'), [
+      JSON.stringify({ type: 'session', version: 0, id: refused.id, createdAt: 11, delegationDepth: 0, cwd: '/work' }),
+      JSON.stringify({
+        type: 'vision/observed', seq: 0, time: 1, ignorable: true,
+        data: { messageId: 'observed', attachments: [], evidence: 'text' },
+      }),
+      '',
+    ].join('\n'))
+
+    const warnings: string[] = []
+    // The Context's built-in sink stops at info, so a skip diagnostic needs a
+    // sink that admits warn level to be observable here.
+    ctx.logger.exporter({
+      levels: { default: 3 },
+      export: (message) => { if (message.type === 'warn') warnings.push(String(message.args[0])) },
+    })
+    const search = await ctx.plugin(SqliteSessionQueryEngine, { path: searchPath })
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'surviving needle' }))
+      .resolves.toMatchObject({ items: [{ header: readable, persisted: true, live: false }] })
+    // The refused Session contributes no index row, so its content is absent
+    // rather than fatal; every other Session stays searchable.
+    await expect(ctx.sessionQuery.searchSessions({ query: 'observed' })).resolves.toMatchObject({ items: [] })
+    expect(warnings.filter(entry => entry.includes(refused.id))).toHaveLength(1)
+
+    await search.dispose()
     await persistence.dispose()
   })
 

@@ -70,6 +70,8 @@ With `openAt: first-search`, the service activates without importing `node:sqlit
 
 Typed `SessionQueryError` failures carry stable codes: `SESSION_QUERY_SEARCH_DISABLED` when search is configured off; `SESSION_QUERY_INDEX_FAILED` when the index cannot open or reconcile; `SESSION_QUERY_SESSION_NOT_FOUND` when a search target is absent; `SESSION_QUERY_STALE_CURSOR` when the corpus changed between pages — retry the complete search call; and `SESSION_QUERY_INVALID_CURSOR` for a cursor that does not belong to this request. Cancellation is honored between synchronous SQLite calls; a statement already executing on the JavaScript thread cannot be interrupted.
 
+A stored log whose format edge permanently refuses it — `SessionFormatUnsupportedError` — is left out of the index and reported once at `warn` with its session id, rather than failing the whole observation. A refusal is a settled property of that one source: no retry can index it, and no other Session's content depends on it, so denying every other Session to the query would trade one unsearchable log for a wholly broken search. Only that error class is skipped; a backend failure or corruption still fails the observation, because those can clear on retry or belong to the store rather than one source. A skipped Session's content stays unsearchable until a build that can read it indexes it.
+
 -----
 
 <a id="understand-the-implementation"></a>

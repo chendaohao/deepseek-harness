@@ -28,6 +28,30 @@ export function defineReleasedPayloadDisposition(
 const disposition = defineReleasedPayloadDisposition
 
 /**
+ * `subagent/descriptor` versions a released writer emitted. The earliest
+ * product tag `dsh-v0.1.0-rc.7` shipped format v0 with descriptor version 2,
+ * and every later tag carries 2 or 3, so a released log of any generation may
+ * hold either. Descriptor version 1 predates the first tag and never shipped;
+ * it is also structurally unreadable here because it lacks the `mode` member
+ * this inventory requires, so it stays refused rather than admitted by
+ * guessing a lifecycle mode.
+ *
+ * Hardcoded rather than read from `SUBAGENT_DESCRIPTOR_VERSION`: a released
+ * edge freezes the vocabulary its own era's writers emitted, and must not
+ * admit a version that only a later build can write.
+ */
+export const RELEASED_SUBAGENT_DESCRIPTOR_VERSIONS: readonly number[] = Object.freeze([2, 3])
+
+/**
+ * Test one decoded descriptor version against the released inventory.
+ * @param value - decoded `subagent/descriptor` version member.
+ * @returns whether a released writer could have emitted this version.
+ */
+export function isReleasedSubagentDescriptorVersion(value: unknown): value is number {
+  return typeof value === 'number' && RELEASED_SUBAGENT_DESCRIPTOR_VERSIONS.includes(value)
+}
+
+/**
  * Frozen released-v0 event and payload-member inventory.
  * Every listed member is preserved by the identity edge. Members in `opaque`
  * remain lossless JSON without nested Session-sequence interpretation. Nested

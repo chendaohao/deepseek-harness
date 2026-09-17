@@ -11,6 +11,7 @@ import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
+import { SessionFormatUnsupportedError } from '@deepseek-ai/dsh-session-persistence'
 import type {
   SessionPersistenceRevision,
   SessionPersistenceSnapshot,
@@ -237,6 +238,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   private _tail: Promise<void> = Promise.resolve()
   private _closed = false
   private _closePromise: Promise<void> | undefined
+  /** Persisted Sessions already reported as unreadable, so each is warned about once per service. */
+  private readonly _unreadablePersisted = new Set<SessionId>()
   private readonly _optionalPersistenceFiber: Fiber
 
   constructor(ctx: Context, config: Config) {
@@ -519,7 +522,26 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
             // live-preferred.
             if (initiallyLive.has(entry.header.id) || this.ctx.sessions.get(entry.header.id) !== undefined) continue
             assertNotAborted(signal)
-            const loaded = await readColdSessionLog(persistence, entry.header.id, signal)
+            let loaded: Awaited<ReturnType<typeof readColdSessionLog>>
+            try {
+              loaded = await readColdSessionLog(persistence, entry.header.id, signal)
+            } catch (error: unknown) {
+              if (isAbort(error) || signal?.aborted) throw error
+              // A stored log this build's format edge permanently refuses is a
+              // settled property of that source: no retry can index it, and no
+              // other Session's content depends on it. Failing the whole
+              // observation would deny every other Session to the query, so
+              // this one source is left out and reported once.
+              if (!(error instanceof SessionFormatUnsupportedError)) throw error
+              if (!this._unreadablePersisted.has(entry.header.id)) {
+                this._unreadablePersisted.add(entry.header.id)
+                this.ctx.logger.warn(
+                  `session-search: skipping "${entry.header.id}", whose stored log this build refuses; its content stays unsearchable: ${errorMessage(error)}`,
+                )
+              }
+              continue
+            }
+            this._unreadablePersisted.delete(entry.header.id)
             assertNotAborted(signal)
             assertSessionHeadersCompatible(entry.header, loaded.header)
             entry.loaded = observeSession(loaded.header, loaded.inheritedEventCount, loaded.events)

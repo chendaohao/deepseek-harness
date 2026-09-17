@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { SessionFormatUnsupportedMigrationError } from '@deepseek-ai/dsh-session-format'
 import type { SessionFormatEvent, SessionFormatJsonValue } from '@deepseek-ai/dsh-session-format'
 import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session'
 import {
@@ -341,6 +342,26 @@ describe('released event and payload inventory', () => {
       .toThrow(/unknown historical event.*refuses.*ignorable/)
   })
 
+  it('admits exactly the descriptor versions a released v0 writer emitted', () => {
+    const descriptor = (version: number) => ({
+      type: 'subagent/descriptor', seq: 0, time: 1,
+      data: { mode: 'continuable', version, provider: 'p', label: 'child' },
+    })
+    // Version 2 shipped alongside format v0 in every release tag, so a stored
+    // v0 log restores; version 3 is the later writer's version in the same era.
+    for (const version of [2, 3]) {
+      expect(() => restoreV0ToV1(v0Header, [descriptor(version)]), String(version)).not.toThrow()
+    }
+    // Version 1 predates the first release tag and lacks `mode`, and a version
+    // no writer emitted must not be guessed into the current vocabulary.
+    for (const version of [1, 4]) {
+      expect(() => restoreV0ToV1(v0Header, [descriptor(version)]), String(version))
+        .toThrow(SessionFormatUnsupportedMigrationError)
+      expect(() => restoreV0ToV1(v0Header, [descriptor(version)]), String(version))
+        .toThrow(new RegExp(`uses unsupported descriptor version ${String(version)}`))
+    }
+  })
+
   it('exercises each released test validation policy', () => {
     const v0 = {
       header: { version: 0, id: 'validation', createdAt: 1, isSeeded: false, delegationDepth: 0 },
@@ -545,6 +566,17 @@ describe('released event and payload inventory', () => {
         agentReasoningEffort: 'high', persona: 'persona', toolFilter: { deny: ['write'] },
       }],
       ['subagent/descriptor', { mode: 'continuable', version: 3, provider: 'p', label: 'child' }],
+      // Descriptor version 2 shipped in every release tag carrying format v0, so
+      // a released log may hold it. It predates `agentReasoningEffort`, whose
+      // absence is the only difference from version 3.
+      ['subagent/descriptor', { mode: 'one-shot', version: 2, provider: 'p', label: 'child' }],
+      ['subagent/descriptor', {
+        mode: 'continuable', version: 2, provider: 'p', label: 'child', agentProvider: 'p', agentModel: 'm',
+      }],
+      ['subagent/descriptor', {
+        mode: 'continuable', version: 2, provider: 'p', label: 'child', agentProvider: 'p', agentModel: 'm',
+        persona: 'persona', toolFilter: { deny: ['write'] },
+      }],
       ['approval/asked', { id: 'approval', toolName: 'read' }],
       ['team/member', {
         version: 1, teamId: 'team',
