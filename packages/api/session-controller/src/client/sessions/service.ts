@@ -314,10 +314,14 @@ export class ClientSessions implements ISessions {
    * Clear the current selection so the layout shows the no-session empty
    * state (new-session affordance and the workspace preselection flow).
    * Wipes the persisted selection too — a reload stays on empty until the
-   * user opens or starts a session. The staged scope keeps its frozen view
-   * per the masked-gap contract until the next open() moves the stage.
+   * user opens or starts a session. This is the one deliberate wipe: the
+   * projection preserves the cell across masked gaps, so an explicit clear is
+   * the only signal that the empty state is what the user asked for. The
+   * staged scope keeps its frozen view per the masked-gap contract until the
+   * next open() moves the stage.
    */
   clear(): void {
+    this.selection.set({})
     this.manager.clearSelection()
   }
 
@@ -634,11 +638,13 @@ export class ClientSessions implements ISessions {
       }
     }
     const persisted = this.selection.getSnapshot().sessionId
-    // No current (cleared, or masked gap) wipes the persisted cell — a reload
-    // stays on empty; the in-memory selection still resurfaces a masked id.
-    if (current === undefined) {
-      if (persisted !== undefined) this.selection.set({})
-    } else if (byId[current] !== undefined
+    // `current === undefined` covers two different facts — a deliberate clear()
+    // and a masked gap (the list is still arriving, or this pull briefly lacks
+    // the selected row: a phone foreground resync re-pulls the whole list).
+    // Only the first may destroy the persisted cell (see the `selection` field
+    // contract); a mask leaves it so the selection resurfaces when its row
+    // returns, and a reload still restores the user's last session.
+    if (current !== undefined && byId[current] !== undefined
       && (persisted !== current
         || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
         || this.selection.getSnapshot().subagentAddress?.parentSessionId !== currentAddress?.parentSessionId

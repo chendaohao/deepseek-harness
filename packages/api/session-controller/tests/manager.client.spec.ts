@@ -98,6 +98,25 @@ describe('list lifecycle', () => {
     expect(manager.getListSnapshot().items.map(item => item.sessionId)).toEqual([S2, S1])
   })
 
+  it('graces the selected row through one absence and drops every other row at once', async ({ mock, remote }) => {
+    remote.session.list.mockResolvedValue(ok({ items: [summary(S1), summary(S2)] as never[] }))
+    const manager = makeManager(mock, remote)
+    await manager.refreshList()
+    manager.select(S1)
+
+    // One thin re-pull: the selected row keeps its place (its absence would
+    // mask `current` away), other absent rows go immediately.
+    remote.session.list.mockResolvedValue(ok({ items: [summary(S2, { updatedAt: 200 })] as never[] }))
+    await manager.refreshList()
+    expect(manager.getListSnapshot().items.map(item => item.sessionId)).toEqual([S1, S2])
+    expect(manager.getListSnapshot().current).toBe(S1)
+
+    // The second consecutive absence is authoritative, and `current` masks.
+    await manager.refreshList()
+    expect(manager.getListSnapshot().items.map(item => item.sessionId)).toEqual([S2])
+    expect(manager.getListSnapshot().current).toBeUndefined()
+  })
+
   it('advances list activity from the filtered Host notification', async ({ mock, remote }) => {
     remote.session.list.mockResolvedValue(ok({ items: [summary(S1)] as never[] }))
     const manager = makeManager(mock, remote)

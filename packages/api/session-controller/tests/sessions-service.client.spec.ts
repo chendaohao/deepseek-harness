@@ -749,7 +749,11 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
     b.svc.open(sid('s1'))
-    await feedList(b, [{ id: 's2' }]) // s1 removed → current falls to the empty state
+    // The first baseline without s1 is a transient: the selected row is graced
+    // through one absence, so `current` never leaves the list.
+    await feedList(b, [{ id: 's2' }])
+    expect(b.svc.list.getSnapshot().current).toBe('s1')
+    await feedList(b, [{ id: 's2' }]) // absent a second time → the row goes, current masks
     expect(b.svc.list.getSnapshot().current).toBeUndefined()
     await feedList(b, [{ id: 's1' }, { id: 's2' }]) // s1 returns → selection resurfaces
     expect(b.svc.list.getSnapshot().current).toBe('s1')
@@ -769,6 +773,55 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
     const second = bench()
     await feedList(second, [{ id: 's1' }])
     expect(second.svc.list.getSnapshot().current).toBe('s1')
+  })
+
+  it('keeps the persisted selection through masked gaps; only clear() wipes it', async ({ bench }) => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => { storage.set(k, v) },
+      removeItem: (k: string) => { storage.delete(k) },
+      clear: () => { storage.clear() },
+    })
+    const b = bench()
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    b.svc.open(sid('s1'))
+    expect(storage.get('dsh.sessions.current')).toContain('s1')
+
+    // A thin re-pull and the resulting mask are not a cleared selection: a
+    // reload must still restore s1 and the row's return must resurface it.
+    await feedList(b, [{ id: 's2' }])
+    await feedList(b, [{ id: 's2' }])
+    expect(b.svc.list.getSnapshot().current).toBeUndefined()
+    expect(storage.get('dsh.sessions.current')).toContain('s1')
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    expect(b.svc.list.getSnapshot().current).toBe('s1')
+
+    b.svc.clear()
+    expect(storage.get('dsh.sessions.current')).not.toContain('s1')
+  })
+
+  it('a pending first pull cannot wipe the persisted selection', async ({ bench }) => {
+    const storage = new Map<string, string>([
+      ['dsh.sessions.current', JSON.stringify({ sessionId: 's1' })],
+    ])
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => { storage.set(k, v) },
+    })
+    const b = bench()
+    const gate = Promise.withResolvers<Awaited<ReturnType<RemoteMock['remote']['session']['list']>>>()
+    b.mock.remote.session.list.mockReturnValue(gate.promise)
+    const refresh = b.svc.refresh()
+    // The loading projection (phase pending, no current yet) notifies before any
+    // row arrives — the reload window that used to destroy the cell.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().phase).toBe('pending')
+    expect(storage.get('dsh.sessions.current')).toContain('s1')
+    gate.resolve(ok({ items: [] }))
+    await refresh
+    expect(storage.get('dsh.sessions.current')).toContain('s1')
   })
 })
 

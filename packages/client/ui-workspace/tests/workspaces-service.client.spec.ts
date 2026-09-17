@@ -469,6 +469,36 @@ describe('UiWorkspaceService', () => {
     expect(b.sessions.create).toHaveBeenCalledWith({ workspaceId: wid('newest') })
   })
 
+  it('recovers a selection lost after the first one succeeded (reentrant fallback)', async () => {
+    const b = bench()
+    b.sessions.create.mockResolvedValue(sid('initial'))
+    b.workspaces.list.set(workspaceState([workspace('recent')]))
+    b.sessions.list.set(sessionState())
+    await vi.waitFor(() => { expect(b.sessions.open).toHaveBeenCalledWith(sid('initial')) })
+
+    // A whole-list re-pull comes back without the current row: the layout falls
+    // to the empty state, and the fallback must fire again — a one-shot latch
+    // would leave the user parked there forever.
+    b.sessions.create.mockResolvedValue(sid('recovered'))
+    b.sessions.list.update(state => ({ ...state, current: undefined }))
+    await vi.waitFor(() => { expect(b.sessions.open).toHaveBeenLastCalledWith(sid('recovered')) })
+  })
+
+  it('leaves a selection the New Session flow deliberately cleared empty', async () => {
+    const b = bench()
+    // No Workspace to inherit: the flow clears the selection on purpose.
+    b.uiWorkspace.startSession()
+    expect(b.sessions.clear).toHaveBeenCalledOnce()
+
+    // A Workspace arrives afterwards; the deliberate empty state must survive it.
+    b.sessions.create.mockResolvedValue(sid('automatic'))
+    b.workspaces.list.set(workspaceState([workspace('recent')]))
+    b.sessions.list.set(sessionState())
+    await flush()
+    expect(b.sessions.create).not.toHaveBeenCalled()
+    expect(b.sessions.open).not.toHaveBeenCalled()
+  })
+
   it('retries failed initial selection and never overwrites a later selection', async () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const b = bench()

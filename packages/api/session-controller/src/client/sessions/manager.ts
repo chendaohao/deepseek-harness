@@ -30,6 +30,9 @@ function sessionSeqCursor(value: number): SessionSeqCursor {
   return value === -1 ? -1 : SessionSeq(value)
 }
 
+/** Shared empty retention set: the baseline merge graces no identity this pull. */
+const NO_RETAINED_IDS: ReadonlySet<SessionId> = new Set()
+
 /**
  * List arrival lifecycle, orthogonal to the pull-activity `state` axis:
  * `pending` (no successful pull yet — an empty items array means "nothing
@@ -119,6 +122,12 @@ export class SessionManager {
   private listInflight: Promise<void> | null = null
   /** Mutations arriving after a list request starts are replayed over its response. */
   private listMutations: SessionListMutation[] | null = null
+  /**
+   * The selected identity, when the last baseline lacked its row but kept it:
+   * see {@link retainGracedAbsences}. Absence is graced once, so a thin pull
+   * cannot mask the selection away while a real removal still lands.
+   */
+  private readonly baselineGrace = new Set<SessionId>()
   private readonly addresses = new Map<SessionId, SubagentAddress>()
   private readonly catalogs = new Map<SessionId, SubagentCatalogSnapshot>()
   private readonly catalogInflight = new Map<SessionId, CatalogInflight>()
@@ -464,7 +473,12 @@ export class SessionManager {
         if (result.ok) {
           const baseline: SessionSummary[] = this.listPhase === 'pending'
             ? [...result.value.items]
-            : mergeOrderedBaseline(established, result.value.items, summary => summary.sessionId)
+            : mergeOrderedBaseline(
+              established,
+              result.value.items,
+              summary => summary.sessionId,
+              this.retainGracedAbsences(established, result.value.items),
+            )
           // Seed first observations from the pull-time baseline BEFORE replaying
           // in-flight mutations, then reconcile the reminders after EVERY
           // replayed mutation: an edge that happens entirely between mutations
@@ -519,6 +533,39 @@ export class SessionManager {
       }
     })()
     return this.listInflight
+  }
+
+  /**
+   * Identities the baseline merge should keep although the newest baseline
+   * omits them. A whole-list re-pull (the phone foreground resync) can come
+   * back momentarily without the SELECTED row, and dropping it there masks
+   * `current` away — taking the durable selection off screen with it. That one
+   * row is graced through a single absence; its second consecutive absence is
+   * authoritative and drops it, so a real removal still lands.
+   *
+   * Deliberately the selected row only: gracing every held row would defer
+   * every genuine removal (and its scope teardown) by one pull for no masking
+   * benefit, since the mask is a property of the selected row alone.
+   *
+   * @param established - rows the client holds before the merge.
+   * @param baseline - rows the newest pull returned.
+   * @returns keys to hold through this absence.
+   */
+  private retainGracedAbsences(
+    established: readonly SessionSummary[],
+    baseline: readonly SessionSummary[],
+  ): ReadonlySet<SessionId> {
+    const selected = this.selected
+    if (selected === undefined
+      || !established.some(summary => summary.sessionId === selected)
+      || baseline.some(summary => summary.sessionId === selected)) {
+      this.baselineGrace.clear()
+      return NO_RETAINED_IDS
+    }
+    // Absent a second consecutive time: the grace is spent, the row goes.
+    if (this.baselineGrace.delete(selected)) return NO_RETAINED_IDS
+    this.baselineGrace.add(selected)
+    return new Set([selected])
   }
 
   /**
@@ -626,6 +673,10 @@ export class SessionManager {
 
   /** Apply immediately and retain for replay when a list response is in flight. */
   private recordMutation(mutation: SessionListMutation): void {
+    // An upsert or remove is authoritative presence, not a pull's silence: it
+    // ends any absence grace for the identity it names.
+    if (mutation.kind === 'upsert') this.baselineGrace.delete(mutation.summary.sessionId)
+    else if (mutation.kind === 'remove') this.baselineGrace.delete(mutation.sessionId)
     this.listMutations?.push(mutation)
     this.summaries = applyMutation(this.summaries, mutation)
     // Eager edge reconciliation — a snapshot-build-time pass would miss consecutive status frames.

@@ -171,18 +171,17 @@ export function ConversationContent({
   // The chip is a selector; label resolution walks the flow top-down:
   //   1. a just-picked workspace (pending) → its title;
   //   2. cold start, no session yet → placeholder ("Choose workspace");
-  //   3. the blank session's workspace is in the list → its title;
-  //   4. list still loading → cwd folder name bridges so the title does not
-  //      flash on refresh (empty cwd → placeholder);
-  //   5. list ready but no owning workspace (deleted from the sidebar) →
-  //      placeholder, never the deleted folder's name via cwd.
+  //   3. the session's workspace is in the list → its title;
+  //   4. otherwise the session's own cwd folder name bridges — while the list
+  //      is loading AND once it is ready without an owning row, so a Workspace
+  //      membership projection that transiently (or permanently) lacks this
+  //      session cannot lock a live session behind the placeholder
+  //      (empty cwd → placeholder).
   const chipTitle = pendingWorkspace?.title
     ?? (sessionId === undefined
       ? undefined
       : sessionWorkspace?.title
-        ?? (workspaces.phase === 'ready' || cwd === undefined || cwd === ''
-          ? undefined
-          : workspaceLabel(cwd)))
+        ?? (cwd === undefined || cwd === '' ? undefined : workspaceLabel(cwd)))
 
   const heroWorkspaceRow = (
     <div className={css.heroWorkspaceRow}>
@@ -212,9 +211,12 @@ export function ConversationContent({
 
   // The placeholder chip ("Choose workspace") and the Workspace-trigger input travel
   // together: no workspace picked yet (cold start, no session at all), or a
-  // blank session whose workspace vanished (deleted from the sidebar). The
-  // bar is ONE session-maybe slot rendered unconditionally — inert is a prop,
-  // not a different tree, so the textarea DOM survives the transition.
+  // blank session with neither a listed Workspace nor a cwd to name it by. A
+  // session that still knows its cwd keeps a live composer and the folder-name
+  // chip even when the Workspace list has no row for it — an empty state there
+  // would strand a perfectly openable session. The bar is ONE session-maybe
+  // slot rendered unconditionally — inert is a prop, not a different tree, so
+  // the textarea DOM survives the transition.
   const inert = sessionId === undefined || (hero && chipTitle === undefined)
   // A raised block is the same inert posture with the blocker's own reason:
   // one disabled textarea, never a second tree. The no-workspace state wins

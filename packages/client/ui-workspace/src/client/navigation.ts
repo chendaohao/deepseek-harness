@@ -95,6 +95,12 @@ export class DirectoryBrowseError extends Error {
 class UiWorkspaceService extends Service implements UiWorkspace {
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
   private readonly lifetime = new AbortController()
+  /**
+   * Whether this service emptied the selection itself (an archive, or a New
+   * Session with no target). {@link watchNavigation} reads it to leave a
+   * deliberate empty state alone instead of recovering it.
+   */
+  private emptyByRequest = false
 
   /**
    * @param ctx - Client root Context.
@@ -168,6 +174,9 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       : undefined
     const target = workspaceId ?? currentWorkspaceId ?? recent
     if (target === undefined) {
+      // No Workspace to target: the user asked for the empty state, so the
+      // recovery must not undo it (set before the clear notifies subscribers).
+      this.emptyByRequest = true
       this.sessions.clear()
       this.ctx.layout.selectPanel(null)
       return
@@ -204,38 +213,44 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   private watchNavigation(): () => void {
-    let initial: 'waiting' | 'connecting' | 'done' = 'waiting'
+    // The recovery is reentrant, deliberately not a one-shot latch: it re-arms
+    // whenever `current` goes undefined again with both baselines ready, so a
+    // later loss (a phone foreground resync re-pulls the whole list, and a pull
+    // that arrives without the current row masks the selection away) is
+    // recovered instead of parking the layout on the no-session empty state.
+    // `emptyByRequest` keeps the losses this service inflicted on itself (an
+    // archive, a New Session with no target) empty — those are the user's own
+    // decision, not a lost selection — and a live selection clears it.
+    let recovering = false
     const reconcile = (): void => {
       if (this.lifetime.signal.aborted) return
       if (this.clearArchivedCurrent()) return
-      if (initial !== 'waiting') return
       const workspace = this.workspaces.list.getSnapshot()
       const sessions = this.sessions.list.getSnapshot()
-      if (workspace.phase !== 'ready' || sessions.phase !== 'ready') return
       if (sessions.current !== undefined) {
-        initial = 'done'
+        this.emptyByRequest = false
         return
       }
+      if (recovering || this.emptyByRequest) return
+      if (workspace.phase !== 'ready' || sessions.phase !== 'ready') return
       const target = recentWorkspace(workspace.items, sessions.byId)
-      if (target === undefined) {
-        initial = 'done'
-        return
-      }
-      initial = 'connecting'
-      void this.connectWorkspace(target).then(
-        (sessionId) => {
+      if (target === undefined) return
+      recovering = true
+      void (async () => {
+        try {
+          const sessionId = await this.connectWorkspace(target)
           if (this.lifetime.signal.aborted) return
           if (this.sessions.list.getSnapshot().current === undefined) {
             this.sessions.open(sessionId)
           }
-          initial = 'done'
-        },
-        (reason: unknown) => {
+        } catch (reason: unknown) {
           if (this.lifetime.signal.aborted) return
-          initial = 'waiting'
+          // Not latched: the next baseline change retries (see the retry case).
           console.warn('initial workspace selection failed:', reason)
-        },
-      )
+        } finally {
+          recovering = false
+        }
+      })()
     }
     const disposeWorkspaces = this.workspaces.list.subscribe(reconcile)
     const disposeSessions = this.sessions.list.subscribe(reconcile)
@@ -252,6 +267,9 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const current = this.sessions.list.getSnapshot().current
     if (current === undefined
       || !this.workspaces.list.getSnapshot().archivedSessionIds.includes(current)) return false
+    // Archiving is a deliberate loss: suppress the recovery so it does not
+    // immediately spin up a replacement session in the same Workspace.
+    this.emptyByRequest = true
     this.sessions.clear()
     return true
   }

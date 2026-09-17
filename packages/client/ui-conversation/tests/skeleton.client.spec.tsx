@@ -116,6 +116,8 @@ function mount(
     overlayTakeover?: boolean
     /** The session list summary's `blank` flag — independent of the snapshot's. */
     summaryBlank?: boolean
+    /** The summary row's cwd; null omits it (a session with no recorded directory). */
+    summaryCwd?: string | null
     /** Drop the session's summary row entirely (a session the list has not caught up with). */
     omitSummaryRow?: boolean
     /** Classify the selected child as a subagent instead of an ordinary fork. */
@@ -137,7 +139,8 @@ function mount(
   }
   const childRow = {
     id: SID, displayTitle: 'Child', parentId: options.nestedSubagent === true ? parent : root,
-    cwd: '/projects/one', running: false, blank: options.summaryBlank ?? false, updatedAt: 3,
+    ...(options.summaryCwd === null ? {} : { cwd: options.summaryCwd ?? '/projects/one' }),
+    running: false, blank: options.summaryBlank ?? false, updatedAt: 3,
     ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
   }
   const listed = options.omitSummaryRow !== true
@@ -386,6 +389,10 @@ describe('ConversationRoot resident composer', () => {
     // would send the user somewhere they cannot act yet.
     const b = mount(sessionSnapshotOf({ blank: true }), [], undefined, {
       summaryBlank: true,
+      // No cwd either: the session has nothing to name its place by, which is
+      // the one remaining no-workspace posture (a cwd-bearing session keeps its
+      // folder chip and a live composer — see the missing-Workspace case below).
+      summaryCwd: null,
       composerBlock: { reason: 'select a model first' },
     })
     const box = b.view.getByRole('textbox')
@@ -395,6 +402,19 @@ describe('ConversationRoot resident composer', () => {
     expect(box.getAttribute('data-placeholder')).not.toBe('select a model first')
     const modelSeat = b.seatOwners.filter(call => call.key === 'conversation.input.model').at(-1)?.owner
     expect(modelSeat).toEqual({ locked: true })
+  })
+
+  it('a session with a cwd but no owning Workspace row keeps its folder chip and a live composer', () => {
+    // The Workspace membership projection can transiently lack a session (a
+    // reconnect re-pull) even though the session itself is open and listed.
+    // Dropping to the "choose workspace" empty state there would strand it.
+    const b = mount(sessionSnapshotOf({ blank: true }), [], undefined, { summaryBlank: true })
+    expect(b.view.queryByText('选择工作区')).toBeNull()
+    expect(b.view.getByText('one')).toBeTruthy()
+    const box = b.view.getByRole('textbox')
+    expect(box.getAttribute('aria-disabled')).not.toBe('true')
+    expect(box.getAttribute('contenteditable')).toBe('true')
+    expect(box.getAttribute('aria-haspopup')).not.toBe('menu')
   })
 
   it('keeps composer text in the machine, mirrors to the Conversation store, and submits through the sink', () => {
