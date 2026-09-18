@@ -649,6 +649,7 @@ describe('ModelsSection', () => {
     fireEvent.change(names[2] as HTMLInputElement, { target: { value: 'Private Preview' } })
     // Only row 3 is open, so its capacity is addressed by its own label.
     fireEvent.change(screen.getByLabelText(`${en.contextWindow} 3`), { target: { value: '131072' } })
+    fireEvent.click(within(screen.getByRole('group', { name: `${en.modelInputTypes} 3` })).getByRole('checkbox', { name: en.modelInputImage }))
     fireEvent.click(screen.getByText(en.apply))
 
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
@@ -659,7 +660,7 @@ describe('ModelsSection', () => {
         path: ['models'],
         value: [
           ...DEFAULT_DEEPSEEK_MODELS,
-          { id: 'private-preview', name: 'Private Preview', contextWindow: 131_072 },
+          { id: 'private-preview', name: 'Private Preview', contextWindow: 131_072, inputModalities: ['text', 'image'] },
         ],
       }],
       0,
@@ -747,8 +748,9 @@ describe('ModelsSection', () => {
     expect(validateDeepSeekModels([{ id: 'model', maxTokens: 8192 }])).toBeUndefined()
     expect(validateDeepSeekModels([{ id: 'model', input: 'text' }]))
       .toEqual({ index: 0, key: 'modelInputInvalid' })
-    expect(validateDeepSeekModels([{ id: 'model', input: ['image'] }]))
-      .toEqual({ index: 0, key: 'modelInputInvalid' })
+    // An image-only or empty list is a deliberate capability claim, not a defect.
+    expect(validateDeepSeekModels([{ id: 'model', input: ['image'] }])).toBeUndefined()
+    expect(validateDeepSeekModels([{ id: 'model', input: [] }])).toBeUndefined()
     expect(validateDeepSeekModels([{ id: 'model', input: ['text', 'audio'] }]))
       .toEqual({ index: 0, key: 'modelInputInvalid' })
     expect(validateDeepSeekModels([{ id: 'model', input: ['text'] }])).toBeUndefined()

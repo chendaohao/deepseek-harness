@@ -122,11 +122,11 @@ export function createSessionControlStream(
     ended: accepted => accepted
       ? new RemoteStreamCarrierError('session control stream ended without a terminal result')
       : new Error('session control stream ended before its opening snapshot'),
-    // A carrier loss replaces the current generation immediately: the
-    // control baseline re-establishes Host state (queues/jobs/projections)
-    // while the reconnecting event journal repairs through its own pages.
-    // Without the restart the supervisor's backoff would let the journal's
-    // HTTP page repair hold the message list frozen at the old tail.
+    // A carrier loss replaces the current generation immediately: the control
+    // baseline re-establishes Host state (queues/jobs/projections). A control
+    // supervisor otherwise waits for the next Host generation, which a phone
+    // foreground resync or a mux socket recycle never publishes, so the
+    // baseline would stay stale while the journal repairs through its pages.
     carrierFailed: (error) => {
       options.carrierFailed?.(error)
       stream.restart()
@@ -169,15 +169,9 @@ export class SessionEventStream extends RemoteJournalStream<
       compare: (left, right) => left - right,
       follows: (left, right) => right === left + 1,
       publish: (change) => { options.publish(toSessionJournalChange(change)) },
-      // A carrier loss replaces the current generation immediately so the
-      // journal reopens from a fresh snapshot. Without the restart the
-      // supervisor's retry could wait behind a gap-repair HTTP page that
-      // never settles, leaving the message list frozen at the old tail while
-      // the control stream (no page dependency) keeps updating the UI.
-      carrierFailed: (error) => {
-        options.carrierFailed?.(error)
-        this.restart()
-      },
+      ...(options.carrierFailed === undefined
+        ? {}
+        : { carrierFailed: options.carrierFailed }),
       failed: options.failed,
     })
   }

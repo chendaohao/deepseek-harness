@@ -31,8 +31,6 @@ export interface SessionListEntry {
   pinned?: boolean
   /** Wall-clock time of the latest pin event; order key inside the pinned group. */
   pinAt?: number
-  /** Finished running while not selected and not yet opened — the sidebar's green "done" reminder (clears on select or the next run). */
-  completed: boolean
   /** Lineage indent depth: root = 0; the UI just multiplies by the indent width. */
   depth: number
 }
@@ -42,12 +40,10 @@ export interface SessionListEntry {
  * follows the established input order; this projection never re-sorts a
  * hydrated list from mutable timestamps.
  * @param summaries - the host's session.list items.
- * @param completed - sessions with a pending completion reminder (manager-owned live fact; absent = false).
  * @returns display rows in render order.
  */
 export function flattenLineage(
   summaries: readonly TitledSessionSummary[],
-  completed?: ReadonlySet<SessionId>,
 ): SessionListEntry[] {
   const byId = new Map<SessionId, TitledSessionSummary>()
   for (const s of summaries) byId.set(s.sessionId, s)
@@ -74,7 +70,6 @@ export function flattenLineage(
     visited.add(s.sessionId)
     out.push({
       ...s,
-      completed: completed?.has(s.sessionId) ?? false,
       depth,
     })
     const kids = children.get(s.sessionId)

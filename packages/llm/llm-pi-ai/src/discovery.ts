@@ -313,6 +313,7 @@ export async function discoverModels(
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
         ...model.input.length > 0 ? { input: [...model.input] } : {},
+        inputModalities: [...model.input],
       }))
     }
   }

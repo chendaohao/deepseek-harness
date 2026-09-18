@@ -311,6 +311,8 @@ export interface LlmDiscoveredModel {
   maxTokens?: number
   /** Input modalities the endpoint declares, when it names any this harness knows. */
   input?: readonly ('text' | 'image')[]
+  /** Accepted input types when disclosed by the catalog or endpoint; absent means unknown. */
+  inputModalities?: readonly ModelModality[]
 }
 
 /** One adapter-discovered model; catalog membership is advisory, not request validation. */

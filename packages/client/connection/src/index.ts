@@ -1,5 +1,6 @@
 /** Host HTTP bridge for browser-client RPC. */
 import type { Context } from '@deepseek-ai/cordis'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-credentials'
@@ -49,6 +50,20 @@ export { currentRequestFacts, factsFrom, runWithRequestFacts, type RequestFacts 
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Admit or wrap an authenticated shared API request, including body transfer.
+     * Existing requests continue when a listener refuses subsequent requests.
+     * @param request - Authenticated incoming HTTP request.
+     * @param response - Response owned until the delegated bridge settles.
+     * @param next - Delegate to the next listener or the shared API bridge.
+     * @mode waterfall
+     */
+    'connection/request'(request: IncomingMessage, response: ServerResponse, next: () => Promise<void>): Promise<void>
+  }
+}
 
 /** Headroom for RPC JSON fields around aggregate base64 image payloads. */
 const REQUEST_ENVELOPE_HEADROOM_BYTES = 1024 * 1024
@@ -136,7 +151,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
         }
         // Request facts ride AsyncLocalStorage so a deep Remote owner (e.g. the
         // settings write fence) can observe them without a threaded parameter.
-        await runWithRequestFacts(factsFrom(req), () => bridge(req, res, fetchHandler, maxRequestBodyBytes))
+        await runWithRequestFacts(factsFrom(req), () => webCtx.waterfall('connection/request', req, res, () => bridge(req, res, fetchHandler, maxRequestBodyBytes)))
       },
     }
     webCtx.effect(() => webCtx.webServer.register(route), 'client-connection: /api route')

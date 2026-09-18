@@ -643,11 +643,11 @@ describe('Session Client stream adapters', () => {
   it('reopens the control stream with a fresh baseline after carrier failure', async () => {
     const baselineA: SessionControlFrame = {
       type: 'baseline',
-      value: { queues: {}, jobs: {}, projections: {} },
+      value: { jobs: {}, projections: {} },
     }
     const baselineB: SessionControlFrame = {
       type: 'baseline',
-      value: { queues: { ['session-1' as SessionId]: [] }, jobs: {}, projections: {} },
+      value: { jobs: { ['session-1' as SessionId]: [] }, projections: {} },
     }
     // The first generation ends after its baseline, which the adapter
     // classifies as a retryable carrier end and answers with restart(); the
@@ -747,10 +747,10 @@ describe('Session Client stream adapters', () => {
   it('maps the Host-wide control baseline and deltas into one snapshot stream', async () => {
     const baseline: SessionControlFrame = {
       type: 'baseline',
-      value: { queues: {}, jobs: {}, projections: {} },
+      value: { jobs: {}, projections: {} },
     }
     const update: SessionControlFrame = {
-      type: 'queue', sessionId: 'session-1' as never, items: [],
+      type: 'jobs', sessionId: 'session-1' as never, jobs: [],
     }
     const remote = new ScriptedSessionRemote([], [], [baseline, update])
     const accept = vi.fn<(frame: SessionControlFrame) => void>()
@@ -782,7 +782,7 @@ describe('Session Client stream adapters', () => {
 
     const baseline: SessionControlFrame = {
       type: 'baseline',
-      value: { queues: {}, jobs: {}, projections: {} },
+      value: { jobs: {}, projections: {} },
     }
     const carrierFailed = vi.fn()
     const failed = vi.fn()

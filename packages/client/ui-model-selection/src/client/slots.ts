@@ -4,6 +4,7 @@
  * entry; this package only contributes the single occupant, so no SlotMap
  * merge lives here.
  */
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelDirectoryState } from './directory.ts'
@@ -23,7 +24,7 @@ export interface ModelSelectInjected {
    *   exercised (an effort-pane pick, including an explicit provider default);
    *   a plain model switch leaves it unset so the host restores any remembered
    *   effort for the picked route.
-   * @returns whether the host accepted the selection.
+   * @returns the Host outcome, or undefined when this Session cannot select a model.
    */
-  select: (selection: ModelSelection, explicitEffort?: boolean) => Promise<boolean>
+  select: (selection: ModelSelection, explicitEffort?: boolean) => Promise<RemoteResult<void> | undefined>
 }

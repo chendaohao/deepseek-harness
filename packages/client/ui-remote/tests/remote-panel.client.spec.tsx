@@ -18,7 +18,8 @@ const t: RemoteFooterActionProps['t'] = key => (en as Record<string, string>)[ke
 const unusedHook = (() => { throw new Error('unused by remote panel components') }) as never
 const kit = {
   useSessions: unusedHook,
-  useSessionPendingInteraction: unusedHook,
+  useSessionStatus: unusedHook,
+  useSessionRetainInfo: unusedHook,
   useWorkspaces: unusedHook,
   useResource: unusedHook,
   usePanelInfo: unusedHook,
