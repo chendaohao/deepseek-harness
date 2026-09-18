@@ -60,22 +60,6 @@
   cursor: default;
 }
 
-/* Narrow viewports: the ring sits beside the send button near the row's
-   end, so a right-anchored panel can overflow the viewport's edges. Pin
-   the panel to the viewport center (fixed, so the 50% resolves against
-   the viewport, not the 28px ring root), guaranteed inside the viewport
-   at every phone width, with vertical placement just above the composer
-   card; the model-select menu instead clamps its JS-computed left. */
-@media (max-width: 640px) {
-  .panel {
-    position: fixed;
-    right: auto;
-    bottom: 120px;
-    left: 50%;
-    transform: translateX(-50%);
-  }
-}
-
 .header {
   display: flex;
   align-items: center;

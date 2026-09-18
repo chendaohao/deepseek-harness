@@ -18,7 +18,7 @@ Status: implemented
 
 2. **不要用操作行收缩裁剪弹出层。** 第一个实现给 `.headerActions { overflow: hidden }`（窄断点下）来容纳收缩的徽标/任务触发器；这也裁剪了绝对定位的任务菜单（绘制在头部行下方），导致 10 行内容在 DOM 中存在但从未绘制。移除 overflow；操作及其子元素上的 `min-width: 0` 已足以让行收缩而不裁剪弹出层。
 
-3. **窄视口下让上下文占用面板以视口为中心居中。** `ContextMeter` 面板是相对其 28px 圆环根 `position: absolute; right: 0`，圆环位于行末发送按钮旁——264px 面板在那里右对齐会溢出视口左缘。在 640px 断点下面板变为 `position: fixed; left: 50%; transform: translateX(-50%); bottom: 120px`：fixed 定位让 50% 相对视口解析（而不是 28px 根，那里百分比居中无意义），在任何手机宽度下都让面板在输入框上方正中央。
+3. **窄视口下让上下文占用面板留在视口内。** `ContextMeter` 面板经 portal 挂到 `document.body`，由 `useAnchoredPosition` 相对其 28px 圆环根定位（side `top`、gap 8、margin 12）：钩子写入内联 `left`/`top`，并在 resize、滚动、面板尺寸变化时把两者钳制进视口。这条钳制就是全部机制，264px 面板在任何手机宽度下都留在视口内、位于输入框上方。
 
 4. **任务菜单也钉在视口中心，而不是触发器。** 触发器居中的菜单仍相对视口偏（触发器位于行中）：`@media (max-width: 640px)` 下 `.menu { position: fixed; top: 120px; left: 50%; transform: translateX(-50%) }`，与上下文面板相同的姿态。
 
@@ -30,10 +30,10 @@ Status: implemented
 
 - 402px vw：任务菜单 left 20-356，中心 188 == 触发器中心 188，完全在视口内；菜单内容处 `elementFromPoint` 命中菜单的 `li`（内容实际绘制且可点击）。
 - 340px vw：任务菜单 left 15-323，中心 == 触发器中心，完全在视口内，内容可点击。
-- 392px vw：上下文面板 left 64-328，以视口为中心（中心差 <= 2px），完全在视口内，内容可点击；340px vw：left 38-302，视口居中，在视口内。
-- 1270px vw：上下文面板保持 `position: absolute; right: 0` 对齐触发器；任务菜单左对齐——桌面端不变。
+- 390px vw：上下文面板 x 114-378、y 724-866（264x142），完全在 390x900 视口内，锚定边保留 12px，且未施加 `transform`；480px 与 640px vw 走同一路径，得到同样的 264x142。
+- 1280px vw：上下文面板 x 839-1103、y 724-866，未触及视口边缘；任务菜单左对齐——桌面端不变。
 - 任务运行期间每 2 秒采样一次输入框可见性，持续 30 秒，覆盖滚动位置（顶部/中间/底部）和会话切换：座始终可见（`visibility: visible`，卡片 top 779）——这些探测未复现消失场景。
-- `packages/client/ui-conversation/tests` + `packages/client/ui-jobs/tests`：357/357 通过。
+- `packages/client/ui-conversation/tests` + `packages/client/ui-jobs/tests`：357/357 通过；`apps/web/tests/context-meter.e2e.ts`（现在由它拥有面板在 390/800/1280px 的视口摆放）：2/2 通过。
 
 ## 备选方案
 
@@ -41,11 +41,11 @@ Status: implemented
 
 **窄视口下用 `right: 8px; left: auto` 钳制菜单。** 拒绝——右对齐把菜单右缘钉在视口上，但与位于行中间的触发器视觉脱节；以触发器为中心（模型菜单的惯例）保持锚定关系。
 
-**在 28px 圆环根上用百分比数学居中上下文面板（`left: max(12px, min(calc(50% - 132px), calc(100vw - 276px)))`）。** 拒绝——百分比相对 28px 根解析，居中项坍缩为常量钳制，圆环靠近右缘时面板仍溢出；只有 `position: fixed` 能让 50% 相对视口解析。
+**窄视口下用 CSS 居中上下文面板（窄断点下 `left: 50%; transform: translateX(-50%); bottom: 120px`）。** 已移除——portal 面板本身已带内联 `left`/`top`，断点的 `left: 50%` 在层叠中落败，而 `transform` 仍然生效，把面板从锚点左移自身宽度的一半；`bottom` 与内联 `top` 同时非 auto 又过度约束了解算高度，264px 面板塌成 24px 的 padding，内容溢出压住输入框。带该块时 390px vw 实测：x = −18、高度 24px。
 
 ## 结果
 
-任务菜单在触发器下方居中打开，其行在任何手机宽度下都实际绘制且可点击；上下文面板在输入框上方正中央打开，永不溢出。桌面端保持两个表面的原始锚定布局。输入框消失缺陷仍未解决；报告者在重建这些 UI 时复现，指向 client-HMR 热换路径（`ui-conversation` fiber 替换导致对话插槽卸载重挂；vendor 注释记录了 dev-only 竞态与 apply 失败留下 FAILED fiber 的可能）。Playwright 探测（重载、HMR 重建、会话切换）均未复现。候选机制已记录；修复在后续变更中落地。
+任务菜单在触发器下方居中打开，其行在任何手机宽度下都实际绘制且可点击；上下文面板在输入框上方打开，并在任何宽度下都留在视口内。桌面端保持两个表面的原始锚定布局。输入框消失缺陷仍未解决；报告者在重建这些 UI 时复现，指向 client-HMR 热换路径（`ui-conversation` fiber 替换导致对话插槽卸载重挂；vendor 注释记录了 dev-only 竞态与 apply 失败留下 FAILED fiber 的可能）。Playwright 探测（重载、HMR 重建、会话切换）均未复现。候选机制已记录；修复在后续变更中落地。
 
 ## 相关
 
