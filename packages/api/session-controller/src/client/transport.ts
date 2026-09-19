@@ -44,6 +44,8 @@ export type SessionRemote = ClientRemote['session']
 interface SessionJournalPage extends SessionPage {
   readonly projections?: SessionProjectionBaseline
   readonly assistantStream?: SessionAssistantStreamBaseline
+  /** The Host answered a continuation request: entries extend the held window. */
+  readonly continued?: true
 }
 
 /** One complete publication from the Session journal stream. */
@@ -184,9 +186,14 @@ export class SessionEventStream extends RemoteJournalStream<
     SessionHistoryRecord, number, SessionJournalPage, SessionAssistantStreamFrame
   >> {
     let assistantRevision: number | undefined
+    // A reconnecting generation reports the cursor this client already applied,
+    // so the Host answers with the gap instead of the whole window again. The
+    // first generation has nothing to continue from and must not claim one.
+    const afterSeq = this.appliedCursor
     for await (const frame of this.remote.session.follow({
       address: this.address,
       assistantStream: true,
+      ...(afterSeq === undefined ? {} : { afterSeq }),
       ...(request.maxMessages === undefined ? {} : { maxMessages: request.maxMessages }),
     }, signal)) {
       if (frame.type === 'snapshot') {
@@ -207,6 +214,7 @@ export class SessionEventStream extends RemoteJournalStream<
             hasMore: frame.hasMore,
             projections: frame.projections,
             assistantStream: frame.assistantStream,
+            ...(frame.continued === true ? { continued: true as const } : {}),
           },
         }
         continue

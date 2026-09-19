@@ -94,6 +94,15 @@ export abstract class RemoteJournalStream<
   private initialRequest!: PageRequest
   private resumeCursor: Cursor | undefined
   private hasResumeCursor = false
+
+  /**
+   * Cursor this stream has applied, or `undefined` before the first opening.
+   * A subclass reads it to report a continuation cursor to its Host, so a
+   * replacement generation asks for the gap instead of the whole window.
+   */
+  protected get appliedCursor(): Cursor | undefined {
+    return this.hasResumeCursor ? this.resumeCursor : undefined
+  }
   private generation = 0
   private firstCursor: Cursor | undefined
   private lastCursor: Cursor | undefined

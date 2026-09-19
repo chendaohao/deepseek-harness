@@ -476,6 +476,17 @@ export interface SessionPageRequest {
 /** One live event request for a durable Session address. */
 export interface SessionFollowRequest {
   readonly address: SessionAddress
+  /**
+   * Inclusive durable seq the caller already holds. Supplying it requests a
+   * continuation: the opening snapshot carries only the events after it, so a
+   * reconnect after a suspended phone leg transfers the gap instead of the
+   * whole window again. Omit it for an ordinary opening.
+   *
+   * A cursor the Host cannot continue from (absent from the log, or at or past
+   * its tail) falls back to a complete snapshot from the current tail, so a
+   * caller that asks for continuation always receives a coherent window.
+   */
+  readonly afterSeq?: number
   readonly maxMessages?: number
   /** Include process-local assistant presentation frames for the Web client. */
   readonly assistantStream?: true
@@ -549,6 +560,13 @@ export type SessionFollowFrame =
     readonly hasMore: boolean
     readonly projections: SessionProjectionBaseline
     readonly assistantStream?: SessionAssistantStreamBaseline
+    /**
+     * The snapshot continues the caller's own window instead of replacing it:
+     * `records` holds only the events after the requested `afterSeq`, and the
+     * Client appends them to the entries it already holds. Absent on an
+     * ordinary opening, where the records are the complete window.
+     */
+    readonly continued?: true
   }
   | SessionEventEntry
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }

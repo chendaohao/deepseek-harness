@@ -114,9 +114,10 @@ export class SessionHistoryController {
 
   /**
    * Follow events appended after an initial cursor on one durable address.
-   * @param request - durable address and last committed sequence already held by the caller.
+   * @param request - durable address, optionally the last committed sequence the caller already holds.
    * @param signal - stream cancellation owned by the Remote carrier.
-   * @returns a complete opening snapshot followed by gap-free durable events and opted-in assistant frames.
+   * @returns an opening snapshot — complete, or carrying only the events after
+   *   the requested cursor — followed by gap-free durable events and opted-in assistant frames.
    */
   async *follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame> {
     validateFollowRequest(request)
@@ -190,7 +191,17 @@ export class SessionHistoryController {
       signal.throwIfAborted()
       const cursor = source.cursor
       snapshotCursor = cursor
-      const page = paginate(events, undefined, request.maxMessages ?? DEFAULT_MAX_MESSAGES)
+      // A cursor at the tail is the common phone-resume case — nothing was
+      // appended while the page was suspended — and it continues with an empty
+      // record list rather than re-sending the window the caller already holds.
+      // A cursor *past* the tail cannot be continued (the caller holds state
+      // this log does not have), so it falls back to an ordinary opening.
+      const continued = request.afterSeq !== undefined
+        && request.afterSeq >= -1
+        && request.afterSeq <= cursor
+      const page = continued
+        ? { events: events.slice(SessionLogOffset(request.afterSeq + 1), events.length), hasMore: true }
+        : paginate(events, undefined, request.maxMessages ?? DEFAULT_MAX_MESSAGES)
       const assistantStream = request.assistantStream === true
         ? this.assistantStreams.get(target)?.snapshot() ?? { revision: 0 }
         : undefined
@@ -209,6 +220,7 @@ export class SessionHistoryController {
           ? { asOfSeq: cursor, values: {} }
           : projectionBlock(source.projections),
         ...assistantStream === undefined ? {} : { assistantStream },
+        ...continued ? { continued: true as const } : {},
       }
       if (address.kind === 'session' && source.source === 'prepared') {
         const promotion = source.retain()
@@ -336,6 +348,13 @@ function validateFollowRequest(request: SessionFollowRequest): void {
   if (request.maxMessages !== undefined
     && (!Number.isSafeInteger(request.maxMessages) || request.maxMessages <= 0)) {
     throw new RemoteError('gateway/bad-request', 'maxMessages must be a positive safe integer', {})
+  }
+  // A malformed cursor is a caller defect, not a curve to fall back on: the
+  // continuation branch itself answers an in-range cursor that is simply too
+  // old with a complete snapshot.
+  if (request.afterSeq !== undefined
+    && (!Number.isSafeInteger(request.afterSeq) || request.afterSeq < -1)) {
+    throw new RemoteError('gateway/bad-request', 'afterSeq must be an integer >= -1', {})
   }
 }
 

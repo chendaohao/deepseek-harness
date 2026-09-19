@@ -921,6 +921,104 @@ describe('Session history raw journal', () => {
     }
   })
 
+  it('opens a continuation carrying only the events after the reported cursor', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    session.append('turn/start', { turn: 1 })
+    appendUserText(session, 'prompt')
+    const reply = appendAssistantText(session, 'reply', 1)
+    const held = reply.seq
+    const later = session.append('turn/start', { turn: 2 })
+
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      afterSeq: held,
+    }, abort.signal)[Symbol.asyncIterator]()
+    const opening = await iterator.next()
+    const snapshot = opening.value as Extract<SessionFollowFrame, { type: 'snapshot' }>
+    try {
+      expect(snapshot.continued).toBe(true)
+      expect(snapshot.cursor).toBe(later.seq)
+      // Only the gap crosses the wire: the client already holds everything up to
+      // and including the cursor it reported.
+      expect(snapshot.records.map(record => record.event.seq)).toEqual([later.seq])
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('answers an unusable continuation cursor with a complete window instead of failing', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    session.append('turn/start', { turn: 1 })
+    appendUserText(session, 'prompt')
+    appendAssistantText(session, 'reply', 1)
+
+    const abort = new AbortController()
+    // A cursor past the tail means the caller holds state this log does not
+    // have; it must degrade to the ordinary opening rather than leaving the
+    // caller without a window.
+    for (const afterSeq of [session.seq + 5, session.seq + 1000]) {
+      const iterator = history.follow({
+        address: { kind: 'session', sessionId: session.id },
+        afterSeq,
+      }, abort.signal)[Symbol.asyncIterator]()
+      const opening = await iterator.next()
+      const snapshot = opening.value as Extract<SessionFollowFrame, { type: 'snapshot' }>
+      expect(snapshot.continued).toBeUndefined()
+      expect(snapshot.records.length).toBeGreaterThan(1)
+      await iterator.return?.()
+    }
+    abort.abort()
+    await ctx.fiber.dispose()
+  })
+
+  it('continues a cursor sitting exactly at the tail with an empty gap', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    session.append('turn/start', { turn: 1 })
+    appendUserText(session, 'prompt')
+    // Nothing was appended while the page was suspended: this is the common
+    // phone-resume case, and re-sending the held window would be waste.
+    const tail = session.seq - 1
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      afterSeq: tail,
+    }, abort.signal)[Symbol.asyncIterator]()
+    const opening = await iterator.next()
+    const snapshot = opening.value as Extract<SessionFollowFrame, { type: 'snapshot' }>
+    try {
+      expect(snapshot.continued).toBe(true)
+      expect(snapshot.cursor).toBe(tail)
+      expect(snapshot.records).toEqual([])
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('rejects a malformed continuation cursor', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    const abort = new AbortController()
+    // -1 is the empty-log cursor and stays legal; anything below it is a caller
+    // defect rather than a curve to degrade over.
+    for (const afterSeq of [-2, 1.5, Number.NaN]) {
+      const iterator = history.follow({
+        address: { kind: 'session', sessionId: session.id },
+        afterSeq,
+      }, abort.signal)[Symbol.asyncIterator]()
+      await expect(iterator.next()).rejects.toThrow('afterSeq must be an integer >= -1')
+    }
+    abort.abort()
+    await ctx.fiber.dispose()
+  })
+
   it('fails the follow stream when the live buffer overflows', async () => {
     const { ctx } = await harness()
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })

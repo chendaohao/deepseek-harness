@@ -640,6 +640,16 @@ export class Session implements SessionFace {
   private acceptEventChange(change: SessionJournalChange): void {
     switch (change.type) {
       case 'replace':
+        // A continuation carries only the events after the cursor this client
+        // already applied. Installing it as a replacement window would keep the
+        // gap and drop everything before it, so the new entries extend the held
+        // window instead; the entries are validated contiguous by the journal.
+        if (change.page.continued === true) {
+          // A continuation carries only durable records: the Host streams
+          // exactly the events after the reported cursor.
+          this.continueWindow(change.entries as readonly SessionLiveEventEntry[], change.page)
+          return
+        }
         this.installWindow(
           change.entries,
           change.hasMore,
@@ -656,6 +666,29 @@ export class Session implements SessionFace {
       case 'assistant-stream':
         this.publishAssistantEntry(this.assistantStream.acceptFrame(change.frame))
     }
+  }
+
+  /**
+   * Extend the held window with a continuation's entries.
+   *
+   * The held entries stay authoritative for everything the client already
+   * showed, so a reconnect never re-installs a window the user is reading; only
+   * the events past the reported cursor are appended. Projection and Assistant
+   * metadata still arrive on every opening, so they are applied here exactly as
+   * a replacement opening applies them.
+   * @param entries - events after the cursor this client reported, in cursor order.
+   * @param page - opening metadata carried alongside the continued records.
+   */
+  private continueWindow(
+    entries: readonly SessionLiveEventEntry[],
+    page: { readonly projections?: SessionProjectionBaseline },
+  ): void {
+    if (page.projections !== undefined) this.projections.seed(projectionsBaseline(page.projections))
+    for (const entry of entries) {
+      this.publishAssistantEntry(this.assistantStream.acceptDurable(entry))
+      if (entry.event.type === 'turn/start') this.firstPromptPendingTurn = false
+    }
+    this.notifier.markDirty()
   }
 
   /** Replace the complete contiguous window and apply page-owned projection metadata. */

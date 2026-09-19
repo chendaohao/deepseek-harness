@@ -588,13 +588,51 @@ describe('Session Client stream adapters', () => {
     await stream.open({ maxMessages: 50 })
     await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
 
+    // The replacement generation reports the cursor this client already
+    // applied (entry(2) -> seq 2) so the Host can answer with the gap; the first
+    // generation has nothing to continue from and claims no cursor.
     expect(remote.followRequests).toEqual([
       { address: ADDRESS, assistantStream: true, maxMessages: 50 },
-      { address: ADDRESS, assistantStream: true, maxMessages: 50 },
+      { address: ADDRESS, assistantStream: true, maxMessages: 50, afterSeq: 2 },
     ])
     expect(remote.pageRequests).toEqual([])
     expect(changes.map(change => change.type)).toEqual(['replace', 'append', 'replace'])
     expect(carrierFailed).toHaveBeenCalledWith(lost)
+    await stream.dispose()
+  })
+
+  it('publishes a continuation opening as a replace carrying the continued flag', async () => {
+    // The Host answers a reported cursor with only the gap. The adapter must
+    // surface that fact rather than presenting the gap as a complete window:
+    // the fold appends a continued opening instead of replacing what the user
+    // is reading.
+    const lost = new RemoteStreamCarrierError('socket recycled on foreground return')
+    const remote = new ScriptedSessionRemote(
+      [
+        { frames: [snapshot(2, [entry(0), entry(1), entry(2)])], terminal: lost },
+        { frames: [{ ...snapshot(4, [entry(3), entry(4)]) as object, continued: true } as SessionFollowFrame], hold: true },
+      ],
+      [],
+    )
+    const changes: SessionJournalChange[] = []
+    const stream = new SessionEventStream(sessionClient(remote), ADDRESS, {
+      publish: (change) => { changes.push(change) },
+      failed: vi.fn(),
+    })
+
+    await stream.open({ maxMessages: 50 })
+    await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
+    expect(remote.followRequests[1]).toMatchObject({ afterSeq: 2 })
+    await vi.waitFor(() => {
+      expect(changes.filter(change => change.type === 'replace')).toHaveLength(2)
+    })
+    const replacements = changes.filter(change => change.type === 'replace')
+    const [replacement, continuation] = replacements
+    // Only the continuation is marked, and only it carries the gap.
+    expect(replacement?.type === 'replace' ? replacement.page.continued : 'missing').toBeUndefined()
+    expect(continuation?.type === 'replace' ? continuation.page.continued : 'missing').toBe(true)
+    expect(continuation?.type === 'replace' ? continuation.entries.map(entry => entry.event.seq) : [])
+      .toEqual([3, 4])
     await stream.dispose()
   })
 
@@ -698,7 +736,7 @@ describe('Session Client stream adapters', () => {
     await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
     expect(remote.followRequests).toEqual([
       { address: ADDRESS, assistantStream: true },
-      { address: ADDRESS, assistantStream: true },
+      { address: ADDRESS, assistantStream: true, afterSeq: 0 },
     ])
     expect(remote.pageRequests).toEqual([])
     await stream.dispose()
