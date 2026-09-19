@@ -194,6 +194,12 @@ Requires: `typert`
 export interface Config {
   /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 2000 */
   readonly websocketHeartbeatIntervalMs?: number
+  /**
+   * Negotiate per-message deflate on the mux WebSocket. A history-bearing
+   * opening frame is large repetitive JSON, so compression pays for itself on
+   * every Session open and reconnect. @default true
+   */
+  readonly websocketCompression?: boolean
 }
 ```
 

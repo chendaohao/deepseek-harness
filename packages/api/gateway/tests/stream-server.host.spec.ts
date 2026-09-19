@@ -226,6 +226,35 @@ describe('Remote stream mux server carrier lifecycle', () => {
     await expect(entry.mux.close()).rejects.toThrow()
     await closeHttp(entry.http)
   })
+
+  it('negotiates per-message deflate so a repetitive frame shrinks on the wire', async () => {
+    // A history-bearing opening frame dominates Session reconnect traffic and
+    // is highly repetitive JSON, so the extension is what makes it affordable
+    // on a phone leg. Two clients read the SAME payload: one negotiates the
+    // extension, one refuses it. Comparing their wire bytes is the assertion a
+    // missing negotiation cannot pass.
+    const text = 'y'.repeat(64 * 1024)
+    const entry = await startMux(async () => (async function * () { yield { text } })())
+    const compressed = await connect(entry.url, true, true)
+    const plain = await connect(entry.url, true, false)
+    expect(compressed.extensions).toContain('permessage-deflate')
+    expect(plain.extensions).not.toContain('permessage-deflate')
+
+    // The decoded message is identical either way; only the socket counters
+    // reveal what actually crossed the wire.
+    const wireBytes = async (socket: WebSocket): Promise<number> => {
+      const counter = (socket as unknown as { _socket: { bytesRead: number } })._socket
+      const before = counter.bytesRead
+      socket.send(openFrame('measure'))
+      const [data] = await once(socket, 'message')
+      expect(String(data)).toContain(text)
+      return counter.bytesRead - before
+    }
+    const compressedBytes = await wireBytes(compressed)
+    const plainBytes = await wireBytes(plain)
+    expect(plainBytes).toBeGreaterThan(64 * 1024)
+    expect(compressedBytes).toBeLessThan(plainBytes / 4)
+  })
 })
 
 const mapFailure: RemoteStreamFailureMapper = error => ({
@@ -234,8 +263,12 @@ const mapFailure: RemoteStreamFailureMapper = error => ({
   details: {},
 })
 
-async function startMux(open: RemoteStreamOpener, heartbeatIntervalMs = 2_000): Promise<RunningMux> {
-  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs)
+async function startMux(
+  open: RemoteStreamOpener,
+  heartbeatIntervalMs = 2_000,
+  compress = true,
+): Promise<RunningMux> {
+  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs, compress)
   const http = createServer()
   http.on('upgrade', (request, socket, head) => { mux.handleUpgrade(request, socket, head) })
   await new Promise<void>((resolve, reject) => {
@@ -252,8 +285,8 @@ async function startMux(open: RemoteStreamOpener, heartbeatIntervalMs = 2_000): 
   return entry
 }
 
-async function connect(url: string, autoPong = true): Promise<WebSocket> {
-  const socket = new WebSocket(url, { autoPong })
+async function connect(url: string, autoPong = true, perMessageDeflate = true): Promise<WebSocket> {
+  const socket = new WebSocket(url, { autoPong, perMessageDeflate })
   await once(socket, 'open')
   return socket
 }

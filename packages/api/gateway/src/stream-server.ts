@@ -21,9 +21,18 @@ export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
 
 const MAX_MISSED_HEARTBEATS = 2
 
+/**
+ * Per-message deflate window for the mux. Every logical stream shares one
+ * physical socket, and a history-bearing opening frame runs to hundreds of
+ * kilobytes of repetitive JSON (a 1,395 KB Session snapshot measured 255 KB
+ * gzipped), so the window is the largest zlib offers rather than the 32 KB
+ * default that would repeatedly restart the dictionary mid-frame.
+ */
+const MUX_DEFLATE_WINDOW_BITS = 15
+
 /** Own the no-server WebSocket acceptor and every active logical stream. */
 export class RemoteStreamMuxServer {
-  private readonly server = new WebSocketServer({ noServer: true })
+  private readonly server: WebSocketServer
   private readonly connections = new Set<Promise<void>>()
   private readonly missedHeartbeats = new WeakMap<WebSocket, number>()
   private heartbeatTimer: NodeJS.Timeout | undefined
@@ -32,12 +41,25 @@ export class RemoteStreamMuxServer {
    * @param open - Gateway stream dispatcher.
    * @param failure - Gateway error-to-wire mapper.
    * @param heartbeatIntervalMs - interval between WebSocket Ping control frames.
+   * @param compress - whether to negotiate per-message deflate on each upgrade.
    */
   constructor(
     private readonly open: RemoteStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
     private readonly heartbeatIntervalMs: number,
-  ) {}
+    compress = true,
+  ) {
+    this.server = new WebSocketServer({
+      noServer: true,
+      perMessageDeflate: compress
+        ? {
+          threshold: 0,
+          zlibDeflateOptions: { level: 4, windowBits: MUX_DEFLATE_WINDOW_BITS },
+          zlibInflateOptions: { windowBits: MUX_DEFLATE_WINDOW_BITS },
+        }
+        : false,
+    })
+  }
 
   /**
    * Upgrade one trusted request and begin serving its logical streams.
