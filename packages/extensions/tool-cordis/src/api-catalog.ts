@@ -1807,8 +1807,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: '@Remote({ mode: \'stream\' }) follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame>',
         description: 'Follow one Session log from its opening or resume cursor.',
-        parameters: [{ name: 'request', description: 'durable address and last committed sequence already held by the caller.' }, { name: 'signal', description: 'cancellation owned by the Remote stream carrier.' }],
-        returns: 'a complete opening snapshot followed by gap-free durable event frames and optional cursorless assistant-stream frames.',
+        parameters: [{ name: 'request', description: 'durable address, optionally the last committed sequence the caller already holds.' }, { name: 'signal', description: 'cancellation owned by the Remote stream carrier.' }],
+        returns: 'an opening snapshot — complete, or carrying only the events after the requested cursor — followed by gap-free durable event frames and optional cursorless assistant-stream frames.',
       },
       {
         signature: '@Remote({ mode: \'stream\' }) control(signal: AbortSignal): AsyncIterable<SessionControlFrame>',
@@ -5899,11 +5899,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionFollowFrame',
-    declaration: 'export type SessionFollowFrame = {\n    readonly type: \'snapshot\';\n    readonly header: SessionWireHeader;\n    readonly cursor: number;\n    readonly records: readonly SessionHistoryRecord[];\n    readonly hasMore: boolean;\n    readonly projections: SessionProjectionBaseline;\n    readonly assistantStream?: SessionAssistantStreamBaseline;\n} | SessionEventEntry | {\n    readonly type: \'assistant-stream\';\n    readonly frame: SessionAssistantStreamFrame;\n};',
+    declaration: 'export type SessionFollowFrame = {\n    readonly type: \'snapshot\';\n    readonly header: SessionWireHeader;\n    readonly cursor: number;\n    readonly records: readonly SessionHistoryRecord[];\n    readonly hasMore: boolean;\n    readonly projections: SessionProjectionBaseline;\n    readonly assistantStream?: SessionAssistantStreamBaseline;\n    readonly continued?: true;\n} | SessionEventEntry | {\n    readonly type: \'assistant-stream\';\n    readonly frame: SessionAssistantStreamFrame;\n};',
   },
   {
     name: 'SessionFollowRequest',
-    declaration: 'export interface SessionFollowRequest {\n    readonly address: SessionAddress;\n    readonly maxMessages?: number;\n    readonly assistantStream?: true;\n}',
+    declaration: 'export interface SessionFollowRequest {\n    readonly address: SessionAddress;\n    readonly afterSeq?: number;\n    readonly maxMessages?: number;\n    readonly assistantStream?: true;\n}',
   },
   {
     name: 'SessionForkRequest',

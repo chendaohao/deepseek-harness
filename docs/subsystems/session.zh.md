@@ -890,10 +890,11 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 
 /**
  * Follow one Session log from its opening or resume cursor.
- * @param request - durable address and last committed sequence already held by the caller.
+ * @param request - durable address, optionally the last committed sequence the caller already holds.
  * @param signal - cancellation owned by the Remote stream carrier.
- * @returns a complete opening snapshot followed by gap-free durable event
- *   frames and optional cursorless assistant-stream frames.
+ * @returns an opening snapshot — complete, or carrying only the events after
+ *   the requested cursor — followed by gap-free durable event frames and
+ *   optional cursorless assistant-stream frames.
  */
 @Remote({ mode: 'stream' }) follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame>
 
