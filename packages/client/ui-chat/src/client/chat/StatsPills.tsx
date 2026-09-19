@@ -151,10 +151,10 @@ function TimePill({ stats, t, dialog }: {
     <span className={css.label}>
       {counts}
       {tps !== null && (
-        <>
+        <span className={css.secondary}>
           <span className={css.sep} aria-hidden>·</span>
           {tps}
-        </>
+        </span>
       )}
     </span>
   )
@@ -258,10 +258,10 @@ function UsagePill({ usage, t, dialog }: {
         <span className={css.label}>
           {totalText}
           {cacheHitText !== null && (
-            <>
+            <span className={css.secondary}>
               <span className={css.sep} aria-hidden>·</span>
               {cacheHitText}
-            </>
+            </span>
           )}
         </span>
       </button>

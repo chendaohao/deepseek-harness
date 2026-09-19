@@ -64,3 +64,26 @@ button.pill[aria-expanded='true'] {
   color: var(--dsw-alias-separator-primary);
   margin: 0 6px;
 }
+
+/* A phone-width dock cannot seat two icon pills with their secondary figures
+   next to the context meter, so the row keeps the primary readings at the
+   configured text size and drops the decorative glyphs plus the per-step
+   speed and cache-hit share: the pill's aria-label and its tap-open dialog
+   still carry every figure. */
+@media (max-width: 480px) {
+  .root {
+    gap: 8px;
+  }
+
+  .pill {
+    padding: 1px 6px;
+  }
+
+  .pill svg {
+    display: none;
+  }
+
+  .secondary {
+    display: none;
+  }
+}

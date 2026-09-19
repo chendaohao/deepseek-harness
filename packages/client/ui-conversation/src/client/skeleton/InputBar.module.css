@@ -23,6 +23,13 @@
   display: none;
 }
 
+/* The dock is one row. A contribution whose own sheet widens the list-slot
+   wrapper to full width must still yield to the ContextMeter beside it,
+   instead of pushing the row past the composer. */
+.dock > [data-slot] {
+  min-width: 0;
+}
+
 .hero {
   /* No bottom pad in the centered hero, but the side clearance must survive:
      the hero wrapper is full-width on narrow viewports, so this padding is
