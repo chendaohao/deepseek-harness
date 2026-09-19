@@ -433,6 +433,24 @@ describe('deriveFlat', () => {
     expect(visibleSessionIds(partial, noArchive)).toEqual([sid('present')])
   })
 
+  it('keeps a held row whose id a thin list pull dropped, and re-settles when it returns', () => {
+    // A phone foreground resync re-pulls the whole list; the selected row is
+    // retained, so it stays in byId while this pull leaves it out of ids.
+    const retained = summary('retained', 5)
+    const other = summary('other', 2)
+    const full = withMain(list(retained, other), retained.id)
+    expect(visibleSessionIds(full, noArchive)).toEqual([retained.id, other.id])
+
+    const thin: SessionListState = { ...full, ids: [other.id] }
+    expect(visibleSessionIds(thin, noArchive)).toEqual([other.id, retained.id])
+
+    // The row's return restores the Host-list position, and a departed held row
+    // leaves on the pull that retires it (byId no longer carries it).
+    expect(visibleSessionIds(full, noArchive)).toEqual([retained.id, other.id])
+    const gone: SessionListState = { ...full, ids: [other.id], byId: { [other.id]: other } }
+    expect(visibleSessionIds(gone, noArchive)).toEqual([other.id])
+  })
+
   it('shows only the current blank session and excludes blanks from search', () => {
     const currentBlank = { ...summary('current-blank', 9), blank: true, retainedBy: { mainView: 1 } }
     const staleBlank = { ...summary('stale-blank', 8), blank: true }

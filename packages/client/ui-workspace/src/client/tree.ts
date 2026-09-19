@@ -465,9 +465,16 @@ export function deriveGroups(
 
 /**
  * Select flat-list members without deriving row presentation or ordering.
+ *
+ * Membership is Host-list order with the held-only rows appended, not the bare
+ * `ids` order: a retained Session keeps its row in `byId` while a list pull
+ * that omits it leaves `ids` behind (see `SessionListState`), and dropping
+ * that row would hide the Session the user is reading until the next pull
+ * returns it. The tail is sorted so the appended rows stay a deterministic
+ * function of the held summaries; both flat orders re-sort the result anyway.
  * @param list - sessions list snapshot.
  * @param archivedSessionIds - registry-global archive set.
- * @returns known visible Session ids in list order, including ordinary forks and only the current blank.
+ * @returns known visible Session ids, including ordinary forks and only the current blank.
  */
 export function visibleSessionIds(
   list: SessionListState,
@@ -475,10 +482,18 @@ export function visibleSessionIds(
 ): SessionId[] {
   const archived = new Set(archivedSessionIds)
   const current = mainSessionId(list)
-  return list.ids.filter((id) => {
-    const s = list.byId[id]
-    return s !== undefined && sessionVisible(s, current, archived)
-  })
+  const visible = (summary: SessionSummary | undefined): boolean =>
+    summary !== undefined && sessionVisible(summary, current, archived)
+  const listed = new Set<SessionId>(list.ids)
+  const held: SessionId[] = []
+  for (const id of Object.keys(list.byId) as SessionId[]) {
+    if (listed.has(id) || !visible(list.byId[id])) continue
+    held.push(id)
+  }
+  return [
+    ...list.ids.filter(id => visible(list.byId[id])),
+    ...orderByRecency(held, list.byId),
+  ]
 }
 
 /**
