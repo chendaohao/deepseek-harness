@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-shared-provider-order-across-model-surfaces.md
-2026-09-11-shared-provider-order-across-model-surfaces.md: 01fef223423ca7478b05a33d054362dec1aa11cc
-2026-09-11-shared-provider-order-across-model-surfaces.zh.md: 2adf7a1fad2b43e5b1d4c9d79ad6913d8c3d3020
+2026-09-11-shared-provider-order-across-model-surfaces.md: 23eeea7b9b50cd0f83b00151183e0d9195b1561e
+2026-09-11-shared-provider-order-across-model-surfaces.zh.md: 4f1c5e19c3cd48181dc9fde185aaffed624b2385
