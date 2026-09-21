@@ -45,6 +45,7 @@ kind: "package-reference"
 | `provider` | 必填 | `ctx.subagents` 上的提供方名称（如 `spawn`、`fork`、`acp`） |
 | `toolName` | `subagent` | 面向模型的工具名称；每个已加载实例必须不同 |
 | `modelSelectionSettings` | `false` | 为每个顶层 Session 读取宿主的精确路由授权偏好；常驻 preset 观察匹配 Session，直接 Agent setup 则显式传入其 Session；要求提供方支持 `agentOptions` |
+| `workerRouteSettings` | `false` | 每次调用都读取宿主 `subagent-worker-route` 设置，作为本实例的子级基线路由，因此设置改动无需重建工具定义即可作用于下一次委派；配置的 `agentOptions` 保留为其下方的兜底；要求提供方支持 `agentOptions` |
 | `enableRunInBackground` | `true` | 公开 `run_in_background`；禁用时也会拒绝强制后台调用 |
 | `backgroundMode` | `one-shot` | 后台策略：`one-shot` 默认前台调用；`continuable` 默认后台调用，并要求提供方具备 `prepareContinuable` 能力 |
 | `agentOptions` | — | 配置的子级 `provider`、`model`、适配器所有的 `reasoningEffort` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
@@ -67,6 +68,12 @@ kind: "package-reference"
 设置 `modelSelectionSettings: true`，即可在组合每个全新顶层 Session 时读取宿主的 `subagent-model-selection` 偏好。没有已记录策略的恢复 Session 会保持禁用，包括显式为空的恢复。启用后，非空的精确 provider/model 路由列表会记录进 Session、由子 Session 继承，后续设置编辑不会改变它。工具随后公开可选的 `provider`、`model` 与 `reasoning_effort` 字段，并注册共享的 `list_subagent_models` 工具。此模式要求后端声明 `agentOptions`；两个进程内后端和 DSH SDK 支持该能力，而 ACP、Codex 与 Claude Code 会拒绝它，而不是忽略它。
 
 一次调用需同时提供 `provider` 与 `model`；当配置值、父 agent 值或提供方持有的默认值能提供路由时，也可只提供推理等级。静态的 `provider.agentRouteDefaults` 在存在时构成提供方／模型基线；工具配置与模型字段会在路由相关强度合并和确切路由预检前覆盖它。没有这些默认值的提供方会使用父 agent 最新已记录请求中的兼容值，再使用父级首次请求前的创建选项，并保留配置的 `maxTokens`。更改路由但未显式提供推理等级时，会清除继承的路由自有等级，使所选模型解析自己的默认值。实时 LLM 适配器在创建子 agent 前校验有效路由。目录成员资格只提供建议，因此适配器接受时，模型可以使用未列出的 id。
+
+### 设置默认子级路由
+
+设置 `workerRouteSettings: true`，即可让宿主设置（而非组合文件）决定每个子 agent 的起始路由。工具随后在每次调用时读取 `subagent-worker-route` 区段——`provider`、`model` 与 `reasoningEffort`——因此一次编辑就能作用于下一次委派，无需重建工具定义，也无需重启进程。该设置中的路由优先于配置的 `agentOptions`，后者保留为从未写入该区段的部署的兜底；面向模型的选择仍然优先于两者。此模式要求后端声明 `agentOptions`。
+
+该区段由宿主面持有，因此读取它的 preset 行必须能够跨其挂载所在的作用域隔离解析该服务。未组合任何持有者的部署会让挂载失败，而不是在一条无人能改的路由上委派。
 
 -----
 
@@ -101,6 +108,7 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 工具注册、生命周期镜像、模式解析、结果结算 |
 | [`src/model-selection.ts`](src/model-selection.ts) | 请求／配置合并与实时 LLM 路由预检 |
 | [`src/model-selection-settings.ts`](src/model-selection-settings.ts) | 为新 Session 读取的宿主所有 opt-in 设置 |
+| [`src/worker-route-settings.ts`](src/worker-route-settings.ts) | 每次调用读取的宿主所有默认子级路由 |
 | [`src/model-selection-state.ts`](src/model-selection-state.ts) | 记录并继承已读取决定的 Session 事件 |
 | [`src/list-models.ts`](src/list-models.ts) | `list_subagent_models` 运行时发现工具 |
 

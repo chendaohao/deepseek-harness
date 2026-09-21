@@ -25,6 +25,8 @@
   - status: 已保存 minimax-cn。
   - list:
     - listitem:
+      - button "拖动排序":
+        - img
       - text: minimax-cn
       - img "API 密钥已配置"
       - button "编辑 minimax-cn": 编辑
@@ -35,3 +37,15 @@
   - button "添加自定义提供方":
     - img
     - text: 添加自定义提供方
+  - region "工人路由":
+    - heading "工人路由" [level=3]
+    - paragraph: 派出去的活由哪个模型来干。新建会话生效;已在跑的会话保持它开始时用的路由。
+    - text: 工人提供方
+    - combobox "工人提供方":
+      - option "workbuddy" [selected]
+      - option "DeepSeek"
+    - text: 工人模型
+    - combobox "工人模型" [disabled]:
+      - option "deepseek-v4.1-flash" [selected]
+    - text: 工人思考等级
+    - textbox "工人思考等级": max

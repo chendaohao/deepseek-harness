@@ -19,6 +19,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+import { SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
 import { SETTINGS_NAMESPACE, SHIPPED_PRESET_ROOT } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -303,6 +304,18 @@ describe('the shipped Web composition', () => {
       await enabled.dispose()
       await disabled.dispose()
     }
+  })
+
+  it('registers the delegation worker route as a writable host setting', async () => {
+    const descriptor = ctx.settings.describe().find(candidate => candidate.ns === SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)
+    expect(descriptor).toBeDefined()
+    // The composition base is the deployment fallback the user's stored route overrides.
+    expect(descriptor?.base).toEqual({ provider: 'workbuddy', model: 'deepseek-v4.1-flash', reasoningEffort: 'max' })
+
+    await ctx.settings.update(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, { model: 'deepseek-v4-pro' })
+    const stored = ctx.settings.describe().find(candidate => candidate.ns === SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)
+    expect(stored?.value).toMatchObject({ provider: 'workbuddy', model: 'deepseek-v4-pro', reasoningEffort: 'max' })
+    await ctx.settings.update(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, { model: 'deepseek-v4.1-flash' })
   })
 
   it('composes the exact RL prompt and persistent shell from `minimal`', async () => {

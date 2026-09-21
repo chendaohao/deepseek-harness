@@ -26,6 +26,7 @@ import type { ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
+import { WorkerRouteSection, type WorkerRouteSectionProps } from './WorkerRouteSection.tsx'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -43,6 +44,8 @@ export interface ModelsSectionInjected {
   schema: SettingsSchemaOperations
   /** Section copy. */
   t: (key: keyof typeof en) => string
+  /** The delegation worker-route block's bound settings handle and catalog. */
+  workerRoute: Omit<WorkerRouteSectionProps, 't'>
 }
 
 /** The child slots this section declares and dispatches (see ./slot-contract.ts). */
@@ -216,16 +219,21 @@ export function reorderedProviderIds(
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const { controller, useSnapshot, operations, schema, t, renderSlot } = props
+  const { controller, useSnapshot, operations, schema, t, workerRoute, renderSlot } = props
   if (
     controller === undefined || useSnapshot === undefined || operations === undefined
-    || schema === undefined || t === undefined
+    || schema === undefined || t === undefined || workerRoute === undefined
   ) return null
-  return <Loaded injected={{ controller, useSnapshot, operations, schema, t }} renderSlot={renderSlot} />
+  return (
+    <Loaded
+      injected={{ controller, useSnapshot, operations, schema, t, workerRoute }}
+      renderSlot={renderSlot}
+    />
+  )
 }
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
-  const { controller, operations, schema, t } = injected
+  const { controller, operations, schema, t, workerRoute } = injected
   const state = injected.useSnapshot(snapshot => snapshot)
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [adding, setAdding] = useState(false)
@@ -811,6 +819,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
               </div>
             )}
       </div>
+      <WorkerRouteSection {...workerRoute} t={t} />
       {renderSlot('settings.models.footer', {})}
       <Modal
         open={deleteTarget !== undefined}

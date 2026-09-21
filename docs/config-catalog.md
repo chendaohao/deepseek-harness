@@ -3433,6 +3433,13 @@ export interface Config {
    */
   modelSelectionSettings?: boolean
   /**
+   * Read the Host `subagent-worker-route` setting as this instance's baseline
+   * child route on every call, so a settings update reaches the next
+   * delegation without rebuilding the definition. Configured `agentOptions`
+   * stays as the fallback beneath it.
+   */
+  workerRouteSettings?: boolean
+  /**
    * Expose `run_in_background` (default true). Disabled instances omit the
    * parameter and reject forced background calls.
    */
@@ -3480,7 +3487,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](subsystems/core.md)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:48`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:49`](../packages/subagent/tool-subagent/src/index.ts)
 
 <a id="deepseek-aidsh-tool-terminal"></a>
 

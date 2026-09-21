@@ -21,6 +21,8 @@ import type { DeepSeekOnboardingInjected } from './DeepSeekOnboardingDialog.tsx'
 import { ModelsSettingsStore } from './store.ts'
 import { createModelsOperations } from './operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
+import { WorkerRouteCatalog, WORKER_ROUTE_SETTINGS_NAMESPACE } from './worker-route.ts'
+import type { WorkerRouteSettings } from './worker-route.ts'
 import { en, zh, type ModelsKey } from './locales.ts'
 
 export type { ModelsSectionInjected, ModelsSectionProps } from './ModelsSection.tsx'
@@ -57,7 +59,7 @@ export function refreshIfLoaded(controller: ModelsSettingsStore): void {
  * constrained; registration depends on each slot through `slots.inject()`.
  */
 export const inject = [
-  'slots', 'locale', 'remote', 'remote.credentials', 'remote.llm', 'remote.settings',
+  'slots', 'locale', 'remote', 'remote.credentials', 'remote.llm', 'remote.session', 'remote.settings',
   'settingsScope', 'settingsSchema',
 ]
 
@@ -78,12 +80,23 @@ export function apply(ctx: ClientContext): void {
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.
   const t = ctx.locale.bind(NS) as ModelsSectionInjected['t']
+  // The worker route is its own Host namespace: the page binds it here, where
+  // the Remote namespaces are declared, and the block only receives the handle.
+  const workerRouteCatalog = new WorkerRouteCatalog(ctx)
+  const workerRouteScope = ctx.settingsScope.bind<WorkerRouteSettings>({
+    namespace: WORKER_ROUTE_SETTINGS_NAMESPACE,
+  })
   const injected = (): ModelsSectionInjected => ({
     controller,
     hooks: { snapshot: controller.store },
     operations,
     schema,
     t,
+    workerRoute: {
+      scope: workerRouteScope,
+      catalog: workerRouteCatalog.store,
+      loadCatalog: () => { workerRouteCatalog.load() },
+    },
   })
   const deepSeekOnboardingInjected = (): DeepSeekOnboardingInjected => ({
     controller,
@@ -104,6 +117,7 @@ export function apply(ctx: ClientContext): void {
       ctx.remote.$on('credentials/reference-updated', refreshModels),
       ctx.remote.$on('llm/adapters-updated', refreshModels),
       ctx.on('connection/reset', refreshModels),
+      ctx.on('connection/reset', () => { workerRouteCatalog.reset() }),
     ]
     return () => {
       for (const dispose of disposers) dispose()

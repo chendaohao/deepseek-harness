@@ -13,7 +13,7 @@
       - checkbox "MiniMax-M2.7-highspeed" [checked]
       - text: MiniMax-M2.7-highspeed
     - listitem:
-      - checkbox "MiniMax-M3" [checked]
-      - text: MiniMax-M3
+      - checkbox "MiniMax-M3 图片" [checked]
+      - text: MiniMax-M3 图片
   - button "取消"
   - button "添加所选"

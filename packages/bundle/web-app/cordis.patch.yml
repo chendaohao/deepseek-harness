@@ -47,6 +47,17 @@
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
+    # Host-owned default route for delegation children. The Models settings page
+    # edits this namespace; a delegation tool that opts in with
+    # `workerRouteSettings: true` reads it per call. The base values are the
+    # deployment fallback the user's stored route overrides.
+    - id: subagent-worker-route-settings
+      name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
+      config:
+        provider: workbuddy
+        model: deepseek-v4.1-flash
+        reasoningEffort: max
+
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
       config:

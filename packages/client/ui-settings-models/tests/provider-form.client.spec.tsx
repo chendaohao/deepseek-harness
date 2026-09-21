@@ -8,6 +8,7 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ModelsSection, providerCopy } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
+import { stubWorkerRoute } from './worker-route-stub.client.ts'
 import { CustomProviderCard } from '../src/client/CustomProviderCard.tsx'
 import { formatCapacity, parseCapacity } from '../src/client/DeepSeekModelsEditor.tsx'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
@@ -209,6 +210,7 @@ async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
     operations: operationsWith(scripted.face),
     schema: settingsSchema,
     t,
+    workerRoute: stubWorkerRoute(),
     renderSlot: () => null,
   }
   render(<ModelsSection {...injected} />)
@@ -868,6 +870,7 @@ describe('provider rows', () => {
       operations={operationsWith(scripted.face)}
       schema={settingsSchema}
       t={t}
+      workerRoute={stubWorkerRoute()}
       renderSlot={() => null}
     />)
 
@@ -939,7 +942,10 @@ describe('hand-declared providers', () => {
     // control could only be set to a value some of them reject — which would
     // take the whole provider out of the picker. The composer's model picker
     // owns the choice, and a switch there records provider+model+effort together.
+    // The worker-route block edits a different Host namespace and is the page's
+    // only <section>, so its controls are not provider-owned fields.
     const fields = () => [...document.querySelectorAll('input,select')]
+      .filter(el => el.closest('section') === null)
       .map(el => el.getAttribute('aria-label')).filter(Boolean)
 
     mountCard()

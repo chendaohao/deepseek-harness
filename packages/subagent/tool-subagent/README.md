@@ -45,6 +45,7 @@ Load the subagent service, an in-process or remote backend, and this tool; then 
 | `provider` | required | Provider name on `ctx.subagents` (e.g. `spawn`, `fork`, `acp`) |
 | `toolName` | `subagent` | Model-facing tool name; distinct for every loaded instance |
 | `modelSelectionSettings` | `false` | Sample the Host's exact-route authorization preference for each top-level Session; a standing preset observes matching Sessions, while direct Agent setup passes its Session explicitly; requires provider `agentOptions` support |
+| `workerRouteSettings` | `false` | Read the Host `subagent-worker-route` setting as this instance's baseline child route on every call, so a settings update reaches the next delegation without rebuilding the definition; configured `agentOptions` stays as the fallback beneath it; requires provider `agentOptions` support |
 | `enableRunInBackground` | `true` | Expose `run_in_background`; disabling also rejects forced background calls |
 | `backgroundMode` | `one-shot` | Background policy: `one-shot` defaults calls to foreground; `continuable` defaults them to background and requires the provider's `prepareContinuable` capability |
 | `agentOptions` | — | Configured child `provider`, `model`, adapter-owned `reasoningEffort`, and positive `maxTokens` defaults; requires provider `agentOptions` support and overlays any provider-owned route defaults |
@@ -67,6 +68,12 @@ Under `continuable` policy, an omitted or `true` `run_in_background` starts a du
 Set `modelSelectionSettings: true` to sample the Host's `subagent-model-selection` preference when each fresh top-level Session is composed. A restored Session without a recorded policy remains disabled, including an explicitly empty restore. When enabled, the non-empty exact provider/model route list is recorded in the Session, inherited by child Sessions, and unchanged by later settings edits. The tool then exposes optional `provider`, `model`, and `reasoning_effort` fields and registers the shared `list_subagent_models` tool. This mode requires a backend that advertises `agentOptions`; both in-process backends and DSH SDK support it, while ACP, Codex, and Claude Code reject it rather than ignore it.
 
 A call supplies `provider` and `model` together, or supplies only an effort when configured, parent, or provider-owned defaults provide the route. Static `provider.agentRouteDefaults`, when present, form the provider/model baseline; tool configuration and model fields overlay it before route-aware effort merging and exact-route preflight. Providers without these defaults use compatible values from the parent's latest logged request, then the parent's creation options before its first request, while retaining the configured `maxTokens`. Changing the route without an explicit effort clears the inherited route-owned effort, so the selected model resolves its default. The live LLM adapter validates the effective route before child creation. Catalog membership remains advisory, so a model can use an unlisted id when its adapter accepts it.
+
+### Setting the default child route
+
+Set `workerRouteSettings: true` to let a Host setting, rather than the composition file, choose the route every child starts on. The tool then reads the `subagent-worker-route` section — `provider`, `model`, and `reasoningEffort` — on each call, so an edit reaches the next delegation without rebuilding the tool definition or restarting the process. A route in that setting outranks configured `agentOptions`, which stays as the fallback for a deployment that never writes the section; a model-facing selection still outranks both. This mode requires a backend that advertises `agentOptions`.
+
+The section is owned by the Host plane, so a preset row that reads it must be able to resolve the service across any scope isolation it mounts under. A deployment that composes no owner fails the mount rather than delegating on a route nothing can change.
 
 -----
 
@@ -101,6 +108,7 @@ The tool's description derives from `provider.inheritsParentContext`: a fresh ch
 | [`src/index.ts`](src/index.ts) | Tool registration, lifecycle mirroring, mode resolution, result settlement |
 | [`src/model-selection.ts`](src/model-selection.ts) | Request/config merge and live LLM route preflight |
 | [`src/model-selection-settings.ts`](src/model-selection-settings.ts) | Host-owned opt-in setting sampled for new Sessions |
+| [`src/worker-route-settings.ts`](src/worker-route-settings.ts) | Host-owned default child route read on every call |
 | [`src/model-selection-state.ts`](src/model-selection-state.ts) | Session event that records and inherits the sampled decision |
 | [`src/list-models.ts`](src/list-models.ts) | `list_subagent_models` runtime discovery tool |
 

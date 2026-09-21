@@ -35,6 +35,7 @@ import {
 import type { DelegationModelRequest, ModelSelectionPolicy } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
 import type {} from './model-selection-settings.ts'
+import type { SubagentWorkerRouteSettings } from './worker-route-settings.ts'
 import {
   recordSubagentModelSelection,
   subagentModelSelectionProjectionDefinition,
@@ -58,6 +59,13 @@ export interface Config {
    * Session and inherit that decision in its child Sessions.
    */
   modelSelectionSettings?: boolean
+  /**
+   * Read the Host `subagent-worker-route` setting as this instance's baseline
+   * child route on every call, so a settings update reaches the next
+   * delegation without rebuilding the definition. Configured `agentOptions`
+   * stays as the fallback beneath it.
+   */
+  workerRouteSettings?: boolean
   /**
    * Expose `run_in_background` (default true). Disabled instances omit the
    * parameter and reject forced background calls.
@@ -107,6 +115,7 @@ export const Config: z<Config> = z.object({
   provider: z.string().required(),
   toolName: z.string().default('subagent'),
   modelSelectionSettings: z.boolean().default(false),
+  workerRouteSettings: z.boolean().default(false),
   enableRunInBackground: z.boolean().default(true),
   backgroundMode: z.union(['one-shot', 'continuable'] as const).default('one-shot'),
   // Prevent Schemastery from materializing omitted agentOptions as `{}`.
@@ -358,7 +367,11 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
   const initialProvider = ctx.subagents.getProvider(config.provider)
   if (initialProvider !== undefined) assertSubagentProviderConfiguration(initialProvider)
 
-  const install = (runtimeCtx: Context, modelSelectionPolicy: ModelSelectionPolicy | undefined): void => {
+  const install = (
+    runtimeCtx: Context,
+    modelSelectionPolicy: ModelSelectionPolicy | undefined,
+    workerRoute: (() => SubagentWorkerRouteSettings) | undefined,
+  ): void => {
     const modelSelectionEnabled = modelSelectionPolicy !== undefined
     if (modelSelectionPolicy !== undefined) registerListSubagentModels(runtimeCtx, modelSelectionPolicy)
     // Load order and HMR replacement can change provider availability while
@@ -478,10 +491,27 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
 
           const modelRequest = args as DelegationModelRequest
           const parentOptions = parentAgentOptionsForDelegation(parent)
+          // Read per call, never captured at apply: a settings write reaches the
+          // next delegation in this process without rebuilding the definition.
+          const settingsRoute = workerRoute?.()
+          const settingsAgentOptions = settingsRoute === undefined
+            ? undefined
+            : {
+              provider: settingsRoute.provider,
+              model: settingsRoute.model,
+              reasoningEffort: settingsRoute.reasoningEffort,
+            }
           const requiresRoutePreflight = hasDelegationModelRequest(modelRequest)
             || hasConfiguredLlmSelection(config.agentOptions)
-          const configuredChildAgentOptions = requiresRoutePreflight && providerRouteDefaults !== undefined
-            ? { ...providerRouteDefaults, ...config.agentOptions }
+            || settingsAgentOptions !== undefined
+          const configuredChildAgentOptions = requiresRoutePreflight
+            ? {
+              ...providerRouteDefaults,
+              ...config.agentOptions,
+              // The user's stored route outranks the composition defaults; the
+              // model's per-call fields below still outrank it.
+              ...settingsAgentOptions,
+            }
             : config.agentOptions
           const requestedChildAgentOptions = requestedAgentOptions(
             parentOptions,
@@ -606,8 +636,23 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
     }
   }
 
+  const workerRouteConfig = config.workerRouteSettings === true
+    ? ctx.get('subagentWorkerRoute')
+    : undefined
+  if (config.workerRouteSettings === true && workerRouteConfig === undefined) {
+    throw new Error(
+      'tool-subagent: `workerRouteSettings` requires '
+      + '@deepseek-ai/dsh-tool-subagent/worker-route-settings in the Host scope',
+    )
+  }
+  // Bound rather than captured: the service instance reads through its own
+  // settings source, so each call observes the current stored route.
+  const workerRoute = workerRouteConfig === undefined
+    ? undefined
+    : (): SubagentWorkerRouteSettings => workerRouteConfig.current()
+
   if (config.modelSelectionSettings !== true) {
-    install(ctx, undefined)
+    install(ctx, undefined, workerRoute)
     return
   }
 
@@ -648,7 +693,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
   }
 
   if (session !== undefined) {
-    install(ctx, selectForSession(session))
+    install(ctx, selectForSession(session), workerRoute)
     return
   }
 
@@ -674,7 +719,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
     try {
       const policy = selectForSession(candidate.session)
       fiber = candidate.ctx.inject(['tools', 'subagents', 'systemPrompt'], (runtimeCtx) => {
-        install(runtimeCtx, policy)
+        install(runtimeCtx, policy, workerRoute)
       })
     } finally {
       installing.delete(candidate)
