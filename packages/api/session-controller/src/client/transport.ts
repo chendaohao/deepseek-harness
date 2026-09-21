@@ -170,6 +170,7 @@ export class SessionEventStream extends RemoteJournalStream<
       last: historyRecordLastSeq,
       compare: (left, right) => left - right,
       follows: (left, right) => right === left + 1,
+      continues: page => page.continued === true,
       publish: (change) => { options.publish(toSessionJournalChange(change)) },
       ...(options.carrierFailed === undefined
         ? {}

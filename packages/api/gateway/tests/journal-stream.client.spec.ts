@@ -19,6 +19,8 @@ interface Page {
   readonly entries: readonly Entry[]
   readonly hasMore: boolean
   readonly marker: string
+  /** The page continues the caller's own window rather than replacing it. */
+  readonly continued?: true
 }
 
 interface PageRequest {
@@ -91,6 +93,7 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
       last: entry => entry.lastSeq ?? entry.seq,
       compare: (left, right) => left - right,
       follows: (left, right) => right === left + 1,
+      continues: value => value.continued === true,
       publish: (change) => { changes.push(change) },
       failed,
     })
@@ -222,6 +225,56 @@ describe('RemoteJournalStream', () => {
       'replace', 'notification', 'prepend', 'append',
     ])
     await fixture.journal.dispose()
+  })
+
+  it('accepts an empty continuation ending before its cursor and keeps the held first entry', async () => {
+    // Nothing was appended while the carrier was down: the continuation carries
+    // no entries at all, so its tail is the empty cursor rather than the cursor
+    // it acknowledges. The window's first entry is the caller's own and must
+    // survive, because the continuation does not carry it.
+    const lost = new RemoteStreamCarrierError('socket recycled')
+    const fixture = journalFixture(
+      [
+        { frames: [opened(1, page('initial', [0, 1]))], terminal: lost },
+        { frames: [opened(1, { ...page('gap', []), continued: true })], hold: true },
+      ],
+      [],
+    )
+
+    await fixture.journal.open({})
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
+    expect(fixture.failed).not.toHaveBeenCalled()
+    const [initial, continuation] = fixture.changes
+    expect(initial?.type === 'replace' ? initial.entries.map(entry => entry.seq) : []).toEqual([0, 1])
+    expect(continuation?.type === 'replace' ? continuation.entries : undefined).toEqual([])
+    // The continuation's cursor stands: the next entry must follow it, not the
+    // held window's tail, or the gap would be applied twice.
+    expect(fixture.changes.map(change => change.type)).toEqual(['replace', 'replace'])
+    await fixture.journal.dispose()
+  })
+
+  it('still rejects a replacement window that does not reach its cursor', async () => {
+    // The tolerance belongs to continuations alone: an ordinary opening must
+    // cover every cursor it claims, or the client would hold a window with a
+    // hole in it.
+    const short = journalFixture(
+      [{ frames: [opened(3, page('short', [0, 1]))], hold: true }],
+      [],
+    )
+    await expect(short.journal.open({})).rejects.toThrow('page did not end at its requested cursor')
+    await short.journal.dispose()
+  })
+
+  it('rejects a continuation whose entries pass the cursor it acknowledges', async () => {
+    // A continuation may stop short of its cursor, but not go past it: entries
+    // beyond the acknowledged cursor would be published under a cursor that
+    // does not cover them, and the next live entry would look like a gap.
+    const past = journalFixture(
+      [{ frames: [opened(1, { ...page('past', [0, 1, 2]), continued: true })], hold: true }],
+      [],
+    )
+    await expect(past.journal.open({})).rejects.toThrow('continuation passed its opening cursor')
+    await past.journal.dispose()
   })
 
   it('defers notifications behind a durable gap until replacement commits', async () => {

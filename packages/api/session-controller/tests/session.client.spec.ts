@@ -7,6 +7,7 @@
 
 import { describe, expect, onTestFinished, vi } from 'vitest'
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { LlmAttemptId } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
@@ -726,6 +727,74 @@ describe('remaining branches', () => {
     await session.open()
     await pushEvent(mock, ev.user(SessionSeq(0), '错态帧'))
     expect(eventSeqs(session)).toEqual([])
+  })
+
+  it('retains the held window when a reconnect answers the tail cursor with an empty continuation', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(10), 1, '问', '答'))))
+    await session.open()
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+
+    // Nothing was appended while the carrier was down, which is the ordinary
+    // phone-resume case: the replacement reports the tail cursor it already
+    // holds and the Host answers with a continuation carrying no records at all.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15)
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled on foreground return'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+
+    // The window the user is reading stays installed: an empty continuation adds
+    // nothing and removes nothing.
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+    // The acknowledged cursor stands, so the next appended event extends the held
+    // window instead of reading as a gap against its old tail.
+    await pushEvent(mock, ev.user(SessionSeq(16), '接着来'))
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15, 16])
+  })
+
+  it('adopts the assistant baseline a continuation opening carries', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const attempt = LlmAttemptId('s1-attempt')
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(10), 1, '问', '答'))))
+    await session.open()
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+
+    // The replacement generation answers with a continuation carrying the Host's
+    // live attempt. The client missed every chunk since the cursor, so the
+    // baseline is the only way it can accept the dense frames that follow.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
+        revision: 1,
+        activeAttempt: {
+          attemptId: attempt,
+          startedAfterSeq: SessionSeq(15),
+          turn: 2,
+          step: 1,
+          nextIndex: 1,
+          stream: [{ type: 'chunk', time: 20, chunk: { type: 'text-delta', index: 0, text: '流的' } }],
+        },
+      })
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+
+    // Dense index 1 is the first frame after the adopted baseline. A client that
+    // ignored it has no attempt to match and silently drops the chunk, so the
+    // streaming text the user is watching would freeze.
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: {
+        type: 'chunk', attemptId: attempt, revision: 2, index: 1, time: 21,
+        chunk: { type: 'text-delta', index: 0, text: '续' },
+      },
+    })
+    await mock.streams.drained(FOLLOW)
+    expect(windowEntries(session).some(entry => entry.type === 'transient')).toBe(true)
   })
 
   it('preserves a Host-reported failure that terminates the live source', async ({ mock, start }) => {

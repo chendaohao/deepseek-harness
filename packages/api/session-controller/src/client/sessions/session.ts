@@ -646,8 +646,14 @@ export class Session implements SessionFace {
         // window instead; the entries are validated contiguous by the journal.
         if (change.page.continued === true) {
           // A continuation carries only durable records: the Host streams
-          // exactly the events after the reported cursor.
-          this.continueWindow(change.entries as readonly SessionLiveEventEntry[], change.page)
+          // exactly the events after the reported cursor. Its Assistant
+          // baseline still describes Host state at this opening, so it is
+          // adopted exactly as a replacement opening adopts it.
+          this.continueWindow(
+            change.entries as readonly SessionLiveEventEntry[],
+            change.page.projections === undefined ? undefined : projectionsBaseline(change.page.projections),
+            change.page.assistantStream,
+          )
           return
         }
         this.installWindow(
@@ -673,17 +679,38 @@ export class Session implements SessionFace {
    *
    * The held entries stay authoritative for everything the client already
    * showed, so a reconnect never re-installs a window the user is reading; only
-   * the events past the reported cursor are appended. Projection and Assistant
-   * metadata still arrive on every opening, so they are applied here exactly as
-   * a replacement opening applies them.
+   * the events past the reported cursor are appended. The opening's projection
+   * and Assistant metadata describe Host state at this opening rather than a
+   * replacement of the window, so they are adopted first — without the
+   * Assistant baseline the dense frames that follow a resumed attempt carry
+   * indices this client never saw, and every one of them would read as a
+   * revision gap.
+   *
+   * Known boundary: a resumed attempt's rows for chunks dropped during the
+   * disconnect are not reconstructed into the held window, because re-installing
+   * it would replace the entries the user is reading. Streaming text resumes at
+   * the first chunk after the reconnect and the attempt's durable settlement
+   * carries the complete message, so the missed prefix reappears at settlement.
    * @param entries - events after the cursor this client reported, in cursor order.
-   * @param page - opening metadata carried alongside the continued records.
+   * @param projections - projection baseline carried by the opening.
+   * @param assistantStream - Assistant stream baseline carried by the opening.
    */
   private continueWindow(
     entries: readonly SessionLiveEventEntry[],
-    page: { readonly projections?: SessionProjectionBaseline },
+    projections: ProjectionsBaseline | undefined,
+    assistantStream: SessionAssistantStreamBaseline | undefined,
   ): void {
-    if (page.projections !== undefined) this.projections.seed(projectionsBaseline(page.projections))
+    // The fold is re-seeded over the durable window this client already holds:
+    // that restores its published-seq and cursor accounting AND adopts the
+    // resumed attempt. The returned rows are the held entries plus that
+    // attempt's reconstructed transient rows; the window is deliberately not
+    // re-installed with them, because the user is reading it and the durable
+    // settlement reconstructs the attempt's text on its own.
+    this.assistantStream.replace(
+      this.eventSource.getSnapshot().entries.filter(entry => entry.type === 'event'),
+      assistantStream,
+    )
+    if (projections !== undefined) this.projections.seed(projections)
     for (const entry of entries) {
       this.publishAssistantEntry(this.assistantStream.acceptDurable(entry))
       if (entry.event.type === 'turn/start') this.firstPromptPendingTurn = false

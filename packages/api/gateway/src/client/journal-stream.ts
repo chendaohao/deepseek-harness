@@ -72,6 +72,13 @@ export interface RemoteJournalStreamOptions<Page, Entry, Cursor, Notification = 
   readonly compare: (left: Cursor, right: Cursor) => number
   /** Test whether the right cursor immediately follows the left cursor. */
   readonly follows: (left: Cursor, right: Cursor) => boolean
+  /**
+   * Whether one opening page continues the window the caller already applied
+   * instead of replacing it. A continuation carries only the events after the
+   * caller's own cursor, so its entries may be empty and need not reach that
+   * cursor; the cursor stays authoritative. Defaults to no page continuing.
+   */
+  readonly continues?: (page: Page) => boolean
   /** Apply one complete journal-window change or cursorless notification. */
   readonly publish: (change: RemoteJournalChange<Page, Entry, Notification>) => void
   /** Observe a retryable carrier loss before reconnection. */
@@ -84,7 +91,9 @@ export interface RemoteJournalStreamOptions<Page, Entry, Cursor, Notification = 
  * Owns snapshot-first opening, ordered live delivery, pagination, and repair.
  *
  * The domain retains its published window during reconnection. A replacement is
- * published only after the opening page reaches the generation's cursor.
+ * published only after its opening page reaches the generation's cursor, or —
+ * when the page declares itself a continuation of the caller's own window —
+ * after its entries are confirmed not to pass that cursor.
  * Notifications never change a cursor and wait behind an in-flight gap repair.
  */
 export abstract class RemoteJournalStream<
@@ -296,11 +305,18 @@ export abstract class RemoteJournalStream<
 
   /** Publish a generation's opening page without issuing a second Remote call. */
   private replaceFromOpening(page: Page, cursor: Cursor): void {
-    this.assertPageThrough(page, cursor)
+    const continued = this.options.continues?.(page) === true
+    // A continuation carries only the caller's own gap, so it legitimately ends
+    // before the cursor it acknowledges when nothing was appended while the
+    // carrier was down; the cursor, not the entries, states what the caller now
+    // holds. It also never establishes the window's first entry — everything
+    // before the gap is still the caller's — so that stays untouched.
+    if (continued) this.assertPageWithin(page, cursor)
+    else this.assertPageThrough(page, cursor)
     const entries = [...this.options.entries(page)]
     this.assertPage(entries)
     const first = entries[0]
-    this.firstCursor = first === undefined ? undefined : this.options.first(first)
+    if (!continued) this.firstCursor = first === undefined ? undefined : this.options.first(first)
     this.lastCursor = cursor
     this.setResumeCursor(cursor)
     this.options.publish({
@@ -604,6 +620,20 @@ export abstract class RemoteJournalStream<
     const tail = this.tailCursor(this.options.entries(page))
     if (this.options.compare(tail, through) !== 0) {
       throw protocolViolation(`${this.options.name} page did not end at its requested cursor`)
+    }
+  }
+
+  /**
+   * Assert a continuation stops at or before the cursor it acknowledges. It may
+   * carry nothing, but entries past that cursor would be published under a
+   * cursor that does not cover them.
+   * @param page - continuation opening page.
+   * @param through - cursor the page acknowledges.
+   */
+  private assertPageWithin(page: Page, through: Cursor): void {
+    const tail = this.tailCursor(this.options.entries(page))
+    if (this.options.compare(tail, through) > 0) {
+      throw protocolViolation(`${this.options.name} continuation passed its opening cursor`)
     }
   }
 }
