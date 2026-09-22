@@ -2696,6 +2696,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'subagentWorkerRoute',
+    summary: 'Singleton settings owner read when a delegation tool resolves its child default route.',
+    description: 'Singleton settings owner read when a delegation tool resolves its child default route. The route reaches the LLM adapter only through the delegation preflight, which validates the provider, model, and effort together.',
+    methods: [
+      {
+        signature: 'current(): SubagentWorkerRouteSettings',
+        description: 'Read the current default child route.',
+        parameters: [],
+        returns: 'the configured route as a detached value.',
+      },
+    ],
+  },
+  {
     key: 'subprocess',
     summary: 'Abstract subprocess service.',
     description: 'Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis\' standard duplicate-service behavior).\n\nImplementations must honor these semantics:\n\n- Executable paths belong to one execution world shared with the mounted filesystem provider.\n- spawn returns a live handle synchronously. Target identity remains provider-private; `done` resolves with the spawned command\'s exit facts and may reject for spawn or provider failures.\n- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another\'s output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.\n- SubprocessHandle.terminate (and the spec\'s abort signal) starts the provider\'s documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its signalling and observability limits.\n- Disposal of the service terminates all still-running managed processes and awaits their exit.\n- spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.',
@@ -6532,6 +6545,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentStopReasonMap',
     declaration: 'export interface SubagentStopReasonMap {\n    completed: \'completed\';\n    aborted: \'aborted\';\n    error: \'error\';\n    \'max-tokens\': \'max-tokens\';\n    refusal: \'refusal\';\n}',
+  },
+  {
+    name: 'SubagentWorkerRouteSettings',
+    declaration: 'export interface SubagentWorkerRouteSettings {\n    provider: string;\n    model: string;\n    reasoningEffort: ReturnType<typeof ReasoningEffortId>;\n}',
   },
   {
     name: 'SubprocessCollect',

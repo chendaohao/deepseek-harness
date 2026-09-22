@@ -342,6 +342,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns the default-off settings namespace that Agent-scoped delegation tools sample when composing a new top-level Session.',
   },
   {
+    key: 'subagentWorkerRoute',
+    pkg: 'tool-subagent',
+    title: 'Subagent worker-route preference',
+    mode: 'core',
+    consumers: ['tool-subagent'],
+    note: 'Owns the settings namespace holding the default child route — provider, model, and reasoning effort — that a delegation tool opting into workerRouteSettings reads on every call, so a settings edit reaches the next delegation without rebuilding a tool definition.',
+  },
+  {
     key: 'credentials',
     pkg: 'credentials',
     title: 'Credential seam',

@@ -701,6 +701,22 @@ Types: [Agent](core.zh.md) · [ContentBlock](llm-streaming.zh.md) · [MessageId]
 
 Source: [`packages/subagent/subagent/src/index.ts`](../../packages/subagent/subagent/src/index.ts)
 
+<a id="ctxsubagentworkerroute--subagentworkerrouteconfig"></a>
+
+### `ctx.subagentWorkerRoute` — `SubagentWorkerRouteConfig`
+
+Singleton settings owner read when a delegation tool resolves its child default route. The route reaches the LLM adapter only through the delegation preflight, which validates the provider, model, and effort together.
+
+```ts cordis-catalog
+/**
+ * Read the current default child route.
+ * @returns the configured route as a detached value.
+ */
+current(): SubagentWorkerRouteSettings
+```
+
+Source: [`packages/subagent/tool-subagent/src/worker-route-settings.ts`](../../packages/subagent/tool-subagent/src/worker-route-settings.ts)
+
 <a id="subagent-events"></a>
 
 ### `subagent/*` events
