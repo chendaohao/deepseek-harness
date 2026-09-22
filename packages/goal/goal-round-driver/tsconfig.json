@@ -27,6 +27,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../util/timeout"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

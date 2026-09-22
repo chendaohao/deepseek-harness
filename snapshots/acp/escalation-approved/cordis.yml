@@ -92,3 +92,9 @@
 - id: session-log-deepseek
   config:
     enabled: false
+
+# The goal scenarios assert an exact round sequence and drive it themselves, so
+# the unattended interval that paces production rounds stays out of their path.
+- id: goal-round-driver
+  config:
+    roundIntervalMs: 0

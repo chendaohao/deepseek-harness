@@ -6,17 +6,39 @@
 import { isDeepStrictEqual } from 'node:util'
 import { FiberState } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { renderGoalRoundPrompt } from './prompt.ts'
 
 export { renderGoalRoundPrompt } from './prompt.ts'
 
 export const name = 'goal-round-driver'
 export const inject = ['agents', 'goals', 'sessions']
+
+/** Interval between automatic rounds when the deployment configures none: 30 minutes. */
+export const DEFAULT_ROUND_INTERVAL_MS = 1_800_000
+
+/** Plugin configuration: how often automatic continuation may spend a round. */
+export interface Config {
+  /**
+   * Minimum interval between two automatic rounds, in ms (default 1800000).
+   * A goal's first round starts at the next idle point; every later round waits
+   * out the remainder of this interval since the previous reservation. `0`
+   * removes the interval, so a round is reserved at every idle point.
+   */
+  roundIntervalMs?: number
+}
+
+export const Config: z<Config> = z.object({
+  roundIntervalMs: z.number().step(1).min(0).max(MAX_TIMER_DELAY_MS).default(DEFAULT_ROUND_INTERVAL_MS),
+})
+
+type ResolvedConfig = Required<Config>
 
 /** Identity reserved before a goal continuation enters the agent inbox. */
 interface RoundIdentity {
@@ -43,6 +65,10 @@ interface DriverState {
   requested: boolean
   run: Promise<void> | undefined
   stopping: boolean
+  /** When the last round was reserved, for the interval gate; `undefined` before the first. */
+  reservedAt: number | undefined
+  /** Pending wake-up for a round still inside its interval. */
+  timer: ReturnType<typeof setTimeout> | undefined
 }
 
 /** Whether a source identifies an automatic, positive-numbered goal round. */
@@ -73,7 +99,8 @@ function renderThrown(value: unknown): string {
 }
 
 /** Install automatic same-session continuation and its race fences. */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config): void {
+  const { roundIntervalMs } = config as ResolvedConfig
   const states = new Map<Agent, DriverState>()
 
   /** Create state for an exact currently live agent. */
@@ -88,6 +115,8 @@ export function apply(ctx: Context): void {
       requested: false,
       run: undefined,
       stopping: false,
+      reservedAt: undefined,
+      timer: undefined,
     }
     states.set(agent, state)
     return state
@@ -121,6 +150,31 @@ export function apply(ctx: Context): void {
     } catch (error: unknown) {
       ctx.logger.warn(`goal-round-driver: could not disarm agent "${state.agent.id}": ${renderThrown(error)}`)
     }
+  }
+
+  /** Cancel a pending interval wake-up. */
+  function clearTimer(state: DriverState): void {
+    if (state.timer === undefined) return
+    clearTimeout(state.timer)
+    state.timer = undefined
+  }
+
+  /** Milliseconds left of the interval before another round may be reserved; 0 when it may start now. */
+  function intervalWait(state: DriverState, now: number): number {
+    if (state.reservedAt === undefined) return 0
+    return Math.max(0, state.reservedAt + roundIntervalMs - now)
+  }
+
+  /** Wake this lifecycle once the interval has elapsed. */
+  function scheduleRound(state: DriverState, delay: number): void {
+    clearTimer(state)
+    const timer = setTimeout(() => {
+      state.timer = undefined
+      requestDrive(state)
+    }, delay)
+    // A pending goal round never keeps the host process alive on its own.
+    timer.unref()
+    state.timer = timer
   }
 
   /** Preserve claimed step context when this driver drops only its own round. */
@@ -172,6 +226,13 @@ export function apply(ctx: Context): void {
     }
 
     const round = goal.roundsStarted + 1
+    const now = Date.now()
+    const wait = intervalWait(state, now)
+    if (wait > 0) {
+      scheduleRound(state, wait)
+      return
+    }
+
     const content = renderGoalRoundPrompt(goal, round)
     const message = createUserMessage({
       content,
@@ -188,6 +249,7 @@ export function apply(ctx: Context): void {
       stale: false,
     }
     state.attempt = reservation
+    state.reservedAt = now
     try {
       agent.followup(message)
     } catch (error: unknown) {
@@ -248,12 +310,19 @@ export function apply(ctx: Context): void {
       disarm(state)
     })
 
-    ctx.on('agent/disposed', ({ agent }) => { states.delete(agent) })
+    ctx.on('agent/disposed', ({ agent }) => {
+      const state = states.get(agent)
+      /* v8 ignore next -- agent/created seeds state for every registered agent, so a disposal always finds one */
+      if (state !== undefined) clearTimer(state)
+      states.delete(agent)
+    })
     ctx.on('agent/created', ({ agent }) => {
       const state = stateFor(agent)
       state.attempt = undefined
       state.competingQueued = false
       state.needsCheckpoint = false
+      clearTimer(state)
+      state.reservedAt = undefined
     })
     ctx.on('agent/status', ({ agent, status }) => {
       const state = stateFor(agent)
@@ -282,6 +351,10 @@ export function apply(ctx: Context): void {
     ctx.on('goal/changed', ({ agent, change }) => {
       const state = stateFor(agent)
       state.needsCheckpoint = true
+      // An explicit lifecycle mutation re-authorizes automatic work, so the
+      // interval that paces unattended rounds does not delay it.
+      state.reservedAt = undefined
+      clearTimer(state)
       // A host-initiated pause stops goal execution: abort the live turn so the
       // model cannot keep acting or resume in the same turn. A model-initiated
       // pause (update_goal inside its own turn) finishes normally.
@@ -437,6 +510,7 @@ export function apply(ctx: Context): void {
       const waits: Promise<void>[] = []
       for (const state of states.values()) {
         state.stopping = true
+        clearTimer(state)
         disarm(state)
         const attempt = state.attempt
         if (attempt !== undefined) {

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-goal-round-driver` automatically continues an active goal in the same session while the agent is idle, continuation is armed, and the configured round allowance remains. Each round gives the model another turn toward the objective; only goal rounds that reach model history consume the allowance, and exhaustion records a blocker. The driver has no configuration: the goal defines the round limit, and `dsh-tool-goal` defines when repeated blocking stops continuation. Mount it with `dsh-goal` and `dsh-tool-goal` for unattended multi-round progress; omit it when each step requires human steering.
+`dsh-goal-round-driver` automatically continues an active goal in the same session while the agent is idle, continuation is armed, and the configured round allowance remains. Each round gives the model another turn toward the objective; only goal rounds that reach model history consume the allowance, and exhaustion records a blocker. The goal defines the round limit, `dsh-tool-goal` defines when repeated blocking stops continuation, and `roundIntervalMs` paces the unattended rounds. Mount it with `dsh-goal` and `dsh-tool-goal` for unattended multi-round progress; omit it when each step requires human steering.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Mount `dsh-goal-round-driver` when an active goal should keep making progress wi
 
 ### Compose it
 
-Mount the driver beside the goal service and the goal tools; the driver itself takes no configuration.
+Mount the driver beside the goal service and the goal tools. `roundIntervalMs` is its only setting, in milliseconds.
 
 ```yaml
 - id: goal
@@ -40,6 +40,8 @@ Mount the driver beside the goal service and the goal tools; the driver itself t
 
 - id: goal-round-driver
   name: '@deepseek-ai/dsh-goal-round-driver'
+  config:
+    roundIntervalMs: 1_800_000
 ```
 
 `maxGoalRounds` belongs to the goal definition, while the model-facing blocked threshold belongs to `dsh-tool-goal`; duplicating either value in the driver could produce divergent policy.
@@ -47,6 +49,8 @@ Mount the driver beside the goal service and the goal tools; the driver itself t
 ### What each round does
 
 With an exact live agent idle, an active armed goal, and remaining capacity, the driver queues one goal-round prompt. It names the JSON-quoted objective, round number, and cap, and tells the model to use current workspace, tool results, and durable state as authority. An accepted round starts a distinct request series, so Chat renders its self-contained request header before the goal message. The round enters history as a goal-sourced user message; only an entered goal message consumes the cap, while human messages and stale reservations do not. Goal lifecycle mutations still require the independent authority checks in `dsh-tool-goal`.
+
+The interval paces the unattended rounds: the driver reserves one only after `roundIntervalMs` has elapsed since the previous reservation, and otherwise wakes the lifecycle when the remainder expires. A goal's first round is never paced, and an explicit create, edit, or resume re-authorizes an immediate one, so a goal that waits on background work costs one model request per interval instead of one per idle point.
 
 ### When continuation stops
 
@@ -69,6 +73,7 @@ This section explains how the driver schedules rounds without races; the observa
 ### Design
 
 - **Reservation, then admission.** At idle the driver reserves `roundsStarted + 1` for the current `{ goalId, revision }`, queues one `<goal_round>` prompt with a goal message source, and only an entered `user/message` increments `roundsStarted`. A reservation rejected as stale does not consume the round number.
+- **Interval pacing in the reservation.** The interval gate sits in the operation that reserves, so no trigger path can bypass it: an idle point inside the interval arms one timer for the remainder, and teardown cancels it.
 - **Race fences.** The `agent/pre-step` listener verifies the complete claimed record against the current goal both before and after downstream listeners, so a stale, cancelled, or competing prompt is rejected before its step enters. Human work that arrives before a reservation makes automatic work yield until the agent is idle again.
 - **Durability checkpoint.** `goal/changed` creates a durability obligation: before queuing work the driver awaits `ctx.sessions.flush()` and rechecks the goal revision and competing input after the await. A flush failure arriving through `agent/error` disarms continuation before another round can start.
 - **Fail-closed teardown.** Teardown closes admission, disarms every live goal, cancels active work with the `parent` cause, and awaits the driver plus agent quiescence while its event fence remains installed.
@@ -110,7 +115,7 @@ Each admitted round is one retained user-role `<goal_round>` block naming the fu
 
 #### Token effect
 
-One fixed instruction block plus the objective is added per admitted round. Later requests resend retained rounds until compaction shadows them; no fresh agent or copied conversation prefix is created.
+One fixed instruction block plus the objective is added per admitted round. Later requests resend retained rounds until compaction shadows them; no fresh agent or copied conversation prefix is created. `roundIntervalMs` bounds how many rounds an unattended goal accumulates in a long session, and each one is a full request over the growing history.
 
 #### KV Cache effect
 

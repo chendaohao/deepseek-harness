@@ -84,13 +84,18 @@ afterEach(async () => {
   await Promise.allSettled(contexts.splice(0).map(context => context.fiber.dispose()))
 })
 
-/** Mount a real loop with only its model scripted. */
-async function harness(script: ScriptEntry[]): Promise<Harness> {
+/**
+ * Mount a real loop with only its model scripted.
+ * @param script - one entry per expected model request.
+ * @param options - `roundIntervalMs` overrides the paced default; 0 keeps the
+ *   pre-interval behavior of reserving a round at every idle point.
+ */
+async function harness(script: ScriptEntry[], options: { roundIntervalMs?: number } = {}): Promise<Harness> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(GoalService)
-  const driver = await ctx.plugin(goalSession)
+  const driver = await ctx.plugin(goalSession, { roundIntervalMs: options.roundIntervalMs ?? 0 })
   await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new ScriptedAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -222,7 +227,7 @@ describe('same-session goal driving', () => {
     const agent = await ctx.agentLoop.create(SessionId('goal-session-hot-load'), { provider: 'mock', model: 'mock' })
     const created = ctx.goals.create(agent, { objective: 'wait for a human', maxGoalRounds: 1 })
 
-    await ctx.plugin(goalSession)
+    await ctx.plugin(goalSession, { roundIntervalMs: 0 })
     await Promise.resolve()
     expect(ctx.goals.get(agent)).toMatchObject({ phase: 'active', activation: 'disarmed', revision: 1 })
     expect(adapter.requests).toHaveLength(0)
@@ -1114,5 +1119,80 @@ describe('same-session goal driving', () => {
     await handle.dispose()
 
     expect(test.ctx.agents.get(handle.agent.id)).toBeUndefined()
+  })
+})
+
+describe('automatic round interval', () => {
+  /** Let every microtask queued by the driver and the agent loop settle. */
+  async function settle(): Promise<void> {
+    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
+  }
+
+  it('starts the first round at once and holds every later round for the full interval', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      const test = await harness(
+        [textResponse('round one'), textResponse('round two')],
+        { roundIntervalMs: 60_000 },
+      )
+      test.ctx.goals.create(test.agent, { objective: 'pace two rounds', maxGoalRounds: 2 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(59_999)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+      expect(test.ctx.goals.get(test.agent)).toMatchObject({ roundsStarted: 2 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('re-authorizes an immediate round when the goal itself changes', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const test = await harness(
+        [textResponse('round one'), textResponse('round two')],
+        { roundIntervalMs: 60_000 },
+      )
+      const created = test.ctx.goals.create(test.agent, { objective: 'edit mid-interval', maxGoalRounds: 3 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      test.ctx.goals.edit(test.agent, created, { objective: 'edited objective' })
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+      expect(requestText(test.adapter.requests[1]!)).toContain('edited objective')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels a pending interval wake-up when the driver unloads', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const test = await harness([textResponse('round one')], { roundIntervalMs: 60_000 })
+      test.ctx.goals.create(test.agent, { objective: 'unload mid-interval', maxGoalRounds: 3 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      await test.driver.dispose()
+      await vi.advanceTimersByTimeAsync(120_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

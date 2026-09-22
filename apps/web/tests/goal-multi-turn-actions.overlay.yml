@@ -1,0 +1,6 @@
+# The Goal scenarios assert an exact round sequence inside a bounded turn
+# budget, so the unattended interval that paces production rounds stays out of
+# their path.
+- id: goal-round-driver
+  config:
+    roundIntervalMs: 0
