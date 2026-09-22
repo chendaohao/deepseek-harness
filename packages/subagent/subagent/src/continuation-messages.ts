@@ -110,8 +110,10 @@ function settlementSummary(childId: SessionId, stopReason: SubagentResult['stopR
       return `${subject} finished and will do no further work unless you send it more.`
     case 'aborted':
       return `${subject} was stopped before it finished.`
+    // Name the limit. A parent that reads a vague "ran out of room" as context
+    // exhaustion discards a child that still had context left.
     case 'max-tokens':
-      return `${subject} ran out of room before it finished.`
+      return `${subject} hit its output token limit before it finished.`
     // A pre-step rejection — a hook deny, a policy plugin — discarded input
     // the child had claimed, so the parent must not treat the task as done.
     case 'refusal':

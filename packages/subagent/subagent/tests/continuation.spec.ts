@@ -2768,7 +2768,7 @@ describe('continuable settlement delivery', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} ran out of room before it finished.`
+      `Background subagent ${started.childId} hit its output token limit before it finished.`
       + '\nIts closing message:\nhalf an ans',
     )
   })
