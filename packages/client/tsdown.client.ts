@@ -75,7 +75,7 @@ function styleInjectionModule(
  * Everything else under @deepseek-ai/* is either a module-table entry
  * (external) or a leak the purity gate rejects.
  */
-export const INLINE_SAFE = /^(?:@deepseek-ai\/dsh-(?:file-reference|session|llm|tools|brand|deque|output-retention|typert-protocol|util-crypto|util-values|util-workspace-path)(?:\/|$)|@deepseek-ai\/dsh-token-meter\/client$|@deepseek-ai\/dsh-host-open-in-app\/shared$|@deepseek-ai\/dsh-agent-presets\/display$|@deepseek-ai\/dsh-spill-policy\/notice$)/
+export const INLINE_SAFE = /^(?:@deepseek-ai\/dsh-(?:file-reference|session|llm|tools|brand|deque|output-retention|typert-protocol|util-crypto|util-values|util-workspace-path)(?:\/|$)|@deepseek-ai\/dsh-token-meter\/client$|@deepseek-ai\/dsh-native-command\/types$|@deepseek-ai\/dsh-host-open-in-app\/shared$|@deepseek-ai\/dsh-plugin-manager\/registry$|@deepseek-ai\/dsh-agent-preset-registry\/display$|@deepseek-ai\/dsh-spill-policy\/notice$)/
 
 /**
  * Vendored framework libraries: rescoped into @deepseek-ai, so the gate below
@@ -801,6 +801,11 @@ async function stylesheetFileId(
   }
   if (isAbsolute(source)) return source
   const resolved = await resolver.resolve(source, importer, { skipSelf: true })
+  // A plugin may answer with the specifier unchanged — an externalized bare
+  // import — and the callers read the result as a file. Resolve such an answer
+  // on disk from the importer before trusting it.
+  if (resolved !== null && isAbsolute(resolved.id)) return resolved.id
+  if (importer !== undefined) return sourceAssetPath(source, importer)
   if (resolved === null) {
     throw new Error(`tsdown: cssInlinePlugins cannot resolve the stylesheet ${JSON.stringify(source)}`)
   }

@@ -12,7 +12,9 @@ const organizationUrl = new RegExp(`\\bgithub\\.com/${organization}(?![a-z0-9-])
 // The independent kit repository owns the engine source and documentation.
 const kitRepositoryUrl = new RegExp(`\\bgithub\\.com/${organization}/libreoffice-kit(?:\\.git)?(?=/|[^a-zA-Z0-9_.-]|$)`, 'g')
 const commitCandidate = /(?<![a-z0-9])[\da-f]{7,40}(?![a-z0-9])/gi
-const excludedPrefixes = ['vendor/', '.agents/notes/archived/']
+// .dsh/ holds this fork workspace local runtime data (reports, session state);
+// it is untracked and never part of a maintained source file.
+const excludedPrefixes = ['vendor/', '.agents/notes/archived/', '.dsh/']
 const gitOutputLimit = 64 * 1024 * 1024
 
 /** One prohibited reference in a maintained source file. */

@@ -40,7 +40,7 @@ async function bench(
     ns: THEME_SETTINGS_NAMESPACE,
     schema: ThemeSettingsSchema.toJSON(),
     value: { ...section },
-    applies: 'live' as const,
+    autoGenerate: true, applies: 'live' as const,
     secrets: [],
     revision: 0,
   })
@@ -91,7 +91,7 @@ function fontSizeFaceOf(slots: SlotRegistry) {
 
 describe('ui-theme apply', () => {
   it('declares the slot and locale services', () => {
-    expect(inject).toEqual(['slots', 'locale', 'remote', 'settingsScope'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'configForms'])
   })
 
   it('provides the service, registers localized copy, and registers both rows (declaration before or after apply)', async () => {

@@ -1,27 +1,14 @@
 - dialog "设置":
   - navigation:
     - text: 设置
-    - button "通用设置":
-      - img
-      - text: 通用设置
-    - button "模型":
-      - img
-      - text: 模型
-    - button "内置插件":
-      - img
-      - text: 内置插件
-    - button "Agent 预设":
-      - img
-      - text: Agent 预设
-    - button "已归档会话":
-      - img
-      - text: 已归档会话
+    - button "通用设置"
+    - button "模型"
+    - button "内置插件"
+    - button "Agent 预设"
   - button "打开配置文件"
-  - button "关闭":
-    - img
-    - text: 关闭
+  - button "关闭"
   - heading "模型" [level=2]
-  - paragraph: 填入各提供方的 API 密钥即可使用其模型。
+  - paragraph: 填入各提供商的 API 密钥即可使用其模型。
   - list:
     - listitem:
       - button "拖动排序":
@@ -36,12 +23,7 @@
       - text: Acme Gateway 自定义
       - button "编辑 Acme Gateway (acme-gateway)": 编辑
       - button "删除 Acme Gateway (acme-gateway)": 删除
-  - button "添加提供方":
-    - img
-    - text: 添加提供方
-  - button "添加自定义提供方":
-    - img
-    - text: 添加自定义提供方
+  - button "添加模型提供商"
   - region "工人路由":
     - heading "工人路由" [level=3]
     - paragraph: 派出去的活由哪个模型来干。新建会话生效;已在跑的会话保持它开始时用的路由。

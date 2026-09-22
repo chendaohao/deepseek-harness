@@ -15,7 +15,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type {} from '@deepseek-ai/dsh-agent-presets/types'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
 import { messageOf, presetOptions, readRoster } from './settings-store.ts'
 import type { AgentPresetOption } from './settings-store.ts'
 
@@ -63,6 +63,8 @@ export class AgentPresetSeatController {
 
   /** Only the newest roster read may publish after overlapping refreshes. */
   private loadGeneration = 0
+  /** Completion of the active Host selection; Settings choices wait before staging. */
+  private pendingSelection: Promise<undefined> | undefined
 
   constructor(
     private readonly ctx: ClientContext,
@@ -76,6 +78,11 @@ export class AgentPresetSeatController {
 
   private set(patch: Partial<AgentPresetSeatState>): void {
     this.store.set({ ...this.store.getSnapshot(), ...patch })
+  }
+
+  private clearStage(): void {
+    this.staged.id = undefined
+    this.staged.introduce = false
   }
 
   /**
@@ -92,8 +99,7 @@ export class AgentPresetSeatController {
     }
     const { presets, modeSelectionEnabled } = roster.value
     if (!modeSelectionEnabled) {
-      this.staged.id = undefined
-      this.staged.introduce = false
+      this.clearStage()
     }
     this.fallback = presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? ''
     const session = this.currentSession()
@@ -128,8 +134,7 @@ export class AgentPresetSeatController {
   async select(id: string): Promise<string | undefined> {
     if (this.store.getSnapshot().busy) return undefined
     this.stage(id)
-    await this.apply()
-    return this.store.getSnapshot().error ?? undefined
+    return await this.apply()
   }
 
   /**
@@ -160,7 +165,7 @@ export class AgentPresetSeatController {
 
   /**
    * Apply a Settings choice only if its captured Session is still current and
-   * blank. The selection uses the existing stage/apply path.
+   * blank after any pending selection settles. The selection uses the existing stage/apply path.
    * @param expectedSessionId - blank Session captured before the Settings write.
    * @param id - the effective default that the write persisted.
    * @returns the Host refusal text, or undefined when applied or no longer relevant.
@@ -169,11 +174,11 @@ export class AgentPresetSeatController {
     expectedSessionId: SessionSummary['id'],
     id: string,
   ): Promise<string | undefined> {
+    while (this.pendingSelection !== undefined) await this.pendingSelection
     const session = this.currentSession()
     if (session === undefined || !session.blank || session.id !== expectedSessionId) return undefined
     this.stage(id)
-    await this.apply()
-    return this.store.getSnapshot().error ?? undefined
+    return await this.apply()
   }
 
   /** Acknowledge the introduction cue once the chip has played it. */
@@ -188,10 +193,15 @@ export class AgentPresetSeatController {
    *
    * Called both by `select()` and by whoever observes the current session
    * changing, because the session may appear either before or after the pick.
-   * @returns once the switch settled, or immediately when there is nothing to do.
+   * List updates do not repeat a selection while its response is pending.
+   * @returns this attempt's Host refusal, or undefined when successful or no switch starts.
    */
-  async apply(): Promise<void> {
-    while (this.applying !== null) await this.applying
+  async apply(): Promise<string | undefined> {
+    // One in-flight apply owns the stage: a list update arriving while it runs
+    // must not start a second select. The reconciliation path awaits
+    // pendingSelection, which settles after busy clears, so it still applies a
+    // stage made during the flight.
+    if (this.store.getSnapshot().busy) return
     const staged = this.staged.id
     const session = this.currentSession()
     if (staged === undefined) {
@@ -203,15 +213,13 @@ export class AgentPresetSeatController {
     // A started session's history was produced under its own composition; the
     // host refuses the swap, so the stage is no longer meaningful.
     if (!session.blank || presetOf(session) === staged) {
-      this.staged.id = undefined
-      this.staged.introduce = false
+      this.clearStage()
       return
     }
-    this.set({ busy: true, error: null })
     const run = this.runApply(staged, session)
     this.applying = run
     try {
-      await run
+      return await run
     } finally {
       // Single-flight: no other apply can have started while this one owned
       // the flag (the while-loop gate above admits exactly one), so the flag
@@ -226,7 +234,7 @@ export class AgentPresetSeatController {
    * applier — coalescing onto one in-flight RPC keeps a blank-session apply
    * to exactly one select instead of one per list update.
    */
-  private applying: Promise<void> | null = null
+  private applying: Promise<string | undefined> | null = null
 
   /**
    * Resolve once no staged pick awaits application: the in-flight apply (if
@@ -257,43 +265,41 @@ export class AgentPresetSeatController {
   private async runApply(
     staged: string,
     session: Pick<SessionSummary, 'id' | 'blank' | 'projectionValues'>,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
+    const completion = Promise.withResolvers<undefined>()
+    this.pendingSelection = completion.promise
+    this.clearStage()
     try {
+      this.set({ busy: true, error: null })
       const result = await this.ctx.remote.agentPresets.select(session.id, staged)
-      // Only this pick is spent: a newer stage set while the RPC was in
-      // flight belongs to the next apply and must survive this completion.
-      if (this.staged.id === staged) {
-        this.staged.id = undefined
-        this.staged.introduce = false
-      }
       if (!result.ok) {
         const { error } = result
+        const refusal = 'reason' in error.details && typeof error.details.reason === 'string'
+          ? error.details.reason
+          : error.message
         this.set({
-          busy: false,
           // A refusal carries its cause twice: `message` wraps it in the
           // roster's own frame, which names the preset the surface reporting
           // this already names, and a `reason` detail holds the same cause
           // without it. Read by the detail rather than by the code, because
           // every refusal that has a cause to give names it the same way.
-          error: 'reason' in error.details && typeof error.details.reason === 'string'
-            ? error.details.reason
-            : error.message,
+          error: refusal,
           current: this.staged.id ?? presetOf(session) ?? '',
         })
-        return
+        return refusal
       }
       // Consumed: the next new session opens on the deployment default again.
-      this.set({ busy: false, current: this.staged.id ?? result.value })
+      this.set({ current: this.staged.id ?? result.value })
     } catch (error) {
-      if (this.staged.id === staged) {
-        this.staged.id = undefined
-        this.staged.introduce = false
-      }
       this.set({
-        busy: false,
         error: messageOf(error),
         current: this.staged.id ?? presetOf(session) ?? '',
       })
+      return messageOf(error)
+    } finally {
+      this.pendingSelection = undefined
+      this.set({ busy: false })
+      completion.resolve(undefined)
     }
   }
 }

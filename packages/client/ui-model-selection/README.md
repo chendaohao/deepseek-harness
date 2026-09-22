@@ -33,9 +33,13 @@ Models stay grouped by provider; rows show the model name plus the provider name
 
 A plain model pick names the route alone: the host restores the user's explicitly chosen effort for that exact route when one is remembered, falling back to the model default. An explicit effort pick is remembered per route; picking the provider default explicitly clears the route's memory. A pick the model cannot take is normalized to its declared default and announced through a transient toast.
 
+The composer replaces the model and effort text with the Models icon when the expanded controls cannot share one line, and restores the text when space permits. The full selection remains available in the trigger's accessible name, tooltip, and menu.
+
 ### Unroutable sessions
 
 When the Host reports that no adapter serves the session's route, this plugin raises a composer block and the input goes inert with its own copy; recovering clears it without a reload. A `null` before the first load or after one failed never blocks, and catalog membership never blocks either — a route serving a model it does not advertise is missing from the groups yet usable.
+
+Only the current Client binding's directory can publish its composer block. Cleanup from an older binding preserves a replacement directory's block; without a replacement directory, cleanup removes the obsolete block.
 
 ### Selection failures
 

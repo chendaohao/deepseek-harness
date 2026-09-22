@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-在新会话界面选了 preset 之后立刻发送首条消息，选择会被丢掉。[座位设计](../architecture/2026-08-03-per-session-agent-presets.zh.md)只是暂存选择，直到会话列表更新时才通过 `agentPresets.select` 应用；发送路径并行发出 prompt，主机通常先启动回合，然后以 `agent-preset-locked`（"会话已开始，preset 已固定"）拒绝，会话保持创建时的默认 preset。会话日志记录了两种次序：选择先于消息的会话运行了所选 preset（并伴随大量重复的 `agent-preset/selected` 事件——创建期间每次列表更新都各自发出一条 select RPC）；消息在创建时即被注入的会话则以默认 preset 运行，且没有任何选择记录。
+在新会话界面选了 preset 之后立刻发送首条消息，选择会被丢掉。[座位设计](../../archived/architecture/2026-08-03-per-session-agent-presets.md)只是暂存选择，直到会话列表更新时才通过 `agentPresets.select` 应用；发送路径并行发出 prompt，主机通常先启动回合，然后以 `agent-preset-locked`（"会话已开始，preset 已固定"）拒绝，会话保持创建时的默认 preset。会话日志记录了两种次序：选择先于消息的会话运行了所选 preset（并伴随大量重复的 `agent-preset/selected` 事件——创建期间每次列表更新都各自发出一条 select RPC）；消息在创建时即被注入的会话则以默认 preset 运行，且没有任何选择记录。
 
 ## 决定
 

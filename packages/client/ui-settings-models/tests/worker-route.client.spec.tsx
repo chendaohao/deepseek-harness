@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { WorkerRouteSection } from '../src/client/WorkerRouteSection.tsx'
 import type { WorkerRouteCatalogState, WorkerRouteSettings } from '../src/client/worker-route.ts'
 import { en } from '../src/client/locales.ts'
@@ -56,8 +56,8 @@ const CATALOG: ModelCatalog = {
 }
 
 /** Build a scope over one mutable snapshot, recording every write. */
-function scopeWith(overrides: Partial<SettingsScopeSnapshot<WorkerRouteSettings>> = {}) {
-  const snapshot: SettingsScopeSnapshot<WorkerRouteSettings> = {
+function scopeWith(overrides: Partial<ConfigFormSnapshot<WorkerRouteSettings>> = {}) {
+  const snapshot: ConfigFormSnapshot<WorkerRouteSettings> = {
     status: 'ready',
     value: ROUTE,
     base: undefined,
@@ -67,13 +67,13 @@ function scopeWith(overrides: Partial<SettingsScopeSnapshot<WorkerRouteSettings>
     mode: 'host',
     ...overrides,
   }
-  const set = vi.fn(() => Promise.resolve())
-  const scope: SettingsScope<WorkerRouteSettings> = {
+  const set = vi.fn(() => Promise.resolve(true))
+  const scope: ConfigForm<WorkerRouteSettings> = {
     getSnapshot: () => snapshot,
     subscribe: () => () => {},
-    mutate: () => Promise.resolve(),
+    mutate: () => Promise.resolve(true),
     set,
-    unset: () => Promise.resolve(),
+    unset: () => Promise.resolve(true),
   }
   return { scope, set }
 }
@@ -86,7 +86,7 @@ function catalogWith(value: ModelCatalog | null) {
   })
 }
 
-function mount(overrides: Partial<SettingsScopeSnapshot<WorkerRouteSettings>> = {}, catalog: ModelCatalog | null = CATALOG) {
+function mount(overrides: Partial<ConfigFormSnapshot<WorkerRouteSettings>> = {}, catalog: ModelCatalog | null = CATALOG) {
   const { scope, set } = scopeWith(overrides)
   const store = catalogWith(catalog)
   const loadCatalog = vi.fn()

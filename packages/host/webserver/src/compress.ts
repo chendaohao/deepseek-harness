@@ -27,6 +27,7 @@ export const COMPRESSIBLE_MIME_PREFIXES = [
   'application/xml',
   'image/svg+xml',
   'application/wasm',
+  'multipart/form-data',
 ] as const
 
 /** Default minimum body size (bytes) before compression is worth the CPU. */

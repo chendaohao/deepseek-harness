@@ -17,7 +17,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPlusOutlineMedium, IconWarningOutlineRegular, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
@@ -37,6 +37,7 @@ import {
 import { resolveSubmitMode } from '../input/submission-policy.ts'
 import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
 import { ContextMeter } from './ContextMeter.tsx'
+import { observeControlRow } from './control-row-layout.ts'
 import css from './InputBar.module.css'
 
 export type InputBarProps = ComposerBarProps
@@ -55,6 +56,8 @@ export const InputBar = memo(function InputBar({
   const busyEnter = useBusyEnter(s => s)
   void useLexicon // hook seat stays bound by the inject compartment; text-ref decoration rides the shell's editor transforms
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
+  const [activity, setActivity] = useState(false)
+  useEffect(() => { setActivity(false) }, [sessionId])
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
   const subagent = useSession(s => s.subagent) ?? null
@@ -115,6 +118,12 @@ export const InputBar = memo(function InputBar({
   useEffect(() => {
     if (notice?.level === 'error') showToast(notice.text)
   }, [notice, showToast])
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const row = rowRef.current
+    if (row === null) return
+    return observeControlRow(row)
+  }, [])
   const cardRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -206,7 +215,7 @@ export const InputBar = memo(function InputBar({
   // client-side size or count limit and upload as soon as they are picked.
   // The host enforces the same image limits at submit for callers that bypass
   // this composer.
-  const intakeFiles = useCallback((files: readonly File[]): void => {
+  const intakeFiles = useCallback((files: readonly File[], directories?: ReadonlySet<File>): void => {
     if (subagent !== null || addFiles === undefined || files.length === 0) return
     const rejected = ((): string | null => {
       if (imageLimits !== undefined) {
@@ -225,7 +234,7 @@ export const InputBar = memo(function InputBar({
           return t('image.totalTooLarge', { size: imageSizeText(imageLimits.maxMessageImageBytes) })
         }
       }
-      return addFiles(files)
+      return addFiles(files, directories)
     })()
     if (rejected !== null) showToast(rejected)
   }, [subagent, addFiles, attachments, imageLimits, showToast, t])
@@ -322,10 +331,11 @@ export const InputBar = memo(function InputBar({
   // Toolbar controls in visual left-to-right order, later reversed into the
   // row's packing order by `order` (see css.row). The DOM keeps the visual
   // order so tab order follows the eye.
-  const toolbarItems = ((): Array<{ key: string; node: ReactNode }> => {
-    const items: Array<{ key: string; node: ReactNode }> = [
+  const toolbarItems = ((): Array<{ key: string; node: ReactNode; hidden?: boolean }> => {
+    const items: Array<{ key: string; node: ReactNode; hidden?: boolean }> = [
       {
         key: 'add',
+        hidden: activity,
         node: (
           <Tooltip label={t('input.commands')} side="top" delayMs={500}>
             <button
@@ -338,16 +348,22 @@ export const InputBar = memo(function InputBar({
               onMouseDown={keepFocus}
               onClick={onToggleCommandMenu}
             >
-              <IconPlusOutline16 size={14} />
+              <IconPlusOutlineMedium size={14} />
             </button>
           </Tooltip>
         ),
       },
-      { key: 'permission', node: sessionId === undefined ? null : renderSlot('conversation.input.permission', { locked }) },
-      { key: 'plan', node: sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked }) },
-      { key: 'left', node: input === undefined || sessionId === undefined ? null : renderSlot('conversation.input.left', {}) },
-      { key: 'right', node: input === undefined || sessionId === undefined ? null : renderSlot('conversation.input.right', {}) },
-      { key: 'model', node: sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked }) },
+      { key: 'permission', hidden: activity, node: sessionId === undefined ? null : renderSlot('conversation.input.permission', { locked }) },
+      { key: 'plan', hidden: activity, node: sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked }) },
+      { key: 'left', hidden: activity, node: input === undefined || sessionId === undefined ? null : renderSlot('conversation.input.left', {}) },
+      { key: 'right', hidden: activity, node: input === undefined || sessionId === undefined ? null : renderSlot('conversation.input.right', {}) },
+      { key: 'model', hidden: activity, node: sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked }) },
+      {
+        key: 'activity',
+        node: input === undefined || sessionId === undefined
+          ? null
+          : renderSlot('conversation.input.activity', { locked, onActiveChange: setActivity }),
+      },
     ]
     if (interruptible) {
       items.push({
@@ -411,7 +427,6 @@ export const InputBar = memo(function InputBar({
   // pins its group to the opposite edge. Measured against the row's content
   // box and the live control widths; a no-op setState guard keeps the
   // ResizeObserver feedback loop convergent.
-  const rowRef = useRef<HTMLDivElement | null>(null)
   const itemRefs = useRef(new Map<string, HTMLDivElement>())
   const [split, setSplit] = useState<{ wrapped: boolean; pinKey: string | null }>({ wrapped: false, pinKey: null })
   const measureSplit = useCallback(() => {
@@ -482,7 +497,7 @@ export const InputBar = memo(function InputBar({
         <Toast
           key={toast.seq}
           text={toast.text}
-          icon={<IconWarningOutline16 />}
+          icon={<IconWarningOutlineRegular />}
           anchor={cardRef.current}
           onDone={dismissToast}
         />
@@ -552,7 +567,12 @@ export const InputBar = memo(function InputBar({
                 if (el === null) itemRefs.current.delete(item.key)
                 else itemRefs.current.set(item.key, el)
               }}
-              className={clsx(css.tool, item.key === 'model' && css.toolModel)}
+              className={clsx(
+                css.tool,
+                item.key === 'model' && css.toolModel,
+                item.key === 'activity' && activity && css.toolActivity,
+              )}
+              hidden={item.hidden || undefined}
               style={{
                 order: toolbarItems.length - 1 - index,
                 // The measured overflow start absorbs its line's free width,
@@ -577,7 +597,7 @@ export const InputBar = memo(function InputBar({
         {variant === 'composer' && input !== undefined && sessionId !== undefined
           ? renderSlot('conversation.composer.dock', {})
           : null}
-        <ContextMeter useProjection={useProjection} t={t} />
+        {activity ? null : <ContextMeter useProjection={useProjection} t={t} />}
       </div>
     </div>
   )

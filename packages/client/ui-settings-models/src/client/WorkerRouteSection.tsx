@@ -10,7 +10,7 @@
 import { useEffect, useId, useSyncExternalStore } from 'react'
 import type { ModelCatalogModel, ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { en } from './locales.ts'
 import type { WorkerRouteCatalogState, WorkerRouteSettings } from './worker-route.ts'
 import styles from './ModelsSection.module.css'
@@ -18,7 +18,7 @@ import styles from './ModelsSection.module.css'
 /** Props of {@link WorkerRouteSection}. */
 export interface WorkerRouteSectionProps {
   /** Reactive handle over the Host worker-route namespace. */
-  scope: SettingsScope<WorkerRouteSettings>
+  scope: ConfigForm<WorkerRouteSettings>
   /** Shared model catalog the pickers are drawn from. */
   catalog: SnapshotStore<WorkerRouteCatalogState>
   /** Ensure the catalog is loaded. */

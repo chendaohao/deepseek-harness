@@ -31,7 +31,7 @@
       "path": "../web"
     },
     {
-      "path": "../locale"
+      "path": "../locale/tsconfig.client.json"
     },
     {
       "path": "../connection/tsconfig.host.json"

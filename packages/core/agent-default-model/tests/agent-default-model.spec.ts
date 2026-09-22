@@ -1,122 +1,69 @@
-/** Default Agent model settings layered over a real settings provider. */
-
-import { describe, expect, it } from 'vitest'
+/** Default model references remain live without a settings service. */
 import { Context } from '@deepseek-ai/cordis'
-import AgentDefaultModelConfig, { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '../src/index.ts'
-import { SettingsProvider } from '@deepseek-ai/dsh-settings'
-import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { expect, it, onTestFinished } from 'vitest'
+import DefaultModel from '../src/index.ts'
+import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 
-/** The smallest real provider: one in-memory document, always writable. */
-class MemorySettings extends SettingsProvider {
-  doc: Record<string, unknown> = {}
-
-  get writable(): boolean {
-    return true
-  }
-
-  protected load(): Promise<Record<string, unknown>> {
-    return Promise.resolve(structuredClone(this.doc))
-  }
-
-  protected persist(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
-    this.doc = { ...this.doc, [ns]: structuredClone(section) }
-    return Promise.resolve()
-  }
-}
-
-async function boot(): Promise<{
-  ctx: Context
-  settingsFiber: Context['fiber']
-  defaultModel: AgentDefaultModelConfig
-}> {
+it('reads complete selections from volatile config and clears omitted reasoning effort', async () => {
   const ctx = new Context()
-  const settingsFiber = ctx.plugin(MemorySettings)
-  await settingsFiber.await()
-  await ctx.plugin(AgentDefaultModelConfig, {
-    provider: 'deepseek-official',
-    model: 'deepseek-v4-flash',
+  onTestFinished(() => ctx.fiber.dispose())
+  const live = await liveConfig(ctx, DefaultModel, { provider: 'p', model: 'm' })
+  const consumer = ctx.agentDefaultModel
+  await live.update({ provider: 'q', model: 'n', reasoningEffort: 'high' })
+  expect(consumer.currentSelection()).toEqual({ provider: 'q', model: 'n', reasoningEffort: 'high' })
+  await live.replace({ provider: 'p', model: 'm' })
+  expect(consumer.currentSelection()).toEqual({ provider: 'p', model: 'm' })
+  await consumer.saveSelection({ provider: 'unsaved', model: 'unsaved' })
+  expect(consumer.currentSelection()).toEqual({ provider: 'p', model: 'm' })
+})
+
+it('persists complete selections through its owning profile entry', async () => {
+  const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
+  const { ReasoningEffortId } = await import('@deepseek-ai/dsh-llm')
+  const { ctx } = await configurationFixture({ hmr: false })
+  await ctx.agentDefaultModel.saveSelection({ provider: 'test', model: 'next', reasoningEffort: ReasoningEffortId('high') })
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'test', model: 'next', reasoningEffort: 'high' })
+  await ctx.agentDefaultModel.saveSelection({ provider: 'test', model: 'final' })
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'test', model: 'final' })
+  const standalone = new Context()
+  onTestFinished(() => standalone.fiber.dispose())
+  await standalone.plugin(DefaultModel, { provider: 'test', model: 'original' })
+  await standalone.agentDefaultModel.saveSelection({ provider: 'test', model: 'ignored' })
+  expect(standalone.agentDefaultModel.currentSelection().model).toBe('original')
+})
+
+it('layers a hand-written partial section over the entry', async () => {
+  const ctx = new Context()
+  onTestFinished(() => ctx.fiber.dispose())
+  const live = await liveConfig(ctx, DefaultModel, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+  await live.update({ model: 'deepseek-reasoner' })
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual({
+    provider: 'deepseek-official', model: 'deepseek-reasoner',
   })
-  return { ctx, settingsFiber, defaultModel: ctx.agentDefaultModel }
-}
+})
 
-describe('AgentDefaultModelConfig', () => {
-  it('resolves the user layer over the composition entry', async () => {
-    const bench = await boot()
-    expect(bench.defaultModel.currentSelection()).toEqual({
-      provider: 'deepseek-official', model: 'deepseek-v4-flash',
-    })
+it('remembers, reads, and forgets an explicit effort per exact model route', async () => {
+  const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
+  const { ctx } = await configurationFixture({ hmr: false })
+  const model = ctx.agentDefaultModel
+  expect(model.rememberedEffort('acme-gateway', 'acme-large')).toBeUndefined()
 
-    await bench.defaultModel.saveSelection({
-      provider: 'acme-gateway', model: 'acme-large', reasoningEffort: ReasoningEffortId('high'),
-    })
-    expect(bench.defaultModel.currentSelection()).toEqual({
-      provider: 'acme-gateway', model: 'acme-large', reasoningEffort: 'high',
-    })
-    await bench.ctx.fiber.dispose()
+  await model.rememberEffort('acme-gateway', 'acme-large', 'high')
+  expect(model.rememberedEffort('acme-gateway', 'acme-large')).toBe('high')
+  // Routes are keyed independently.
+  expect(model.rememberedEffort('acme-gateway', 'acme-plain')).toBeUndefined()
+
+  await model.forgetEffort('acme-gateway', 'acme-large')
+  expect(model.rememberedEffort('acme-gateway', 'acme-large')).toBeUndefined()
+})
+
+it('keeps the per-model memory when a selection write replaces the section', async () => {
+  const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
+  const { ReasoningEffortId } = await import('@deepseek-ai/dsh-llm')
+  const { ctx } = await configurationFixture({ hmr: false })
+  await ctx.agentDefaultModel.rememberEffort('acme-gateway', 'acme-large', 'high')
+  await ctx.agentDefaultModel.saveSelection({
+    provider: 'other-gateway', model: 'other-model', reasoningEffort: ReasoningEffortId('off'),
   })
-
-  it('clears a stored effort when the saved selection has none', async () => {
-    const bench = await boot()
-    await bench.defaultModel.saveSelection({
-      provider: 'acme-gateway', model: 'acme-large', reasoningEffort: ReasoningEffortId('high'),
-    })
-    await bench.defaultModel.saveSelection({ provider: 'acme-gateway', model: 'acme-plain' })
-    expect(bench.defaultModel.currentSelection()).toEqual({ provider: 'acme-gateway', model: 'acme-plain' })
-    await bench.ctx.fiber.dispose()
-  })
-
-  it('layers a hand-written partial section over the entry', async () => {
-    const bench = await boot()
-    await bench.settingsFiber.ctx.settings.replace(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, {
-      model: 'deepseek-reasoner',
-    })
-    expect(bench.defaultModel.currentSelection()).toEqual({
-      provider: 'deepseek-official', model: 'deepseek-reasoner',
-    })
-    await bench.ctx.fiber.dispose()
-  })
-
-  it('falls back to the composition entry when the settings provider detaches', async () => {
-    const bench = await boot()
-    await bench.defaultModel.saveSelection({ provider: 'acme-gateway', model: 'acme-large' })
-    expect(bench.defaultModel.currentSelection().provider).toBe('acme-gateway')
-    await bench.settingsFiber.dispose()
-    expect(bench.defaultModel.currentSelection()).toEqual({
-      provider: 'deepseek-official', model: 'deepseek-v4-flash',
-    })
-    await bench.ctx.fiber.dispose()
-  })
-
-  it('remembers, reads, and forgets an explicit effort per exact model route', async () => {
-    const bench = await boot()
-    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBeUndefined()
-
-    await bench.defaultModel.rememberEffort('acme-gateway', 'acme-large', 'high')
-    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('high')
-    // Routes are keyed independently.
-    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-plain')).toBeUndefined()
-
-    await bench.defaultModel.forgetEffort('acme-gateway', 'acme-large')
-    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBeUndefined()
-    await bench.ctx.fiber.dispose()
-  })
-
-  it('keeps the per-model memory when a selection write replaces the section', async () => {
-    const bench = await boot()
-    await bench.defaultModel.rememberEffort('acme-gateway', 'acme-large', 'high')
-    await bench.defaultModel.saveSelection({
-      provider: 'other-gateway', model: 'other-model', reasoningEffort: ReasoningEffortId('off'),
-    })
-    expect(bench.defaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('high')
-    await bench.ctx.fiber.dispose()
-  })
-
-  it('keeps the composition entry when no settings provider is mounted', async () => {
-    const ctx = new Context()
-    await ctx.plugin(AgentDefaultModelConfig, { provider: 'p', model: 'm' })
-    await ctx.agentDefaultModel.saveSelection({ provider: 'other', model: 'other' })
-    expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'p', model: 'm' })
-    await ctx.fiber.dispose()
-  })
+  expect(ctx.agentDefaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('high')
 })

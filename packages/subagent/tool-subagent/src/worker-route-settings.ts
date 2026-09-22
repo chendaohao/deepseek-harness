@@ -1,8 +1,9 @@
 /** Host-owned default LLM route for delegation children. */
 
+import type { Volatile } from '@deepseek-ai/cordis'
+
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type {} from '@deepseek-ai/dsh-settings'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 declare module '@deepseek-ai/cordis' {
@@ -12,8 +13,8 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** User-settings section for the default delegation child route. */
-export const SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE = 'subagent-worker-route'
+/** User-settings namespace for the default delegation child route. */
+export const SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE = 'subagent-worker-route-settings'
 
 /** Stored child route; a tool instance without the opt-in ignores it. */
 export interface SubagentWorkerRouteSettings {
@@ -25,26 +26,19 @@ export interface SubagentWorkerRouteSettings {
   reasoningEffort: ReturnType<typeof ReasoningEffortId>
 }
 
-/** Schema served to settings clients for the default child route. */
-export const SUBAGENT_WORKER_ROUTE_SETTINGS_SCHEMA: z<SubagentWorkerRouteSettings> = z.object({
-  provider: z.string().min(1).required(),
-  model: z.string().min(1).required(),
-  reasoningEffort: z.string().min(1).required() as z<ReturnType<typeof ReasoningEffortId>>,
-})
-
 /** Deployment base for the preference; every field is required. */
 export interface Config {
   /** Initial provider inherited when the user document does not override it. */
-  provider: string
+  provider: Volatile<string>
   /** Initial model inherited when the user document does not override it. */
-  model: string
+  model: Volatile<string>
   /** Initial reasoning effort inherited when the user document does not override it. */
-  reasoningEffort: string
+  reasoningEffort: Volatile<string>
 }
 
 /**
  * Reject a stored route the delegation path could not use.
- * @param value - the resolved section.
+ * @param value - the resolved route.
  * @throws when any field is empty.
  */
 function assertWorkerRoute(value: SubagentWorkerRouteSettings): void {
@@ -61,38 +55,14 @@ function assertWorkerRoute(value: SubagentWorkerRouteSettings): void {
  * preflight, which validates the provider, model, and effort together.
  */
 export class SubagentWorkerRouteConfig extends Service {
-  static Config: z<Config> = z.object({
-    provider: z.string().min(1).required(),
-    model: z.string().min(1).required(),
-    reasoningEffort: z.string().min(1).required(),
+  static Config = z.object({
+    provider: z.string().min(1).required().volatile(),
+    model: z.string().min(1).required().volatile(),
+    reasoningEffort: z.string().min(1).required().volatile(),
   })
 
-  private source: () => SubagentWorkerRouteSettings
-
-  constructor(ctx: Context, config: Config) {
+  constructor(ctx: Context, private config: Config) {
     super(ctx, 'subagentWorkerRoute')
-    const entry: SubagentWorkerRouteSettings = {
-      provider: config.provider,
-      model: config.model,
-      reasoningEffort: ReasoningEffortId(config.reasoningEffort),
-    }
-    this.validate(entry)
-    this.source = () => entry
-    ctx.inject(['settings'], (settingsCtx) => {
-      settingsCtx.settings.installSection(
-        ctx,
-        SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE,
-        SUBAGENT_WORKER_ROUTE_SETTINGS_SCHEMA,
-        entry,
-        {
-          setSource: (source) => { this.source = source },
-          validate: (value) => { this.validate(value) },
-          // The delegation tool reads this per call, so a settings update never
-          // needs to rebuild a definition.
-          onChange: () => {},
-        },
-      )
-    })
   }
 
   /**
@@ -100,11 +70,13 @@ export class SubagentWorkerRouteConfig extends Service {
    * @returns the configured route as a detached value.
    */
   current(): SubagentWorkerRouteSettings {
-    return { ...this.source() }
-  }
-
-  private validate(value: SubagentWorkerRouteSettings): void {
-    assertWorkerRoute(value)
+    const route: SubagentWorkerRouteSettings = {
+      provider: this.config.provider.get(),
+      model: this.config.model.get(),
+      reasoningEffort: ReasoningEffortId(this.config.reasoningEffort.get()),
+    }
+    assertWorkerRoute(route)
+    return route
   }
 }
 

@@ -8,8 +8,12 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
-/** Settings namespace owned by the Host worker-route settings plugin. */
-export const WORKER_ROUTE_SETTINGS_NAMESPACE = 'subagent-worker-route'
+/**
+ * Settings namespace owned by the Host worker-route settings plugin. Spelled
+ * here rather than imported: a client package must not depend on a Host
+ * package, and the namespace is the profile entry id that mounts it.
+ */
+export const WORKER_ROUTE_SETTINGS_NAMESPACE = 'subagent-worker-route-settings'
 
 /** Stored default child route, mirroring the Host section. */
 export interface WorkerRouteSettings {

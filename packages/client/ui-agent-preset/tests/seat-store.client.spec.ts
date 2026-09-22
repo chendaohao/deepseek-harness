@@ -125,9 +125,9 @@ describe('the agent-preset seat apply machinery', () => {
     controller.stage('minimal')
     const first = controller.apply()
     // The user re-picks mid-flight: the newer stage must survive the first
-    // apply's completion and land through the waiting call.
+    // apply's completion and land through the call that waits for it.
     controller.stage('cordis')
-    const second = controller.apply()
+    const second = controller.pendingApply()
     rig.pending[0]!.resolve(ok('minimal'))
     await first
     expect(rig.pending).toHaveLength(2)

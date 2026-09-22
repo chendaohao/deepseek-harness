@@ -104,6 +104,7 @@ export class SessionHistoryController {
       beforeSeq,
       request.maxMessages ?? DEFAULT_MAX_MESSAGES,
       throughSeq,
+      request.turnWindow,
     )
     const records = pageRecords(page.events)
     return {
@@ -201,7 +202,7 @@ export class SessionHistoryController {
         && request.afterSeq <= cursor
       const page = continued
         ? { events: events.slice(SessionLogOffset(request.afterSeq + 1), events.length), hasMore: true }
-        : paginate(events, undefined, request.maxMessages ?? DEFAULT_MAX_MESSAGES)
+        : paginate(events, undefined, request.maxMessages ?? DEFAULT_MAX_MESSAGES, cursor, request.turnWindow)
       const assistantStream = request.assistantStream === true
         ? this.assistantStreams.get(target)?.snapshot() ?? { revision: 0 }
         : undefined
@@ -338,17 +339,34 @@ function validatePageRequest(request: SessionPageRequest): void {
       || Object.is(request.beforeSeq, -0))) {
     throw new RemoteError('gateway/bad-request', 'beforeSeq must be a non-negative safe integer', {})
   }
+  validateHistoryWindow(request)
+}
+
+function validateHistoryWindow(request: Pick<SessionPageRequest, 'maxMessages' | 'turnWindow'>): void {
   if (request.maxMessages !== undefined
     && (!Number.isSafeInteger(request.maxMessages) || request.maxMessages <= 0)) {
     throw new RemoteError('gateway/bad-request', 'maxMessages must be a positive safe integer', {})
+  }
+  const window = request.turnWindow
+  if (window !== undefined) {
+    if (!Number.isSafeInteger(window.minMessages) || window.minMessages <= 0
+      || window.minMessages > (request.maxMessages ?? DEFAULT_MAX_MESSAGES)) {
+      throw new RemoteError('gateway/bad-request', 'turnWindow.minMessages must be a positive safe integer no greater than maxMessages', {})
+    }
+    if (!Number.isSafeInteger(window.minTurns) || window.minTurns <= 0) {
+      throw new RemoteError('gateway/bad-request', 'turnWindow.minTurns must be a positive safe integer', {})
+    }
   }
 }
 
+/**
+ * Validate one live-follow request: the history window plus the continuation
+ * cursor.
+ * @param request - the caller's follow request.
+ * @throws when any supplied field is malformed.
+ */
 function validateFollowRequest(request: SessionFollowRequest): void {
-  if (request.maxMessages !== undefined
-    && (!Number.isSafeInteger(request.maxMessages) || request.maxMessages <= 0)) {
-    throw new RemoteError('gateway/bad-request', 'maxMessages must be a positive safe integer', {})
-  }
+  validateHistoryWindow(request)
   // A malformed cursor is a caller defect, not a curve to fall back on: the
   // continuation branch itself answers an in-range cursor that is simply too
   // old with a complete snapshot.
@@ -396,7 +414,7 @@ function validateAddress(
       reason: 'unsupported',
     })
   }
-  if (identity.mode !== address.mode) {
+  if (address.mode !== 'unknown' && identity.mode !== address.mode) {
     throw new RemoteError('subagent/unauthorized', 'subagent mode does not match the supplied address', {
       childSessionId: address.childSessionId,
     })
@@ -417,13 +435,22 @@ function paginate(
   events: readonly SessionEvent[],
   beforeSeq: SessionLogOffsetType | undefined,
   maxMessages: number,
-  throughSeq: SessionSeqCursor = events.at(-1)?.seq ?? -1,
+  throughSeq: SessionSeqCursor,
+  turnWindow?: SessionPageRequest['turnWindow'],
 ): { readonly events: SessionEvent[]; readonly hasMore: boolean } {
   const end = SessionLogOffset(Math.min(throughSeq + 1, beforeSeq ?? throughSeq + 1))
   let count = 0
+  let turns = 0
   let cut = SessionLogOffset(0)
   for (let index = end - 1; index >= 0; index--) {
     const event = events[index] as SessionEvent
+    if (turnWindow !== undefined && event.type === 'turn/start') {
+      turns++
+      if (count >= turnWindow.minMessages && turns >= turnWindow.minTurns) {
+        cut = SessionLogOffset(index)
+        break
+      }
+    }
     if (!MESSAGE_TYPES.has(event.type) || !isAppendSurfaceEvent(event)) continue
     count++
     const sources = event.sourceEventSeqs

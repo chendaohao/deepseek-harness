@@ -35,9 +35,9 @@ export function stubWorkerRoute(): ModelsSectionInjected['workerRoute'] {
     scope: {
       getSnapshot: () => SNAPSHOT,
       subscribe: () => () => {},
-      mutate: () => Promise.resolve(),
-      set: () => Promise.resolve(),
-      unset: () => Promise.resolve(),
+      mutate: () => Promise.resolve(true),
+      set: () => Promise.resolve(true),
+      unset: () => Promise.resolve(true),
     },
     catalog: createSnapshotStore<WorkerRouteCatalogState>({ value: null, status: 'idle' }),
     loadCatalog: () => {},
