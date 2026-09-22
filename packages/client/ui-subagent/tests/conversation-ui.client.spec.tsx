@@ -462,6 +462,29 @@ describe('SubagentHeaderLineage', () => {
     expect(screen.getByRole('treeitem', { name: /interrupted.*123M tok · 6秒/ })).toBeTruthy()
   })
 
+  it('leads with active rows and keeps enumeration order within each group', () => {
+    // Durably enumerated oldest-first; the two running rows sit at the tail.
+    const entries = [
+      { kind: 'child' as const, id: 'old' as SessionId, mode: 'continuable' as const, label: 'old', activity: 'inactive' as const, hasChildren: false },
+      { kind: 'child' as const, id: 'new' as SessionId, mode: 'continuable' as const, label: 'new', activity: 'inactive' as const, hasChildren: false },
+      { kind: 'child' as const, id: 'live-a' as SessionId, mode: 'continuable' as const, label: 'live-a', activity: 'running' as const, hasChildren: false },
+      { kind: 'child' as const, id: 'live-b' as SessionId, mode: 'continuable' as const, label: 'live-b', activity: 'running' as const, hasChildren: false },
+    ]
+    render(<SubagentHeaderLineage {...props(catalog({ entries }), {}, {
+      [CHILD]: summary(CHILD, 1),
+    })} />)
+
+    hoverCatalog(screen.getByRole('button', { name: '4 个子代理' }))
+
+    const labels = screen.getAllByRole('treeitem').map(row => row.textContent)
+    // Active rows rise to the top in their own relative order; inactive rows
+    // keep the creation order the service returned beneath them.
+    expect(labels[0]).toContain('live-a')
+    expect(labels[1]).toContain('live-b')
+    expect(labels[2]).toContain('old')
+    expect(labels[3]).toContain('new')
+  })
+
   it('lazily expands and collapses descendant catalogs with direct-parent navigation', () => {
     const childCatalog = catalog({
       entries: [
@@ -513,7 +536,9 @@ describe('SubagentHeaderLineage', () => {
     const loadingRows = screen.getAllByRole('treeitem', { name: '正在加载子代理' })
     expect(loadingRows).toHaveLength(2)
     expect(loadingRows.every(row => row.getAttribute('aria-level') === '2')).toBe(true)
-    expect(loadingRows[1]?.querySelector('[data-state="ongoing"]')).not.toBeNull()
+    // Placeholders take the same active-first order as the catalog that
+    // replaces them, so the list does not reorder on arrival.
+    expect(loadingRows[0]?.querySelector('[data-state="ongoing"]')).not.toBeNull()
 
     const loading = props(catalog(), {
       [CHILD]: catalog({ entries: [], state: 'loading' }),

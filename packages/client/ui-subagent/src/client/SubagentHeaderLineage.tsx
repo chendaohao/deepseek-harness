@@ -67,6 +67,21 @@ function treeItems(root: HTMLDivElement | null): HTMLElement[] {
     : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
 }
 
+/** Whether one catalog entry is a child row the Agent registry reports as working. */
+function isActive(entry: CatalogEntry): boolean {
+  return entry.kind === 'child' && entry.activity === 'running'
+}
+
+/**
+ * Order one catalog level for display: active rows first, then the
+ * enumeration's own order within each group. A row that settles drops into
+ * the inactive block instead of jumping to an arbitrary position, so a large
+ * dispatch stays navigable without the list reshuffling on every activity change.
+ */
+function presentOrder(entries: readonly CatalogEntry[]): readonly CatalogEntry[] {
+  return [...entries.filter(isActive), ...entries.filter(entry => !isActive(entry))]
+}
+
 /** Compact token count shared in shape with the conversation stats strip. */
 function formatTokens(value: number, t: TranslateNS<typeof NS>): string {
   const scaled = (next: number): string => next >= 100
@@ -219,7 +234,13 @@ function CatalogLoadingRows({
     summary.origin === 'subagent' && summary.parentId === parentSessionId
   ))
   if (children.length === 0) return <div className={css.notice}>{t('loading.label')}</div>
-  return children.map(summary => (
+  // Order the placeholders the catalog will replace them with, so the list
+  // does not reorder the moment the authoritative entries land.
+  const ordered = [
+    ...children.filter(summary => summary.running),
+    ...children.filter(summary => !summary.running),
+  ]
+  return ordered.map(summary => (
     <div key={summary.id} className={css.node}>
       <div
         role="treeitem"
@@ -270,7 +291,7 @@ function CatalogRows({
           </button>
         </div>
       )}
-      {catalog.entries.map((entry) => {
+      {presentOrder(catalog.entries).map((entry) => {
         if (entry.kind === 'diagnostic') {
           const reason = diagnosticReason(entry, t)
           return (
