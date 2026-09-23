@@ -47,7 +47,9 @@ export type OpenInAppLaunch =
  * `install-record` reads the Windows Uninstall records and verifies the
  * executable they point at; `github-desktop` resolves GitHub Desktop's
  * versioned executable and packaged CLI together; `desktop` reads a Linux XDG
- * desktop entry and verifies its `TryExec`/`Exec` executable.
+ * desktop entry and verifies its `TryExec`/`Exec` executable;
+ * `windows-shell-open` resolves only where the Windows shell is this host's
+ * desktop, and launches through that shell's open verb.
  */
 export type OpenInAppLocator =
   | {
@@ -83,6 +85,14 @@ export type OpenInAppLocator =
   }
   | { readonly kind: 'github-desktop'; readonly root: string }
   | { readonly kind: 'desktop'; readonly desktopId: string; readonly args: readonly string[] }
+  /**
+   * The Windows shell's open verb, resolvable only where that shell owns this
+   * host's desktop — native Windows, or a WSL distribution reaching it. A host
+   * with its own desktop (macOS, a plain Linux session) resolves nothing, so a
+   * Linux spec can offer the Windows file manager without shadowing the host's
+   * own `filemanager` entry.
+   */
+  | { readonly kind: 'windows-shell-open' }
 
 /** One platform's launcher sources and, on Linux, its icon-owning desktop entry. */
 export interface OpenInAppPlatformSpec {
@@ -197,6 +207,12 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
         launch: { kind: 'shell-open' },
         iconPath: '${SystemRoot}/explorer.exe',
       }),
+      // A WSL host's desktop is Windows, but its own platform is linux, so the
+      // win32 spec above never applies there. The shell-open verb is what
+      // reaches Explorer from WSL: it translates the path through `wslpath`
+      // before handing it over. No icon — WSL serves icons from XDG desktop
+      // entries, and the Windows shell has none.
+      linux: spec({ kind: 'windows-shell-open' }),
     },
   },
   { id: 'filemanager', platforms: { linux: spec(desktopCli('xdg-open')) } },

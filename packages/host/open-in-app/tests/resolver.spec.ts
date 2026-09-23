@@ -19,6 +19,12 @@ import {
 
 const TIMEOUT_MS = 5_000
 
+/** Desktop Linux kernel release: the fact `isWsl` reads when no marker is set. */
+const DESKTOP_LINUX_RELEASE = '6.8.0-generic'
+
+/** WSL2 kernel release: a WSL host reports it even with a scrubbed environment. */
+const WSL_RELEASE = '5.15.90.1-microsoft-standard-WSL2'
+
 const roots: string[] = []
 
 afterEach(async () => {
@@ -52,9 +58,17 @@ function byId(id: string): OpenInAppApp {
   return app
 }
 
-/** Internals baseline every call completes: a rejecting runner and an empty PATH. */
+/**
+ * Internals baseline every call completes: a rejecting runner, an empty PATH,
+ * and a desktop Linux kernel release. Pinning the release keeps `isWsl` off the
+ * kernel of the machine running the spec, which would otherwise answer WSL from
+ * a developer's own WSL host.
+ */
 function bare(overrides: OpenInAppInternals): OpenInAppInternals {
-  return { env: {}, run: runner(() => null), resolveExecutable: pathTable(), ...overrides }
+  return {
+    env: {}, osRelease: DESKTOP_LINUX_RELEASE, run: runner(() => null), resolveExecutable: pathTable(),
+    ...overrides,
+  }
 }
 
 /** Hermetic Linux environment: XDG lookups stay inside the temp home. */
@@ -121,7 +135,7 @@ describe('resolveOpenInAppApps', () => {
     const home = await tempRoot()
     const run = vi.fn<NativeCommandRunner>()
     const map = await resolveOpenInAppApps(TIMEOUT_MS, {
-      platform: 'linux', home, env: { ...linuxEnv(home), DISPLAY: ':0' }, run,
+      platform: 'linux', osRelease: DESKTOP_LINUX_RELEASE, home, env: { ...linuxEnv(home), DISPLAY: ':0' }, run,
       resolveExecutable: pathTable({ 'xdg-open': '/usr/bin/xdg-open', code: '/usr/bin/code', ghostty: '/usr/bin/ghostty' }),
     })
     expect([...map.keys()]).toEqual(['filemanager', 'vscode', 'ghostty'])
@@ -194,6 +208,33 @@ describe('resolveLaunch locators', () => {
         launch: { kind: 'shell-open' },
         icon: { kind: 'app-bundle', path: '/System/Library/CoreServices/Finder.app' },
       })
+  })
+
+  it('resolves the Windows file manager on a WSL host, where that shell owns the desktop', async () => {
+    const home = await tempRoot()
+    await expect(resolveLaunch(byId('explorer'), TIMEOUT_MS, bare({
+      platform: 'linux', home, osRelease: WSL_RELEASE, env: linuxEnv(home),
+    }))).resolves.toEqual({ launch: { kind: 'shell-open' }, icon: undefined })
+    // The environment marker alone pins the fact when the kernel release does not.
+    await expect(resolveLaunch(byId('explorer'), TIMEOUT_MS, bare({
+      platform: 'linux', home, env: { ...linuxEnv(home), WSL_DISTRO_NAME: 'Ubuntu' },
+    }))).resolves.toEqual({ launch: { kind: 'shell-open' }, icon: undefined })
+  })
+
+  it('resolves no Windows file manager on a host whose own desktop is Linux', async () => {
+    const home = await tempRoot()
+    await expect(resolveLaunch(byId('explorer'), TIMEOUT_MS, bare({
+      platform: 'linux', home, env: { ...linuxEnv(home), DISPLAY: ':0' },
+    }))).resolves.toBeNull()
+  })
+
+  it('offers both file managers on a WSL host, the Windows one first in menu order', async () => {
+    const home = await tempRoot()
+    const map = await resolveOpenInAppApps(TIMEOUT_MS, bare({
+      platform: 'linux', home, osRelease: WSL_RELEASE, env: linuxEnv(home),
+      resolveExecutable: pathTable({ 'xdg-open': '/usr/bin/xdg-open' }),
+    }))
+    expect([...map.keys()]).toEqual(['explorer', 'filemanager'])
   })
 
   it('derives the Xcode bundle from xcode-select with the open -a fallback, rejecting non-bundle answers', async () => {

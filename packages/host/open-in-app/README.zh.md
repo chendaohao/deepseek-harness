@@ -77,7 +77,7 @@ Linux 桌面文件字段和图标使用共享的 [native-command](../../util/nat
 <details>
 <summary>实现内幕——点击展开</summary>
 
-本包拆为一张数据表与三个角色。[`src/catalog.ts`](src/catalog.ts) 是编译期表格：每个条目按平台的 locator 链（`fixed`、`app`、`xcode`、`cli`、`file`、`scan`、`app-paths`、`install-record`、`github-desktop`、`desktop`），以及 Linux 上拥有其图标的 desktop 条目 id。[`src/resolver.ts`](src/resolver.ts) 把表格解析到本机：一趟产出目录 id 到已验证启动的映射（主/回退 argv 加图标来源），共享一次批量的 Windows 注册表读取；argv 启动以清理过凭据的环境（`scrubbedParentEnv`）叠加适配器显式环境后 detached 派生，Windows GUI 默认保持可见，只有负责另行打开 GUI 的 CLI 适配器会隐藏自己的进程。`shell-open` 启动（文件管理器）在同一看护窗口下经 `dsh-native-command` 的路径打开器执行 OS shell 的 open verb，spawn 的 `ENOENT` 被归类为 `missing`，让路由能刷新失效条目。[`src/icons.ts`](src/icons.ts) 按平台提取图标：macOS 在解析出的 bundle 上跑 `plutil`/`sips`，Windows 在解析出的可执行文件上跑生成的 PowerShell `ExtractAssociatedIcon` 脚本（`-File` 位置参数让路径不经过命令行解析），Linux 走 desktop 条目/hicolor/pixmaps 的文件系统查找。
+本包拆为一张数据表与三个角色。[`src/catalog.ts`](src/catalog.ts) 是编译期表格：每个条目按平台的 locator 链（`fixed`、`app`、`xcode`、`cli`、`file`、`scan`、`app-paths`、`install-record`、`github-desktop`、`desktop`、`windows-shell-open`），以及 Linux 上拥有其图标的 desktop 条目 id。[`src/resolver.ts`](src/resolver.ts) 把表格解析到本机：一趟产出目录 id 到已验证启动的映射（主/回退 argv 加图标来源），共享一次批量的 Windows 注册表读取；argv 启动以清理过凭据的环境（`scrubbedParentEnv`）叠加适配器显式环境后 detached 派生，Windows GUI 默认保持可见，只有负责另行打开 GUI 的 CLI 适配器会隐藏自己的进程。`shell-open` 启动（文件管理器）在同一看护窗口下经 `dsh-native-command` 的路径打开器执行 OS shell 的 open verb，spawn 的 `ENOENT` 被归类为 `missing`，让路由能刷新失效条目。WSL 主机报告的 platform 是 `linux` 而桌面是 Windows，所以 `explorer` 声明了一条 linux 的 `windows-shell-open` locator：只有 Windows shell 拥有桌面的主机才解析它，并经由同一个 open verb 抵达资源管理器。[`src/icons.ts`](src/icons.ts) 按平台提取图标：macOS 在解析出的 bundle 上跑 `plutil`/`sips`，Windows 在解析出的可执行文件上跑生成的 PowerShell `ExtractAssociatedIcon` 脚本（`-File` 位置参数让路径不经过命令行解析），Linux 走 desktop 条目/hicolor/pixmaps 的文件系统查找。
 
 [`src/index.ts`](src/index.ts) 在 `ctx.webServer` 上注册三条路由：`GET /open-in-app/apps`（解析映射的 keys）、`GET /open-in-app/icon/<id>`（提取的图标，进程内内存缓存）、`POST /open-in-app/open`（直接使用映射中已验证的启动器——绝不重新检测）。每条路由都先向组合的 `connection` 服务询问是否拒绝；完整的信任叙述——Host/Origin 栅栏与浏览器认证——唯一的出处在 [`src/index.ts`](src/index.ts) 的模块注释。在该栅栏之上，open 路由在 wire 边界校验请求体：`application/json` 媒体类型、64 KiB 上限、解析为可用的目录 id、指向现存目录的绝对路径。解析与图标命令经 [`@deepseek-ai/dsh-native-command`](../../util/native-command/README.zh.md)（argv，绝不走 shell）在各自期限内执行；PATH 名称走 `ctx.subprocess.resolveExecutable()` 进程内解析。
 
@@ -111,7 +111,7 @@ Linux 桌面文件字段和图标使用共享的 [native-command](../../util/nat
 
 - **目录在构建期固定。** 部署无法从 cordis.yml 增加自己的编辑器或 Git GUI；扩展列表意味着同时扩展 `OPEN_IN_APP_CATALOG` 与浏览器包的词典。操作系统可以定位已知应用，但无法证明每个已安装应用都能接收 workspace 目录，也无法给出各应用需要的启动协议，因此本包不会无边界地枚举 OS 应用。可配置的 custom handler 仍然延后；其中由用户提供的 label 属于用户数据，不是 locale 拥有的产品文案。
 - **macOS 检测只查已知路径。** bundle 改名超出目录收录的拼写、或挪到 `/Applications` 与 `~/Applications` 之外就不会被检测；不做 Launch Services 查询（原生 LaunchServices/NSWorkspace 查询需要仓库尚无的 addon），也刻意不扫描磁盘。
-- **图标保真度受平台约束。** Windows 图标来自 32px 的 `ExtractAssociatedIcon`——不带原生 addon 时 .NET 标准面能给出的最大尺寸——在高分屏上可能略微发软；Linux 图标只查 hicolor 主题与 pixmaps，不追用户的自定义图标主题；若干条目（没有 desktop 条目的纯 CLI 启动器）没有图标来源，保持通用占位图形。
+- **图标保真度受平台约束。** Windows 图标来自 32px 的 `ExtractAssociatedIcon`——不带原生 addon 时 .NET 标准面能给出的最大尺寸——在高分屏上可能略微发软；Linux 图标只查 hicolor 主题与 pixmaps，不追用户的自定义图标主题；若干条目（没有 desktop 条目的纯 CLI 启动器）没有图标来源，保持通用占位图形；WSL 主机提供的 Windows 文件管理器也一样，它的 shell 没有 desktop 条目。
 - **新安装要重启后出现。** 解析每主机进程一次；只有卸载方向自愈（启动器缺失时当场只重解析该条目）。
 
 <a id="dev-note"></a>

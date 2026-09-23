@@ -32,6 +32,9 @@ let context: Context | undefined
 /** Answer the connection stub gives every route until a test changes it. */
 const trust: { rejection: 401 | 403 | undefined } = { rejection: undefined }
 
+/** Desktop Linux kernel release: the fact `isWsl` reads when no marker is set. */
+const DESKTOP_LINUX_RELEASE = '6.8.0-generic'
+
 afterEach(async () => {
   await context?.fiber.dispose()
   context = undefined
@@ -49,7 +52,9 @@ function pathTable(entries: Record<string, string> = {}): (name: string) => Prom
 
 /** Boot webserver + open-in-app rows through the real Loader. */
 async function boot(layers: readonly LaunchEnvironmentLayerInput[] = []): Promise<string> {
-  internals.catalog = { env: {}, ...internals.catalog }
+  // Pinning the kernel release keeps `isWsl` off the machine running the spec,
+  // which would otherwise answer WSL from a developer's own WSL host.
+  internals.catalog = { env: {}, osRelease: DESKTOP_LINUX_RELEASE, ...internals.catalog }
   root = await mkdtemp(join(tmpdir(), 'dsh-open-in-app-loader-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [

@@ -14,10 +14,11 @@
 
 import { spawn } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { homedir, platform as osPlatform } from 'node:os'
+import { homedir, platform as osPlatform, release as kernelRelease } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import {
-  canOpenNativePath, openNativePath, runNativeCommand, desktopEntryFields, desktopDataDirectories, type NativeCommandRunner,
+  canOpenNativePath, nativeFileManager, openNativePath, runNativeCommand,
+  desktopEntryFields, desktopDataDirectories, type NativeCommandRunner,
 } from '@deepseek-ai/dsh-native-command'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import {
@@ -98,6 +99,8 @@ export const launchDetachedApp: OpenInAppLauncher = (command, args, options) =>
 /** Injectable platform facts for deterministic tests. */
 export interface OpenInAppInternals {
   platform?: NodeJS.Platform
+  /** Kernel release distinguishing a WSL host from a desktop Linux session. */
+  osRelease?: string
   /** SSH launch fact from the inherited process layer, independent of `.env` values. */
   ssh?: boolean
   /** Bundle-directory roots replacing `/Applications` and `~/Applications`. */
@@ -115,6 +118,7 @@ export interface OpenInAppInternals {
 /** Platform facts after the one explicit defaulting step at each public entry. */
 export interface ResolvedInternals {
   platform: NodeJS.Platform
+  osRelease: string
   ssh: boolean
   applicationRoots: readonly string[]
   env: Readonly<Record<string, string | undefined>>
@@ -140,6 +144,7 @@ export function resolveInternals(internals: OpenInAppInternals): ResolvedInterna
   }
   return {
     platform: internals.platform ?? osPlatform(),
+    osRelease: internals.osRelease ?? kernelRelease(),
     ssh: internals.ssh ?? false,
     applicationRoots: internals.applicationRoots ?? ['/Applications', join(home, 'Applications')],
     env: internals.env ?? process.env,
@@ -458,6 +463,18 @@ function executableIcon(path: string, internals: ResolvedInternals): OpenInAppIc
   return internals.platform === 'win32' ? { kind: 'executable', path } : undefined
 }
 
+/**
+ * Whether the Windows shell owns this host's desktop: native Windows, or a WSL
+ * distribution reaching it. An entry offering Windows software from a `linux`
+ * platform resolves only here, so every other Linux session keeps its own
+ * desktop entries without a Windows one shadowing them.
+ */
+function windowsDesktop(internals: ResolvedInternals): boolean {
+  return nativeFileManager({
+    platform: internals.platform, osRelease: internals.osRelease, env: { ...internals.env },
+  }) === 'explorer'
+}
+
 /** Resolve one locator to a verified launch, or null when it proves nothing. */
 async function locate(
   locator: OpenInAppLocator,
@@ -506,6 +523,7 @@ async function locate(
     case 'cli': {
       if (locator.requiresDesktop === true && !canOpenNativePath({
         platform: internals.platform,
+        osRelease: internals.osRelease,
         env: { ...internals.env },
       })) return null
       const found = await internals.resolveExecutable(locator.name)
@@ -595,6 +613,11 @@ async function locate(
       if (entry === null) return null
       const launcher = await desktopLauncher(entry, internals)
       return launcher === null ? null : { launch: { kind: 'argv', command: launcher, args: locator.args } }
+    }
+    case 'windows-shell-open': {
+      // No icon claim: the icon route follows the spec's XDG desktop entry on
+      // every linux host, and the Windows shell owns none.
+      return windowsDesktop(internals) ? { launch: { kind: 'shell-open' } } : null
     }
     /* v8 ignore next -- closed locator union */
     default: return assertNever(locator)
@@ -687,7 +710,7 @@ function runShellOpen(
   path: string, watchMs: number, internals: ResolvedInternals,
 ): Promise<OpenInAppLaunchOutcome> {
   const opening = openNativePath(path, new AbortController().signal, {
-    platform: internals.platform, run: internals.run, env: internals.env,
+    platform: internals.platform, osRelease: internals.osRelease, run: internals.run, env: internals.env,
   })
   return new Promise((resolve) => {
     const watch = setTimeout(() => {
