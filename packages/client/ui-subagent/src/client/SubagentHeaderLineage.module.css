@@ -30,6 +30,12 @@
   gap: 4px;
 }
 
+/* A narrow header shrinks this flex item; without nowrap the count wraps
+   between characters and doubles the header row's height. */
+.count {
+  white-space: nowrap;
+}
+
 .switcherTrigger {
   gap: 4px;
   min-width: 0;
