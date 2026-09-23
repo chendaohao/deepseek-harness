@@ -1,7 +1,8 @@
 /**
  * Models settings section: the provider rows joined from the configurable
  * directory, settings namespaces, and credential states, with one editor
- * card at a time. Rows expose only confirmed API-key state through accessible
+ * card at a time. The official DeepSeek provider appears first; other rows
+ * retain directory order. Rows expose only confirmed API-key state through accessible
  * solid configured or missing dots. A whole-section provider without a
  * configured key renders as its open setup card instead of a row, but only in
  * the first-run posture — no provider on the page can serve requests yet — and
@@ -23,8 +24,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  applyProviderOrder, Button, IconGripVerticalOutlineRegular, IconPlusOutlineRegular, Modal, SegmentedControl,
-  writeProviderOrder,
+  applyProviderOrder, Button, IconGripVerticalOutlineRegular, IconPlusOutlineRegular, Modal, readProviderOrder,
+  SegmentedControl, writeProviderOrder,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
@@ -543,11 +544,16 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // step: whether the user already has a provider to talk to.
   const anyUsable = state.rows.some(providerUsable)
   const configuredRows = state.rows.filter(row => row.configured)
-  // The drop's own order outranks the directory until the reload that confirms
-  // it lands; both read the same per-device preference, so they agree.
-  const configured = pendingOrder === undefined
-    ? configuredRows
-    : applyProviderOrder(configuredRows, pendingOrder, row => row.entry.provider)
+  // The provider to talk to leads until a saved per-device order overrides it;
+  // the drop's own order outranks both until the reload confirming it lands.
+  const defaultOrder = [...configuredRows].sort((left, right) => (
+    Number(right.entry.provider === 'deepseek-official') - Number(left.entry.provider === 'deepseek-official')
+  ))
+  const configured = applyProviderOrder(
+    defaultOrder,
+    pendingOrder ?? readProviderOrder(),
+    row => row.entry.provider,
+  )
   const configurable = state.rows.filter(row => state.namespaces.has(row.entry.settingsNs))
   const addable: AddableRow[] = state.rows.flatMap((row) => {
     const namespace = state.namespaces.get(row.entry.settingsNs)

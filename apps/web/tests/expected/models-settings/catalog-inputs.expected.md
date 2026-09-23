@@ -11,15 +11,13 @@
   - paragraph: 填入各提供商的 API 密钥即可使用其模型。
   - list:
     - listitem:
-      - button "拖动排序":
-        - img
+      - button "拖动排序"
       - text: minimax-cn
       - img "API 密钥已配置"
       - button "编辑 minimax-cn": 编辑
       - button "删除 minimax-cn": 删除
     - listitem:
-      - button "拖动排序":
-        - img
+      - button "拖动排序"
       - text: openai
       - button "编辑 openai": 编辑
       - button "删除 openai": 删除
@@ -60,8 +58,7 @@
       - button "取消"
       - button "保存"
     - listitem:
-      - button "拖动排序":
-        - img
+      - button "拖动排序"
       - text: Acme 网关 自定义
       - button "编辑 Acme 网关 (acme-gateway)": 编辑
       - button "删除 Acme 网关 (acme-gateway)": 删除

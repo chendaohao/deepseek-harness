@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-promote-open-anywhere-plugin.md
-2026-08-25-promote-open-anywhere-plugin.md: dd00836add3a3e9cb61ada9e708478d0b32ede3b
-2026-08-25-promote-open-anywhere-plugin.zh.md: 5c009758cc3b3bdfa3d597ecca860703b5cc8086
+2026-08-25-promote-open-anywhere-plugin.md: 9ff37b7dcff815e81d835461048015c20ac3ba94
+2026-08-25-promote-open-anywhere-plugin.zh.md: 10e1647d9163569deaf4641200050ca7e99502fc

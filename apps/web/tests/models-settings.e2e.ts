@@ -14,8 +14,8 @@
 // never shadow the derived reference. The deletion dialog distinguishes a
 // reference-free profile from a page-managed key before the credential and
 // settings unsets reach the wire. A discovered candidate's accessible name is
-// its display name followed by the modality badge, so locating one by role
-// takes a substring match rather than `exact`.
+// its id, followed by the modality badge when it declares image input, so
+// locating one by role accounts for that trailing badge.
 import { assertModelInputLayout } from './model-input-layout.ts'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -400,9 +400,9 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
       const picker = page.getByRole('dialog', { name: '选择要添加的模型' })
       await picker.getByRole('button', { name: '取消全选' }).click()
       await picker.getByRole('searchbox', { name: '搜索模型' }).fill('gpt-6-astra')
-      // The fork renders the modality badge inside the candidate label, so the
-      // accessible name carries it beside the model name.
-      await picker.getByRole('checkbox', { name: /GPT-6 Astra/ }).check()
+      // The candidate's accessible name is its id followed by the modality
+      // badge when the adapter declares image input, so match the id loosely.
+      await picker.getByRole('checkbox', { name: /gpt-6-astra/ }).check()
       await picker.getByRole('button', { name: '添加所选' }).click()
       await dialog.getByRole('button', { name: '模型选项 1' }).click()
       expect(await image.isChecked()).toBe(true)
@@ -456,7 +456,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
     await dialog.getByRole('button', { name: '模型' }).click()
-    await dialog.getByText('填入各提供方的 API 密钥即可使用其模型。').waitFor({ timeout: 10_000 })
+    await dialog.getByText('填入各提供商的 API 密钥即可使用其模型。').waitFor({ timeout: 10_000 })
 
     // The block reads the Host `subagent-worker-route` namespace, whose
     // composition base is the deployment fallback the user's route overrides.

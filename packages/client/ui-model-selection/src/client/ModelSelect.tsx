@@ -217,6 +217,7 @@ export function ModelSelect(
   if (!available) return null
 
   const show = (): void => {
+    triggerRef.current?.focus()
     setPane('root')
     setQuery('')
     setCollapsed(new Set())
@@ -332,6 +333,8 @@ export function ModelSelect(
       return
     }
     lastActionRef.current = 'select'
+    // Disabled option rows cannot retain focus while a selection is pending.
+    triggerRef.current?.focus()
     void select(selection).then((result) => {
       if (result?.ok === true) record({ provider: selection.provider, model: selection.model })
       settleSelection(result)
@@ -352,6 +355,7 @@ export function ModelSelect(
     // Explicit, even for the provider-default row: an omitted effort here
     // must clear the remembered one, not read as a plain model switch.
     lastActionRef.current = 'select'
+    triggerRef.current?.focus()
     void select(selection, true).then((result) => {
       if (result === undefined || !result.ok) {
         settleSelection(result)
@@ -421,7 +425,16 @@ export function ModelSelect(
   }
 
   return (
-    <div ref={rootRef} className={css.root} onKeyDown={onRootKeyDown} onBlur={onBlur}>
+    <div
+      ref={rootRef}
+      className={css.root}
+      onKeyDown={onRootKeyDown}
+      onBlur={onBlur}
+      onMouseDown={(event) => {
+        // WebKit blurs a focused row before click unless the button's mousedown keeps focus.
+        if (event.target instanceof Element && event.target.closest('button') !== null) event.preventDefault()
+      }}
+    >
       <button
         ref={triggerRef}
         type="button"
@@ -434,7 +447,7 @@ export function ModelSelect(
         disabled={locked}
         onClick={() => {
           if (open) {
-            close()
+            close(true)
           } else {
             show()
           }

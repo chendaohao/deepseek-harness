@@ -12,8 +12,7 @@
   - status: 已保存 minimax-cn。
   - list:
     - listitem:
-      - button "拖动排序":
-        - img
+      - button "拖动排序"
       - text: minimax-cn
       - img "API 密钥已配置"
       - button "编辑 minimax-cn": 编辑
