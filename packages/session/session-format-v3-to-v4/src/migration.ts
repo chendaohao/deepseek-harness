@@ -6,7 +6,7 @@ import { assertReleasedV3Header } from '@deepseek-ai/dsh-session-format-v2-to-v3
 import { mapEventMessages, rewriteV3MessageSource } from './sources.ts'
 import { liftToolResult } from './tool-role.ts'
 import { migrateV3EventContent } from './content.ts'
-import { namespaceV3OpaqueEvent, RELEASED_V3_EVENT_TYPES } from './extension-identities.ts'
+import { namespaceV3OpaqueEvent, DROPPED_V3_EVENT_TYPES, RELEASED_V3_EVENT_TYPES } from './extension-identities.ts'
 import { assertReleasedV4Header, validateDeliveryAccepted } from './validation.ts'
 import { catalogFact, childCatalogSource, childCatalogFact, childCatalogSubject } from './facts.ts'
 import { remapV3References } from './references.ts'
@@ -64,6 +64,14 @@ class ReleasedV3ToV4Stage implements SessionFormatMigrationStage {
 
   transformEvent(event: SessionFormatEvent, context: SessionFormatMigrationContext): void {
     if (event.seq !== this.mapping.length) throw new SessionFormatError('V3 source events must be dense')
+    if (DROPPED_V3_EVENT_TYPES.has(event.type)) {
+      // Consume no target sequence and emit nothing: the mapping still advances
+      // so the next event's density check holds, and the dropped event's own
+      // mapping entry is never read because no event cites a log-only type.
+      this.mapping.push(this.nextSeq)
+      this.time = event.time
+      return
+    }
     const interrupted = this.observeRestart(event)
     if (interrupted !== undefined) {
       context.emitEvent({ type: 'turn/end', seq: this.nextSeq++, time: event.time,

@@ -232,28 +232,39 @@ export class SettingsForms extends Service {
     const ctx = ownerContext
     ctx.effect(() => () => { this.closed = true })
     ctx.on('app-boot/config-reload', () => { this.invalidate() })
-    void ctx.root.loader.await().then(() => this.importLegacyDocument()).catch((error: unknown) => { ctx.logger.error(error) })
+    // `update` writes through `configEditor`, so the import must not start before the Loader has settled that
+    // service; waiting only on the Loader leaves the first writes racing an inactive context.
+    void ctx.root.loader.await()
+      .then(() => ctx.inject(['configEditor'], () => this.importLegacyDocument()))
+      .catch((error: unknown) => { ctx.logger.error(error) })
   }
 
   /** Move the sections of the removed `settings.yaml` into the active profile once the Loader has settled every entry.
-   * The document is renamed before the first write, so a partial import never repeats; a section the running
-   * composition rejects is logged and remains only in the renamed file. */
+   * The document is renamed only after every section was imported, so a run that cannot write leaves it for the
+   * next boot; a section the running composition rejects is logged and stays in the file until the whole document
+   * imports. */
   private async importLegacyDocument(): Promise<void> {
     const profile = this.ownerContext.profileContext
     const path = join(profile.home, 'settings.yaml')
     if (!existsSync(path)) return
     const imported = `${path}.imported`
-    await rename(path, imported)
-    const sections = parse(await readFile(imported, 'utf8')) as Record<string, object> | null
+    const sections = parse(await readFile(path, 'utf8')) as Record<string, object> | null
+    let complete = true
     for (const [section, values] of Object.entries(sections ?? {})) {
       const ns = LEGACY_SECTION_ENTRIES[section] ?? section
       try {
         await this.update(ns, values)
       } catch (error) {
-        this.ownerContext.logger.warn('settings: section %s of %s was not imported into entry %s', section, imported, ns)
+        complete = false
+        this.ownerContext.logger.warn('settings: section %s of %s was not imported into entry %s', section, path, ns)
         this.ownerContext.logger.warn(error)
       }
     }
+    if (!complete) {
+      this.ownerContext.logger.warn('settings: kept %s for the next boot because not every section was imported', path)
+      return
+    }
+    await rename(path, imported)
     this.ownerContext.logger.info('settings: imported %s into profile %s', imported, profile.name)
   }
 

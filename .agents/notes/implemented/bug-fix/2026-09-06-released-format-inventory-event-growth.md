@@ -28,6 +28,7 @@ The refusal policy itself is unchanged: [released format migrations](../architec
 
 - Stored pinned v0 sessions migrate: the source generation stays byte- and inode-identical while the v2 successor publishes beside it. Event growth inside a format version no longer bricks migration when the growth lands in the inventory.
 - Adding a `SessionEventMap` member without extending the current era's inventory now fails `pnpm test` instead of production loading. The gate moves with the era, so freezing a new edge must retarget it.
+- Pin state does not reach V4: [the drop decision](../architecture/2026-09-23-drop-abandoned-v3-pin-events.md) supersedes this rule for `session/pin` at the V3-to-V4 edge.
 - The migration path now enforces the boolean `pinned` payload for historical logs, not only for fresh appends.
 
 ## Testing

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session'
-import { RELEASED_V2_EVENT_TYPES } from '@deepseek-ai/dsh-session-format-v1-to-v2'
+import { RELEASED_V3_EVENT_TYPES } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import type { SessionFormatEvent } from '@deepseek-ai/dsh-session-format'
 import { createSessionFormatCatalogWithChildren, historicalSessionFormatCatalog, sessionFormatCatalog } from '../src/index.ts'
 import { currentSessionMessageProjections } from '../src/message-projections.ts'
@@ -93,24 +93,24 @@ describe('first-party Session format catalog', () => {
     }])
   })
 
-  it('admits every installed event type through the newest released inventory or the V3 known predicate', () => {
-    // The V3 edge names the PTC successors explicitly in assertV3Event, so the
-    // released-V2 inventory alone does not have to carry them. A type added
-    // after that inventory was frozen rides the installed known-type predicate
-    // instead and is acknowledged here.
-    const v3Explicit = new Set(['tool/ptc-dispatch', 'tool/ptc-dispatch-start'])
-    const postInventory = new Set(['deliverables/presented', 'subagent/catalog'])
+  it('admits every installed event type through the newest released inventory', () => {
+    // Two exemptions, both named here so any other addition must extend the
+    // newest released inventory instead of landing on this list:
+    // `developer/message` is introduced by the current format, and
+    // `session/pin` is the abandoned type the v3-to-v4 edge drops.
+    const currentFormatIntroduced = new Set(['developer/message'])
+    const abandoned = new Set(['session/pin'])
     expect(
       [...KNOWN_SESSION_EVENT_TYPES].filter(type => (
-        !RELEASED_V2_EVENT_TYPES.includes(type)
-        && !v3Explicit.has(type)
-        && !postInventory.has(type)
+        !RELEASED_V3_EVENT_TYPES.has(type)
+        && !currentFormatIntroduced.has(type)
+        && !abandoned.has(type)
       )),
       'a SessionEventMap member is missing from the newest released inventory; acknowledge it here or extend that inventory',
-    ).toEqual(['system/message'])
+    ).toEqual([])
   })
 
-  it('migrates a v0 log with session/pin events through the complete chain', () => {
+  it('drops session/pin events carried from a v0 log before the chain reaches V4', () => {
     const header = {
       type: 'session', version: 0, id: 'pinned-era', createdAt: 1, delegationDepth: 0,
     }
@@ -121,20 +121,35 @@ describe('first-party Session format catalog', () => {
       { type: 'turn/end', seq: 3, time: 4, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
 
-    const restore = sessionFormatCatalog.createRestore(header, {
+    const restore = createSessionFormatCatalogWithChildren([]).createRestore(header, {
       recovery: 'strict', validation: 'current',
     })
     for (const row of rows) restore.decodeRow(row)
     const migrated = restore.finish()
-    expect(migrated.header.version).toBe(3)
-    expect(migrated.events.filter(event => event.type === 'session/pin')).toEqual([
+    expect(migrated.header.version).toBe(4)
+    // The v0-to-v1 edge still validates the payload; the v3-to-v4 edge is where
+    // the abandoned type leaves the log, so no pin row reaches V4.
+    expect(migrated.events.filter(event => event.type === 'session/pin')).toEqual([])
+  })
+
+  it('drops session/pin events when migrating a v3 log through the complete chain', () => {
+    const header = {
+      type: 'session', version: 3, id: 'pinned-v3', createdAt: 1, isSeeded: false, delegationDepth: 0,
+    }
+    const rows = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'session/pin', seq: 1, time: 2, data: { pinned: true } },
-      { type: 'session/pin', seq: 2, time: 3, data: { pinned: false } },
-    ])
-    // No system head is inserted: the v0 log has no request/header system text
-    // and every step boundary sits inside one turn, so V3 keeps the pin rows
-    // as the only non-surface events.
-    expect(migrated.events.filter(event => event.type === 'system/message')).toEqual([])
+      { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+
+    const restore = createSessionFormatCatalogWithChildren([]).createRestore(header, {
+      recovery: 'strict', validation: 'current',
+    })
+    for (const row of rows) restore.decodeRow(row)
+    const migrated = restore.finish()
+    expect(migrated.header.version).toBe(4)
+    expect(migrated.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+    expect(migrated.events.map(event => event.seq)).toEqual([0, 1])
   })
 
   it.each([0, 1])('restores v%i empty and non-empty inherited prefixes through every adjacent edge', (version) => {

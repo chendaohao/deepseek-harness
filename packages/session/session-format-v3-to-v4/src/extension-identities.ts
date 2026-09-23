@@ -68,6 +68,22 @@ export const RELEASED_V3_EVENT_TYPES: ReadonlySet<string> = new Set([
 /* jscpd:ignore-end */
 
 /**
+ * V3 event types this build drops instead of carrying into V4: emitted by a
+ * fork plugin, outside the released V3 vocabulary, and abandoned rather than
+ * migrated. Each dropped event consumes no target sequence, so the V4 log
+ * stays dense without renumbering the events that follow it.
+ *
+ * A historical format edge otherwise refuses every event it cannot carry,
+ * because an unknown payload may hold references the edge cannot validate.
+ * These types are log-only and cited by no other event, which is what makes
+ * omission lossless for the Session. See
+ * `.agents/notes/implemented/architecture/2026-09-23-drop-abandoned-v3-pin-events.md`.
+ */
+export const DROPPED_V3_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'session/pin',
+])
+
+/**
  * Keep unknown ignorable events opaque after header promotion.
  * @param event - original V3 event; this incoming identity conversion is applied once.
  * @returns the same event or an ignorable namespaced event retaining its payload and coordinates.

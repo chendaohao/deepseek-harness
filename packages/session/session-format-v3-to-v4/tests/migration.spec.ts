@@ -73,6 +73,35 @@ describe('V3 to V4 source preservation', () => {
     expect(restore([ignorable]).events).toEqual([{ ...ignorable, type: 'plugin:external/required' }])
   })
 
+  it('drops an abandoned V3 plugin event and keeps the surrounding coordinates dense', () => {
+    const rows: SessionFormatEvent[] = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+      { type: 'session/pin', seq: 2, time: 3, data: { pinned: true } },
+      { type: 'step/end', seq: 3, time: 4, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 4, time: 5, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const before = structuredClone(rows)
+    const migrated = migrate(rows).events
+    expect(migrated.map(event => event.type))
+      .toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
+    expect(migrated.map(event => event.seq)).toEqual([0, 1, 2, 3])
+    expect(migrated[2]).toEqual({ ...rows[3], seq: 2 })
+    expect(restore(rows).events).toEqual(migrated)
+    expect(rows).toEqual(before)
+  })
+
+  it('drops a trailing V3 plugin event and still reopens the migrated artifact', () => {
+    const rows: SessionFormatEvent[] = [fact, { type: 'session/pin', seq: 1, time: 3, data: { pinned: false } }]
+    const migrated = migrate(rows).events
+    expect(migrated).toEqual([fact])
+    const reopened = sessionFormatCatalog.createRestore(sessionFormatCatalog.encodeCurrentHeader({ ...header, version: 4 }, 0), {
+      recovery: 'strict', validation: 'current',
+    })
+    for (const event of migrated) reopened.decodeRow(sessionFormatCatalog.encodeCurrentEvent(event))
+    expect(reopened.finish().events).toEqual(migrated)
+  })
+
   it('changes only the header version and retains event objects, payloads, timestamps, and coordinates', () => {
     const rows = [fact, delivery(3)]
     const before = JSON.stringify({ header, rows })

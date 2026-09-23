@@ -28,6 +28,7 @@ Status: implemented
 
 - 携带 pin 的 v0 存量会话可以迁移：源世代保持字节与 inode 不变，v2 后继世代在其旁发布。格式版本内的事件增长只要落入清单，就不再卡死迁移。
 - 新增 `SessionEventMap` 成员而不扩展当前时代清单，现在会让 `pnpm test` 失败，而不是让生产加载失败。门禁随时代移动，冻结新边时必须同步改指。
+- pin 状态不会到达 V4：[丢弃决策](../architecture/2026-09-23-drop-abandoned-v3-pin-events.zh.md) 在 V3→V4 边上就 `session/pin` 取代了本规则。
 - 迁移路径现在对历史日志也强制布尔 `pinned` payload，而不只对新增追加生效。
 
 ## 测试
