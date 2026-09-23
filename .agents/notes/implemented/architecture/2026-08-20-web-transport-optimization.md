@@ -37,11 +37,11 @@ A service worker (`apps/web/public/sw.js`, registered from `main.ts` on http(s) 
 - First load drops from ~5.8 MB to roughly 1.5-1.8 MB on modern browsers (brotli); repeat loads cost only the index revalidation round-trip (~100 bytes) until a plugin set or shell changes.
 - Compression costs a little CPU per request (brotli at default quality is fast on modern Node); the 1 KiB threshold and the MIME/status gates keep tiny and binary responses off the codec path. `compression: 'none'` remains for reverse proxies that compress themselves.
 - The service worker adds a first-visit install step and cache-management surface; failures degrade to the plain network path (registration failures only warn).
-- The webserver facade defers header commitment until the first body write; handlers that call `flushHeaders()` before writing a body pin the response to identity (headers are already on the wire) — documented on the function.
+- The webserver facade defers header commitment until the first body write; handlers that call `flushHeaders()` before writing a body pin the response to identity (headers are already on the wire) — documented on the function. Its `statusCode` accessor and `writeHead` both feed that deferred commit, so a handler that refuses by assigning `statusCode` keeps its status instead of being served as 200.
 - Keep-alive rises from 5 s to 30 s by default: fewer re-handshakes on flaky mobile links, at the cost of more idle sockets on the server; deployments behind an aggressive proxy can lower `keepAliveTimeoutMs`.
 
 ## Testing
 
-- `packages/host/webserver/tests/compress.spec.ts` (real Loader composition, raw-socket reads): brotli/gzip negotiation, threshold, MIME and SSE gating, content-length removal, Vary, identity paths.
+- `packages/host/webserver/tests/compress.spec.ts` (real Loader composition, raw-socket reads): brotli/gzip negotiation, threshold, MIME and SSE gating, content-length removal, Vary, identity paths, and a status a handler assigned through `statusCode`.
 - `frontend-static` composition spec covers the cache headers and 304 on the existing fixtures; `client-modules` node-half spec asserts the immutable plugin-bundle headers and the preload hints.
 - The webserver and connection downlink suites stay green unchanged (compression is transparent to routes; deflate is negotiated per connection).

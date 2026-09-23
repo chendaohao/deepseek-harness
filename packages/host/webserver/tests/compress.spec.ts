@@ -135,6 +135,18 @@ async function loadComposition(compression: string): Promise<Context> {
       res.end(JSON.stringify({ ok: true, pad: 'z'.repeat(2048) }))
     },
   })
+  // A refusal that assigns statusCode rather than calling writeHead — the shape
+  // every sendJson-style helper and the connection fence use — must reach the
+  // wire as that status, and the compression decision must see it too.
+  server.register({
+    kind: 'exact',
+    path: '/refuse',
+    handler: (_req, res) => {
+      res.statusCode = 404
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ code: 'not-found', pad: 'n'.repeat(2048) }))
+    },
+  })
   return context
 }
 
@@ -299,6 +311,16 @@ describe('compression negotiation and gating', () => {
     expect(got.headers['content-encoding']).toBe('br')
     expect(JSON.parse(brotliDecompressSync(got.bytes).toString())).toEqual({ ok: true, pad: 'z'.repeat(2048) })
   })
+
+  it('serves the status a handler assigned through statusCode', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition('auto')
+    const got = await raw(loaded.webServer.port, '/refuse', { 'accept-encoding': 'br' })
+    expect(got.status).toBe(404)
+    // The decision sees the assigned status too: a 404 body is compressible.
+    expect(got.headers['content-encoding']).toBe('br')
+    expect(JSON.parse(brotliDecompressSync(got.bytes).toString()))
+      .toEqual({ code: 'not-found', pad: 'n'.repeat(2048) })
+  })
 })
 
 /** Identity-path stand-in for the response the facade wraps: it records the
@@ -306,7 +328,10 @@ describe('compression negotiation and gating', () => {
 class StandInResponse {
   readonly committedHeaders: Record<string, string | string[] | number> = {}
   readonly appended: Array<[string, string | readonly string[]]> = []
-  writeHead(_status: number, headers: Record<string, string | string[] | number>): this {
+  /** Status the facade committed, or undefined before the first commit. */
+  committedStatus: number | undefined
+  writeHead(status: number, headers: Record<string, string | string[] | number>): this {
+    this.committedStatus = status
     Object.assign(this.committedHeaders, headers)
     return this
   }
@@ -343,5 +368,15 @@ describe('compression facade header surface', () => {
     facade.write('body')
     facade.appendHeader('set-cookie', 'dsh=late; Path=/')
     expect(standIn.appended).toEqual([['set-cookie', 'dsh=late; Path=/']])
+  })
+
+  it('commits a status assigned through statusCode, not only through writeHead', () => {
+    const standIn = new StandInResponse()
+    const facade = maybeCompressResponse(standIn as unknown as ServerResponse, 'br', 1024)
+    facade.statusCode = 404
+    // A handler that reads the status back sees what it assigned.
+    expect(facade.statusCode).toBe(404)
+    facade.end('gone')
+    expect(standIn.committedStatus).toBe(404)
   })
 })

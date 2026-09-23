@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-20-web-transport-optimization.md
-2026-08-20-web-transport-optimization.md: d00d8187070aa1167cd7d26ac5ddd045eb3d9916
-2026-08-20-web-transport-optimization.zh.md: a12acf20a4e25c496fe8fde28b81afb74b8e160c
+2026-08-20-web-transport-optimization.md: 1eecd648db57109c0d3d4930d31fd65fcd54c305
+2026-08-20-web-transport-optimization.zh.md: 742dd4c078247639b4cc41dda3c719d27c821e45

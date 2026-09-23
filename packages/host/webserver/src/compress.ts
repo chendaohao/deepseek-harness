@@ -182,7 +182,16 @@ export function maybeCompressResponse(
   // literal stays loose (methods typed by the parameter lists below) and the
   // final cast bridges the interface's exact overload set.
   const facade = {
-    statusCode: res.statusCode,
+    // Handlers set the status by assignment far more often than by writeHead
+    // (every sendJson-style helper, and the connection fence's refusal). The
+    // accessor keeps that assignment on the one path the deferred commit and
+    // the compression decision read, so a refusal is never served as 200.
+    get statusCode(): number {
+      return pendingStatus ?? res.statusCode
+    },
+    set statusCode(value: number) {
+      pendingStatus = value
+    },
     writeHead(
       status: number,
       headers: OutgoingHttpHeaders | OutgoingHttpHeader[] | string | undefined,
