@@ -49,6 +49,9 @@ const NO_JOBS: readonly JobView[] = []
 /** Minimum gap kept between the popover and the viewport edges (the Menu primitive's portal margin). */
 const VIEWPORT_MARGIN = 12
 
+/** Matches the stylesheet breakpoint where the popover centers as fixed; keep in sync with the module CSS. */
+const NARROW_VIEWPORT_QUERY = '(max-width: 640px)'
+
 /** How long an armed kill waits for its confirming press before disarming. */
 const KILL_ARM_MS = 3_000
 
@@ -367,13 +370,21 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
   }, [open, liveRows.length])
 
   // Fit the open popover to the viewport: shift left when the anchored width
-  // would cross the right edge, never past the left margin.
+  // would cross the right edge, never past the left margin. The narrow
+  // breakpoint hands placement to the stylesheet's fixed centered posture,
+  // whose left: 50% an inline shift would override, so a crossing resize
+  // drops the inline offset rather than leaving a stale anchored one.
   useLayoutEffect(() => {
     if (!open) {
       setMenuShift(0)
       return
     }
     const fit = (): void => {
+      const narrow = typeof matchMedia === 'function' && matchMedia(NARROW_VIEWPORT_QUERY).matches
+      if (narrow) {
+        setMenuShift(0)
+        return
+      }
       const root = rootRef.current
       const menu = menuRef.current
       /* v8 ignore next -- both refs are attached while the open popover renders. */
@@ -527,7 +538,7 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
       </button>
       {open
         ? (
-          <ul ref={menuRef} className={css.menu} style={{ left: menuShift }} aria-label={t('list.aria')}>
+          <ul ref={menuRef} className={css.menu} style={menuShift === 0 ? undefined : { left: menuShift }} aria-label={t('list.aria')}>
             {liveRows.length > 0
               ? <li className={css.sectionHeader} aria-hidden="true">{t('section.live')}</li>
               : null}

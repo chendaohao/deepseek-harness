@@ -296,8 +296,9 @@ describe('JobListAction observation', () => {
 
       window.innerWidth = 900
       fireEvent(window, new Event('resize'))
-      // 900 - 12 - 440 - 344 = 104 > 0: the anchored position fits again.
-      expect(menu.style.left).toBe('0px')
+      // 900 - 12 - 440 - 344 = 104 > 0: the anchored position fits again and
+      // the zero shift drops the inline style so the stylesheet anchor rules.
+      expect(menu.style.left).toBe('')
     } finally {
       Object.defineProperty(window, 'innerWidth', { value: originalWidth, configurable: true, writable: true })
     }
@@ -315,6 +316,43 @@ describe('JobListAction observation', () => {
       // max(12 - 4, min(0, 700 - 12 - 800 - 4)) = 8: clamped at the left margin.
       expect(menu.style.left).toBe('8px')
     } finally {
+      Object.defineProperty(window, 'innerWidth', { value: originalWidth, configurable: true, writable: true })
+    }
+  })
+
+  it('yields placement to the stylesheet-centered posture on narrow viewports', () => {
+    // The narrow breakpoint centers the menu as fixed; an inline left there
+    // would override the centering and push the menu offscreen.
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(440)
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 8 } as DOMRect)
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true, writable: true })
+    // jsdom implements no matchMedia, so the component's own guard would read
+    // the wide posture; stub the query result through defineProperty to avoid
+    // an unknown-valued cast.
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query === '(max-width: 640px)',
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    })
+    try {
+      render(<JobListAction {...props([outputJob()])} />)
+      openList()
+      const menu = screen.getByRole('list', { name: zh['list.aria'] })
+      // The anchored posture would demand max(12 - 8, min(0, 390 - 12 - 440 - 8)) = 4;
+      // the centered posture must keep the pure CSS placement instead.
+      expect(menu.style.left).toBe('')
+    } finally {
+      Reflect.deleteProperty(window, 'matchMedia')
       Object.defineProperty(window, 'innerWidth', { value: originalWidth, configurable: true, writable: true })
     }
   })

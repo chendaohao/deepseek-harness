@@ -75,7 +75,9 @@
    centered menu still reads off-center against the viewport. Pin the menu
    to the viewport center (fixed, so the 50% resolves against the viewport
    — the same posture as the context panel and the model-select menu),
-   with vertical placement just below the header actions line. */
+   with vertical placement just below the header actions line. Keep this
+   breakpoint in sync with NARROW_VIEWPORT_QUERY in JobListAction.tsx,
+   which yields placement to this posture here. */
 @media (max-width: 640px) {
   .menu {
     position: fixed;
