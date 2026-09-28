@@ -61,6 +61,8 @@ export function RemoteFooterAction({ wide, t, remote }: RemoteFooterActionProps)
         title={t('panel.title')}
         description={t('panel.subtitle')}
         closeLabel={t('close')}
+        className={css.dialog as string}
+        contentClassName={css.content as string}
       >
         <RemotePanel remote={remote} t={t} />
       </Modal>

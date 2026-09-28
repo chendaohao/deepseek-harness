@@ -200,10 +200,21 @@
   background: var(--dsw-alias-interactive-bg-hover-danger);
 }
 
+/* The roster grows without bound, so the stop action pins to the scrollport
+   floor and stays reachable however many devices are paired. The negative
+   insets bleed its fill over the panel's row gap and the body's side padding,
+   matching block padding brings the controls back to their resting place, so
+   no scrolled row shows beside or above them. */
 .stopRow {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 12px;
+  margin: -20px -24px 0;
+  padding: 20px 24px 0;
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .stopConfirm {

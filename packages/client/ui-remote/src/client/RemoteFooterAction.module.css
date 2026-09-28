@@ -51,3 +51,20 @@
   overflow: hidden;
   white-space: nowrap;
 }
+
+/* The roster grows with the paired-device count, so the card is capped against
+   the Modal's padding box (Modal.module.css owns that rule) and the panel body
+   scrolls instead of pushing the stop row past the viewport. */
+.dialog {
+  max-height: 100%;
+}
+
+.content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The dialog sits on the elevated layer, so the bar drawn against it takes
+     that rung's colours. */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}

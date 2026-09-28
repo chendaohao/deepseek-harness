@@ -33,6 +33,7 @@ None; the panel assembles no model requests.
 
 - **The control plane is loopback-only** — tunnel traffic is refused, so the desktop panel reads empty/error states when the host tunnel is off or the browser is remote.
 - **One QR at a time** — a fresh issuance invalidates the previous token, so the panel shows a single QR, not a rotating set.
+- **A long roster scrolls** — the dialog caps itself against the viewport and scrolls the panel body, so the pairing QR leaves the top of the card once the device list outgrows it; the stop row stays pinned to the scrollport floor.
 
 <a id="dev-note"></a>
 ### Invariant ownership

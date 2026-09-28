@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { RemoteFooterAction, type RemoteFooterActionProps } from '../src/client/RemoteFooterAction.tsx'
 import type { RemoteDeviceRecord } from '../src/client/remote-types.ts'
 import { en } from '../src/client/locales.ts'
+import panelCss from '../src/client/RemoteFooterAction.module.css'
 
 afterEach(() => {
   cleanup()
@@ -72,6 +73,31 @@ describe('RemoteFooterAction', () => {
 })
 
 describe('RemotePanel initial render', () => {
+  it('caps the dialog against the viewport and scrolls the panel body', async () => {
+    // The roster grows without bound, so an uncapped card pushes the stop row
+    // past the viewport, where the fixed modal layer cannot scroll to it.
+    const { remote } = makeRemote()
+    globalThis.fetch = vi.fn(async (input: string) => {
+      const url = input
+      if (url === '/remote/state') {
+        return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [] })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    }) as unknown as typeof fetch
+
+    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    await screen.findByText('Tunnel closed')
+
+    // Assert the panel's own classes, not Modal's built-in `.content` region,
+    // which every dialog carries.
+    const dialog = screen.getByRole('dialog', { name: 'Mobile Remote Control' })
+    expect(dialog.className).toContain(panelCss.dialog)
+    const panel = dialog.querySelector(`.${panelCss.content}`)
+    expect(panel).toBeTruthy()
+    expect(panel?.textContent).toContain('Tunnel closed')
+  })
+
   it('opens the modal, pulls /remote/state, issues the pairing QR, and renders the open badge', async () => {
     const { remote, emit } = makeRemote()
     const pairUrl = 'https://foo.trycloudflare.com/pair/token'
