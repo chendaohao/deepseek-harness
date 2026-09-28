@@ -27,7 +27,7 @@
   );
   --dsw-elevation-stroke-color: var(--dsw-alias-border-l2);
   border: 0;
-  border-radius: 20px;
+  border-radius: var(--dsw-radius-xl);
   background: var(--dsw-specific-input-major);
   box-shadow: var(--dsw-elevation-panel);
   color: var(--dsw-alias-label-primary);
@@ -117,7 +117,7 @@
 
 @media (max-width: 720px) {
   .card {
-    border-radius: 16px;
+    border-radius: var(--dsw-radius-xl);
   }
 
   .footer {

@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-31-session-pin-pinned-projection-and-order.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-31-session-pin-pinned-projection-and-order.md
-2026-08-31-session-pin-pinned-projection-and-order.md: 2f6b0ee34d58aebb031f9606a75ecc2e9e40d048
-2026-08-31-session-pin-pinned-projection-and-order.zh.md: e19b14bc5dced912895203ac8fd5c4e8914df1c0
+/agent-note-session-pinning-persists-through-the-session-log-and-orders-list-rows:
+  en: 17fd8cde92144d1a
+  zh: 7121a32e2a083636
+/agent-note-session-pinning-persists-through-the-session-log-and-orders-list-rows/problem:
+  en: 023b61ac524f4a61
+  zh: e1195710ebccaa29
+/agent-note-session-pinning-persists-through-the-session-log-and-orders-list-rows/decision:
+  en: 36fff00b6f2e709a
+  zh: c4138eecdf67fcce
+/agent-note-session-pinning-persists-through-the-session-log-and-orders-list-rows/alternatives-considered:
+  en: 1a03673a217d287e
+  zh: bd374f3480df6367
+/agent-note-session-pinning-persists-through-the-session-log-and-orders-list-rows/consequences:
+  en: 0e0f041be16fb7cf
+  zh: 3600fa4955348878
+/agent-note-session-pinning-persists-through-the-session-log-and-orders-list-rows/testing:
+  en: fd06e3f178c00008
+  zh: 077d6463e6aef66f
+/agent-note-session-pinning-persists-through-the-session-log-and-orders-list-rows/related:
+  en: 230c5bf5e60ab5fb
+  zh: 9e06eb2bbf9986a3

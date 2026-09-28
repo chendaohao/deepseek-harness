@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-30-composer-toolbar-two-row-nesting-fix.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-composer-toolbar-two-row-nesting-fix.md
-2026-08-30-composer-toolbar-two-row-nesting-fix.md: 4852590a2c20f94e10b4e5b42e20c133342a5e30
-2026-08-30-composer-toolbar-two-row-nesting-fix.zh.md: a7e7c336a84f5e90af0444b4be34eade9bf4efa5
+/agent-note-two-row-composer-toolbar-splits-on-the-wrong-nesting:
+  en: cc07ea8d48c24ffc
+  zh: 56c0615da76c9f2b
+/agent-note-two-row-composer-toolbar-splits-on-the-wrong-nesting/problem:
+  en: 3ad793017305fdc9
+  zh: 160ba1d33a9bc714
+/agent-note-two-row-composer-toolbar-splits-on-the-wrong-nesting/decision:
+  en: 1e6c82ce0c831f99
+  zh: a4caacba883e8280
+/agent-note-two-row-composer-toolbar-splits-on-the-wrong-nesting/verification:
+  en: a5bf6c5b741d2d08
+  zh: d22c714008e9d5e1
+/agent-note-two-row-composer-toolbar-splits-on-the-wrong-nesting/alternatives-considered:
+  en: 4bb37bdd34e2831d
+  zh: 4e9f4095ec1a9208
+/agent-note-two-row-composer-toolbar-splits-on-the-wrong-nesting/consequences:
+  en: 11f2b5be335baa0a
+  zh: 29f62be6d1362b7b
+/agent-note-two-row-composer-toolbar-splits-on-the-wrong-nesting/related:
+  en: fe835e6ba11eb62f
+  zh: 9e2e6e785e48608e

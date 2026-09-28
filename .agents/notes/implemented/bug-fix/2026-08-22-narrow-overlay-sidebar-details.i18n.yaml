@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-22-narrow-overlay-sidebar-details.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-22-narrow-overlay-sidebar-details.md
-2026-08-22-narrow-overlay-sidebar-details.md: 6159c0f66e5c74ed89ded3e80bd01904e95434ca
-2026-08-22-narrow-overlay-sidebar-details.zh.md: 4d0308da96146f459db5f52dc9eba244ca1ca4a9
+/agent-note-narrow-viewport-overlays-for-sidebar-details-and-hero-row-wrap:
+  en: d5b397dfc0c365ea
+  zh: cdf2070286a529d0
+/agent-note-narrow-viewport-overlays-for-sidebar-details-and-hero-row-wrap/problem:
+  en: 6241316b796f8dfa
+  zh: 5bee141605351e30
+/agent-note-narrow-viewport-overlays-for-sidebar-details-and-hero-row-wrap/decision:
+  en: 0ac199dbc683d09b
+  zh: dc8bff8bf8a4135f
+/agent-note-narrow-viewport-overlays-for-sidebar-details-and-hero-row-wrap/alternatives-considered:
+  en: e6c9c570e4f0ce51
+  zh: fe847b62bfecce8f
+/agent-note-narrow-viewport-overlays-for-sidebar-details-and-hero-row-wrap/consequences:
+  en: 5d2989ad21c5355c
+  zh: ddc191037b3887cb
+/agent-note-narrow-viewport-overlays-for-sidebar-details-and-hero-row-wrap/verification:
+  en: 1cee26aa7ae4f314
+  zh: c2160df4e64b3821

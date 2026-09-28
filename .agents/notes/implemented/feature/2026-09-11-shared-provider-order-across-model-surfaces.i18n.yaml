@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-shared-provider-order-across-model-surfaces.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-shared-provider-order-across-model-surfaces.md
-2026-09-11-shared-provider-order-across-model-surfaces.md: 23eeea7b9b50cd0f83b00151183e0d9195b1561e
-2026-09-11-shared-provider-order-across-model-surfaces.zh.md: 4f1c5e19c3cd48181dc9fde185aaffed624b2385
+/agent-note-one-per-device-provider-order-for-the-models-page-and-the-model-selector:
+  en: 8bb8ce46dfe20d66
+  zh: 8f2d78e48f71875c
+/agent-note-one-per-device-provider-order-for-the-models-page-and-the-model-selector/problem:
+  en: 5eb1c430cf1f4c0d
+  zh: c6462f7d48bceb04
+/agent-note-one-per-device-provider-order-for-the-models-page-and-the-model-selector/decision:
+  en: 310574b204e9e5e0
+  zh: 1f21fa11776f382c
+/agent-note-one-per-device-provider-order-for-the-models-page-and-the-model-selector/alternatives-considered:
+  en: 55977905c75aca84
+  zh: c3926aa956f96724
+/agent-note-one-per-device-provider-order-for-the-models-page-and-the-model-selector/consequences:
+  en: 29f41f49ffe75e3b
+  zh: 3e592350f5dead0e

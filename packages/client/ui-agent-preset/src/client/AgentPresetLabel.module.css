@@ -8,7 +8,7 @@
   min-width: 0;
   padding: 0 2px 0 0;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-fill-tsp-secondary);
   font-size: 12px;
   line-height: 22px;

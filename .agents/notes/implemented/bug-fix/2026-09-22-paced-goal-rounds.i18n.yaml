@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-paced-goal-rounds.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-22-paced-goal-rounds.md
-2026-09-22-paced-goal-rounds.md: 52135f16c4b6739e624ffe88b4b012085d298add
-2026-09-22-paced-goal-rounds.zh.md: a7c2e53a7b0e379c7cd9d6249195e39a486bd4b4
+/agent-note-paced-unattended-goal-rounds:
+  en: eb198554b188b518
+  zh: 9eefbf96bcaf2492
+/agent-note-paced-unattended-goal-rounds/problem:
+  en: 843eb1a97b609752
+  zh: 823bd689a1166572
+/agent-note-paced-unattended-goal-rounds/decision:
+  en: 5db064f9e04e07f1
+  zh: ede88b71e7510476
+/agent-note-paced-unattended-goal-rounds/alternatives-considered:
+  en: b53de728153a79c5
+  zh: 47d7ac3d88863bbf
+/agent-note-paced-unattended-goal-rounds/consequences:
+  en: 078df37c3cf94323
+  zh: c6409e2dc699cb8a

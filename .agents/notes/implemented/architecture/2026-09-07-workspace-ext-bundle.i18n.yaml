@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-workspace-ext-bundle.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-07-workspace-ext-bundle.md
-2026-09-07-workspace-ext-bundle.md: 56328a002e0210607260d51a022fd2af987f19ad
-2026-09-07-workspace-ext-bundle.zh.md: 2b57d0687861b96141732546c3bf2010d3dc4e1e
+/agent-note-the-web-profile-s-fork-local-rows-compose-in-the-dsh-workspace-ext-bundle:
+  en: bd4d944d7ea26af7
+  zh: 1b8e4ebfee8ade72
+/agent-note-the-web-profile-s-fork-local-rows-compose-in-the-dsh-workspace-ext-bundle/problem:
+  en: 46af6e33b31cf924
+  zh: 6d5ea4fd5985e016
+/agent-note-the-web-profile-s-fork-local-rows-compose-in-the-dsh-workspace-ext-bundle/decision:
+  en: c6b2dad3b577b559
+  zh: 12b6132a42d8d6ea
+/agent-note-the-web-profile-s-fork-local-rows-compose-in-the-dsh-workspace-ext-bundle/consequences:
+  en: 68f4355572ad6137
+  zh: 3e92fd28730c89cc
+/agent-note-the-web-profile-s-fork-local-rows-compose-in-the-dsh-workspace-ext-bundle/alternatives-considered:
+  en: a45173aa738c625a
+  zh: 21e35f588a3ba85d

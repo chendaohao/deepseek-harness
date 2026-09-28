@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-remote-tunnel-named-mode.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-19-remote-tunnel-named-mode.md
-2026-08-19-remote-tunnel-named-mode.md: 9ec2b06b4aa0dd3b42f310df3937320e09a74476
-2026-08-19-remote-tunnel-named-mode.zh.md: 372435f18f0911644d42ffe9e574c59427057cc7
+/agent-note-remote-tunnel-named-mode-a-stable-hostname-so-restarts-keep-the-url-and-the-phone-stays-paired:
+  en: b184a59e862f1caa
+  zh: f34210ac44b6b2d9
+/agent-note-remote-tunnel-named-mode-a-stable-hostname-so-restarts-keep-the-url-and-the-phone-stays-paired/problem:
+  en: 989442705006febf
+  zh: 1cfebb933f388a81
+/agent-note-remote-tunnel-named-mode-a-stable-hostname-so-restarts-keep-the-url-and-the-phone-stays-paired/decision:
+  en: 3cd4bdd0e04c4233
+  zh: e8af8225cd4257b9
+/agent-note-remote-tunnel-named-mode-a-stable-hostname-so-restarts-keep-the-url-and-the-phone-stays-paired/consequences:
+  en: 304b8573cdb3fd46
+  zh: 0960b41755624ae5
+/agent-note-remote-tunnel-named-mode-a-stable-hostname-so-restarts-keep-the-url-and-the-phone-stays-paired/alternatives-considered:
+  en: 0ae3699be8dec57c
+  zh: b853c8d3b9715c89

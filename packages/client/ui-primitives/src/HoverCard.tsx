@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { writeClipboard } from './clipboard.ts'
 import { usePointerGrace } from './pointer-grace.ts'
 import { overlayTopMargin } from './overlay-top-margin.ts'
+import { TooltipSuppression } from './Tooltip.tsx'
 import css from './HoverCard.module.css'
 
 /** Preview opacity transition and retained lifetime during dismissal. */
@@ -16,7 +17,7 @@ const ANCHOR_GAP = 8
 const VIEWPORT_MARGIN = 8
 
 /**
- * Render an anchor with a hover-triggered preview card.
+ * Render an anchor with a hover-triggered preview card, hidden while a tooltip within the anchor is visible.
  * @param props.anchor - the hover target (rendered in place inside a wrapper span).
  * @param props.content - card content; the pointer may rest on it, so it is
  * readable and selectable, but it carries no dismissal affordance of its own.
@@ -63,6 +64,7 @@ export function HoverCard({
   const [pos, setPos] = useState<{ left: number; top: number; width?: number; maxHeight?: number } | null>(null)
   const positioned = pos !== null
   const [copied, setCopied] = useState(false)
+  const [suppressed, setSuppressed] = useState(false)
 
   const clearCopied = useCallback(() => {
     if (copyTimerRef.current !== null) {
@@ -202,7 +204,7 @@ export function HoverCard({
   // once the card's real size is measurable, finish both edge clamps. The
   // correction converges — clamped values satisfy the guards, so it runs once.
   useLayoutEffect(() => {
-    if (!open || pos === null || variant === 'preview' || inline) return
+    if (!open || pos === null || variant === 'preview' || inline || suppressed) return
     /* v8 ignore next -- the card is mounted whenever pos is set, so the ref is attached here. */
     const card = cardRef.current
     const h = card?.offsetHeight ?? 0
@@ -212,7 +214,7 @@ export function HoverCard({
       : pos.top
     const left = w > 0 ? Math.max(VIEWPORT_MARGIN, Math.min(pos.left, window.innerWidth - w - VIEWPORT_MARGIN)) : pos.left
     if (top !== pos.top || left !== pos.left) setPos({ left, top })
-  }, [open, pos, variant, inline])
+  }, [open, pos, variant, inline, suppressed])
 
   const copy = async (text: string): Promise<void> => {
     if (copied || copyingRef.current) return
@@ -236,7 +238,7 @@ export function HoverCard({
     cancelClose()
     close()
   }
-  const card = open && pos !== null && (
+  const card = open && pos !== null && !suppressed && (
     <div
       ref={cardRef}
       className={clsx(css.card, variant === 'preview' && css.preview, inline && css.media, copyable && css.copyable, copied && css.feedback)}
@@ -299,8 +301,8 @@ export function HoverCard({
       onPointerDownCapture={dismissFromAnchor}
       onClickCapture={dismissFromAnchor}
     >
-      {anchor}
-      {open && copyable && <span className={css.status} role="status">{copied ? copiedLabel : ''}</span>}
+      <TooltipSuppression.Provider value={setSuppressed}>{anchor}</TooltipSuppression.Provider>
+      {open && !suppressed && copyable && <span className={css.status} role="status">{copied ? copiedLabel : ''}</span>}
       {card !== false && createPortal(card, document.body)}
     </span>
   )

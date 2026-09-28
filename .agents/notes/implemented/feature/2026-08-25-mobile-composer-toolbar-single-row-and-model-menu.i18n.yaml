@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-25-mobile-composer-toolbar-single-row-and-model-menu.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-mobile-composer-toolbar-single-row-and-model-menu.md
-2026-08-25-mobile-composer-toolbar-single-row-and-model-menu.md: 8c2056a8cd6880f87799b6bf7df98ed5191d98f4
-2026-08-25-mobile-composer-toolbar-single-row-and-model-menu.zh.md: 97d873d5d1f0124becb4a5d1b4d11b70a1d20d2e
+/agent-note-mobile-composer-toolbar-fits-one-row-the-model-menu-centers-on-its-chip:
+  en: e0a71126ed17f93d
+  zh: 7a37486eafdf4f73
+/agent-note-mobile-composer-toolbar-fits-one-row-the-model-menu-centers-on-its-chip/problem:
+  en: e3dcc08294baaa83
+  zh: b36e07a034400119
+/agent-note-mobile-composer-toolbar-fits-one-row-the-model-menu-centers-on-its-chip/decision:
+  en: abba16cd202ee132
+  zh: a94e94313750417e
+/agent-note-mobile-composer-toolbar-fits-one-row-the-model-menu-centers-on-its-chip/alternatives-considered:
+  en: 2c954a874f09137b
+  zh: 6eb034e067116e30
+/agent-note-mobile-composer-toolbar-fits-one-row-the-model-menu-centers-on-its-chip/consequences:
+  en: 48c4fad45911b898
+  zh: 64b581f657bd41da
+/agent-note-mobile-composer-toolbar-fits-one-row-the-model-menu-centers-on-its-chip/testing:
+  en: e96b7af60324cf54
+  zh: 07b61aa2280695d0
+/agent-note-mobile-composer-toolbar-fits-one-row-the-model-menu-centers-on-its-chip/re-applied-after-the-0-1-2-alpha-1-merge-2026-08-30:
+  en: 2d11533825ef533d
+  zh: 79b5f36aec884cc9
+/agent-note-mobile-composer-toolbar-fits-one-row-the-model-menu-centers-on-its-chip/related:
+  en: 80542b9187f0fa0c
+  zh: 8c598ebe6bd1d283

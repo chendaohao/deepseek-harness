@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-31-run-code-strip-failure-localization.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-31-run-code-strip-failure-localization.md
-2026-08-31-run-code-strip-failure-localization.md: fafd8547c19cfae4fb25208277dc89110d616c2a
-2026-08-31-run-code-strip-failure-localization.zh.md: 7a26061aa2eb07c396d5d1846ad0fb98898bc445
+/agent-note-run-code-strip-failures-carry-the-first-failing-line:
+  en: e8e791faffb09d71
+  zh: f2d8626e8d519435
+/agent-note-run-code-strip-failures-carry-the-first-failing-line/problem:
+  en: eff91abd8f7e1da0
+  zh: b9073ceaea51410a
+/agent-note-run-code-strip-failures-carry-the-first-failing-line/decision:
+  en: 3c3169790d2a7bd4
+  zh: 2c899a927f495102
+/agent-note-run-code-strip-failures-carry-the-first-failing-line/verification:
+  en: cc84b2c3819ab4e9
+  zh: 9c49cae6d71bf04b
+/agent-note-run-code-strip-failures-carry-the-first-failing-line/alternatives-considered:
+  en: ee42c3b0c7273434
+  zh: 60a736eb05ca14c1
+/agent-note-run-code-strip-failures-carry-the-first-failing-line/consequences:
+  en: b069dbc6be89a5e3
+  zh: 310005ef37fce087
+/agent-note-run-code-strip-failures-carry-the-first-failing-line/related:
+  en: 0260aa0ba1802e1c
+  zh: e2b5136f90b0e50e

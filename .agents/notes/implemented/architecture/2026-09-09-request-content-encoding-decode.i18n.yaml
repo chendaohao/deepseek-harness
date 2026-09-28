@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-09-request-content-encoding-decode.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-09-request-content-encoding-decode.md
-2026-09-09-request-content-encoding-decode.md: 76eba54f6d1d29fd3cb95b0bb2a6da56dacbefc3
-2026-09-09-request-content-encoding-decode.zh.md: 550e41c4b3881b61a58f5feeff3d880b9674c097
+/agent-note-decoding-compressed-rpc-request-bodies-at-the-api-json-parse-point:
+  en: a88b4c37ae0135d5
+  zh: 62c8ba76f9997146
+/agent-note-decoding-compressed-rpc-request-bodies-at-the-api-json-parse-point/problem:
+  en: 69f5296e7358b2b2
+  zh: c7d02bd9bca1f61c
+/agent-note-decoding-compressed-rpc-request-bodies-at-the-api-json-parse-point/decision:
+  en: 9540d1aa905111d0
+  zh: 80fce5774035ae63
+/agent-note-decoding-compressed-rpc-request-bodies-at-the-api-json-parse-point/alternatives-considered:
+  en: e90fa383f237710c
+  zh: 36bc82bd319104a7
+/agent-note-decoding-compressed-rpc-request-bodies-at-the-api-json-parse-point/consequences:
+  en: 1a23b58d8aa01326
+  zh: 2dd0d2a917c59a6e
+/agent-note-decoding-compressed-rpc-request-bodies-at-the-api-json-parse-point/verification:
+  en: 99f44752601c5084
+  zh: 601de557cb06b1f0

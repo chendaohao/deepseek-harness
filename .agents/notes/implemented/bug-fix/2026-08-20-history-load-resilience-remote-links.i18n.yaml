@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-20-history-load-resilience-remote-links.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-20-history-load-resilience-remote-links.md
-2026-08-20-history-load-resilience-remote-links.md: e5a1a9f52f18cdb0d496e9c30845a9da6f2bdede
-2026-08-20-history-load-resilience-remote-links.zh.md: 563aec18e671d40f5b8e9b12ef453dcfc10f9387
+/agent-note-history-load-resilience-over-flaky-remote-links:
+  en: 0122ec9f70b9ec5d
+  zh: 01e87bfdd2d1599e
+/agent-note-history-load-resilience-over-flaky-remote-links/problem:
+  en: 7ea891074da5ffdc
+  zh: da5436a42630ea80
+/agent-note-history-load-resilience-over-flaky-remote-links/decision:
+  en: fab8791335249bb8
+  zh: 8169a2a494a85561
+/agent-note-history-load-resilience-over-flaky-remote-links/verification:
+  en: da264caa4c6fbf37
+  zh: 871c597067f8d028
+/agent-note-history-load-resilience-over-flaky-remote-links/alternatives-considered:
+  en: 0cdcf75b15d7f599
+  zh: 8ad15558a94f66ec
+/agent-note-history-load-resilience-over-flaky-remote-links/consequences:
+  en: 0256a9c87d94477f
+  zh: a933a8475a792a53

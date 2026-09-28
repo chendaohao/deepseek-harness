@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-16-codegraph-integration.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-codegraph-integration.md
-2026-08-16-codegraph-integration.md: c6dff51851957e98542846ed0e39c79be8d491e4
-2026-08-16-codegraph-integration.zh.md: c2dc42da40b4132ab531da8106da8112cd1bcb17
+/agent-note-codegraph-integration-for-indexed-workspaces:
+  en: 0963243ea2371330
+  zh: 0b39e6f4faefb353
+/agent-note-codegraph-integration-for-indexed-workspaces/problem:
+  en: e93c4eb610f896fa
+  zh: 5cda8428519b7283
+/agent-note-codegraph-integration-for-indexed-workspaces/decision:
+  en: 8c91a7c7a863bd68
+  zh: 2c88b7245e4f9053
+/agent-note-codegraph-integration-for-indexed-workspaces/alternatives-considered:
+  en: 260694c8b96eb0a5
+  zh: 4c9a8923ea9f7217
+/agent-note-codegraph-integration-for-indexed-workspaces/consequences:
+  en: be6af5fd3f83a64d
+  zh: 09fe792ebad724fe

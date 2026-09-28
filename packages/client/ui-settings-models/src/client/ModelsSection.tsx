@@ -1,8 +1,8 @@
 /**
  * Models settings section: the provider rows joined from the configurable
  * directory, settings namespaces, and credential states, with one editor
- * card at a time. The official DeepSeek provider appears first; other rows
- * retain directory order. Rows expose only confirmed API-key state through accessible
+ * card at a time. Rows retain the account-first order supplied by the store
+ * and expose only confirmed API-key state through accessible
  * solid configured or missing dots. A whole-section provider without a
  * configured key renders as its open setup card instead of a row, but only in
  * the first-run posture — no provider on the page can serve requests yet — and
@@ -173,7 +173,7 @@ export async function removeProviderProfile(
  * @returns whether to render the setup card.
  */
 export function needsSetup(row: ProviderRow, anyUsable: boolean): boolean {
-  if (anyUsable) return false
+  if (anyUsable || row.entry.provider === 'deepseek-account') return false
   if (row.entry.settingsPath.length > 0) return false
   return row.credential?.configured !== true
 }
@@ -263,7 +263,9 @@ export function ModelsSection(props: ModelsSectionProps): ReactNode {
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
   const { controller, operations, schema, t, workerRoute } = injected
-  const state = injected.useSnapshot(snapshot => snapshot)
+  const snapshot = injected.useSnapshot(value => value)
+  const state = { ...snapshot, rows: snapshot.rows.map(row => row.entry.provider === 'deepseek-account'
+    ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [addOpen, setAddOpen] = useState(false)
   const [addMode, setAddMode] = useState<AddMode>('catalog')
@@ -543,14 +545,11 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // One fact decides both first-run postures on this page and the onboarding
   // step: whether the user already has a provider to talk to.
   const anyUsable = state.rows.some(providerUsable)
-  const configuredRows = state.rows.filter(row => row.configured)
-  // The provider to talk to leads until a saved per-device order overrides it;
-  // the drop's own order outranks both until the reload confirming it lands.
-  const defaultOrder = [...configuredRows].sort((left, right) => (
-    Number(right.entry.provider === 'deepseek-official') - Number(left.entry.provider === 'deepseek-official')
-  ))
+  // The store supplies the account-first default order; a saved per-device
+  // order overrides it, and the drop's own order outranks both until the
+  // reload confirming it lands.
   const configured = applyProviderOrder(
-    defaultOrder,
+    state.rows.filter(row => row.configured),
     pendingOrder ?? readProviderOrder(),
     row => row.entry.provider,
   )
@@ -957,7 +956,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
         className={styles['deleteDialog'] as string}
         footer={(
           <>
-            <Button variant="outline" autoFocus disabled={deleting} onClick={closeDelete}>
+            <Button variant="outline" data-modal-autofocus disabled={deleting} onClick={closeDelete}>
               {t('cancel')}
             </Button>
             <Button

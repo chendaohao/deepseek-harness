@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-08-sliding-remote-cookie-renewal.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-08-sliding-remote-cookie-renewal.md
-2026-09-08-sliding-remote-cookie-renewal.md: 17487b8e5953f32079aa7ffc27383702f81fe637
-2026-09-08-sliding-remote-cookie-renewal.zh.md: ca33c340ec3da39756f73b6dde7b2bcf24aeb34d
+/agent-note-sliding-remote-access-device-window-and-the-fence-cookie-daily-refresh:
+  en: 299b7561a628f93b
+  zh: 56339fc1248c85f5
+/agent-note-sliding-remote-access-device-window-and-the-fence-cookie-daily-refresh/problem:
+  en: 426af56bc7b74114
+  zh: 86ef1246985e7c8b
+/agent-note-sliding-remote-access-device-window-and-the-fence-cookie-daily-refresh/decision:
+  en: d15201a2311bed35
+  zh: 846794baff347db3
+/agent-note-sliding-remote-access-device-window-and-the-fence-cookie-daily-refresh/alternatives-considered:
+  en: 0f2ede52aa895687
+  zh: 151ffc00df8f8057
+/agent-note-sliding-remote-access-device-window-and-the-fence-cookie-daily-refresh/consequences:
+  en: e819242d0fe981c8
+  zh: ba94b25dd29af6b0
+/agent-note-sliding-remote-access-device-window-and-the-fence-cookie-daily-refresh/verification:
+  en: b394806aca6a6293
+  zh: 68987fe1c8efafdb

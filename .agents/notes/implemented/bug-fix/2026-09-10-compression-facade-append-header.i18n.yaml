@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-compression-facade-append-header.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-compression-facade-append-header.md
-2026-09-10-compression-facade-append-header.md: b374929e5aaa911961d866034487601fe5786b26
-2026-09-10-compression-facade-append-header.zh.md: a4472c2225d693c972e4ecabf623b4f25ceb91c4
+/agent-note-forward-appendheader-through-the-compression-facade:
+  en: 5efe4453368a0a0a
+  zh: f4486a1195bd5aa8
+/agent-note-forward-appendheader-through-the-compression-facade/problem:
+  en: c4dd6741b89f18c5
+  zh: 325b6dba7b03ff39
+/agent-note-forward-appendheader-through-the-compression-facade/decision:
+  en: acbcce528ad699e2
+  zh: 2d2d6fb50dd11944
+/agent-note-forward-appendheader-through-the-compression-facade/alternatives-considered:
+  en: 13c8de63706cabe0
+  zh: 5470073ccac76415
+/agent-note-forward-appendheader-through-the-compression-facade/consequences:
+  en: c44f55911ba438fb
+  zh: efeed277b95b60c1

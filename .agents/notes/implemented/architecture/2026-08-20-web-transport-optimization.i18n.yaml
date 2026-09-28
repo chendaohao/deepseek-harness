@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-20-web-transport-optimization.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-20-web-transport-optimization.md
-2026-08-20-web-transport-optimization.md: 1eecd648db57109c0d3d4930d31fd65fcd54c305
-2026-08-20-web-transport-optimization.zh.md: 742dd4c078247639b4cc41dda3c719d27c821e45
+/agent-note-web-transport-optimization-for-mobile-browsers-compression-caching-ws-deflate-preload-and-service-worker:
+  en: 8aca003cbcb53075
+  zh: 48d957cad7801fa2
+/agent-note-web-transport-optimization-for-mobile-browsers-compression-caching-ws-deflate-preload-and-service-worker/problem:
+  en: 1e083efa92f6925a
+  zh: 8be7dd30fad639d1
+/agent-note-web-transport-optimization-for-mobile-browsers-compression-caching-ws-deflate-preload-and-service-worker/decision:
+  en: a9552f99c49664a9
+  zh: f3a838b48387a794
+/agent-note-web-transport-optimization-for-mobile-browsers-compression-caching-ws-deflate-preload-and-service-worker/alternatives-considered:
+  en: a924f7d481a12dfd
+  zh: e7265f9cc5d40054
+/agent-note-web-transport-optimization-for-mobile-browsers-compression-caching-ws-deflate-preload-and-service-worker/consequences:
+  en: e2fd6241e4bdc1ff
+  zh: 255cb47700b2fbcf
+/agent-note-web-transport-optimization-for-mobile-browsers-compression-caching-ws-deflate-preload-and-service-worker/testing:
+  en: 15e213269955bfbb
+  zh: 6891e0265592d6ad

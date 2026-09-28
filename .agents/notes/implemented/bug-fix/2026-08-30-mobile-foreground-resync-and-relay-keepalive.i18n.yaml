@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-30-mobile-foreground-resync-and-relay-keepalive.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-mobile-foreground-resync-and-relay-keepalive.md
-2026-08-30-mobile-foreground-resync-and-relay-keepalive.md: 72fb8f41281fd31f1ef65ae763aef6daa6a56f17
-2026-08-30-mobile-foreground-resync-and-relay-keepalive.zh.md: 27c53b98ebfcf7551ad4bbb9dfb1d602d4fc8ac8
+/agent-note-mobile-foreground-re-sync-and-relay-keepalive:
+  en: fed9b8f68f2c1895
+  zh: 368307b486f871d6
+/agent-note-mobile-foreground-re-sync-and-relay-keepalive/problem:
+  en: 9a9b877c5fa7df67
+  zh: 27253430c9934b5a
+/agent-note-mobile-foreground-re-sync-and-relay-keepalive/decision:
+  en: e4e1584193cbe850
+  zh: 561c16e02979e7cc
+/agent-note-mobile-foreground-re-sync-and-relay-keepalive/alternatives-considered:
+  en: c6eeb0329f3dfb92
+  zh: 2bf41858e63c1d03
+/agent-note-mobile-foreground-re-sync-and-relay-keepalive/consequences:
+  en: 36a745a37ca858aa
+  zh: f2e718b9762470a3

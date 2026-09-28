@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-generated-artifact-merge-script.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-04-generated-artifact-merge-script.md
-2026-09-04-generated-artifact-merge-script.md: f36cb49639914344deb8f84282a25046600b4180
-2026-09-04-generated-artifact-merge-script.zh.md: fc2730f0dab18bc1f5dcabd7a8408b7369981f50
+/agent-note-generated-artifact-merge-script-for-the-dev-workspace-fork:
+  en: d7923d4b34a7f8c8
+  zh: acdbec2bcc668e38
+/agent-note-generated-artifact-merge-script-for-the-dev-workspace-fork/problem:
+  en: e5f1e9f76ae490e7
+  zh: 062f0a6915ba6395
+/agent-note-generated-artifact-merge-script-for-the-dev-workspace-fork/decision:
+  en: 14dc276e48b25106
+  zh: c1d53172f19960ac
+/agent-note-generated-artifact-merge-script-for-the-dev-workspace-fork/verification:
+  en: 42760c2d55afb637
+  zh: 35ba2a34772d752b
+/agent-note-generated-artifact-merge-script-for-the-dev-workspace-fork/alternatives-considered:
+  en: ed0b22e6e52f5835
+  zh: 0028fa2cc3a8a1c8
+/agent-note-generated-artifact-merge-script-for-the-dev-workspace-fork/consequences:
+  en: 75069649a3d4b8d1
+  zh: 090ec29cdcb3e976

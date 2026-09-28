@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-18-remote-device-model.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-18-remote-device-model.md
-2026-08-18-remote-device-model.md: 5901cfed6614735fc7a2cc553a8925711a263e63
-2026-08-18-remote-device-model.zh.md: 13dd15ddada33c4ffc5d14cbc59c55054bb41032
+/agent-note-remote-access-device-model-one-time-pairing-tokens-a-revocable-roster-and-a-desktop-only-control-plane:
+  en: 564bc19d826e32bd
+  zh: f4e679967c8c4a01
+/agent-note-remote-access-device-model-one-time-pairing-tokens-a-revocable-roster-and-a-desktop-only-control-plane/problem:
+  en: 353646a2f34cb128
+  zh: 5322487874353cff
+/agent-note-remote-access-device-model-one-time-pairing-tokens-a-revocable-roster-and-a-desktop-only-control-plane/decision:
+  en: a0fc9708095d9d80
+  zh: 322a7e15eb3e0ba4
+/agent-note-remote-access-device-model-one-time-pairing-tokens-a-revocable-roster-and-a-desktop-only-control-plane/consequences:
+  en: 47e745c82ee39458
+  zh: 451157212880601e
+/agent-note-remote-access-device-model-one-time-pairing-tokens-a-revocable-roster-and-a-desktop-only-control-plane/alternatives-considered:
+  en: 186f37f574a3e8bf
+  zh: 5ec5b356c878521f

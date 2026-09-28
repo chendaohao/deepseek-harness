@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-31-model-selector-search-recent-effort-memory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-31-model-selector-search-recent-effort-memory.md
-2026-08-31-model-selector-search-recent-effort-memory.md: 57c428adb2003442d82a8d1b1ef83e51042f2efa
-2026-08-31-model-selector-search-recent-effort-memory.zh.md: f38aff38299c81a0f10c25409c411e0ad36cd8b2
+/agent-note-composer-model-selector-restores-search-recent-collapse-and-gains-per-route-effort-memory:
+  en: f47ccab23db90349
+  zh: b2a67aaa4d5bf298
+/agent-note-composer-model-selector-restores-search-recent-collapse-and-gains-per-route-effort-memory/problem:
+  en: a54e352b92e56e30
+  zh: ee7770b69e2cd9f7
+/agent-note-composer-model-selector-restores-search-recent-collapse-and-gains-per-route-effort-memory/decision:
+  en: 487c467aac672e4a
+  zh: 50f6bceb3ab3747a
+/agent-note-composer-model-selector-restores-search-recent-collapse-and-gains-per-route-effort-memory/alternatives-considered:
+  en: f4bb984e5c9d1bed
+  zh: e39b3386cb493355
+/agent-note-composer-model-selector-restores-search-recent-collapse-and-gains-per-route-effort-memory/consequences:
+  en: f3421d74abf736ca
+  zh: dc1d9e55d8f24b26

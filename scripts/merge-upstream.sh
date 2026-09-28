@@ -16,20 +16,27 @@ set -euo pipefail
 #
 # Generator-owned artifacts (auto-resolved from the merge ref):
 #   THIRD_PARTY_NOTICES.md, apps/cli/composition.md,
-#   docs/agent-lifecycle.md, docs/capability-seams.md, docs/config-catalog.md,
+#   docs/agent-lifecycle.md, docs/capability-seams.md,
+#   docs/config-catalog.{md,zh.md,i18n.yaml},
 #   docs/cordis-api/{context,events,fiber,registry,service,inherited}.md,
-#   docs/event-producer-consumer.md, docs/graph-atlas.md, docs/module-graph.md,
-#   docs/module-graph.zh.md, docs/persistence-catalog.md, docs/tool-catalog.md,
-#   docs/tool-execution-pipeline.md,
+#   docs/event-producer-consumer.md, docs/graph-atlas.md,
+#   docs/module-graph.{md,zh.md,i18n.yaml},
+#   docs/persistence-catalog.{md,zh.md,i18n.yaml}, docs/persistence-schema.json,
+#   docs/tool-catalog.md, docs/tool-execution-pipeline.md,
 #   packages/core/scope/src/scoped-events.generated.ts,
 #   packages/core/session/src/known-event-types.ts,
 #   packages/extensions/tool-cordis/src/api-catalog.ts,
 #   packages/extensions/cordis-client-runner/src/client/{api-catalog,slot-catalog}.ts,
 #   pnpm-lock.yaml, tsconfig.base.json (alias block re-injected, see below).
 #
-# The hand-paired Chinese counterparts of generated English documents are
-# never auto-resolved; verify-translation-pairing names the stale pairs after
-# regeneration.
+# A generator that renders a document's whole text owns all three pair files
+# (English, Chinese, pairing record) — `gen-config-catalog`, `gen-module-graph`,
+# and `gen-persistence-catalog` each do — so those resolve to the ref's side
+# like any other generated artifact. Where a generator rewrites only marked
+# regions and the surrounding Chinese prose stays authored (`docs/subsystems/*`,
+# `docs/event-producer-consumer.zh.md`), the ref's side is NOT taken: the
+# authored text needs a hand merge. verify-translation-pairing names every pair
+# left stale after regeneration.
 
 REF=upstream/master
 MODE=start
@@ -70,6 +77,8 @@ GENERATED_ARTIFACTS=(
   docs/agent-lifecycle.md
   docs/capability-seams.md
   docs/config-catalog.md
+  docs/config-catalog.zh.md
+  docs/config-catalog.i18n.yaml
   docs/cordis-api/context.md
   docs/cordis-api/events.md
   docs/cordis-api/fiber.md
@@ -80,7 +89,11 @@ GENERATED_ARTIFACTS=(
   docs/graph-atlas.md
   docs/module-graph.md
   docs/module-graph.zh.md
+  docs/module-graph.i18n.yaml
   docs/persistence-catalog.md
+  docs/persistence-catalog.zh.md
+  docs/persistence-catalog.i18n.yaml
+  docs/persistence-schema.json
   docs/tool-catalog.md
   docs/tool-execution-pipeline.md
   packages/core/scope/src/scoped-events.generated.ts
@@ -225,21 +238,9 @@ $merge_output"
     echo "merge-upstream: re-injected the fork alias block into tsconfig.base.json"
   fi
 
-  load_unmerged
-  for path in $(unmerged_paths); do
-    if [[ $path == *.i18n.yaml ]]; then
-      pairing_unresolved=1
-      break
-    fi
-  done
-  if [[ ${pairing_unresolved:-} ]]; then
-    if pnpm run --silent resolve-translation-pairing-conflicts; then
-      echo "merge-upstream: resolved pairing records with resolve-translation-pairing-conflicts"
-    else
-      warn "resolve-translation-pairing-conflicts failed; pairing records stay in the manual queue"
-    fi
-    load_unmerged
-  fi
+  # Pairing records hold one entry per heading section, so independent edits to
+  # different sections change separate lines and merge as ordinary text. A path
+  # still unmerged here is a genuine same-section conflict and stays queued.
 
   load_unmerged
   if (( ${#unmerged_set[@]} > 0 )); then

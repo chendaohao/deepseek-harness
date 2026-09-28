@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-pi-ai-canonical-fallback-reasoning-levels.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-pi-ai-canonical-fallback-reasoning-levels.md
-2026-08-19-pi-ai-canonical-fallback-reasoning-levels.md: 1bf93ff0baee2328ac06b628fd996f56b3296a62
-2026-08-19-pi-ai-canonical-fallback-reasoning-levels.zh.md: b06a2627c9aa2fe8aa9c272e9b0aa50210d6e692
+/agent-note-hand-declared-pi-ai-models-get-the-canonical-reasoning-fallback-set:
+  en: d16aab228f41bfd7
+  zh: c97bfbf5bbedc63b
+/agent-note-hand-declared-pi-ai-models-get-the-canonical-reasoning-fallback-set/problem:
+  en: 33b1a3bf3418932b
+  zh: ad5fe9db4c7c3463
+/agent-note-hand-declared-pi-ai-models-get-the-canonical-reasoning-fallback-set/decision:
+  en: f0cb3ba1e113167f
+  zh: a57ca610a097f171
+/agent-note-hand-declared-pi-ai-models-get-the-canonical-reasoning-fallback-set/alternatives-considered:
+  en: 48edaed10c59acff
+  zh: c0d055df1a838ec7
+/agent-note-hand-declared-pi-ai-models-get-the-canonical-reasoning-fallback-set/consequences:
+  en: 28651541c58c2f24
+  zh: 6316545e9a7b5972

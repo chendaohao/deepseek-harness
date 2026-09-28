@@ -45,6 +45,7 @@ async function bench(isLoopback = true, mock = RemoteMock.create().load(remoteDe
         ok: true,
         value: { default: { provider: 'alpha', model: 'm' }, routableProviders: [], groups: [], failures: [] },
       })),
+      initializeDefaultModel: vi.fn(async () => ({ ok: true, value: undefined })),
     },
     settings: mock.remote.settings,
   })
@@ -136,6 +137,12 @@ describe('ui-settings-models apply', () => {
     expect(onboarding).toHaveLength(1)
     const deepSeek = onboarding.find(entry => entry.options.id === 'deepseek-official')!
     expect(deepSeek.component).toBe(DeepSeekOnboardingDialog)
+    const analytics = (deepSeek.inject!() as object) as import('../src/client/DeepSeekOnboardingDialog.tsx').DeepSeekOnboardingInjected
+    analytics.track?.('api_key_save_click', {})
+    const track = vi.fn()
+    before.ctx.provide('productAnalytics', { track } as never)
+    analytics.track?.('api_key_save_click', {})
+    expect(track).toHaveBeenCalledWith('api_key_save_click', {})
     expect(deepSeek.options).toMatchObject({ id: 'deepseek-official', order: 0 })
     const deepSeekInjected = (
       deepSeek.inject as unknown as () => import('../src/client/DeepSeekOnboardingDialog.tsx').DeepSeekOnboardingInjected

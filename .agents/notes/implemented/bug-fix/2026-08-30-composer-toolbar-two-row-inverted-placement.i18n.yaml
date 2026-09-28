@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-30-composer-toolbar-two-row-inverted-placement.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-composer-toolbar-two-row-inverted-placement.md
-2026-08-30-composer-toolbar-two-row-inverted-placement.md: 2ed840f5430da151b6510faa376197ae61920b1e
-2026-08-30-composer-toolbar-two-row-inverted-placement.zh.md: 5e6bc9dffc6d754728b9e6f6ccccec7e5072be3d
+/agent-note-two-row-composer-toolbar-rendered-the-groups-on-inverted-rows:
+  en: cfe643542b5d0f26
+  zh: 12c0cac7b8b570d5
+/agent-note-two-row-composer-toolbar-rendered-the-groups-on-inverted-rows/problem:
+  en: 58255d256c88a588
+  zh: 8b11e1a57c3874ee
+/agent-note-two-row-composer-toolbar-rendered-the-groups-on-inverted-rows/decision:
+  en: 69eaf32d0037df0b
+  zh: 7d2a652fa7cf74a5
+/agent-note-two-row-composer-toolbar-rendered-the-groups-on-inverted-rows/verification:
+  en: d0878afd0936c1cc
+  zh: ca52f91d86fd5bb3
+/agent-note-two-row-composer-toolbar-rendered-the-groups-on-inverted-rows/alternatives-considered:
+  en: 092d6527b9d86815
+  zh: c18d90374191f135
+/agent-note-two-row-composer-toolbar-rendered-the-groups-on-inverted-rows/consequences:
+  en: 769d3b2d65f2e34c
+  zh: dc8a43119ec92c65
+/agent-note-two-row-composer-toolbar-rendered-the-groups-on-inverted-rows/related:
+  en: aedb280c2d04172e
+  zh: cb7f974cc6aaa268

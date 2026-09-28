@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-stats-line-tap-reveal.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-06-stats-line-tap-reveal.md
-2026-09-06-stats-line-tap-reveal.md: a789f5632c01bbcaeda31590717dd82a9ab6a2a8
-2026-09-06-stats-line-tap-reveal.zh.md: 8ad563c0236b1dbf5a446d99658936f433519d6e
+/agent-note-session-stats-strip-reveals-on-tap-for-phones:
+  en: 11c97766f1aeec7e
+  zh: 58e2c16896d49ec1
+/agent-note-session-stats-strip-reveals-on-tap-for-phones/problem:
+  en: 65385b6b6615c847
+  zh: e49fc08a4f1645bf
+/agent-note-session-stats-strip-reveals-on-tap-for-phones/decision:
+  en: 2e147ad34ac764da
+  zh: 7ef9e51e28ba9685
+/agent-note-session-stats-strip-reveals-on-tap-for-phones/alternatives-considered:
+  en: 80b358d60bb3b98a
+  zh: 54fa6bfb82df7c3d
+/agent-note-session-stats-strip-reveals-on-tap-for-phones/consequences:
+  en: c01242185fdb8536
+  zh: cb723638d8b2d585
+/agent-note-session-stats-strip-reveals-on-tap-for-phones/testing:
+  en: 64266b2b202b1955
+  zh: 7c3f996a37f7dd1d
+/agent-note-session-stats-strip-reveals-on-tap-for-phones/related:
+  en: 9bc5ab516b613452
+  zh: eec4057c3f271b42

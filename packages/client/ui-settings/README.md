@@ -29,7 +29,7 @@ Feature plugins use this package to store and edit their preferences without re-
 
 ### Configuration forms
 
-`ctx.configForms.developerTools` owns the shared Web and desktop preference `ui-settings.enabled`, defaulting to `true`. Its `enabled` observable publishes accepted choices and `setEnabled` uses the same ordered settings writes. This controls presentation and HTML preview permissions, not Host authorization or Session recording. Host-backed clients keep developer features disabled until the first accepted schema-resolved value arrives; missing or failed initial responses do not enable them. Later refreshes retain the last accepted choice.
+`ctx.configForms.developerTools` owns the Coding Tools switch and the shared Web and desktop preference `ui-settings.enabled`, defaulting to `true`. Its `enabled` observable publishes accepted choices and `setEnabled` uses the same ordered settings writes. This controls presentation and HTML preview permissions, not Host authorization or Session recording. Host-backed clients keep developer features disabled until the first accepted schema-resolved value arrives; missing or failed initial responses do not enable them. Later refreshes retain the last accepted choice.
 
 Feature adapters use `ctx.configForms.get(entryId)` to obtain accepted values and a write queue shared by every editor of that Host entry. Snapshots contain resolved `value`, inherited `base`, raw `user`, revision, and the Host-determined writability (read-only for a forwarded caller unless the Host enabled `forwardedWrite`); a field is overridden when it is present in `user`, even when its value equals `base`. `set` and `unset` submit one operation; `mutate` submits one atomic operation list. Each write is fenced by the namespace revision as `expectedRevision`, so a concurrent write from another surface is refused instead of silently overwritten. Staged editors pass the revision read before editing; conflicts preserve their drafts. Unsetting removes the override and restores inheritance.
 
@@ -50,7 +50,7 @@ A committed write folds its answer into the shared mirror. Refused writes refres
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The optional settings.launcher contribution receives wide and openSettings to supply a sidebar account menu; the shell retains its plain Settings trigger when no launcher is registered.
+The optional `settings.launcher` contribution receives sidebar geometry, whether the open Settings panel covers the sidebar, the settings navigation callbacks, and the effective Settings key labels and accessible combination. The shell omits shortcut presentation for an unbound command and retains its plain Settings trigger when no launcher is registered.
 
 <details>
 <summary>Implementation internals — click to expand</summary>

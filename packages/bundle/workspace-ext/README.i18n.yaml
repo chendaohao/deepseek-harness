@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/bundle/workspace-ext/README.md
-README.md: d100e53f3a3f53e9c018a73c23cb217027d63c73
-README.zh.md: 8a51979ef092117b117d9b2627e21c23393343d1
+/:
+  en: 2309c6ec93f95877
+  zh: 5fb3548dbfbab2e2
+/deepseek-ai-dsh-workspace-ext:
+  en: 0771c83748a1cae5
+  zh: aecf465b5977ba4d
+/deepseek-ai-dsh-workspace-ext/summary:
+  en: 5d31106440d8338c
+  zh: f56331d6a55b4907
+/deepseek-ai-dsh-workspace-ext/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-workspace-ext/use-this-package:
+  en: 9d9df0df2d804cd4
+  zh: debf0fad4afce72e
+/deepseek-ai-dsh-workspace-ext/use-this-package/what-you-get:
+  en: e1ef596d1f63b067
+  zh: cb9cc2733841bd16
+/deepseek-ai-dsh-workspace-ext/understand-the-implementation:
+  en: 0c3768e9a2e94031
+  zh: b157eddeb1593487
+/deepseek-ai-dsh-workspace-ext/understand-the-implementation/composition-mechanics:
+  en: 92675db63a39e348
+  zh: 7825476e595cee13
+/deepseek-ai-dsh-workspace-ext/understand-the-implementation/source-map:
+  en: ffbd31cb4fd81761
+  zh: ca13cc05f89081f0
+/deepseek-ai-dsh-workspace-ext/understand-the-implementation/invariant-ownership:
+  en: 533299d7bd555e61
+  zh: d5dd96fbc2542e90
+/deepseek-ai-dsh-workspace-ext/further-exploration:
+  en: c5afef789683b8f8
+  zh: f77e5a2de8d1490d
+/deepseek-ai-dsh-workspace-ext/model-experience:
+  en: f6c4d2609b5f4bb6
+  zh: 9da86ef002371705
+/deepseek-ai-dsh-workspace-ext/model-experience/kv-cache-effect:
+  en: e6e907c99df7cd0a
+  zh: 27be421990f7e5eb
+/deepseek-ai-dsh-workspace-ext/known-limitations-and-deferred-work:
+  en: 82cb797d88ff6e9b
+  zh: 41d1bd6369d1fb36
+/deepseek-ai-dsh-workspace-ext/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

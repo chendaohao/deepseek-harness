@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-14-remote-phone-access.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-remote-phone-access.md
-2026-08-14-remote-phone-access.md: 1b07676954eeaab8722cc7fbf497f472a9ebf9d0
-2026-08-14-remote-phone-access.zh.md: 9ce39bf389c4d23206100a669cd6fb5bf790971c
+/agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel:
+  en: 7facd453d17df204
+  zh: e995b78feeb9d63c
+/agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel/problem:
+  en: a0cb665fbd007634
+  zh: 7429f4e1ac5b3057
+/agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel/decision:
+  en: 585af708d28dd152
+  zh: d43beb1db0b9dc8d
+/agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel/alternatives-considered:
+  en: d3e132dbab4b1fd7
+  zh: df11d792f481eec2
+/agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel/consequences:
+  en: ad018390256189b3
+  zh: 5f854127c9c341b1

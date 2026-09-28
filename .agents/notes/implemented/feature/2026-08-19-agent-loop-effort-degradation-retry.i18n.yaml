@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-agent-loop-effort-degradation-retry.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-agent-loop-effort-degradation-retry.md
-2026-08-19-agent-loop-effort-degradation-retry.md: ce2e62413b2cc2ca4fc440db413efcb745a57518
-2026-08-19-agent-loop-effort-degradation-retry.zh.md: 6dfa0c450f7859ea2184b06f695bd47fcbeab185
+/agent-note-the-built-in-request-error-fallback-degrades-a-refused-reasoning-effort:
+  en: e32f686e82eab7ae
+  zh: 724e7a245871081c
+/agent-note-the-built-in-request-error-fallback-degrades-a-refused-reasoning-effort/problem:
+  en: 42d08eff626b44c0
+  zh: f67813dc742db25d
+/agent-note-the-built-in-request-error-fallback-degrades-a-refused-reasoning-effort/decision:
+  en: 997ec40c8e9d952d
+  zh: a8b44eecc28de4b5
+/agent-note-the-built-in-request-error-fallback-degrades-a-refused-reasoning-effort/alternatives-considered:
+  en: 0067dee00f1efee4
+  zh: 6d06c3f2a969b784
+/agent-note-the-built-in-request-error-fallback-degrades-a-refused-reasoning-effort/consequences:
+  en: 146de3add8e0b6b4
+  zh: 9a0ee388e06ef43d

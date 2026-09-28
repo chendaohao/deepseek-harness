@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-18-mobile-web-refresh-after-completion.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-18-mobile-web-refresh-after-completion.md
-2026-08-18-mobile-web-refresh-after-completion.md: 3b5b37b3c24443de1a400783ebf0e606cb41406d
-2026-08-18-mobile-web-refresh-after-completion.zh.md: 7f01573c4d1d9e98354d3214f206590891ea010b
+/agent-note-mobile-web-live-update-after-task-completion:
+  en: e6ae9ca2d2c317e0
+  zh: b169bf6d98748570
+/agent-note-mobile-web-live-update-after-task-completion/problem:
+  en: 701b5ac6fbc190c4
+  zh: 5a5b7ff88e0c7418
+/agent-note-mobile-web-live-update-after-task-completion/decision:
+  en: 0d1d477d3c5205ad
+  zh: e6c56103d6299c24
+/agent-note-mobile-web-live-update-after-task-completion/verification:
+  en: 1023c4aac008213c
+  zh: 885902959aec72e0
+/agent-note-mobile-web-live-update-after-task-completion/alternatives-considered:
+  en: 318d378a81aa32e3
+  zh: 29b32b683bee720f
+/agent-note-mobile-web-live-update-after-task-completion/consequences:
+  en: bd3a7a09cd8566f3
+  zh: fb1683a15c217d15

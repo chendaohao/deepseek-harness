@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-30-session-header-narrow-overlap-fix.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-session-header-narrow-overlap-fix.md
-2026-08-30-session-header-narrow-overlap-fix.md: d8c9bc7ceeed6d85b2fb6689fb5bb570ec568883
-2026-08-30-session-header-narrow-overlap-fix.zh.md: d0e1f5b1dec77738bfd460f6a9904086c2e9d30e
+/agent-note-session-header-controls-overlap-on-phone-widths:
+  en: b34c3532f8d9ec3a
+  zh: d36698ca30a2b3dd
+/agent-note-session-header-controls-overlap-on-phone-widths/problem:
+  en: bf0d12c4966b06fa
+  zh: e91d52ab9437d018
+/agent-note-session-header-controls-overlap-on-phone-widths/decision:
+  en: fbaf3243a64f0cf3
+  zh: a486e4348accd15b
+/agent-note-session-header-controls-overlap-on-phone-widths/verification:
+  en: e59f75ca3bcab9d9
+  zh: e5ed9b40448feb1d
+/agent-note-session-header-controls-overlap-on-phone-widths/alternatives-considered:
+  en: b05a12c83d722be6
+  zh: e1d61739a0c2c370
+/agent-note-session-header-controls-overlap-on-phone-widths/consequences:
+  en: 1ba587591b7d017e
+  zh: f943006ebf58b3f3
+/agent-note-session-header-controls-overlap-on-phone-widths/related:
+  en: 9330dc440d3be9e1
+  zh: 15bedf2cc7864eb8

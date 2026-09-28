@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-08-forwarded-settings-fence-and-m-removal.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-08-forwarded-settings-fence-and-m-removal.md
-2026-09-08-forwarded-settings-fence-and-m-removal.md: ebe4735630599587d1f2f49ed8fec5fff60e70eb
-2026-09-08-forwarded-settings-fence-and-m-removal.zh.md: 79e4b0c1f1279db93fc65f442975bdef26dae9a9
+/agent-note-read-only-settings-for-forwarded-clients-and-the-m-surface-removal:
+  en: d118a388e6a58a4f
+  zh: cb9a99cf556442cc
+/agent-note-read-only-settings-for-forwarded-clients-and-the-m-surface-removal/problem:
+  en: 47131ee4f832aad6
+  zh: 27a6b2a66acf4709
+/agent-note-read-only-settings-for-forwarded-clients-and-the-m-surface-removal/decision:
+  en: 26faed59e330a798
+  zh: 54a72d5ac59e7d39
+/agent-note-read-only-settings-for-forwarded-clients-and-the-m-surface-removal/verification:
+  en: 18cf18fbf6703bf9
+  zh: bd7d707a11c74469
+/agent-note-read-only-settings-for-forwarded-clients-and-the-m-surface-removal/alternatives-considered:
+  en: b6c717f1d489837c
+  zh: 75f8d905a809242e
+/agent-note-read-only-settings-for-forwarded-clients-and-the-m-surface-removal/consequences:
+  en: 475259868ebdc129
+  zh: ad7e13aba53ebd7d

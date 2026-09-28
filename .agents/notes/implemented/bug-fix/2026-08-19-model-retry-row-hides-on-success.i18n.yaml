@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-model-retry-row-hides-on-success.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-model-retry-row-hides-on-success.md
-2026-08-19-model-retry-row-hides-on-success.md: 5a18e2a7b35de4e5202a7bfd42b6535a1034d423
-2026-08-19-model-retry-row-hides-on-success.zh.md: 1b5e24488fba33cf15b1a031bda98e3f6187efa4
+/agent-note-model-retry-notice-hides-once-the-retried-step-settles:
+  en: be39e671c0acfc1c
+  zh: 7d3217d5cd4c0b8f
+/agent-note-model-retry-notice-hides-once-the-retried-step-settles/problem:
+  en: e97bba5df0ed7331
+  zh: 1ab816de4663b76a
+/agent-note-model-retry-notice-hides-once-the-retried-step-settles/decision:
+  en: c82f6699cbbcde9f
+  zh: 2ca0de0827a799a8
+/agent-note-model-retry-notice-hides-once-the-retried-step-settles/alternatives-considered:
+  en: 3d4077497ae33b0a
+  zh: e962ae7434abb31d
+/agent-note-model-retry-notice-hides-once-the-retried-step-settles/consequences:
+  en: d043a47734214044
+  zh: 16252ff5c7338ecb

@@ -444,7 +444,8 @@ currentSelection(): ModelSelection
  * Save the complete default model selection. The per-model memory is
  * independent of it, so a selection write restates the remembered choices
  * rather than dropping them. A deployment without a configuration editor
- * keeps its composition entry.
+ * keeps its composition entry. Saves commit in submission order; a failed
+ * save rejects its caller without blocking later saves.
  * @param next - resolved selection accepted by an entry point.
  * @returns fulfillment after the optional profile write settles.
  */
@@ -541,8 +542,8 @@ async register(definition: PresetDefinition): Promise<() => Promise<void>>
  */
 async list(): Promise<AgentPreset[]>
 
-/** Read the selection roster and chooser policy.
- * @returns Current presets, default and chooser policy.
+/** Read the selection roster.
+ * @returns Current presets, each marked when it is the default.
  */
 @Remote('list') async remoteExportList(): Promise<AgentPresetRoster>
 

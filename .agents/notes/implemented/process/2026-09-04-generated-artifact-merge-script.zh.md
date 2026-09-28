@@ -13,8 +13,9 @@ Status: implemented
 `scripts/merge-upstream.sh` 机械地解决生成器拥有的产物集合，从不自动处理手工编写的内容：
 
 - 启动阶段：执行 `git merge --no-ff --no-commit <ref>`（默认 `upstream/master`），然后对每个生成物上的冲突（各目录与图文档、`cordis-api` 页、`apps/cli/composition.md`、生成的 TS 目录、`known-event-types.ts`、`pnpm-lock.yaml`、`THIRD_PARTY_NOTICES.md`），检出合并 ref 的一侧。`pnpm install` 和各 `gen-*` 生成器会为 fork 重建 ref 一侧缺失的内容。
+- 产物清单收录生成器拥有的每个文件，包括中文与配对记录两个同源文件。`gen-config-catalog`、`gen-module-graph` 与 `gen-persistence-catalog` 渲染整篇文档正文并写入配对的三件文件，因此三者都取 ref 一侧。只重写标记区域的生成器（`docs/subsystems/*.zh.md`、`docs/event-producer-consumer.zh.md`）保留其周围手写中文散文，因此这些仍留在手动队列中——对区域拼接页面套用「一律取 ref 一侧」会丢弃手写译文。
 - `tsconfig.base.json` 取 ref 一侧后，脚本在 `BEGIN generated package aliases` 标记上方重新注入 fork 的手写别名块。生成器不产出 `src/*` 通配符，且跳过声明名与目录名不一致的包，因此 `@deepseek-ai/dsh-mcp-client/src/*` 和 `dsh-client-ui-remote` 各条目无法再生。`--finish` 以幂等方式重注入（以注释行作哨兵），因为无冲突的合并会原样采用 ref 的文件。
-- 配对记录冲突（`*.i18n.yaml`）走 `pnpm run resolve-translation-pairing-conflicts`；`dsh-translation-pairing` merge driver（[自动组合翻译配对记录](2026-08-08-automatic-translation-pairing-merges.zh.md)）已经在 `git merge` 内部解决其中的大多数。
+- 配对记录（`*.i18n.yaml`）按普通文本合并，因为每条记录以分节为键（[原因](2026-09-23-section-keyed-translation-pairing-records.zh.md)），因此不需要解析步骤；生成物集合处理完后仍未合并的路径就是真正的同分节冲突，与其他手写路径一样进入手动队列。
 - 其余未合并路径即手写冲突。脚本逐条打印并附各区域的提示（subsystem 区域、session-controller/gateway 漂移、web 测试、编译面、包清单）后以非零退出；操作者解决后用 `--finish` 重跑，执行 `pnpm install`、全部 `gen-*` 生成器、验证 fork 别名仍在、staging，并报告需要重新配对的翻译对。脚本从不提交，也从不放弃合并。
 
 ## Verification

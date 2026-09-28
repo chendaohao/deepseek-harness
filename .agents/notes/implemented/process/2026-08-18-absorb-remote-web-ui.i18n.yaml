@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-18-absorb-remote-web-ui.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-18-absorb-remote-web-ui.md
-2026-08-18-absorb-remote-web-ui.md: bcdbbf27c4e17191d48c3fa06a9fa06987e0afe3
-2026-08-18-absorb-remote-web-ui.zh.md: bc4d81c945e1a9a4d31584a71bd027e0874f5b5e
+/agent-note-absorbing-linxin666-dsh-remote-web-ui-into-the-first-party-remote-family:
+  en: 93859c8d82f0382c
+  zh: 7201e1c6bce7ef88
+/agent-note-absorbing-linxin666-dsh-remote-web-ui-into-the-first-party-remote-family/problem:
+  en: 206c5e2c615d3597
+  zh: 0e77fc0e9eebe72f
+/agent-note-absorbing-linxin666-dsh-remote-web-ui-into-the-first-party-remote-family/decision:
+  en: ee6dabb6f36bd803
+  zh: 14c0e5237125714a
+/agent-note-absorbing-linxin666-dsh-remote-web-ui-into-the-first-party-remote-family/consequences:
+  en: 645bc336e975210f
+  zh: 9d28627ae388997a
+/agent-note-absorbing-linxin666-dsh-remote-web-ui-into-the-first-party-remote-family/alternatives-considered:
+  en: 113987465a833043
+  zh: 35876057eecc17eb

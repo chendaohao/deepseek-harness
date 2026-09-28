@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-released-format-inventory-event-growth.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-06-released-format-inventory-event-growth.md
-2026-09-06-released-format-inventory-event-growth.md: b8328505e7cec98eed670b7e58db594492817de7
-2026-09-06-released-format-inventory-event-growth.zh.md: 384627adf169bec9776b0ef7dd0bf9bc194341f2
+/agent-note-released-format-inventories-admit-every-event-type-the-era-s-writers-emit:
+  en: e83e832fe62e0732
+  zh: 0934894f85bb6d18
+/agent-note-released-format-inventories-admit-every-event-type-the-era-s-writers-emit/problem:
+  en: 942c2493e18c0fcb
+  zh: 32e7ac560c976f10
+/agent-note-released-format-inventories-admit-every-event-type-the-era-s-writers-emit/decision:
+  en: 9766d270bfcf090d
+  zh: 4c8512ca24c069ef
+/agent-note-released-format-inventories-admit-every-event-type-the-era-s-writers-emit/alternatives-considered:
+  en: 2f0fd7c3bf325e01
+  zh: fb6a1b4fb6c4ea12
+/agent-note-released-format-inventories-admit-every-event-type-the-era-s-writers-emit/consequences:
+  en: 69bfb72f7d26928a
+  zh: 518e66b4ab36053c
+/agent-note-released-format-inventories-admit-every-event-type-the-era-s-writers-emit/testing:
+  en: e4776ced1307260d
+  zh: a6ab1dc0ff39ca39

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-model-selector-search-recent-collapse.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-model-selector-search-recent-collapse.md
-2026-08-19-model-selector-search-recent-collapse.md: 433f31f605c8d4aef02b788b627dd6ec30888905
-2026-08-19-model-selector-search-recent-collapse.zh.md: 4b5cf44f7d017951bcdba2e3a73c56c9b7d6d1bf
+/agent-note-model-selector-search-recently-used-and-collapsible-providers:
+  en: 3574b084987a3634
+  zh: 3178ea65e6270b60
+/agent-note-model-selector-search-recently-used-and-collapsible-providers/problem:
+  en: 3e52a41f559dd16c
+  zh: cc64b93acd6d8e51
+/agent-note-model-selector-search-recently-used-and-collapsible-providers/decision:
+  en: 58a78c24e2640230
+  zh: 2c45b0949778d539
+/agent-note-model-selector-search-recently-used-and-collapsible-providers/alternatives-considered:
+  en: df9ead1ba1a806ab
+  zh: 2374ebf78efe3454
+/agent-note-model-selector-search-recently-used-and-collapsible-providers/consequences:
+  en: d4b901f2ea9311aa
+  zh: e58ea0a72b6879bc

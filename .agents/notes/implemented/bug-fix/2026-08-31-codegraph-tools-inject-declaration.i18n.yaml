@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-31-codegraph-tools-inject-declaration.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-31-codegraph-tools-inject-declaration.md
-2026-08-31-codegraph-tools-inject-declaration.md: e8bb144e521011ca99bd29b80cbc92f439e107de
-2026-08-31-codegraph-tools-inject-declaration.zh.md: 1c10e13c05fc1ca211395b87e9dbf5f2b8f54ab6
+/agent-note-codegraph-mcp-tools-never-registered-without-an-inject-declaration:
+  en: 49a3d080564f2adf
+  zh: fba834d2396d64d6
+/agent-note-codegraph-mcp-tools-never-registered-without-an-inject-declaration/problem:
+  en: 4040334f679e1d98
+  zh: 9d140b200d4e210c
+/agent-note-codegraph-mcp-tools-never-registered-without-an-inject-declaration/decision:
+  en: 7ddc9f6cfa9f8231
+  zh: 454527dd343bbd98
+/agent-note-codegraph-mcp-tools-never-registered-without-an-inject-declaration/verification:
+  en: 597a8873cd9bca58
+  zh: 154ec1ec3d1f2b99
+/agent-note-codegraph-mcp-tools-never-registered-without-an-inject-declaration/alternatives-considered:
+  en: 77e92af9ea715719
+  zh: 40d8735b1239d13e
+/agent-note-codegraph-mcp-tools-never-registered-without-an-inject-declaration/consequences:
+  en: 9c5979515a7f0c1d
+  zh: f7a4d381a023aef6
+/agent-note-codegraph-mcp-tools-never-registered-without-an-inject-declaration/related:
+  en: da7aaffe887a8e7b
+  zh: d72cacfb3611d9b2

@@ -15,7 +15,9 @@
  * selected effort come from the Host rather than a client-owned vocabulary. A
  * rejected selection announces through the shared transient Toast anchored to
  * the composer card; the in-menu strip with Retry remains the catalog-load
- * surface.
+ * surface. While the directory's pending selection is unsettled, the trigger
+ * shows a spinner in place of its chevron, and each row whose value that
+ * selection carries shows one in place of its check mark.
  *
  * The model pane scales past one provider: a search box filters the catalog
  * flat by model/provider name, a pinned recently-used section re-offers the
@@ -25,6 +27,7 @@
  * A plain model pick names the route alone so the host restores any
  * remembered effort for it; the effort pane marks its picks explicit.
  */
+import { MenuSurface } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
   type CSSProperties, type KeyboardEvent, type FocusEvent,
@@ -34,7 +37,8 @@ import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   applyProviderOrder, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular,
-  IconDataOutlineRegular, IconWarningOutlineRegular, modelMatchesQuery, readProviderOrder, Toast, useRecentModels,
+  IconDataOutlineRegular, IconWarningOutlineRegular, modelMatchesQuery, readProviderOrder, StateDot, Toast,
+  useRecentModels,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
@@ -52,6 +56,11 @@ interface EffortChoice {
 
 /** Unplaced portal card: hidden but laid out at a fixed origin so offsetWidth/offsetHeight are real (Menu primitive's measure pass). */
 const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
+
+/** Default provider order: the account route leads, the official one follows, third parties keep directory order. */
+function accountRank(id: string): number {
+  return id === 'deepseek-account' ? 0 : id === 'deepseek-official' ? 1 : 2
+}
 
 /**
  * Render the composer model seat.
@@ -91,7 +100,11 @@ export function ModelSelect(
   // drag there is what this menu shows next.
   const [providerOrder, setProviderOrder] = useState<readonly string[]>(() => readProviderOrder())
   const groups = useMemo(
-    () => applyProviderOrder(state.groups, providerOrder, group => group.id),
+    () => applyProviderOrder(
+      state.groups.toSorted((left, right) => accountRank(left.id) - accountRank(right.id)),
+      providerOrder,
+      group => group.id,
+    ),
     [state.groups, providerOrder],
   )
 
@@ -111,7 +124,7 @@ export function ModelSelect(
   const reasoning = currentChoice?.model.reasoning
   const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
   const effortLabel = reasoning === undefined
-    ? undefined
+    ? state.retainedEffort
     : effectiveEffort === undefined
       ? t('effort.providerDefault')
       : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
@@ -127,7 +140,8 @@ export function ModelSelect(
         label: effort.name,
       })),
     ], [reasoning, t])
-  const busy = state.status === 'selecting'
+  const { pending } = state
+  const busy = pending !== null
   const searching = query.trim() !== ''
   const filteredChoices = useMemo(() => searching
     ? choices.filter(choice => modelMatchesQuery(choice.group, choice.model, query))
@@ -218,7 +232,10 @@ export function ModelSelect(
 
   const show = (): void => {
     triggerRef.current?.focus()
-    setPane('root')
+    // A session with no selection opens straight on the model list, where the
+    // pick must be made; otherwise the root Model/Effort pair.
+    if (state.current === null) paneFocus.current = 'drill'
+    setPane(state.current === null ? 'model' : 'root')
     setQuery('')
     setCollapsed(new Set())
     setProviderOrder(readProviderOrder())
@@ -265,7 +282,7 @@ export function ModelSelect(
         setQuery('')
         return
       }
-      if (pane !== 'root') back(pane)
+      if (pane !== 'root' && state.current !== null) back(pane)
       else close(true)
       return
     }
@@ -276,7 +293,7 @@ export function ModelSelect(
     if (event.key === 'Tab') {
       if (event.shiftKey) {
         event.preventDefault()
-        if (pane !== 'root') back(pane)
+        if (pane !== 'root' && state.current !== null) back(pane)
         else close(true)
         return
       }
@@ -398,7 +415,9 @@ export function ModelSelect(
           {secondary !== undefined && <span className={css.description}>{secondary}</span>}
         </span>
         <span className={css.check}>
-          {selected ? <IconCheckOutlineRegular /> : null}
+          {pending?.provider === selection.provider && pending.model === selection.model
+            ? <StateDot state="ongoing" />
+            : selected ? <IconCheckOutlineRegular /> : null}
         </span>
       </button>
     )
@@ -444,6 +463,7 @@ export function ModelSelect(
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
         title={triggerLabel}
+        aria-busy={busy}
         disabled={locked}
         onClick={() => {
           if (open) {
@@ -456,14 +476,16 @@ export function ModelSelect(
         <IconDataOutlineRegular className={css.triggerIcon} size={16} />
         <span className={css.triggerLabel}>{modelLabel}</span>
         {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
-        <IconChevronDownOutlineRegular className={clsx(css.chevron, open && css.chevronOpen)} />
+        {busy
+          ? <StateDot state="ongoing" />
+          : <IconChevronDownOutlineRegular className={clsx(css.chevron, open && css.chevronOpen)} />}
       </button>
 
       {/* Portaled to body (Menu primitive's portal mode) so the sidebar and
           column overflow clips cannot crop the card; synthetic events still
           bubble through this React subtree, keeping onKeyDown/onBlur live. */}
       {open && createPortal(
-        <div
+        <MenuSurface
           ref={menuRef}
           id={`${id}-menu`}
           className={css.menu}
@@ -515,7 +537,7 @@ export function ModelSelect(
                 )}
                 {state.failures.map(failure => (
                   <div className={css.warning} key={failure.id}>
-                    <span>{t('warning.groupLoad', { name: failure.name, message: failure.message })}</span>
+                    <span>{t('warning.groupLoad', { name: failure.id === 'deepseek-account' ? t('provider.account') : failure.name, message: failure.message })}</span>
                     <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
                   </div>
                 ))}
@@ -536,10 +558,11 @@ export function ModelSelect(
                       )}
                       {groups.map((group) => {
                         const headingId = `${id}-${group.id}`
+                        const labelId = `${id}-${group.id}-label`
                         const modelsId = `${id}-${group.id}-models`
                         const isCollapsed = collapsed.has(group.id)
                         return (
-                          <section role="group" aria-labelledby={headingId} className={css.group} key={group.id}>
+                          <section role="group" aria-labelledby={labelId} className={css.group} key={group.id}>
                             <button
                               ref={itemRef()}
                               type="button"
@@ -556,7 +579,7 @@ export function ModelSelect(
                                 })
                               }}
                             >
-                              <span>{group.name}</span>
+                              <span id={labelId}>{group.id === 'deepseek-account' ? t('provider.account') : group.name}</span>
                               <span className={css.groupBadge}>{group.models.length}</span>
                               <IconChevronDownOutlineRegular className={clsx(css.groupChevron, isCollapsed && css.groupChevronCollapsed)} />
                             </button>
@@ -601,14 +624,17 @@ export function ModelSelect(
                         <span className={css.modelName}>{level.label}</span>
                       </span>
                       <span className={css.check}>
-                        {effectiveEffort === level.effort ? <IconCheckOutlineRegular /> : null}
+                        {pending !== null && pending.provider === state.current?.provider
+                          && pending.model === state.current.model && pending.reasoningEffort === level.effort
+                          ? <StateDot state="ongoing" />
+                          : effectiveEffort === level.effort ? <IconCheckOutlineRegular /> : null}
                       </span>
                     </button>
                   ))}
               </>
             )}
           </div>
-        </div>,
+        </MenuSurface>,
         document.body,
       )}
       {toast !== null && (

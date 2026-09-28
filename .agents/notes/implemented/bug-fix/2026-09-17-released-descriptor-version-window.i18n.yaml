@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-released-descriptor-version-window.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-released-descriptor-version-window.md
-2026-09-17-released-descriptor-version-window.md: c2fd7f4706ee384fe51d463466a0a509fa347422
-2026-09-17-released-descriptor-version-window.zh.md: aea4652f9da226b89824c08ca297119d3b6a3564
+/agent-note-a-released-edge-admits-its-era-s-payload-versions-and-one-refused-log-keeps-search-alive:
+  en: 19db4e622c422e9f
+  zh: a787ddce3f83f8f9
+/agent-note-a-released-edge-admits-its-era-s-payload-versions-and-one-refused-log-keeps-search-alive/problem:
+  en: f1d0d686f2727726
+  zh: c6ecb17ed000333f
+/agent-note-a-released-edge-admits-its-era-s-payload-versions-and-one-refused-log-keeps-search-alive/decision:
+  en: 611d0caad3753aba
+  zh: 9d283b5a709cc6e7
+/agent-note-a-released-edge-admits-its-era-s-payload-versions-and-one-refused-log-keeps-search-alive/decision/one-refused-log-must-not-deny-every-other-session:
+  en: 7e98f0433cb8edea
+  zh: 3d4316a2e2ee5b41
+/agent-note-a-released-edge-admits-its-era-s-payload-versions-and-one-refused-log-keeps-search-alive/consequences:
+  en: e7ba1b14673d4cd0
+  zh: dba439766d02c51b
+/agent-note-a-released-edge-admits-its-era-s-payload-versions-and-one-refused-log-keeps-search-alive/alternatives-considered:
+  en: 79e2bcd629b93356
+  zh: 9d491c22c49a67a6
+/agent-note-a-released-edge-admits-its-era-s-payload-versions-and-one-refused-log-keeps-search-alive/testing:
+  en: 2cf47e11b9bd921d
+  zh: 3fc7c601c167c223

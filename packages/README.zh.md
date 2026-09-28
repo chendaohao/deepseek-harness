@@ -32,8 +32,9 @@ harness 由 `packages/` 下的 npm 包组装而成，按能力系列分组：会
 | [`api/`](api/README.zh.md) | Remote BFF 装配与 Typert RPC 网关 |
 | [`typert/`](typert/README.zh.md) | 类型图生成、产物加载与运行时注册表 |
 | [`goal/`](goal/README.zh.md) | 同会话 goal 的持久化与生命周期 |
-| [`schedule/`](schedule/README.zh.md) | 仅限会话内的定时后续操作 |
+| [`schedule/`](schedule/README.zh.md) | Host 拥有的定时后续操作 |
 | [`feedback/`](feedback/README.zh.md) | 人类反馈的采集与命令 |
+| [`telemetry/`](telemetry/README.zh.md) | 共享 Cordis OTel 上报通道 |
 | [`identity/`](identity/README.zh.md) | 共享匿名身份 |
 | [`llm/`](llm/README.zh.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 |
 | [`subprocess/`](subprocess/README.zh.md) | 子进程能力系列：Service Definition + 本地进程树提供方 |
@@ -50,7 +51,7 @@ harness 由 `packages/` 下的 npm 包组装而成，按能力系列分组：会
 | [`skill/`](skill/README.zh.md) | skill（技能）能力系列：提供方注册表、本地提供方、面向模型的目录／loader |
 | [`compaction/`](compaction/README.zh.md) | 压缩（compaction）能力系列：Service Definition + 基础提供方 + 命令 Consumer |
 | [`context/`](context/README.zh.md) | 模型可见请求上下文：workspace 指令、时间上下文、引用 |
-| [`codegraph/`](codegraph/README.zh.md) | CodeGraph 集成：索引工作区的定向清单 + 惰性启动的 MCP 服务器 |
+| [`codegraph/`](codegraph/README.zh.md) | CodeGraph 集成：清单 + MCP 服务器 |
 | [`subagent/`](subagent/README.zh.md) | subagent 能力系列：提供方注册表约定和面向模型的委托工具 |
 | [`jobs/`](jobs/README.zh.md) | 通用后台任务运行时和面向模型的作业控制工具 |
 | [`experimental/`](experimental/README.zh.md) | 预稳定原型，包含显式私有例外 |

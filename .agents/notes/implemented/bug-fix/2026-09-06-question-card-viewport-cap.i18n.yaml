@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-question-card-viewport-cap.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-06-question-card-viewport-cap.md
-2026-09-06-question-card-viewport-cap.md: a408f70d6425169dcf6faf42dcd5923d4a67ea49
-2026-09-06-question-card-viewport-cap.zh.md: 67c772e8787a0246627f25cc9afe3a2ed66b1bdc
+/agent-note-question-takeover-cards-cap-at-the-measured-scrollport:
+  en: cf3605db5e2b64e7
+  zh: 028982071aabe6eb
+/agent-note-question-takeover-cards-cap-at-the-measured-scrollport/problem:
+  en: 8c689e073f10fbc6
+  zh: 2b33a1378e66b3fd
+/agent-note-question-takeover-cards-cap-at-the-measured-scrollport/decision:
+  en: f134c5d858cfa816
+  zh: 151571e4a32f36ae
+/agent-note-question-takeover-cards-cap-at-the-measured-scrollport/alternatives-considered:
+  en: 076db9ee904d2c8f
+  zh: 5210a57bbbeedb33
+/agent-note-question-takeover-cards-cap-at-the-measured-scrollport/consequences:
+  en: b8cdd6e18627a918
+  zh: 84063d9fe4acf9a8
+/agent-note-question-takeover-cards-cap-at-the-measured-scrollport/testing:
+  en: 25427ce99a1ccde8
+  zh: b18c8cdca0042331

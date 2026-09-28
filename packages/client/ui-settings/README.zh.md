@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 配置表单
 
-`ctx.configForms.developerTools` 管理 Web 和桌面端共享的偏好 `ui-settings.enabled`，默认为 `true`。其 `enabled` 可观察值发布已接受的选择，`setEnabled` 使用相同的有序设置写入。此设置控制界面展示和 HTML 预览权限，不控制 Host 授权或 Session 记录。使用 Host 偏好的客户端在首个经过 schema 解析并接受的值到达前保持开发者功能关闭；首次响应缺失或失败不会启用它们。后续刷新保留已接受的选择。
+`ctx.configForms.developerTools` 管理代码工作工具开关与 Web 和桌面端共享的偏好 `ui-settings.enabled`，默认为 `true`。其 `enabled` 可观察值发布已接受的选择，`setEnabled` 使用相同的有序设置写入。此设置控制界面展示和 HTML 预览权限，不控制 Host 授权或 Session 记录。使用 Host 偏好的客户端在首个经过 schema 解析并接受的值到达前保持开发者功能关闭；首次响应缺失或失败不会启用它们。后续刷新保留已接受的选择。
 
 功能适配器使用 `ctx.configForms.get(entryId)` 获取该 Host 条目所有编辑器共享的已接受值和写入队列。快照包含解析后的 `value`、继承 `base`、原始 `user`、修订号，以及 Host 判定的可写性（转发调用方只读，除非 Host 开启 `forwardedWrite`）；字段只要出现在 `user` 中即视为覆盖，即使其值与 `base` 相等。`set` 与 `unset` 提交单个操作，`mutate` 提交一个原子操作列表。每次写入都以命名空间 revision 作为 `expectedRevision` 围栏，因此来自另一界面的并发写入会被拒绝，而不是被静默覆盖。暂存编辑器传入编辑前读取的修订号；冲突时保留草稿。清除操作移除覆盖并恢复继承。
 
@@ -50,7 +50,7 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-可选的 settings.launcher 贡献接收 wide 和 openSettings，以提供侧边栏账号菜单；未注册时，外壳保留普通设置按钮。
+可选的 `settings.launcher` 贡献接收侧栏布局、设置面板是否覆盖侧栏、设置导航回调，以及有效的设置键位标签和无障碍组合。命令未绑定时，外壳不传快捷键展示信息；未注册入口时，外壳保留普通设置按钮。
 
 <details>
 <summary>实现细节——点击展开</summary>

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-upstream-fork-extraction.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/process/2026-09-07-upstream-fork-extraction.md
-2026-09-07-upstream-fork-extraction.md: 9da2a69d78926d9b9d673f9c386130158ebd1113
-2026-09-07-upstream-fork-extraction.zh.md: 61e4a772121e002b07d82646ae6060c4d4817b96
+/agent-note-extract-the-fork-s-upstreamable-changes-through-rebased-conflict-resolved-pr-branches:
+  en: 3fe1d332c74f679e
+  zh: 5843ff809cf13101
+/agent-note-extract-the-fork-s-upstreamable-changes-through-rebased-conflict-resolved-pr-branches/problem:
+  en: 408d911d5c32f717
+  zh: a51e530a21368943
+/agent-note-extract-the-fork-s-upstreamable-changes-through-rebased-conflict-resolved-pr-branches/proposal:
+  en: 24b2cdc15ac8816d
+  zh: b15512374a112c6c
+/agent-note-extract-the-fork-s-upstreamable-changes-through-rebased-conflict-resolved-pr-branches/alternatives-considered:
+  en: ba0c5c8430981555
+  zh: 1b06864006757fe7
+/agent-note-extract-the-fork-s-upstreamable-changes-through-rebased-conflict-resolved-pr-branches/acceptance-criteria:
+  en: 6a060049ac56ae64
+  zh: a6d87f1a0d291dff
+/agent-note-extract-the-fork-s-upstreamable-changes-through-rebased-conflict-resolved-pr-branches/risks:
+  en: 9ea85236e7f1be7b
+  zh: 5f324ede3924cd72

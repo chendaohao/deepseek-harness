@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-29-remote-access-browser-auth-bridge-and-runtime-shim.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-29-remote-access-browser-auth-bridge-and-runtime-shim.md
-2026-08-29-remote-access-browser-auth-bridge-and-runtime-shim.md: f4f7f09025ca252c8e8867c8698c945377c2225e
-2026-08-29-remote-access-browser-auth-bridge-and-runtime-shim.zh.md: 99841f850c25f5220b4d8fc795d38c0cbb9686ec
+/agent-note-remote-access-pair-bridge-over-the-browser-auth-fence-and-the-client-runtime-shim-row:
+  en: 909314a72c399472
+  zh: c87559debacf644d
+/agent-note-remote-access-pair-bridge-over-the-browser-auth-fence-and-the-client-runtime-shim-row/problem:
+  en: 19c32e89161b17d5
+  zh: 88b6fbc6db1596f9
+/agent-note-remote-access-pair-bridge-over-the-browser-auth-fence-and-the-client-runtime-shim-row/decision:
+  en: 3f82bdd4a92d2393
+  zh: 0d96deb11866eee1
+/agent-note-remote-access-pair-bridge-over-the-browser-auth-fence-and-the-client-runtime-shim-row/audit-findings:
+  en: 8a26d0b578b940e2
+  zh: e3644d7638a8c6c1
+/agent-note-remote-access-pair-bridge-over-the-browser-auth-fence-and-the-client-runtime-shim-row/alternatives-considered:
+  en: 99bc7d72afd9b086
+  zh: 8d3c4a3b2dbcaec4
+/agent-note-remote-access-pair-bridge-over-the-browser-auth-fence-and-the-client-runtime-shim-row/consequences:
+  en: f66d20d911bba1d7
+  zh: 830ca76850034de0

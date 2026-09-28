@@ -48,6 +48,8 @@ function rowId(providerId: string, modelId: string): string {
 }
 
 const BUILTIN_DESCRIPTION_KEYS: Readonly<Record<string, ModelKey>> = {
+  'deepseek-account/deepseek-v4-flash': 'option.deepseekV4Flash.description',
+  'deepseek-account/deepseek-v4-pro': 'option.deepseekV4Pro.description',
   'deepseek-official/deepseek-v4-flash': 'option.deepseekV4Flash.description',
   'deepseek-official/deepseek-v4-pro': 'option.deepseekV4Pro.description',
 }
@@ -67,12 +69,13 @@ function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): Sel
   // The same per-device order the Models settings page persists, so both
   // selector entries and the page agree on which provider comes first.
   for (const group of applyProviderOrder(directory.groups, readProviderOrder(), group => group.id)) {
+    const name = group.id === 'deepseek-account' ? t('provider.account') : group.name
     for (const model of group.models) {
       const description = descriptionOf(group.id, model, t)
       rows.push({
         id: rowId(group.id, model.id),
         label: model.name,
-        detail: description !== undefined ? `${group.name} · ${description}` : group.name,
+        detail: description !== undefined ? `${name} · ${description}` : name,
         ...(directory.current !== null
           && directory.current.provider === group.id
           && directory.current.model === model.id
@@ -83,7 +86,7 @@ function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): Sel
   for (const failure of directory.failures) {
     rows.push({
       id: `failure/${failure.id}`,
-      label: failure.name,
+      label: failure.id === 'deepseek-account' ? t('provider.account') : failure.name,
       detail: t('option.loadError', { message: failure.message }),
     })
   }
@@ -128,9 +131,7 @@ export function apply(ctx: ClientContext): void {
   // through the bound translate; the seat component reads the standard seat.
   const t = ctx.locale.bind(NS)
 
-  // The composer-block reason is this plugin's own copy, read at raise time so
-  // a locale change reaches the next publish.
-  ctx.plugin(ModelDirectoryResolver, { blockReason: () => t('blocked.composer') })
+  ctx.plugin(ModelDirectoryResolver)
 
   // Entry 1: the /model popupSelect over the shared directory.
   ctx.inject(['commandUi', 'modelDirectories'], (scope: ClientContext) => {
