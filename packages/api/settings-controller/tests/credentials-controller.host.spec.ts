@@ -32,10 +32,11 @@ class RejectingCredentials extends MemoryCredentials {
 async function boot(
   seed: Record<string, string> = {},
   provider: typeof MemoryCredentials = MemoryCredentials,
+  config: { forwardedCredentialWrite?: boolean } = {},
 ): Promise<CredentialsController> {
   const ctx = new Context()
   await ctx.plugin(provider, seed)
-  await ctx.plugin(CredentialsController)
+  await ctx.plugin(CredentialsController, config)
   return ctx.credentialsController
 }
 
@@ -157,6 +158,24 @@ describe('the forwarded-write fence on credentials', () => {
     // The seeded value survived both refused writes.
     const after = await controller.describe(['DEEPSEEK_API_KEY'])
     expect(after.DEEPSEEK_API_KEY).toMatchObject({ configured: true })
+  })
+
+  it('stores and removes for a forwarded request once forwardedCredentialWrite is on', async () => {
+    const forwarded = { headers: { 'x-dsh-proxied': '1' } }
+    const controller = await boot({}, MemoryCredentials, { forwardedCredentialWrite: true })
+    const described = await runWithRequestFacts(
+      forwarded,
+      () => controller.describe(['DEEPSEEK_API_KEY']),
+    )
+    expect(described).toEqual({ DEEPSEEK_API_KEY: { configured: false, writable: true } })
+    await runWithRequestFacts(forwarded, () => controller.set('DEEPSEEK_API_KEY', 'sk-live'))
+    expect(await controller.describe(['DEEPSEEK_API_KEY'])).toEqual({
+      DEEPSEEK_API_KEY: { configured: true, source: 'memory', writable: true },
+    })
+    await runWithRequestFacts(forwarded, () => controller.unset('DEEPSEEK_API_KEY'))
+    expect(await controller.describe(['DEEPSEEK_API_KEY'])).toEqual({
+      DEEPSEEK_API_KEY: { configured: false, writable: true },
+    })
   })
 
   it('stays writable for a local request even with the header on another field', async () => {

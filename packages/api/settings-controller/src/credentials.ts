@@ -1,15 +1,17 @@
 /**
  * Host owner of the `credentials` Remote namespace: the reference half of
  * `ctx.credentials` as a browser configuration page reads and writes it.
- * Credential writes never honor the `forwardedWrite` switch: a forwarded
- * (paired tunnel) client may not store or remove credential values regardless
- * of configuration, so a tunnel client can change settings but never take over
- * the API keys the host calls out with.
+ * Credential writes honor the `forwardedCredentialWrite` switch, never the
+ * settings `forwardedWrite` one: a forwarded (paired tunnel) client refuses
+ * to store or remove credential values until a deployment grants that reach
+ * explicitly, so opening settings writes alone never hands a tunnel client the
+ * API keys the host calls out with.
  *
  * @module @deepseek-ai/dsh-api-settings-controller/src/credentials.ts
  */
 
 import { Context } from '@deepseek-ai/cordis'
+import Schema from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
@@ -23,6 +25,20 @@ import { isForwardedRequest } from './forwarded-write.ts'
  * keeps one authenticated request from starting unbounded provider work.
  */
 const MAX_DESCRIBE_REFS = 64
+
+/** Forwarded-write policy for credential values, independent of the settings one. */
+export interface Config {
+  /**
+   * Allow credential writes from requests that arrived through the remote-access
+   * proxy (a paired tunnel client). Default `false`: a forwarded caller reads
+   * every reference and its `set`/`unset` refuse with
+   * `settings/forwarded-write-disabled`. The settings controller's
+   * `forwardedWrite` never reaches this switch. Opening it grants whoever
+   * holds the pairing link the ability to store and remove the values the host
+   * calls out with.
+   */
+  readonly forwardedCredentialWrite?: boolean
+}
 
 const credentialRefSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
 const describeRequestSchema = z.object({
@@ -70,17 +86,28 @@ declare module '@deepseek-ai/cordis' {
  * no method here returns one.
  */
 export class CredentialsController extends TypertRemoteService {
-  /** @param ctx - Host context where a credential provider may be mounted. */
-  constructor(ctx: Context) {
+  static Config: Schema<Config> = Schema.object({
+    forwardedCredentialWrite: Schema.boolean().default(false),
+  })
+
+  private readonly forwardedCredentialWrite: boolean
+
+  /**
+   * @param ctx - Host context where a credential provider may be mounted.
+   * @param config - validated {@link Config}.
+   */
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'credentialsController', { namespace: 'credentials' })
+    this.forwardedCredentialWrite = config.forwardedCredentialWrite ?? false
   }
 
   /**
    * Describe several references for one configuration surface. Batched because
    * a settings page describes every reference its rows name at once, and one
-   * round trip keeps those rows from settling separately. A forwarded
-   * (paired tunnel) client reads every reference as non-writable: its writes
-   * would refuse anyway, so the view never invites a doomed input.
+   * round trip keeps those rows from settling separately. Unless
+   * {@link Config.forwardedCredentialWrite} is on, a forwarded (paired tunnel)
+   * client reads every reference as non-writable: its writes would refuse
+   * anyway, so the view never invites a doomed input.
    * @param refs - reference names, at most {@link MAX_DESCRIBE_REFS}; a name outside the grammar
    *   rejects the whole call as `gateway/bad-request`.
    * @returns one view per requested name, keyed by that name.
@@ -91,10 +118,10 @@ export class CredentialsController extends TypertRemoteService {
     const request = parseRequest('credentials.describe', describeRequestSchema, { refs })
     const branded = request.refs.map(ref => [ref, credentialRef(ref)] as const)
     const credentials = this.provider()
-    const forwarded = isForwardedRequest()
+    const readOnly = isForwardedRequest() && !this.forwardedCredentialWrite
     const entries = await Promise.all(branded.map(async ([ref, key]) => {
       const info = await credentials.describe(key)
-      return [ref, forwarded
+      return [ref, readOnly
         ? { ...projectCredentialInfo(info), writable: false }
         : projectCredentialInfo(info)] as const
     }))
@@ -136,9 +163,14 @@ export class CredentialsController extends TypertRemoteService {
     await this.write(request.ref, () => credentials.unset(branded))
   }
 
-  /** Credential writes stay desktop-only even when `forwardedWrite` opens settings. */
+  /**
+   * The write fence every credential write passes. Forwarded requests need
+   * their own switch: this namespace holds the values the host authenticates
+   * with, so it stays closed until a deployment opens it on its own.
+   * @param method - Remote method name carried by the refusal.
+   */
   private assertLocalWrite(method: string): void {
-    if (isForwardedRequest()) {
+    if (isForwardedRequest() && !this.forwardedCredentialWrite) {
       throw new RemoteError(
         'settings/forwarded-write-disabled',
         `${method}: credential writes from a forwarded (paired tunnel) client are disabled; manage credentials on the host`,

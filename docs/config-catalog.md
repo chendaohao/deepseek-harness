@@ -256,9 +256,21 @@ export interface Config {
    * forwarded caller reads everything but every write refuses with
    * `settings/forwarded-write-disabled`. Direct loopback callers are never
    * affected. Opening this switch grants tunnel clients the same write reach
-   * the desktop has — including permission presets — minus credential values.
+   * the desktop has — including permission presets — minus credential values,
+   * which have their own switch below.
    */
   readonly forwardedWrite?: boolean
+  /**
+   * Allow credential writes (`ctx.remote.credentials.set`/`unset`) from
+   * requests that arrived through the remote-access proxy. Default `false`:
+   * a forwarded caller reads every credential reference and its writes refuse
+   * with `settings/forwarded-write-disabled`. Independent of
+   * {@link forwardedWrite}, which never reaches credential values: opening it
+   * grants whoever holds the pairing link the ability to store and remove the
+   * API keys this host calls out with. Direct loopback callers are never
+   * affected.
+   */
+  readonly forwardedCredentialWrite?: boolean
 }
 ```
 

@@ -36,9 +36,21 @@ export interface Config {
    * forwarded caller reads everything but every write refuses with
    * `settings/forwarded-write-disabled`. Direct loopback callers are never
    * affected. Opening this switch grants tunnel clients the same write reach
-   * the desktop has — including permission presets — minus credential values.
+   * the desktop has — including permission presets — minus credential values,
+   * which have their own switch below.
    */
   readonly forwardedWrite?: boolean
+  /**
+   * Allow credential writes (`ctx.remote.credentials.set`/`unset`) from
+   * requests that arrived through the remote-access proxy. Default `false`:
+   * a forwarded caller reads every credential reference and its writes refuse
+   * with `settings/forwarded-write-disabled`. Independent of
+   * {@link forwardedWrite}, which never reaches credential values: opening it
+   * grants whoever holds the pairing link the ability to store and remove the
+   * API keys this host calls out with. Direct loopback callers are never
+   * affected.
+   */
+  readonly forwardedCredentialWrite?: boolean
 }
 
 /** Read abort state afresh after an awaited provider or opener call. */
@@ -91,10 +103,12 @@ declare module '@deepseek-ai/cordis' {
 export class SettingsController extends TypertRemoteService {
   static Config: Schema<Config> = Schema.object({
     forwardedWrite: Schema.boolean().default(false),
+    forwardedCredentialWrite: Schema.boolean().default(false),
   })
 
   private readonly openTextFile: (path: string, signal: AbortSignal) => Promise<void>
   private readonly forwardedWrite: boolean
+  private readonly forwardedCredentialWrite: boolean
 
   /**
    * Register the settings namespace and mount the credentials namespace beside
@@ -107,7 +121,8 @@ export class SettingsController extends TypertRemoteService {
     super(ctx, 'settingsController', { namespace: 'settings' })
     this.openTextFile = internals.openTextFile ?? openNativeTextFile
     this.forwardedWrite = config.forwardedWrite ?? false
-    ctx.plugin(CredentialsController)
+    this.forwardedCredentialWrite = config.forwardedCredentialWrite ?? false
+    ctx.plugin(CredentialsController, { forwardedCredentialWrite: this.forwardedCredentialWrite })
   }
 
   /** The write fence every write method passes: a forwarded request needs the switch. */
