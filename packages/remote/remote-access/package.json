@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-remote-access",
   "description": "Remote-access consumer for the Web GUI: one-time pairing tokens, a revocable device gate, a loopback reverse proxy, and the URL + QR-code surface for dsh-remote-tunnel",
-  "version": "0.1.3-alpha.1",
+  "version": "0.1.7-rc.2",
   "publishConfig": {
     "access": "public"
   },

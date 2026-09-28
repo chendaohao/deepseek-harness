@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-workspace-ext",
   "description": "The workspace extension bundle: fork-local rows for session pinning and remote access as the last bundle layer of the web profile",
-  "version": "0.1.3-alpha.1",
+  "version": "0.1.7-rc.2",
   "publishConfig": {
     "access": "public"
   },
