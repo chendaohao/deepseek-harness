@@ -60,6 +60,10 @@ export interface CodegraphInstructionSource {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** Location attribution; readers preserve the content without this producer.
+     * Its projection uses the kind to avoid repeated injection.
+     * @persistenceAttribution
+     */
     'codegraph-instructions': CodegraphInstructionSource
   }
 }

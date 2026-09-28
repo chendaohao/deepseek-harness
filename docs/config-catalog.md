@@ -709,7 +709,7 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 ## `@deepseek-ai/dsh-codegraph`
 
 - `inject`: `tools`
-- `source`: [`packages/codegraph/codegraph/src/index.ts:68`](../packages/codegraph/codegraph/src/index.ts)
+- `source`: [`packages/codegraph/codegraph/src/index.ts:72`](../packages/codegraph/codegraph/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for one codegraph MCP server and the scoped checklist. */
