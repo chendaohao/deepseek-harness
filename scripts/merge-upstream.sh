@@ -27,6 +27,7 @@ set -euo pipefail
 #   packages/core/session/src/known-event-types.ts,
 #   packages/extensions/tool-cordis/src/api-catalog.ts,
 #   packages/extensions/cordis-client-runner/src/client/{api-catalog,slot-catalog}.ts,
+#   packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md,
 #   pnpm-lock.yaml, tsconfig.base.json (alias block re-injected, see below).
 #
 # A generator that renders a document's whole text owns all three pair files
@@ -101,6 +102,7 @@ GENERATED_ARTIFACTS=(
   packages/extensions/cordis-client-runner/src/client/api-catalog.ts
   packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
   packages/extensions/tool-cordis/src/api-catalog.ts
+  packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md
 )
 
 # Hand-written tsconfig.base.json aliases the fork owns. The generator maps a
@@ -287,6 +289,7 @@ for gen in \
   gen-tool-catalog \
   gen-config-catalog \
   gen-persistence-catalog \
+  gen-plugin-packages \
   gen-module-graph \
   gen-doc-graphs \
   gen-third-party-notices; do
