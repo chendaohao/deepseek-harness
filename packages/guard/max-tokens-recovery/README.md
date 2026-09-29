@@ -75,7 +75,7 @@ Because the counter resets on any step that committed work, the budget is per ru
 
 The recovery is an ordinary `user/message` with source `{kind: 'max-tokens-recovery'}`, queued through `Agent.followup`, so it opens its own turn: a ceiling step closes the turn it ended, and extending that turn is not an option. The listener defers the queue with `queueMicrotask`, because `session/event` is delivered inside the append that publishes it and an append rejects any reentrant append — the one a queue mutation would perform.
 
-A child agent's ceiling is its parent's concern: the guard resolves `ctx.agents.get(session.id)` and ignores every session whose live agent is a different one, so the recovery never fires for a delegated child or a fork.
+A delegated child's ceiling is its parent's concern, so the guard ignores every session whose header names a parent session. A one-shot child owes its caller a single result, and a continuable one reports through its settlement notice; recovering inside the child would answer for a caller that never asked and would overwrite the stop reason that caller needs.
 
 ### Source map
 

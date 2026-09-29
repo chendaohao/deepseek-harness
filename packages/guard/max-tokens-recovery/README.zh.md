@@ -75,7 +75,7 @@ kind: "package-reference"
 
 恢复是一条普通的 `user/message`，来源为 `{kind: 'max-tokens-recovery'}`，通过 `Agent.followup` 排入，因此它会开启自己的 turn：触顶的 step 结束了它所在的 turn，无法在该 turn 内追加。监听器用 `queueMicrotask` 延后这次排入，因为 `session/event` 是在发布它的那次 append 内部投递的，而 append 会拒绝任何重入的 append——包括队列变更会执行的那次。
 
-子 agent 的触顶是它父级的问题：守卫只解析 `ctx.agents.get(session.id)`，对任何 live agent 并非同一个的会话一律忽略，因此恢复不会为被委派的子级或 fork 触发。
+被委派子级的触顶是它父级的问题，因此守卫忽略任何 header 指明父会话的 session。一次性子级只欠调用方一个结果，可继续子级通过结算通知汇报；在子级内部恢复等于替一个从未提出请求的调用方作答，并会覆盖该调用方需要的停止原因。
 
 ### 源码地图
 

@@ -94,8 +94,11 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.on('session/event', (session, event) => {
     const agent = ctx.agents.get(session.id)
-    // A child's failure is its parent's concern, and this guard owns only the
-    // agent whose own loop it observes.
+    // A child's budget is its parent's to manage: a one-shot child owes its
+    // parent a single result, and a continuable one reports through its
+    // settlement notice. Recovering here would answer for a caller that never
+    // asked, and would overwrite the stop reason that caller needs.
+    if (session.header.parentSession !== undefined) return
     if (agent === undefined || agent.session !== session) return
     if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') return
     const state = states.get(agent) ?? { recoveries: 0 }

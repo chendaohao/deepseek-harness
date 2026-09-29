@@ -148,6 +148,22 @@ describe('bounded ceiling recovery', () => {
     expect(recoveries(agent)).toHaveLength(0)
   })
 
+  it('leaves a delegated child alone, whose budget belongs to its parent', async () => {
+    const ctx = await harness()
+    const adapter = new MockAdapter([reasoningCeiling(50_000), textResponse('later')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    // A child is a session whose header names a parent session; creation fixes
+    // that lineage, so the guard reads it from the header.
+    const child = await ctx.agentLoop.create(SessionId('child'), { provider: 'mock', model: 'mock' }, {
+      parentSession: SessionId('parent'),
+    })
+    prompt(child, 'go')
+    await settle(child, adapter, 1)
+
+    expect(recoveries(child)).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(1)
+  })
+
   it('recovers again after an intervening turn that produced work', async () => {
     const ctx = await harness()
     const adapter = new MockAdapter([
