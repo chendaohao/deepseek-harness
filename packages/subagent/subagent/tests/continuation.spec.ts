@@ -2842,6 +2842,29 @@ describe('continuable settlement delivery', () => {
     )
   })
 
+  it('names the spent output budget when the child burned its ceiling on reasoning alone', async () => {
+    const reasoningOnly = (text: string): StreamChunk[] => [
+      { type: 'block-start', index: 0, blockType: 'reasoning' },
+      { type: 'reasoning-delta', index: 0, text },
+      { type: 'block-end', index: 0, block: { type: 'reasoning', text } },
+      { type: 'finish', reason: { kind: 'max-tokens' } },
+    ]
+    const { ctx, parent } = await setup([reasoningOnly('r'.repeat(122_686)), textResponse('parent ack')])
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+
+    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
+    // The delegating model cannot read the child's transcript, so without this
+    // line "ran out of room" invites re-delegation with the wrong constraint —
+    // the exact misdiagnosis that killed a whole three-worker crew.
+    expect(settlementNotices(parent)[0]!.text).toBe(
+      `Background subagent ${started.childId} hit its output token limit before it finished.`
+      + '\nIt left no closing message.'
+      + '\nIt ended turn max-tokens with 122,686 characters of reasoning in one block and no visible output; '
+      + 'the constraint that stopped it was output budget, not the size of the task.',
+    )
+  })
+
   it('reports accepted work cut short before its first step as stopped', async () => {
     const releaseFirst = Promise.withResolvers<undefined>()
     const releaseCheckpoint = Promise.withResolvers<undefined>()

@@ -148,7 +148,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-一条用户角色的父级消息，开头是结果本身——`Background subagent <child-id> finished and will do no further work unless you send it more.`，或子级被停止、撞上输出上限、拒绝任务或失败时的对应句子——随后是 `Its closing message:` 与子级最终 assistant 输出中的非空文本块，保留原始内容与顺序。推理与其他非文本块不会进入通知；若没有剩余的非空文本，通知会写明 `It left no closing message.`。这条由运行时生成的通知与模型编写的父子消息相互独立；后者使用 `sendMessage()` 与 `AgentMessageSource`。委派 schema 与模型控制工具归消费方包所有。
+一条用户角色的父级消息，开头是结果本身——`Background subagent <child-id> finished and will do no further work unless you send it more.`，或子级被停止、撞上输出上限、拒绝任务或失败时的对应句子——随后是 `Its closing message:` 与子级最终 assistant 输出中的非空文本块，保留原始内容与顺序。推理与其他非文本块不会进入通知；若没有剩余的非空文本，通知会写明 `It left no closing message.`。若子级最后一轮撞上输出上限、且既未提交可见文本也未发起工具调用，通知会多一行说明这份开销——`It ended turn max-tokens with 122,686 characters of reasoning in one block and no visible output; the constraint that stopped it was output budget, not the size of the task.`——因为父级读不到子级的过程记录，仅凭「ran out of room」会针对错误的约束重新派活。这条由运行时生成的通知与模型编写的父子消息相互独立；后者使用 `sendMessage()` 与 `AgentMessageSource`。委派 schema 与模型控制工具归消费方包所有。
 
 #### Token 影响
 

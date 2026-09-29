@@ -34,6 +34,30 @@ export interface ActivationTerminal {
   readonly stopReason: SubagentResult['stopReason']
   /** The epoch's final assistant content, absent when it produced none or failed. */
   readonly output?: readonly ContentBlock[]
+  /**
+   * How the epoch's last consumed turn spent its output budget, absent when it
+   * ran no turn. A delegating model cannot read the child's transcript, so a
+   * child that burned its ceiling on a single reasoning block is otherwise
+   * indistinguishable from one that ran out of context — and a re-delegation
+   * based on the wrong diagnosis repeats the same death.
+   */
+  readonly budget?: TurnBudgetReport
+}
+
+/**
+ * One turn's last step, as the parent needs it to tell spent output budget
+ * from missing context: the terminal reason, the visible text that step
+ * committed, and the size of its largest single reasoning block.
+ */
+export interface TurnBudgetReport {
+  /** Terminal reason of the epoch's last consumed turn. */
+  readonly turnEnd: string
+  /** Tool calls the last step requested. */
+  readonly toolCalls: number
+  /** Visible text characters the last step committed. */
+  readonly textChars: number
+  /** Characters in the last step's largest single reasoning block. */
+  readonly largestReasoningChars: number
 }
 
 /**
@@ -201,9 +225,11 @@ export function createActivationObserver(
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const own = child.session.snapshotEvents(boundary)
       const output = finalAssistantOutput(own)
+      const budget = lastTurnBudget(own)
       captured = {
         stopReason: epochStopReason(own),
         ...output === undefined ? {} : { output },
+        ...budget === undefined ? {} : { budget },
       }
     },
     terminal,
@@ -260,6 +286,41 @@ function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopR
     default:
       return 'error'
   }
+}
+
+/**
+ * Last consumed turn's step, expressed in the terms a delegating model uses to
+ * choose a recovery: how the turn ended, whether that step committed anything
+ * visible, and how large its largest single reasoning block was. A step that
+ * commits neither text nor a tool call has spent its whole ceiling on private
+ * reasoning, which a longer prompt or a narrower file scope does not fix.
+ * @param events - this epoch's own event suffix.
+ * @returns the report, or `undefined` when the epoch ran no turn.
+ */
+function lastTurnBudget(events: readonly SessionEvent[]): TurnBudgetReport | undefined {
+  const { end } = foldConsumedWork(events)
+  if (end === undefined) return undefined
+  let last: Extract<SessionEvent, { type: 'assistant/message' | 'assistant/attempt' }> | undefined
+  for (const event of events) {
+    if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') continue
+    if (last === undefined || event.data.step >= last.data.step) last = event
+  }
+  if (last === undefined) {
+    return { turnEnd: end.data.reason.kind, toolCalls: 0, textChars: 0, largestReasoningChars: 0 }
+  }
+  let textChars = 0
+  let toolCalls = 0
+  let largestReasoningChars = 0
+  for (const record of last.data.stream) {
+    if (record.type === 'reasoning-chunks') {
+      largestReasoningChars = Math.max(largestReasoningChars, record.texts.join('').length)
+    } else if (record.type === 'text-chunks') {
+      textChars += record.texts.join('').length
+    } else if (record.type === 'tool-call-chunks') {
+      toolCalls += 1
+    }
+  }
+  return { turnEnd: end.data.reason.kind, toolCalls, textChars, largestReasoningChars }
 }
 
 /** Render any listener-thrown value without letting coercion escape containment. */

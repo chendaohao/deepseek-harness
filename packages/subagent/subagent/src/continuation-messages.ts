@@ -8,7 +8,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ActivationTerminal } from './lifecycle.ts'
+import type { ActivationTerminal, TurnBudgetReport } from './lifecycle.ts'
 import type { SubagentResult } from './types.ts'
 
 /** Durable attribution for one model-authored message between adjacent Agents. */
@@ -129,6 +129,26 @@ function settlementSummary(childId: SessionId, stopReason: SubagentResult['stopR
 }
 
 /**
+ * One line naming how the child spent its final turn's output budget, appended
+ * when that turn produced nothing visible. A parent that reads only "ran out of
+ * room" cannot tell a child that burned its ceiling on one reasoning block from
+ * one whose context filled up, and re-delegates with the wrong constraint.
+ * @param budget - the child's last consumed turn, as captured at settlement.
+ * @returns the diagnosis line, or `undefined` when the turn emitted something.
+ */
+function budgetDiagnosis(budget: TurnBudgetReport): string | undefined {
+  // Only the ceiling is a budget death. A parent-stopped or policy-rejected
+  // child also ends with no visible output, and naming output budget for it
+  // would send the next re-delegation after a constraint that never bit.
+  if (budget.turnEnd !== 'max-tokens') return undefined
+  if (budget.textChars > 0 || budget.toolCalls > 0) return undefined
+  const block = budget.largestReasoningChars > 0
+    ? `${budget.largestReasoningChars.toLocaleString('en-US')} characters of reasoning in one block and no visible output`
+    : 'no visible output'
+  return `It ended turn max-tokens with ${block}; the constraint that stopped it was output budget, not the size of the task.`
+}
+
+/**
  * Build the runtime-owned settlement notice from the child's nonempty closing text.
  * @param childId - durable child session id named in the notice.
  * @param terminal - recorded terminal state for the settled Activation.
@@ -145,12 +165,14 @@ export function createSettlementMessage(
   const closingText = (terminal.output ?? []).flatMap(block =>
     block.type === 'text' && block.text.length > 0 ? [block] : [],
   )
+  const diagnosis = terminal.budget === undefined ? undefined : budgetDiagnosis(terminal.budget)
   return createUserMessage({
     content: [
       { type: 'text' as const, text: summary },
       ...closingText.length === 0
         ? [{ type: 'text' as const, text: 'It left no closing message.' }]
         : [{ type: 'text' as const, text: 'Its closing message:' }, ...closingText],
+      ...diagnosis === undefined ? [] : [{ type: 'text' as const, text: diagnosis }],
     ],
     source: {
       kind: 'subagent-settled' as const,
