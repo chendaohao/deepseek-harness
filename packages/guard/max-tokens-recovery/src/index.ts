@@ -23,6 +23,7 @@ import {
   lastAssistantStreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { AssistantStreamRecord, ContentBlock, ContextFormed, MessageSource } from '@deepseek-ai/dsh-llm'
+import { renderThrown } from '@deepseek-ai/dsh-util-values'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -129,13 +130,4 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   ctx.on('agent/disposed', ({ agent }) => { states.delete(agent) })
-}
-
-/** Render any listener-thrown value without letting coercion escape containment. */
-function renderThrown(value: unknown): string {
-  try {
-    return value instanceof Error ? value.message : String(value)
-  } catch {
-    return '<unrenderable thrown value>'
-  }
 }

@@ -167,6 +167,25 @@ describe('bounded ceiling recovery', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 
+  it('stops listening once its plugin fiber is disposed', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    // The mount is a fiber the test owns, so disposing it is the same removal
+    // an unloaded plugin performs: the session-event and disposed listeners
+    // must both leave with it.
+    const guard = await ctx.plugin(MaxTokensRecovery, {})
+    await guard.dispose()
+    const adapter = new MockAdapter([reasoningCeiling(50_000), textResponse('later')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('unloaded'), { provider: 'mock', model: 'mock' })
+    prompt(agent, 'go')
+    await settle(agent, adapter, 1)
+
+    expect(recoveries(agent)).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(1)
+  })
+
   it('recovers again after an intervening turn that produced work', async () => {
     const ctx = await harness()
     const adapter = new MockAdapter([
