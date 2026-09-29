@@ -1,5 +1,5 @@
 ---
-description: "循环卫生 guard 家族的包映射：建议性重复工具提醒与单次工具调用超时策略，供选择或组合 guard 的用户与维护者阅读。"
+description: "循环卫生 guard 家族的包映射：建议性重复工具提醒、单次工具调用超时策略与有界的触顶恢复，供选择或组合 guard 的用户与维护者阅读。"
 kind: "package-group"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-`guard/` 组通过监视两种常见失败模式来保持 agent loop（智能体循环）高效。`repeat-tool-reminder` 会在模型重复完全相同的工具调用时提醒它改变方法或结束任务，让卡住的循环不再浪费时间和 token。`timeout-policy` 为声明了限时的工具调用设置时间上限，让挂起的调用向模型返回清晰的超时错误，而不是拖住整个会话。两者都在 `dsh` 基础组合包中默认启用；组合可以调优或移除它们。
+`guard/` 组通过监视常见失败模式来保持 agent loop（智能体循环）高效。`repeat-tool-reminder` 用建议打断完全相同的工具调用循环。`timeout-policy` 让挂起的工具调用得到清晰的超时错误，而不是拖住整个会话。`max-tokens-recovery` 用一个有界的恢复提示回应「把全部输出预算花在推理上」的 turn，使 agent 不会无声停摆。它们都在 `dsh` 基础组合包中默认启用；组合可以调优或移除它们。
 
 ## 目录
 
@@ -22,12 +22,13 @@ kind: "package-group"
 <a id="packages"></a>
 ## 包
 
-两个小插件分别覆盖两种模式；下文每个 README 都说明何时保留、调优或移除它。
+小巧而独立的插件各自覆盖一种模式；下文每个 README 都说明何时保留、调优或移除它。
 
 | 包 | 提供什么 |
 |---|---|
 | [`repeat-tool-reminder/`](repeat-tool-reminder/README.zh.md) | 在模型重复完全相同的工具调用时提醒它，使其改变方法或结束任务 |
 | [`timeout-policy/`](timeout-policy/README.zh.md) | 为声明了限时的工具调用设置超时，让模型得到清晰错误而不是无限等待 |
+| [`max-tokens-recovery/`](max-tokens-recovery/README.zh.md) | 当一个 turn 把全部输出预算烧在推理上时，排入一次有界的恢复提示 |
 
 -----
 

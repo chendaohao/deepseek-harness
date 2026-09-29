@@ -144,6 +144,7 @@ kind: "package-reference"
 <a id="model-experience"></a>
 ## 模型体验
 
+<a id="settlement-notice"></a>
 ### 结算通知
 
 #### 模型看到什么

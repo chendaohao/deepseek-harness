@@ -2100,6 +2100,28 @@ export interface LspLocalServerConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-lsp-stdio -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-max-tokens-recovery -->
+<a id="deepseek-aidsh-max-tokens-recovery"></a>
+
+## `@deepseek-ai/dsh-max-tokens-recovery`
+
+- `inject`: `agents`
+- `source`: [`packages/guard/max-tokens-recovery/src/index.ts:41`](../packages/guard/max-tokens-recovery/src/index.ts)
+
+```ts config-catalog
+/** Plugin configuration for the bounded ceiling recovery. */
+export interface Config {
+  /**
+   * Recovery prompts allowed per run of consecutive ceiling hits (default 1).
+   * A run ends as soon as a step commits visible text or requests a tool call,
+   * so an agent that recovers becomes eligible again the next time it burns its
+   * ceiling. `0` disables the guard.
+   */
+  maxRecoveries?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-max-tokens-recovery -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-mcp-client -->
 <a id="deepseek-aidsh-mcp-client"></a>
 

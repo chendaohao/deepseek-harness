@@ -3272,11 +3272,13 @@ describe('continuable settlement delivery', () => {
     })
 
     const persisted = await loadStoredSession(ctx.sessionPersistence, parentId)
-    const relayed = persisted.events.filter(event => event.type === 'user/message'
-      && event.data.source.kind === 'agent-message')
+    const relayed = persisted.events.flatMap(event => event.type === 'user/message'
+      && event.data.source.kind === 'agent-message'
+      ? [event.data]
+      : [])
     expect(relayed).toHaveLength(1)
-    expect(relayed[0]!.data.id).toBe(messageId)
-    expect(relayed[0]!.data.content).toEqual([
+    expect(relayed[0]!.id).toBe(messageId)
+    expect(relayed[0]!.content).toEqual([
       { type: 'text', text: `Agent ${started.childId} sent a message: ` },
       { type: 'text', text: 'carry this over' },
     ])

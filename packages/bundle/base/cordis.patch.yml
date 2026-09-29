@@ -458,6 +458,13 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
+    # One bounded recovery turn when a turn spends its whole output ceiling on
+    # reasoning and commits nothing visible.
+    - id: max-tokens-recovery
+      name: '@deepseek-ai/dsh-max-tokens-recovery'
+      config:
+        maxRecoveries: 1
+
     # The shared base enables the stable model-facing web_search and web_fetch
     # tools. The Web app disables this host row and composes both tools per agent
     # preset; products with a stricter network policy override tool-web. DeepSeek
