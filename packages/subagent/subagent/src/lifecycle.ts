@@ -20,6 +20,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
+import { renderThrown } from '@deepseek-ai/dsh-util-values'
 import type { SessionEvent, SessionId, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import { finalAssistantOutput } from './assistant-output.ts'
 import { SubagentRunId } from './types.ts'
@@ -321,13 +322,4 @@ function lastTurnBudget(events: readonly SessionEvent[]): TurnBudgetReport | und
     }
   }
   return { turnEnd: end.data.reason.kind, toolCalls, textChars, largestReasoningChars }
-}
-
-/** Render any listener-thrown value without letting coercion escape containment. */
-function renderThrown(value: unknown): string {
-  try {
-    return value instanceof Error ? `${value.name}: ${value.message}` : String(value)
-  } catch {
-    return '<unrenderable thrown value>'
-  }
 }

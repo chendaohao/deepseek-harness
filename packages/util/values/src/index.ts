@@ -14,6 +14,59 @@ export function assertNever(value: never, context?: string): never {
   throw new Error(`unreachable variant${context ? ` in ${context}` : ''}: ${rendered}`)
 }
 
+/**
+ * Render one thrown value for a log, notice, or diagnostic surface, carrying its
+ * full `cause` chain and AggregateError members so transport wrappers such as
+ * undici's `TypeError: fetch failed` surface the underlying failure instead of
+ * masking it. Never parse the result; route on a structured code when one exists.
+ * @param value - the caught value (`unknown` in catch clauses).
+ * @returns the outermost message first, each cause appended with `": "` (skipped
+ * when it repeats the wrapper message verbatim), and AggregateError members
+ * bracketed and `"; "`-joined. A value whose own coercion or property access
+ * throws renders as a fixed unrenderable marker instead of escaping.
+ */
+export function renderThrown(value: unknown): string {
+  // Tracks the active recursion path (entries removed on exit), so only true
+  // cycles are flagged and a diamond-shared cause still renders in full.
+  const path = new Set<unknown>()
+  const render = (current: unknown): string => {
+    if (path.has(current)) return '<circular cause>'
+    path.add(current)
+    try {
+      if (!(current instanceof Error)) {
+        if (typeof current === 'object' && current !== null) {
+          const descriptor = Object.getOwnPropertyDescriptor(current, 'message')
+          if (descriptor !== undefined && 'value' in descriptor && typeof descriptor.value === 'string') {
+            return descriptor.value
+          }
+        }
+        return String(current)
+      }
+      const message = current.message === '' ? current.name : current.message
+      const members = current instanceof AggregateError && current.errors.length > 0
+        ? ` [${current.errors.map(render).join('; ')}]`
+        : ''
+      const causeText = current.cause === undefined || current.cause === null
+        ? ''
+        : render(current.cause)
+      // Wrappers like \`new HarnessError(String(value), code, { cause: value })\`
+      // repeat their cause verbatim; rendering it again would only add noise.
+      const cause = causeText === '' || causeText === message ? '' : `: ${causeText}`
+      return `${message}${members}${cause}`
+    } catch {
+      // Only hostile coercion or hostile accessors (a throwing toString /
+      // Symbol.toPrimitive on a non-Error, or a throwing message/name/cause/
+      // errors getter on an Error subclass): this renderer feeds UI notices
+      // and logs, so nothing may escape. Inner frames catch their own throws,
+      // so only the hostile node collapses, not the whole chain.
+      return '<unrenderable value>'
+    } finally {
+      path.delete(current)
+    }
+  }
+  return render(value)
+}
+
 /** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')

@@ -1,5 +1,5 @@
 ---
-description: "供运行时包使用的无损 JSON 校验、分离式快照、深度冻结、结构相等与穷尽联合类型辅助函数。"
+description: "供运行时包使用的无损 JSON 校验、分离式快照、深度冻结、结构相等、穷尽联合类型与抛出值渲染辅助函数。"
 kind: "package-library"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-library"
 
 ## 概述
 
-`dsh-util-values` 为运行时包提供统一的无损 JSON 值、不可变对象图、JSON 结构相等和封闭联合类型穷尽失败实现。调用方可以校验不受信任的值、创建分离的 JSON 快照、冻结待发布值、比较 JSON 兼容数据，或终止不可达分支，而无需导入某个能力包。这些 helper 不持有共享注册表、constructor identity 或可变模块状态。
+`dsh-util-values` 为运行时包提供统一的无损 JSON 值、不可变对象图、JSON 结构相等、封闭联合类型穷尽失败和抛出值渲染实现。调用方可以校验不受信任的值、创建分离的 JSON 快照、冻结待发布值、比较 JSON 兼容数据、终止不可达分支，或为日志渲染一个失败，而无需导入某个能力包。这些 helper 不持有共享注册表、constructor identity 或可变模块状态。
 
 ## 目录
 
@@ -47,6 +47,10 @@ const snapshot = snapshotJsonValue(input) as JsonValue
 
 在封闭可辨识联合类型的 default 分支中使用 `assertNever(value, context?)`。新增变体会让每个穷尽 switch 在 TypeScript 编译时失败；如果某个运行时值逃过了声明类型，该函数会抛出带可选上下文标签的错误。
 
+### 为日志渲染抛出的值
+
+`renderThrown(value)` 把任意被捕获的值渲染成适合日志、通知或诊断消息的一行：最外层 message 在前，每个 `cause` 以 `": "` 追加，`AggregateError` 成员用方括号包裹并以 `"; "` 连接。因此像 undici 的 `TypeError: fetch failed` 这样的包装错误会报告其下层的真实失败，而不是把原因藏起来。结果只是展示文本；存在结构化 code 时应按 code 分支。类型转换与属性访问都受保护：某个值的 `toString`、`message`、`cause` 或 `errors` getter 自身抛错时，只有该节点降级为固定的 `<unrenderable value>` 标记，不会破坏所在的日志行。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -61,7 +65,7 @@ JSON 校验器使用显式工作栈，并只跟踪当前祖先链，因此深层
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | JSON 值类型、校验与快照遍历、结构相等、深度冻结、弱键/强值关联和穷尽联合类型失败 |
+| [`src/index.ts`](src/index.ts) | JSON 值类型、校验与快照遍历、结构相等、深度冻结、弱键/强值关联、穷尽联合类型失败和抛出值渲染 |
 | — | 不发布运行时不变量伴生入口；这些值操作没有共享运行时状态，其代数行为由单元测试覆盖。 |
 
 </details>

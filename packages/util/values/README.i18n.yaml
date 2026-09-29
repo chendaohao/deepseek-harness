@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/util/values/README.md
 /:
-  en: 6b543e93639271ad
-  zh: 397ce501111fc943
+  en: 898f27a506704631
+  zh: 0f705bee6bdb3fe1
 /deepseek-ai-dsh-util-values:
   en: d4e5c3dd11f4c1f4
   zh: ac01621284cc2f99
 /deepseek-ai-dsh-util-values/summary:
-  en: 0900fbf667e6bb37
-  zh: 2ea81387d169a116
+  en: 73197f84c4ec62f6
+  zh: 46cd5f26c3a0e800
 /deepseek-ai-dsh-util-values/table-of-contents:
   en: 80b31a934611cb4a
   zh: 05f3f7f9cb2fd881
@@ -24,14 +24,17 @@
   en: 13628af2abe3eea6
   zh: e284bb8d3ebe38ea
 /deepseek-ai-dsh-util-values/use-this-package/close-a-discriminated-union:
-  en: f21b7bd8040a72eb
-  zh: 19548d3e537c0b5b
+  en: 1018bea78526192c
+  zh: 0b9c5d60a5cafe68
+/deepseek-ai-dsh-util-values/use-this-package/render-a-thrown-value-for-a-log:
+  en: b44b203a09a36254
+  zh: 4403369bd4b35cf0
 /deepseek-ai-dsh-util-values/understand-the-implementation:
   en: 997cf0e584054ace
   zh: 5e71d64eb1e32ddd
 /deepseek-ai-dsh-util-values/understand-the-implementation/source-map:
-  en: a3e80436a6006043
-  zh: 1de25c1bf436e494
+  en: 8f000cb9de94abbe
+  zh: da637ed5cb7dcdf6
 /deepseek-ai-dsh-util-values/further-exploration:
   en: 3be59be736dc8e9a
   zh: 4f419cb5db38fd12

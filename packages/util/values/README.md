@@ -1,5 +1,5 @@
 ---
-description: "Lossless JSON validation, detached snapshots, deep freezing, structural equality, and exhaustive-union helpers for runtime packages."
+description: "Lossless JSON validation, detached snapshots, deep freezing, structural equality, exhaustive-union, and thrown-value rendering helpers for runtime packages."
 kind: "package-library"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-util-values` gives runtime packages one implementation for lossless JSON values, immutable object graphs, structural JSON equality, and exhaustive closed-union failures. Callers can validate untrusted values, detach a JSON snapshot, freeze a published value, compare JSON-compatible data, or terminate an unreachable branch without importing a capability package. The helpers hold no shared registry, constructor identity, or mutable module state.
+`dsh-util-values` gives runtime packages one implementation for lossless JSON values, immutable object graphs, structural JSON equality, exhaustive closed-union failures, and thrown-value rendering. Callers can validate untrusted values, detach a JSON snapshot, freeze a published value, compare JSON-compatible data, terminate an unreachable branch, or render a failure for a log without importing a capability package. The helpers hold no shared registry, constructor identity, or mutable module state.
 
 ## Table of Contents
 
@@ -47,6 +47,10 @@ const snapshot = snapshotJsonValue(input) as JsonValue
 
 Use `assertNever(value, context?)` in the default branch of a closed discriminated union. A newly added variant then fails TypeScript compilation at every exhaustive switch, while a runtime value that escaped its declared type throws with the optional context label.
 
+### Render a thrown value for a log
+
+`renderThrown(value)` renders any caught value as one line for a log, notice, or diagnostic message: the outermost message first, each `cause` appended with `": "`, and `AggregateError` members bracketed and `"; "`-joined. A wrapper such as undici's `TypeError: fetch failed` therefore reports the failure underneath it instead of hiding the reason. The result is display text only; route on a structured code when one exists. Coercion and property access are both guarded, so a value whose own `toString`, `message`, `cause`, or `errors` getter throws contributes a fixed `<unrenderable value>` marker for that node rather than breaking the containing log line.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -61,7 +65,7 @@ The JSON validator uses an explicit work stack and tracks only the active ancest
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | JSON value type, validation and snapshot traversal, structural equality, deep freezing, weak-key/strong-value associations, and exhaustive-union failure |
+| [`src/index.ts`](src/index.ts) | JSON value type, validation and snapshot traversal, structural equality, deep freezing, weak-key/strong-value associations, exhaustive-union failure, and thrown-value rendering |
 | — | No runtime invariant companion is published because these value operations have no shared runtime state; unit tests cover their algebra. |
 
 </details>

@@ -372,7 +372,9 @@ describe('SubagentRuntime', () => {
     expect(heard).toEqual(['contained'])
     expect(warnings.some(message => message.includes('sync boom'))).toBe(true)
     expect(warnings.some(message => message.includes('async boom'))).toBe(true)
-    expect(warnings.some(message => message.includes('<unrenderable thrown value>'))).toBe(true)
+    // The containment renders through the shared diagnostic renderer, whose
+    // marker for a value whose own coercion throws is `<unrenderable value>`.
+    expect(warnings.some(message => message.includes('<unrenderable value>'))).toBe(true)
   })
 
   it('SubagentError participates in the harness error taxonomy', () => {
