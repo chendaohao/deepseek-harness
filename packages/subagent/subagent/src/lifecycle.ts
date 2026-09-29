@@ -41,6 +41,12 @@ export interface ActivationTerminal {
    * child that burned its ceiling on a single reasoning block is otherwise
    * indistinguishable from one that ran out of context — and a re-delegation
    * based on the wrong diagnosis repeats the same death.
+   *
+   * Consumed by the parent's settlement notice, not published on the
+   * `subagent/end` edge: {@link ActivationObserver.settle} forwards only the
+   * stop reason and final output. A listener can already route on
+   * `stopReason === 'max-tokens'`; publishing this report there would widen the
+   * event for a consumer that does not exist.
    */
   readonly budget?: TurnBudgetReport
 }
@@ -295,6 +301,11 @@ function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopR
  * visible, and how large its largest single reasoning block was. A step that
  * commits neither text nor a tool call has spent its whole ceiling on private
  * reasoning, which a longer prompt or a narrower file scope does not fix.
+ * The step is read as the suffix's highest step number rather than by turn
+ * number, which holds because a step counter restarts inside each turn: an
+ * epoch that opened several turns still ranks every step of its last one
+ * above every step of its earlier ones. A future change that lets step
+ * numbers span turns would have to narrow this to `end.data.turn` first.
  * @param events - this epoch's own event suffix.
  * @returns the report, or `undefined` when the epoch ran no turn.
  */
