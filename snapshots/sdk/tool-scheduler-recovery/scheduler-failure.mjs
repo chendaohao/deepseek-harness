@@ -4,8 +4,11 @@ export const inject = ['tools']
 /** @param {import('@deepseek-ai/cordis').Context} ctx - Scenario-owned runtime. */
 export function apply(ctx) {
   // Inspect the active instance's key so the fixture cannot introduce a second tools module.
+  // The runtime keys its scheduler view with TOOL_RUNTIME_SCHEDULER, whose
+  // description is this literal; matching on it avoids importing the package
+  // (a second copy would key a different symbol).
   const key = Object.getOwnPropertySymbols(ctx.tools)
-    .find(symbol => symbol.description === '@deepseek-ai/dsh-tools.scheduler')
+    .find(symbol => symbol.description === 'dsh.tools.scheduler')
   if (key === undefined) throw new Error('Scheduler failure fixture requires the active tool scheduler')
   const scheduler = ctx.tools[key]
   const prepare = scheduler.prepare

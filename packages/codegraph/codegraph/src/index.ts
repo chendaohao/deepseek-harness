@@ -85,7 +85,7 @@ export const Config = z.object({
   args: z.array(String).default([]),
   toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
   enabled: z.boolean().default(true),
-}) as unknown as z<Config>
+}) as z<Config>
 
 interface ResolvedConfig {
   command: string

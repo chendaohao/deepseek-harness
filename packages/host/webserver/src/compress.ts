@@ -324,7 +324,7 @@ export function maybeCompressResponse(
     get writable(): boolean { return res.writable },
     get destroyed(): boolean { return res.destroyed },
     destroy(error?: Error): void { res.destroy(error) },
-  } as unknown as ServerResponse
+  } as ServerResponse
   return facade
 }
 

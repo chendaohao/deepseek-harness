@@ -91,7 +91,7 @@ function fakeResponse(): {
       this.writableEnded = true
       return this
     },
-  }) as unknown as ServerResponse
+  }) as ServerResponse
   return { response, state }
 }
 

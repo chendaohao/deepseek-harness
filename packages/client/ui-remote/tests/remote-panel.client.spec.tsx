@@ -83,7 +83,7 @@ describe('RemotePanel initial render', () => {
         return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [] })
       }
       throw new Error(`unexpected fetch ${url}`)
-    }) as unknown as typeof fetch
+    }) as typeof fetch
 
     render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
@@ -108,7 +108,7 @@ describe('RemotePanel initial render', () => {
       }
       if (url === '/remote/pair/issue') return jsonResponse({ url: pairUrl })
       throw new Error(`unexpected fetch ${url}`)
-    }) as unknown as typeof fetch
+    }) as typeof fetch
 
     render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
@@ -143,7 +143,7 @@ describe('RemotePanel initial render', () => {
         return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [] })
       }
       throw new Error(`unexpected fetch ${url}`)
-    }) as unknown as typeof fetch
+    }) as typeof fetch
 
     render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
@@ -168,7 +168,7 @@ describe('RemotePanel device roster', () => {
       }
       if (url === '/remote/devices/d1/revoke') return jsonResponse({})
       throw new Error(`unexpected fetch ${url}`)
-    }) as unknown as typeof fetch
+    }) as typeof fetch
 
     render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
@@ -192,7 +192,7 @@ describe('RemotePanel device roster', () => {
       }
       if (url === '/remote/devices/d9/revoke') return jsonResponse({})
       throw new Error(`unexpected fetch ${url}`)
-    }) as unknown as typeof fetch
+    }) as typeof fetch
 
     render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
@@ -215,7 +215,7 @@ describe('RemotePanel device roster', () => {
       }
       if (url === '/remote/stop') return jsonResponse({})
       throw new Error(`unexpected fetch ${url}`)
-    }) as unknown as typeof fetch
+    }) as typeof fetch
 
     render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: 'Remote' }))

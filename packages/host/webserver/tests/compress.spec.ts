@@ -59,7 +59,7 @@ async function loadComposition(compression: string): Promise<Context> {
       if (!modules.has(specifier)) throw new Error(`unexpected Loader import: ${specifier}`)
       return modules.get(specifier)
     },
-  } as unknown as NonNullable<typeof context.loader.internal>
+  } as object as NonNullable<typeof context.loader.internal>
   await context.loader.create({
     name: 'cordis:include',
     config: { path: pathToFileURL(configPath).href },
@@ -347,7 +347,7 @@ class StandInResponse {
 describe('compression facade header surface', () => {
   it('merges appends into the deferred header set', () => {
     const standIn = new StandInResponse()
-    const facade = maybeCompressResponse(standIn as unknown as ServerResponse, 'br', 1024)
+    const facade = maybeCompressResponse(standIn as object as ServerResponse, 'br', 1024)
     facade.appendHeader('set-cookie', 'dsh=one; Path=/')
     facade.appendHeader('set-cookie', ['dsh=two; Path=/', 'dsh=three; Path=/'])
     facade.setHeader('x-count', 3)
@@ -361,7 +361,7 @@ describe('compression facade header surface', () => {
 
   it('delegates an append made after the deferred commit to the wrapped response', () => {
     const standIn = new StandInResponse()
-    const facade = maybeCompressResponse(standIn as unknown as ServerResponse, 'br', 1024)
+    const facade = maybeCompressResponse(standIn as object as ServerResponse, 'br', 1024)
     facade.writeHead(200, { 'content-type': 'application/octet-stream' })
     // The first body write commits the pending headers; the wrapped response
     // then owns the sent-header verdict for a late append.
@@ -372,7 +372,7 @@ describe('compression facade header surface', () => {
 
   it('commits a status assigned through statusCode, not only through writeHead', () => {
     const standIn = new StandInResponse()
-    const facade = maybeCompressResponse(standIn as unknown as ServerResponse, 'br', 1024)
+    const facade = maybeCompressResponse(standIn as object as ServerResponse, 'br', 1024)
     facade.statusCode = 404
     // A handler that reads the status back sees what it assigned.
     expect(facade.statusCode).toBe(404)

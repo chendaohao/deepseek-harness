@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-workspace-ext",
   "description": "The workspace extension bundle: fork-local rows for session pinning and remote access as the last bundle layer of the web profile",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.2",
   "publishConfig": {
     "access": "public"
   },
@@ -34,15 +34,15 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-client-ui-remote": "workspace:^",
-    "@deepseek-ai/dsh-remote-access": "workspace:^",
-    "@deepseek-ai/dsh-remote-tunnel": "workspace:^",
-    "@deepseek-ai/dsh-session-pin": "workspace:^"
+    "@deepseek-ai/dsh-client-ui-remote": "workspace:*",
+    "@deepseek-ai/dsh-remote-access": "workspace:*",
+    "@deepseek-ai/dsh-remote-tunnel": "workspace:*",
+    "@deepseek-ai/dsh-session-pin": "workspace:*"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~"
   }
 }

@@ -45,7 +45,7 @@ describe('ui-remote apply', () => {
     expect(entry.component).toBe(RemoteFooterAction)
     expect(entry.options).toMatchObject({ id: 'remote', order: 0 })
     expect(entry.locale).toBe('remote')
-    const injected = (entry.inject as unknown as () => RemoteFooterActionInjected)()
+    const injected = (entry.inject as object as () => RemoteFooterActionInjected)()
     expect(injected.remote).toBe(b.remote)
     expect(b.locale.bind('remote')('panel.title')).toBe('移动端远程控制')
     b.locale.setLocale('en')

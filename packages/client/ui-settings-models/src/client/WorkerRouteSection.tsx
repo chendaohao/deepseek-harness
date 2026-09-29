@@ -38,6 +38,39 @@ function modelFor(group: ModelProviderGroup | undefined, model: string): ModelCa
 }
 
 /**
+ * One route picker row: a label plus the catalog entries for its dimension.
+ * @param props - row label, current value, selectable entries, and the disabled state.
+ * @returns the labelled select, with the stored value as a fallback entry when
+ * the catalog no longer advertises it.
+ */
+function RouteSelect({ label, value, entries, disabled, onChange }: {
+  label: string
+  value: string
+  entries: readonly { readonly id: string; readonly name: string }[]
+  disabled: boolean
+  onChange: (next: string) => void
+}) {
+  // A stored route whose entry the catalog no longer advertises still selects
+  // itself, so opening the page never silently rewrites a working route.
+  const stored = entries.some(entry => entry.id === value)
+  return (
+    <div className={styles['field']}>
+      <span className={styles['fieldLabel']}>{label}</span>
+      <select
+        className={`${styles['input']} ${styles['selectInput']}`}
+        value={value}
+        aria-label={label}
+        disabled={disabled}
+        onChange={(event) => { onChange(event.target.value) }}
+      >
+        {!stored && value !== '' ? <option value={value}>{value}</option> : null}
+        {entries.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+      </select>
+    </div>
+  )
+}
+
+/**
  * Render the worker-route block.
  * @param props - the settings scope, catalog, and copy.
  * @returns the block, or null while the namespace is not exposed to this client.
@@ -68,43 +101,20 @@ export function WorkerRouteSection({ scope, catalog, loadCatalog, t }: WorkerRou
       <h3 id={`${fieldId}-title`} className={styles['title']}>{t('workerRouteTitle')}</h3>
       <p className={styles['intro']}>{t('workerRouteIntro')}</p>
       <div className={styles['rows']}>
-        <div className={styles['field']}>
-          <span className={styles['fieldLabel']}>{t('workerRouteProvider')}</span>
-          <select
-            className={`${styles['input']} ${styles['selectInput']}`}
-            value={value?.provider ?? ''}
-            aria-label={t('workerRouteProvider')}
-            disabled={disabled}
-            onChange={(event) => { void scope.set('provider', event.target.value) }}
-          >
-            {/* A stored route whose provider the catalog no longer advertises
-                still selects itself, so opening the page never silently
-                rewrites a working route. */}
-            {group === undefined && value !== undefined
-              ? <option value={value.provider}>{value.provider}</option>
-              : null}
-            {groups.map(candidate => (
-              <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className={styles['field']}>
-          <span className={styles['fieldLabel']}>{t('workerRouteModel')}</span>
-          <select
-            className={`${styles['input']} ${styles['selectInput']}`}
-            value={value?.model ?? ''}
-            aria-label={t('workerRouteModel')}
-            disabled={disabled || group === undefined}
-            onChange={(event) => { void scope.set('model', event.target.value) }}
-          >
-            {model === undefined && value !== undefined
-              ? <option value={value.model}>{value.model}</option>
-              : null}
-            {(group?.models ?? []).map(candidate => (
-              <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
-            ))}
-          </select>
-        </div>
+        <RouteSelect
+          label={t('workerRouteProvider')}
+          value={value?.provider ?? ''}
+          entries={groups}
+          disabled={disabled}
+          onChange={(next) => { void scope.set('provider', next) }}
+        />
+        <RouteSelect
+          label={t('workerRouteModel')}
+          value={value?.model ?? ''}
+          entries={group?.models ?? []}
+          disabled={disabled || group === undefined}
+          onChange={(next) => { void scope.set('model', next) }}
+        />
         <div className={styles['field']}>
           <span className={styles['fieldLabel']}>{t('workerRouteEffort')}</span>
           {/* The effort vocabulary is adapter-owned. With the catalog loaded the

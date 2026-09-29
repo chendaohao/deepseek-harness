@@ -7,7 +7,12 @@ import {
 
 describe('request facts propagation', () => {
   it('installs facts for the wrapped call and its awaited callees', async () => {
-    const facts = factsFrom({ headers: { 'X-Dsh-Proxied': '1', 'accept': 'text/html', 'cookie': ['a', 'b'] as unknown as string } })
+    // The bridge filters to single-string values; an array-valued header (as
+    // node:http may carry) is dropped rather than stringified.
+    const headers: Record<string, string | string[]> = {
+      'X-Dsh-Proxied': '1', 'accept': 'text/html', 'cookie': ['a', 'b'],
+    }
+    const facts = factsFrom({ headers })
     // Header names are lower-cased and array-valued entries are dropped, matching
     // the fetch bridge's single-string filter.
     expect(facts.headers).toEqual({ 'x-dsh-proxied': '1', accept: 'text/html' })

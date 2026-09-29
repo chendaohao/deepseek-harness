@@ -17,7 +17,7 @@ function request(fields: FakeRequest): IncomingMessage {
     headers: {},
     socket: { remoteAddress: fields.remoteAddress ?? '203.0.113.9' },
     ...fields,
-  } as unknown as IncomingMessage
+  } as IncomingMessage
 }
 
 /** One response the policy answered, as the test observes it. */
@@ -34,7 +34,7 @@ function response(): { res: ServerResponse; calls: RecordedResponse[] } {
       calls.push({ status, ...(headers === undefined ? {} : { headers }) })
     },
     end: (): void => {},
-  } as unknown as ServerResponse
+  } as ServerResponse
   return { res, calls }
 }
 

@@ -272,7 +272,9 @@ describe('Remote stream mux server carrier lifecycle', () => {
     // The decoded message is identical either way; only the socket counters
     // reveal what actually crossed the wire.
     const wireBytes = async (socket: WebSocket): Promise<number> => {
-      const counter = (socket as unknown as { _socket: { bytesRead: number } })._socket
+      // `ws` types omit the underlying net.Socket, which is where the byte
+      // counters that prove the extension actually shrank the frame live.
+      const counter = (socket as object as { _socket: { bytesRead: number } })._socket
       const before = counter.bytesRead
       socket.send(openFrame('measure'))
       const message = await once(socket, 'message')

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-remote-access",
   "description": "Remote-access consumer for the Web GUI: one-time pairing tokens, a revocable device gate, a loopback reverse proxy, and the URL + QR-code surface for dsh-remote-tunnel",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.2",
   "publishConfig": {
     "access": "public"
   },
@@ -32,23 +32,23 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@deepseek-ai/schemastery": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:~",
     "qrcode-terminal": "^0.12.0",
     "ws": "^8.21.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-home-paths": "workspace:^",
-    "@deepseek-ai/dsh-host-webserver": "workspace:^",
-    "@deepseek-ai/dsh-remote-tunnel": "workspace:^",
-    "@deepseek-ai/dsh-shell-env": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-home-paths": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-remote-tunnel": "workspace:*",
+    "@deepseek-ai/dsh-shell-env": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-home-paths": "workspace:^",
-    "@deepseek-ai/dsh-host-webserver": "workspace:^",
-    "@deepseek-ai/dsh-remote-tunnel": "workspace:^",
-    "@deepseek-ai/dsh-shell-env": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-home-paths": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-remote-tunnel": "workspace:*",
+    "@deepseek-ai/dsh-shell-env": "workspace:*",
     "@types/qrcode-terminal": "^0.12.0",
     "@types/ws": "^8.18.0"
   }

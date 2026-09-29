@@ -11,7 +11,6 @@ import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
-import { SessionFormatUnsupportedError } from '@deepseek-ai/dsh-session-persistence'
 import type {
   SessionPersistenceRevision,
   SessionPersistenceSnapshot,
@@ -532,7 +531,10 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
               // other Session's content depends on it. Failing the whole
               // observation would deny every other Session to the query, so
               // this one source is left out and reported once.
-              if (!(error instanceof SessionFormatUnsupportedError)) throw error
+              // Matched by name rather than by importing the class: the
+              // persistence peer is optional, so a runtime import at module
+              // scope would load it even when no provider is mounted.
+              if (!isErrorNamed(error, 'SessionFormatUnsupportedError')) throw error
               if (!this._unreadablePersisted.has(entry.header.id)) {
                 this._unreadablePersisted.add(entry.header.id)
                 this.ctx.logger.warn(
@@ -1134,6 +1136,16 @@ function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined):
 
 function isAbort(error: unknown): boolean {
   return error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED'
+}
+
+/**
+ * Whether a thrown value is the named error class.
+ * @param error - the caught value.
+ * @param name - the class's stable `name`.
+ * @returns whether the value is an Error carrying that name.
+ */
+function isErrorNamed(error: unknown, name: string): error is Error {
+  return error instanceof Error && error.name === name
 }
 
 function asError(error: unknown): Error {

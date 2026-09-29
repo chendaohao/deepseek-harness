@@ -8,12 +8,24 @@ import { describe, expect, it } from 'vitest'
 import type { ClientRequest } from '../src/rpc.ts'
 import { RpcId } from '../src/rpc.ts'
 import { HostConnectionService } from '../src/rpc-host.ts'
-import type { BrowserAuth } from '../src/browser-auth.ts'
+import { BrowserAuth } from '../src/browser-auth.ts'
 import { Context } from '@deepseek-ai/cordis'
 
 /** Cordis severity order is error/info/warn/debug, and an exporter drops every
  * message above its threshold; this admits all four. */
 const ADMIT_EVERY_LEVEL = 3
+
+/**
+ * The only BrowserAuth behaviour this suite exercises: every request is
+ * admitted. `authenticate` is the sole member the RPC bridge reaches.
+ * @returns the admission stub, cast through the class the service declares.
+ */
+function authStub(): BrowserAuth {
+  const stub: Pick<BrowserAuth, 'authenticate'> = {
+    authenticate: () => ({ authenticated: true }),
+  }
+  return stub as BrowserAuth
+}
 
 async function mounted(): Promise<{
   connection: HostConnectionService
@@ -29,9 +41,7 @@ async function mounted(): Promise<{
     export: (message) => { messages.push(String(message.args[0])) },
   })
   const fiber = ctx.plugin((pluginCtx) => {
-    new HostConnectionService(pluginCtx, [], {
-      authenticate: () => ({ authenticated: true }),
-    } as unknown as BrowserAuth)
+    new HostConnectionService(pluginCtx, [], authStub())
   })
   await fiber.await()
   return {

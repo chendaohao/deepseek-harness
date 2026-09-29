@@ -51,7 +51,7 @@ export class DeviceRegistry {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
       throw error
     }
-    const parsed = JSON.parse(raw) as unknown
+    const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) {
       throw new Error('remote-access: device registry ' + JSON.stringify(this.path) + ' must be a JSON array')
     }

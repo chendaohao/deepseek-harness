@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-max-tokens-recovery",
   "description": "Loop-hygiene guard plugin: one bounded recovery turn when a turn spends its whole output ceiling on reasoning",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

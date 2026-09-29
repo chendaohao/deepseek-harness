@@ -29,7 +29,7 @@ function selectRig(): { pending: PendingSelect[]; remote: Pick<ClientRemote, 'ag
         pending.push({ sessionId, agentPreset, resolve, reject: reject as (error: unknown) => void })
       }),
     },
-  } as unknown as Pick<ClientRemote, 'agentPresets'>
+  } as Pick<ClientRemote, 'agentPresets'>
   return { pending, remote }
 }
 
@@ -48,7 +48,10 @@ function seat(
   rig: { pending: PendingSelect[]; remote: Pick<ClientRemote, 'agentPresets'> },
   currentSession: () => CurrentSession,
 ): AgentPresetSeatController {
-  const ctx = { remote: rig.remote } as unknown as ClientContext
+  // The controller reads the shared Developer-tools preference to decide
+  // whether a stage is still servable; these cases all run with it enabled.
+  const configForms = { developerTools: { enabled: { getSnapshot: () => true } } }
+  const ctx = { remote: rig.remote, configForms } as object as ClientContext
   return new AgentPresetSeatController(ctx, currentSession)
 }
 
