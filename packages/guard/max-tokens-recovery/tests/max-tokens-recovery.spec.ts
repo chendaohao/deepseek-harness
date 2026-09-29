@@ -152,11 +152,14 @@ describe('bounded ceiling recovery', () => {
     const ctx = await harness()
     const adapter = new MockAdapter([reasoningCeiling(50_000), textResponse('later')])
     ctx.llm.registerAdapter(['mock'], adapter)
-    // A child is a session whose header names a parent session; creation fixes
-    // that lineage, so the guard reads it from the header.
-    const child = await ctx.agentLoop.create(SessionId('child'), { provider: 'mock', model: 'mock' }, {
-      parentSession: SessionId('parent'),
+    // A child is a session whose header names a parent session; the registry
+    // records that lineage at creation, so the guard reads it from the header.
+    const created = await ctx.agents.create({
+      sessionId: SessionId('child'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      meta: { cwd: '/tmp', parentSession: SessionId('parent'), isSeeded: false, origin: 'subagent', delegationDepth: 1 },
     })
+    const child = created.agent
     prompt(child, 'go')
     await settle(child, adapter, 1)
 
