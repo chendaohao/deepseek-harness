@@ -36,7 +36,7 @@ import { SubagentError } from './error.ts'
 import { SubagentInbox } from './inbox.ts'
 import type { SubagentDelivery } from './inbox.ts'
 import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
-import { appendUnattendedMessage, reportUnattendedAppendFailure } from './unattended-store.ts'
+import { appendUnattendedMessage, reportUnattendedHandoff } from './unattended-store.ts'
 
 /** Process-local slots shared through uninterrupted continuable parent links. */
 class ActivationPool {
@@ -899,10 +899,11 @@ export class ContinuableActivationRegistry {
    */
   private async storeSettlement(parentSession: SessionId, message: UserMessage): Promise<void> {
     try {
-      const stored = await appendUnattendedMessage(this.ctx, parentSession, message)
-      if (!stored) throw new Error(`parent session "${parentSession}" has no writable stored log`)
+      const outcome = await appendUnattendedMessage(this.ctx, parentSession, message)
+      if (outcome === 'stored') return
+      reportUnattendedHandoff(this.ctx, parentSession, outcome)
     } catch (error: unknown) {
-      reportUnattendedAppendFailure(this.ctx, parentSession, error)
+      reportUnattendedHandoff(this.ctx, parentSession, { rejected: error })
     }
   }
 

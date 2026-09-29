@@ -43,7 +43,8 @@ import { establishCatalogChild } from './catalog.ts'
 import { SubagentError } from './error.ts'
 import { isAdjacentAgentSendMessageTool } from './internal.ts'
 import type { ActivationObserver } from './lifecycle.ts'
-import { appendUnattendedMessage, reportUnattendedAppendFailure } from './unattended-store.ts'
+import { appendUnattendedMessage, reportUnattendedHandoff } from './unattended-store.ts'
+import type { UnattendedHandoffResult } from './unattended-store.ts'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
@@ -371,17 +372,22 @@ export class SubagentContinuationManager {
     parentSession: SessionId,
     message: UserMessage,
   ): Promise<void> {
+    let unstored: UnattendedHandoffResult
     try {
-      const stored = await appendUnattendedMessage(this.ctx, parentSession, message)
-      if (!stored) throw new Error(`session "${parentSession}" has no writable stored log`)
+      const outcome = await appendUnattendedMessage(this.ctx, parentSession, message)
+      if (outcome === 'stored') return
+      unstored = outcome
     } catch (error: unknown) {
-      reportUnattendedAppendFailure(this.ctx, parentSession, error)
-      throw new SubagentError(
-        `direct parent "${parentSession}" is not live and the message could not be stored for its next activation`,
-        'PARENT_UNAVAILABLE',
-        { cause: error },
-      )
+      unstored = { rejected: error }
     }
+    reportUnattendedHandoff(this.ctx, parentSession, unstored)
+    throw new SubagentError(
+      `direct parent "${parentSession}" is not live and the message could not be stored for its next activation`,
+      'PARENT_UNAVAILABLE',
+      // A caller routing on the cause needs to know which failure kept the
+      // message out of the log, not only that this delivery failed.
+      { cause: typeof unstored === 'string' ? new Error(`nothing was stored for "${parentSession}": ${unstored}`) : unstored.rejected },
+    )
   }
 
   /** Send one Agent message while translating only the target's own rejection. */
