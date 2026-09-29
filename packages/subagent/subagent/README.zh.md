@@ -98,6 +98,7 @@ kind: "package-reference"
 | [`src/catalog.ts`](src/catalog.ts) | parent 自有的 `subagent/catalog` 事件与分块 host projection |
 | [`src/child-agent.ts`](src/child-agent.ts) | 子级组装、委派策略、深度辅助函数 |
 | [`src/list-children.ts`](src/list-children.ts) | 直接与递归的 parent 目录读取 |
+| [`src/unattended-store.ts`](src/unattended-store.ts) | 把运行时自有消息持久交给没有驻留 Agent 的 Session |
 | [`src/control.ts`](src/control.ts) | 浏览器控制请求校验与稳定失败分码 |
 | [`src/control-types.ts`](src/control-types.ts) | client-safe 的目录行、控制面请求、回执与失败 |
 | [`src/archive-admission.ts`](src/archive-admission.ts) | Workspace 注册表归档准入中的 `subagent` 族：运行中的子孙及其父级取消 |
@@ -151,7 +152,7 @@ kind: "package-reference"
 
 #### Token 影响
 
-父级请求中，每个已结算的 Activation 一条通知，长度取决于子级的最终文本。如果子级先发送自己的消息再结算，父级请求会同时承担两者。
+父级请求中，每个已结算的 Activation 一条通知，长度取决于子级的最终文本。如果子级先发送自己的消息再结算，父级请求会同时承担两者。子级结算时若父级不在驻留状态，该通知会在父级的下一次请求中计费，因为账目是被存储而非丢弃。
 
 #### KV Cache 影响
 
@@ -187,12 +188,12 @@ You are a delegated subagent: your permission scope was fixed when you were star
 - **后代读取串行执行**——每个可达目录（包括一次性子级）都需要一次观察。冷 Session 缺少有效的 prepared 观察时需要读取完整日志；大型冷会话树可能累积存储延迟。
 - **ACP 子级仍为一次性，且无法通过追踪枚举**——ACP 运行在父级会话语料中没有本地子会话，远程提供方需要 Activation 所有权约定才能支持可继续子级。
 - **仅允许相邻模型消息**——`sendMessage()` 要求确切在线 sender；每个 sender 都可以指定直接可继续 child，只有具备驻留可继续 Activation 的 sender 可以指定自己的直接 parent。浏览器提示使用独立的人类 Queue 或 Steer 控制路径。
-- **child 到 parent 的投递要求直接 parent 保持在线**——服务没有持久 parent mailbox；parent 缺失时会拒绝消息，而非接受无法唤醒的工作。
+- **对缺席 parent 的投递是「先落盘、再读取」**——无法落进任何存储日志时，缺失的 parent id 仍会拒绝调用（`PARENT_UNAVAILABLE`）；但只要该缺席 parent 有存储，消息会作为其自身日志的最新条目写入，并在下次激活时读到。消息保留 `agent-message` 或 `subagent-settled` 来源，因此恢复后的 parent 读到的是已存储的账目而非已接受的投递；对该日志的并发写入方不在此 seam 的保证范围内。
 - **取消收敛期间存在唤醒缺口**——中断信号发出后、driver 进入 idle 前被接受的后续消息会保持排队，直到另一条唤醒发送到达。
 - **待处理的注入上下文会保留 Activation**——settlement 会保守地把每个 Inbox occurrence 都视为未完成。Agent 进入 idle 后停放的上下文会让 child 及其在线祖先继续驻留，直到唤醒投递将其 claim、queue 变更将其移除，或 manager teardown 将其丢弃。
 - **驻留仅限进程内**——Activation inbox 与所有权图不会在两个 harness 进程之间协调；对单个持久化存储的并发访问需要持久化邮箱与跨进程租约协议。
 - **不回放已接受但未记录的消息**——崩溃可能丢失从未写入子会话日志、已被接受的提示词；丢失的消息不会自动回放。
-- **没有持久化 parent mailbox**——child 到 parent 的消息要求驻留的可继续 child 与在线直接 parent，提供的是接受标识，不保证恰好一次投递。
+- **投递标识是「已接受或已存储」的回执**——已接受的投递返回其 inbox 消息 id，已存储的投递返回追加到 parent 日志的消息 id；两者都不承诺恰好一次执行。
 - **生命周期事件只供观察**——影响运行的 `subagent/end` 延续或决策接口仍需等待具体消费方。
 
 <a id="dev-note"></a>

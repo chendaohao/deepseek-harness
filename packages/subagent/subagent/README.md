@@ -98,6 +98,7 @@ This section explains how the service is built and where the observable behavior
 | [`src/catalog.ts`](src/catalog.ts) | Parent-owned `subagent/catalog` event and chunked host projection |
 | [`src/child-agent.ts`](src/child-agent.ts) | Child composition, delegated policy, depth helpers |
 | [`src/list-children.ts`](src/list-children.ts) | Direct and recursive parent-catalog reads |
+| [`src/unattended-store.ts`](src/unattended-store.ts) | Durable handoff of runtime-owned messages to a Session with no resident Agent |
 | [`src/control.ts`](src/control.ts) | Browser control request validation and stable failure codes |
 | [`src/control-types.ts`](src/control-types.ts) | Client-safe catalog row, control requests, receipts, and failures |
 | [`src/archive-admission.ts`](src/archive-admission.ts) | The `subagent` family of the Workspace registry's archive admission: running descendants and their parent-cause cancel |
@@ -151,7 +152,7 @@ One user-role parent message opening with the outcome — `Background subagent <
 
 #### Token effect
 
-One notice per settled Activation in the parent's request, sized by the child's final text. A child that sends its own message and then settles costs the parent both.
+One notice per settled Activation in the parent's request, sized by the child's final text. A child that sends its own message and then settles costs the parent both. A parent that is not resident when its child settles pays for the notice on its next request instead, since the account is stored rather than dropped.
 
 #### KV Cache effect
 
@@ -187,12 +188,12 @@ These limits define when the seam is a poor fit or needs special operational car
 - **Descendant reads are sequential** — each reachable catalog, including one-shot children, takes one observation. A cold Session without a valid prepared observation requires a full-log read; large cold trees can accumulate storage latency.
 - **ACP children remain one-shot and are not trace-enumerable** — an ACP run has no local child session in the parent's session corpus, and remote providers need an Activation ownership contract before they can support continuable children.
 - **Adjacent model messaging only** — `sendMessage()` requires an exact live sender; every sender may target a direct continuable child, while only a sender with a resident continuable Activation may target its direct parent. Browser prompts use a separate human Queue-or-Steer control path.
-- **A direct parent must remain live for child-to-parent delivery** — the service has no durable parent mailbox; a missing parent rejects the message instead of accepting work it cannot wake.
+- **Delivery to an absent parent is store-then-read** — a missing parent id still rejects the call (`PARENT_UNAVAILABLE`) when no stored log can take the message, but an absent parent with storage receives it as the newest entry of its own log and reads it on its next activation. The message keeps its `agent-message` or `subagent-settled` source, so the resumed parent reads a stored account rather than an accepted delivery; concurrent writers to that log remain outside this seam.
 - **Wake gap during cancellation convergence** — a follow-up accepted after an interrupt signal but before the driver becomes idle stays queued until another waking send.
 - **Pending injected context retains an Activation** — settlement conservatively treats every Inbox occurrence as unfinished. Context parked after the Agent becomes idle keeps the child and its live ancestors resident until a waking delivery claims it, a queue mutation removes it, or manager teardown discards it.
 - **Process-local residency** — the Activation inbox and ownership graph do not coordinate two harness processes; concurrent access to one persistence store needs a durable mailbox and cross-process lease protocol.
 - **No replay of accepted-but-unlogged messages** — a crash can lose an accepted prompt that never reached the child's session log; the lost message is not replayed automatically.
-- **No durable parent mailbox** — child-to-parent messages require a resident continuable child and live direct parent, and provide acceptance identity rather than exactly-once delivery.
+- **Delivery identity is an accepted-or-stored receipt** — an accepted delivery returns its inbox message id, and a stored one returns the id of the message appended to the parent's log; neither promises exactly-once execution.
 - **Lifecycle events are observe-only** — a run-affecting `subagent/end` continuation or decision API waits for a concrete consumer.
 
 <a id="dev-note"></a>

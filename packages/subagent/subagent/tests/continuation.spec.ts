@@ -3189,25 +3189,144 @@ describe('continuable settlement delivery', () => {
       : [])).toEqual([{ inserted: 1, removed: 0 }, { inserted: 0, removed: 1 }])
   })
 
-  it('drops the notice without disturbing teardown when the parent is gone', async () => {
+  it('stores the notice for an absent parent instead of dropping it', async () => {
     const releaseChild = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([{ chunks: textResponse('answer'), gate: releaseChild.promise }])
     const { ctx } = await setupWith(adapter)
     const warnings: string[] = []
     ctx.logger.warn = (text: string) => { warnings.push(text) }
+    const parentId = SessionId('disposable-parent')
     const host = await ctx.agents.create({
-      sessionId: SessionId('disposable-parent'),
+      sessionId: parentId,
       agentOptions: { provider: 'mock', model: 'mock' },
     })
     const started = await ctx.subagents.startContinuable(startSpec(host.agent))
     const ends: SubagentRunEndInfo[] = []
     ctx.on('subagent/end', (info) => { ends.push(info) })
 
-    releaseChild.resolve(undefined)
+    // The parent leaves first, so the child settles onto a log with no
+    // resident reader — the shape that used to drop the notice.
     await host.dispose()
+    releaseChild.resolve(undefined)
     await waitNoActivation(ctx, started.childId)
     await vi.waitFor(() => { expect(ends).toHaveLength(1) })
     expect(warnings).toEqual([])
+
+    // The parent was never resident to receive this, so the account has to
+    // reach its stored log or the settled child becomes an unwaited edge.
+    const persisted = await loadStoredSession(ctx.sessionPersistence, parentId)
+    const notices = persisted.events.filter(event => event.type === 'user/message'
+      && event.data.source.kind === 'subagent-settled')
+    expect(notices).toHaveLength(1)
+
+    const resumed = await ctx.agents.resume({
+      resumeSessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    expect(settlementNotices(resumed.agent)).toHaveLength(1)
+    await resumed.dispose()
+  }, 60_000)
+
+  it('stores a child message addressed to an absent direct parent', async () => {
+    const releaseChild = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('still running'), gate: releaseChild.promise }])
+    const { ctx } = await setupWith(adapter)
+    const parentId = SessionId('absent-message-parent')
+    const host = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const started = await ctx.subagents.startContinuable(startSpec(host.agent))
+    const child = await vi.waitFor(() => {
+      const live = ctx.agents.get(started.childId)
+      expect(live).toBeDefined()
+      return live!
+    })
+
+    await host.dispose()
+    const messageId = await ctx.subagents.sendMessage(child, parentId, message('carry this over'), {
+      signal: testSignal,
+    })
+
+    const persisted = await loadStoredSession(ctx.sessionPersistence, parentId)
+    const relayed = persisted.events.filter(event => event.type === 'user/message'
+      && event.data.source.kind === 'agent-message')
+    expect(relayed).toHaveLength(1)
+    expect(relayed[0]!.data.id).toBe(messageId)
+    expect(relayed[0]!.data.content).toEqual([
+      { type: 'text', text: `Agent ${started.childId} sent a message: ` },
+      { type: 'text', text: 'carry this over' },
+    ])
+
+    releaseChild.resolve(undefined)
+    await waitNoActivation(ctx, started.childId)
+  })
+
+  it('fails the delivery loudly when an absent parent cannot be stored to', async () => {
+    const releaseChild = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('still running'), gate: releaseChild.promise }])
+    const { ctx } = await setupWith(adapter)
+    const warnings: string[] = []
+    ctx.logger.warn = (text: string) => { warnings.push(text) }
+    const parentId = SessionId('unstorable-parent')
+    const host = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const started = await ctx.subagents.startContinuable(startSpec(host.agent))
+    const child = await vi.waitFor(() => {
+      const live = ctx.agents.get(started.childId)
+      expect(live).toBeDefined()
+      return live!
+    })
+
+    await host.dispose()
+    const open = ctx.sessionPersistence.open.bind(ctx.sessionPersistence)
+    vi.spyOn(ctx.sessionPersistence, 'open').mockImplementation((id, access, options) => (
+      id === parentId ? Promise.reject(new Error('ENOSPC: no space left on device')) : open(id, access, options)
+    ))
+
+    await expect(ctx.subagents.sendMessage(child, parentId, message('cannot arrive'), {
+      signal: testSignal,
+    })).rejects.toMatchObject({ code: 'PARENT_UNAVAILABLE' })
+    expect(warnings.some(warning => warning.includes('had no resident agent to receive it'))).toBe(true)
+
+    releaseChild.resolve(undefined)
+    await waitNoActivation(ctx, started.childId)
+  })
+
+  it('fails the delivery loudly when an absent parent has no stored session', async () => {
+    const releaseChild = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('still running'), gate: releaseChild.promise }])
+    const { ctx } = await setupWith(adapter)
+    const parentId = SessionId('unstored-parent')
+    const host = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const started = await ctx.subagents.startContinuable(startSpec(host.agent))
+    const child = await vi.waitFor(() => {
+      const live = ctx.agents.get(started.childId)
+      expect(live).toBeDefined()
+      return live!
+    })
+
+    await host.dispose()
+    // A parent with no durable destination at all: the append has nowhere to
+    // land, which is the one case this delivery cannot absorb silently.
+    const open = ctx.sessionPersistence.open.bind(ctx.sessionPersistence)
+    vi.spyOn(ctx.sessionPersistence, 'open').mockImplementation((id, access, options) => (
+      id === parentId
+        ? Promise.reject(new Error(`session "${parentId}" is not stored`))
+        : open(id, access, options)
+    ))
+
+    await expect(ctx.subagents.sendMessage(child, parentId, message('cannot arrive'), {
+      signal: testSignal,
+    })).rejects.toMatchObject({ code: 'PARENT_UNAVAILABLE' })
+
+    releaseChild.resolve(undefined)
+    await waitNoActivation(ctx, started.childId)
   })
 
   it('logs a rejected notice instead of failing the child\'s teardown', async () => {

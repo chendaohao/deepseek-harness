@@ -20,7 +20,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { ReasoningEffortId, contentHasImage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import {
@@ -43,6 +43,7 @@ import { establishCatalogChild } from './catalog.ts'
 import { SubagentError } from './error.ts'
 import { isAdjacentAgentSendMessageTool } from './internal.ts'
 import type { ActivationObserver } from './lifecycle.ts'
+import { appendUnattendedMessage, reportUnattendedAppendFailure } from './unattended-store.ts'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
@@ -219,7 +220,7 @@ export class SubagentContinuationManager {
       && senderActivation.handle.agent === sender
       && senderActivation.parentSession === targetId) {
       options.signal.throwIfAborted()
-      return this.sendToParent(senderActivation, sender, content)
+      return await this.sendToParent(senderActivation, sender, content)
     }
     if (sender.session.header.parentSession === targetId) {
       throw new SubagentError(
@@ -335,12 +336,15 @@ export class SubagentContinuationManager {
     this.activations.interrupt(targetSessionId, authority)
   }
 
-  /** Deliver one resident continuable child's message to its live direct parent. */
-  private sendToParent(
+  /**
+   * Deliver one resident continuable child's message to its direct parent,
+   * storing it for the parent's next activation when no parent is resident.
+   */
+  private async sendToParent(
     activation: Activation,
     sender: Agent,
     content: ContentBlock[],
-  ): MessageId {
+  ): Promise<MessageId> {
     /* v8 ignore next 6 -- only synchronous re-entrant teardown can open this
      * transaction between exact-agent authorization and this no-await span. */
     if (activation.inbox.closing !== undefined) {
@@ -349,16 +353,35 @@ export class SubagentContinuationManager {
         'ACTIVATION_CLOSING',
       )
     }
+    const message = createAgentMessage(sender, content)
     const parent = this.ctx.agents.get(activation.parentSession)
     if (parent === undefined) {
-      throw new SubagentError(
-        'direct parent is not live; the message was not delivered',
-        'PARENT_UNAVAILABLE',
-      )
+      await this.storeForAbsentParent(activation.parentSession, message)
+      return message.id
     }
-    const message = createAgentMessage(sender, content)
     this.sendAgentMessage(parent, message)
     return message.id
+  }
+
+  /**
+   * Store one message for a direct parent that is not resident, so the parent's
+   * next activation reads it instead of the delivery vanishing.
+   */
+  private async storeForAbsentParent(
+    parentSession: SessionId,
+    message: UserMessage,
+  ): Promise<void> {
+    try {
+      const stored = await appendUnattendedMessage(this.ctx, parentSession, message)
+      if (!stored) throw new Error(`session "${parentSession}" has no writable stored log`)
+    } catch (error: unknown) {
+      reportUnattendedAppendFailure(this.ctx, parentSession, error)
+      throw new SubagentError(
+        `direct parent "${parentSession}" is not live and the message could not be stored for its next activation`,
+        'PARENT_UNAVAILABLE',
+        { cause: error },
+      )
+    }
   }
 
   /** Send one Agent message while translating only the target's own rejection. */

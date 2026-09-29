@@ -36,6 +36,7 @@ import { SubagentError } from './error.ts'
 import { SubagentInbox } from './inbox.ts'
 import type { SubagentDelivery } from './inbox.ts'
 import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
+import { appendUnattendedMessage, reportUnattendedAppendFailure } from './unattended-store.ts'
 
 /** Process-local slots shared through uninterrupted continuable parent links. */
 class ActivationPool {
@@ -867,24 +868,58 @@ export class ContinuableActivationRegistry {
     if (failure !== undefined) throw failure
   }
 
-  /** Tell the durable direct parent how this Activation ended. */
+  /**
+   * Tell the durable direct parent how this Activation ended. A parent with no
+   * resident Agent receives the account as stored input for its next
+   * activation, so the settled child never becomes an unwaited edge.
+   */
   private notifySettlement(activation: Activation, terminal: ActivationTerminal): void {
+    // A notified settlement is the only thing that tells an unattended parent
+    // its child is gone; no parent-side cancel or teardown can retract it.
     if (!activation.announced) return
-    try {
-      const parent = this.ctx.agents.get(activation.parentSession)
-      if (parent === undefined) return
+    if (this.ctx.agents.get(activation.parentSession) === undefined) {
       const message = createSettlementMessage(activation.childId, terminal)
-      if (this.closingTeardownFor(parent) !== undefined) {
-        parent.inject(message)
-        return
-      }
-      this.sendWaking(parent, message, parent.status === 'idle' ? 'queue' : 'steer')
+      void this.storeSettlement(activation.parentSession, message)
+      return
+    }
+    try {
+      this.sendSettlement(activation.childId, activation.parentSession, terminal)
     } catch (error: unknown) {
       this.ctx.logger.warn(
         `subagent "${activation.childId}" settlement notice was not delivered to its parent: `
         + errorChain(error),
       )
     }
+  }
+
+  /**
+   * Store one settlement account for a parent that is not resident.
+   * @param parentSession - durable direct parent of the settled child.
+   * @param message - the running writer's settlement account.
+   */
+  private async storeSettlement(parentSession: SessionId, message: UserMessage): Promise<void> {
+    try {
+      const stored = await appendUnattendedMessage(this.ctx, parentSession, message)
+      if (!stored) throw new Error(`parent session "${parentSession}" has no writable stored log`)
+    } catch (error: unknown) {
+      reportUnattendedAppendFailure(this.ctx, parentSession, error)
+    }
+  }
+
+  /** Build and deliver the settlement account to the resident parent. */
+  private sendSettlement(
+    childId: SessionId,
+    parentSession: SessionId,
+    terminal: ActivationTerminal,
+  ): void {
+    const parent = this.ctx.agents.get(parentSession)
+    if (parent === undefined) return
+    const message = createSettlementMessage(childId, terminal)
+    if (this.closingTeardownFor(parent) !== undefined) {
+      parent.inject(message)
+      return
+    }
+    this.sendWaking(parent, message, parent.status === 'idle' ? 'queue' : 'steer')
   }
 
   /** Request a best-effort final session flush before closing natural-settlement admission. */
