@@ -241,6 +241,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-compile-serialization` | yes | Compile-command serialization guard: admits one install/build/typecheck command at a time and denies a concurrent one with a retryable message |
 | `@deepseek-ai/dsh-max-tokens-recovery` | yes | Loop-hygiene guard plugin: one bounded recovery turn when a turn spends its whole output ceiling on reasoning |
 | `@deepseek-ai/dsh-repeat-tool-reminder` | yes | Repeat-tool-call guard plugin: advisory reminders when an agent loops on identical tool calls |
 | `@deepseek-ai/dsh-tool-call-timeout-policy` | no | Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins |

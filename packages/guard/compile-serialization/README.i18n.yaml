@@ -1,0 +1,64 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/guard/compile-serialization/README.md
+/:
+  en: aba9f40e70e07d96
+  zh: 95ddb74264ec46c9
+/deepseek-ai-dsh-compile-serialization:
+  en: 37532c23db521868
+  zh: 6132c7be9efef4aa
+/deepseek-ai-dsh-compile-serialization/summary:
+  en: a79936c988b9d4b5
+  zh: 55d8873d4eade29c
+/deepseek-ai-dsh-compile-serialization/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-compile-serialization/use-this-package:
+  en: 990e780222ace59f
+  zh: 0762be8b0e4cd291
+/deepseek-ai-dsh-compile-serialization/use-this-package/when-to-choose-it:
+  en: 64d5de2276b9fdb0
+  zh: da29d9088d99c77b
+/deepseek-ai-dsh-compile-serialization/use-this-package/setting-it-up:
+  en: dcebc2b4934059bf
+  zh: 31415d8e050c4e98
+/deepseek-ai-dsh-compile-serialization/use-this-package/what-you-get:
+  en: 46a4a4722a011644
+  zh: 60b4c4a9cee78191
+/deepseek-ai-dsh-compile-serialization/understand-the-implementation:
+  en: f40430e91804d3e9
+  zh: fa37438483a1f8f3
+/deepseek-ai-dsh-compile-serialization/understand-the-implementation/design-philosophy:
+  en: 48060852de4a2950
+  zh: 48ed4fad8c596a0f
+/deepseek-ai-dsh-compile-serialization/understand-the-implementation/how-a-command-is-serialized:
+  en: 46082ae91a686b63
+  zh: c40a3b6f1177b0da
+/deepseek-ai-dsh-compile-serialization/understand-the-implementation/source-map:
+  en: 39466632f645b1d2
+  zh: c7421a7491a4cba7
+/deepseek-ai-dsh-compile-serialization/further-exploration:
+  en: 9978d3b4a74a67a6
+  zh: c04e43a098541f92
+/deepseek-ai-dsh-compile-serialization/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-compile-serialization/model-experience/concurrent-compile-command-denial:
+  en: fe5f7379ea8fb2cf
+  zh: 41df5257f3288433
+/deepseek-ai-dsh-compile-serialization/model-experience/concurrent-compile-command-denial/what-the-model-sees:
+  en: 3a2320b44a82a6d7
+  zh: 8261c585b0fccc42
+/deepseek-ai-dsh-compile-serialization/model-experience/concurrent-compile-command-denial/token-effect:
+  en: 1e66eef7b5405652
+  zh: fe20e03966e03958
+/deepseek-ai-dsh-compile-serialization/model-experience/concurrent-compile-command-denial/kv-cache-effect:
+  en: c911863dc30855a8
+  zh: 423a44dc92a7894f
+/deepseek-ai-dsh-compile-serialization/known-limitations-and-deferred-work:
+  en: cf99a6f4a03105ed
+  zh: f621fcb92b6dec6a
+/deepseek-ai-dsh-compile-serialization/known-limitations-and-deferred-work/dev-note:
+  en: 5c7401e0c301153e
+  zh: 20188327b3e04459
