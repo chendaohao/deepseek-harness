@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
-import { createUserMessage, LlmAdapter, LlmError  } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import * as goalSession from '../src/index.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -1201,5 +1202,410 @@ describe('automatic round interval', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+/** One response that calls a registered no-op tool, ending the turn on tool calls. */
+function toolCallResponse(): StreamChunk[] {
+  const id = ToolCallId('poll')
+  return [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id, name: 'poll', argumentsDelta: '{}' },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'poll', arguments: '{}' } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ]
+}
+
+describe('subagent-wait backoff', () => {
+  /** Let every microtask queued by the driver and the agent loop settle. */
+  async function settle(): Promise<void> {
+    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
+  }
+
+  /** The interval each recorded backoff skip armed, in milliseconds. */
+  function skipDelays(test: Harness): number[] {
+    return skippedRounds(test).map((message) => {
+      const text = String(message.args[0])
+      const match = /next wake-up in (\d+)ms/.exec(text)
+      if (match === null) throw new Error(`skip notice has no armed interval: ${text}`)
+      return Number(match[1])
+    })
+  }
+
+  /** Every recorded backoff skip notice. */
+  function skippedRounds(test: Harness): { args: unknown[] }[] {
+    return test.ctx.logger.buffer.filter(message => message.type === 'info'
+      && typeof message.args[0] === 'string'
+      && message.args[0].includes('skipped a round'))
+  }
+
+  interface BackoffHarness extends Harness {
+    /** Register the no-op tool a tool-calling round invokes. */
+    readonly registerPoll: () => void
+    /** Create a live subagent of the goal session, still unsettled. */
+    readonly liveChild: () => Promise<AgentHandle>
+  }
+
+  /**
+   * Mount the driver with fake timers and a live-child factory.
+   * @param script - one entry per expected model request.
+   * @param options - interval and backoff configuration.
+   * @returns the harness plus child/poll helpers.
+   */
+  async function backoffHarness(
+    script: ScriptEntry[],
+    options: {
+      roundIntervalMs: number
+      roundBackoffEnabled?: boolean
+      roundBackoffInitialMs?: number
+      roundBackoffFactor?: number
+      roundBackoffMaxMs?: number
+    },
+  ): Promise<BackoffHarness> {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const ctx = new Context()
+    contexts.push(ctx)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(GoalService)
+    const driver = await ctx.plugin(goalSession, options)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    const adapter = new ScriptedAdapter(script)
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId(`goal-session-${Math.random()}`), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    return {
+      ctx,
+      adapter,
+      agent,
+      driver,
+      registerPoll: () => {
+        ctx.tools.register(defineContentToolFixture({
+          name: 'poll',
+          description: '',
+          parameters: {},
+          async execute() { return [{ type: 'text', text: 'polled' }] },
+        }))
+      },
+      liveChild: async () => await ctx.agents.create({
+        sessionId: SessionId(`goal-child-${Math.random()}`),
+        parentAgent: agent,
+        meta: { parentSession: agent.id, origin: 'subagent' },
+        agentOptions: { provider: 'mock', model: 'mock' },
+      }),
+    }
+  }
+
+  it('skips a round, records the skip, and grows the interval while a child is live', async () => {
+    const test = await backoffHarness([textResponse('round one')], {
+      roundIntervalMs: 1_000,
+      roundBackoffInitialMs: 1_000,
+      roundBackoffFactor: 2,
+      roundBackoffMaxMs: 4_000,
+    })
+    try {
+      await test.liveChild()
+      test.ctx.goals.create(test.agent, { objective: 'wait for the child', maxGoalRounds: 9 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      // The first round is never paced; the child appears after it, so the
+      // driver's own reservation paces the round that follows.
+      expect(test.adapter.requests).toHaveLength(1)
+
+      // Skip 1 at one initial interval; the notice arms the doubled wait.
+      await vi.advanceTimersByTimeAsync(999)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+      expect(skippedRounds(test)).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(1)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+      expect(skippedRounds(test)).toHaveLength(1)
+
+      // Skip 2 one initial interval later, now arming 2x.
+      await vi.advanceTimersByTimeAsync(999)
+      await settle()
+      expect(skippedRounds(test)).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1)
+      await settle()
+      expect(skippedRounds(test)).toHaveLength(2)
+
+      // Skip 3 after 2x, now arming 4x.
+      await vi.advanceTimersByTimeAsync(1_999)
+      await settle()
+      expect(skippedRounds(test)).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(1)
+      await settle()
+      expect(skippedRounds(test)).toHaveLength(3)
+
+      // Skip 4 would arm 8x, but the 4x ceiling holds it at 4s.
+      await vi.advanceTimersByTimeAsync(3_999)
+      await settle()
+      expect(skippedRounds(test)).toHaveLength(3)
+      await vi.advanceTimersByTimeAsync(1)
+      await settle()
+      expect(skippedRounds(test)).toHaveLength(4)
+
+      // Skip 5 stays at the ceiling rather than growing past it.
+      await vi.advanceTimersByTimeAsync(3_999)
+      await settle()
+      expect(skippedRounds(test)).toHaveLength(4)
+      await vi.advanceTimersByTimeAsync(1)
+      await settle()
+      expect(skippedRounds(test)).toHaveLength(5)
+
+      expect(test.adapter.requests).toHaveLength(1)
+      expect(skipDelays(test)).toEqual([1_000, 2_000, 4_000, 4_000, 4_000])
+      expect(skippedRounds(test).map(message => String(message.args[0]))).toEqual([
+        expect.stringContaining('skip 1'),
+        expect.stringContaining('skip 2'),
+        expect.stringContaining('skip 3'),
+        expect.stringContaining('skip 4'),
+        expect.stringContaining('skip 5'),
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the normal interval when the goal session has no live child', async () => {
+    const test = await backoffHarness([textResponse('round one'), textResponse('round two')], {
+      roundIntervalMs: 1_000,
+      roundBackoffInitialMs: 1_000,
+    })
+    try {
+      test.ctx.goals.create(test.agent, { objective: 'no child to wait for', maxGoalRounds: 9 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the normal interval when the inbox holds pending input', async () => {
+    const test = await backoffHarness([textResponse('round one'), textResponse('round two')], {
+      roundIntervalMs: 1_000,
+      roundBackoffInitialMs: 1_000,
+    })
+    try {
+      await test.liveChild()
+      test.ctx.goals.create(test.agent, { objective: 'pending input is waiting', maxGoalRounds: 9 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      await test.agent.whenIdle()
+      // Park input in the inbox without waking the driver, so it is still
+      // pending at the next interval boundary.
+      test.agent.inject(createUserMessage({
+        content: [{ type: 'text', text: 'pending context' }],
+        source: { kind: 'user' },
+      }))
+
+      // The inbox is not empty at this boundary, so the round keeps the normal
+      // interval instead of backing off.
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+      expect(skippedRounds(test)).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the normal interval when the previous round called a tool', async () => {
+    const test = await backoffHarness([toolCallResponse(), textResponse('round one'), textResponse('round two')], {
+      roundIntervalMs: 1_000,
+      roundBackoffInitialMs: 1_000,
+    })
+    try {
+      test.registerPoll()
+      await test.liveChild()
+      test.ctx.goals.create(test.agent, { objective: 'keep polling', maxGoalRounds: 9 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      // The tool-calling round and its follow-up text round.
+      expect(test.adapter.requests).toHaveLength(2)
+
+      // The round called `poll`, so the wait is not a passive wait: it resumes
+      // at the configured interval instead of backing off.
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns to the normal interval when a live child settles', async () => {
+    const test = await backoffHarness([textResponse('round one'), textResponse('round two')], {
+      roundIntervalMs: 1_000,
+      roundBackoffInitialMs: 1_000,
+      roundBackoffFactor: 4,
+      roundBackoffMaxMs: 64_000,
+    })
+    try {
+      const first = await test.liveChild()
+      test.ctx.goals.create(test.agent, { objective: 'children come and go', maxGoalRounds: 9 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      // Two consecutive skips grow the armed wait from the initial interval to
+      // 4x. The goal's first round was unpaced, so each skip is one interval
+      // apart.
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+      expect(skipDelays(test)).toEqual([1_000, 4_000])
+
+      // The child settles, which returns the driver to the normal interval: the
+      // elapsed normal interval reserves the next round instead of waiting out
+      // the three seconds the 4x backoff had armed for this point.
+      await first.dispose()
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+
+      // A new child makes the wait passive again. The skip count restarted, so
+      // this skip arms the initial interval rather than continuing to 8x.
+      await test.liveChild()
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+      expect(skipDelays(test)).toEqual([1_000, 4_000, 1_000])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restarts the backoff when queued input arrives between skips', async () => {
+    const test = await backoffHarness([
+      textResponse('round one'),
+      textResponse('queued human'),
+      textResponse('round two'),
+    ], {
+      roundIntervalMs: 1_000,
+      roundBackoffInitialMs: 1_000,
+      roundBackoffFactor: 4,
+      roundBackoffMaxMs: 64_000,
+    })
+    try {
+      await test.liveChild()
+      test.ctx.goals.create(test.agent, { objective: 'input interrupts the wait', maxGoalRounds: 9 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      // Two skips grow the armed wait to 4x.
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+      expect(skipDelays(test)).toEqual([1_000, 4_000])
+
+      // Queued input drains its own turn and clears the wait, so the goal round
+      // that follows keeps the normal interval and the next skip restarts.
+      test.agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'queued human' }],
+        source: { kind: 'user' },
+      }))
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+      // The input cleared the wait and the driver returned to the normal
+      // interval: this skip restarts at the initial interval, not at 16x.
+      expect(skipDelays(test)).toEqual([1_000, 4_000, 1_000])
+
+      // The restarted count then grows again, proving it was a restart rather
+      // than a one-off.
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+      expect(skipDelays(test)).toEqual([1_000, 4_000, 1_000, 4_000])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the fixed interval when the backoff switch is off', async () => {
+    const test = await backoffHarness([textResponse('round one'), textResponse('round two')], {
+      roundIntervalMs: 1_000,
+      roundBackoffEnabled: false,
+      roundBackoffInitialMs: 1_000,
+    })
+    try {
+      await test.liveChild()
+      test.ctx.goals.create(test.agent, { objective: 'switch is off', maxGoalRounds: 9 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(2)
+      expect(skippedRounds(test)).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('backoff configuration', () => {
+  /** Load the driver plugin alone against a bare context and report its outcome. */
+  async function load(config: unknown): Promise<{ error?: unknown }> {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(GoalService)
+    let error: unknown
+    try {
+      await ctx.plugin(goalSession, config as object)
+    } catch (failure: unknown) {
+      error = failure
+    }
+    return error === undefined ? {} : { error }
+  }
+
+  it('enables backoff with its documented defaults when none are configured', async () => {
+    const loaded = await load({})
+    expect(loaded.error).toBeUndefined()
+    expect(goalSession.Config({})).toMatchObject({
+      roundBackoffEnabled: true,
+      roundBackoffInitialMs: 1_800_000,
+      roundBackoffFactor: 2,
+      roundBackoffMaxMs: 7_200_000,
+    })
+  })
+
+  it.each([
+    ['a negative initial interval', { roundBackoffInitialMs: -1 }],
+    ['a zero initial interval', { roundBackoffInitialMs: 0 }],
+    ['a factor below one', { roundBackoffFactor: 0.5 }],
+    ['a zero ceiling', { roundBackoffMaxMs: 0 }],
+    ['a non-boolean switch', { roundBackoffEnabled: 'yes' }],
+  ])('fails the load on %s', async (_name, config) => {
+    const loaded = await load(config)
+    expect(loaded.error).toBeInstanceOf(Error)
+  })
+
+  it('fails the load on a non-finite growth factor the numeric bounds cannot reject', async () => {
+    const loaded = await load({ roundBackoffFactor: Number.NaN })
+    expect(loaded.error).toBeInstanceOf(RangeError)
   })
 })

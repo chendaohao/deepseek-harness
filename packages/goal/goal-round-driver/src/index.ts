@@ -23,6 +23,9 @@ export const inject = ['agents', 'goals', 'sessions']
 /** Interval between automatic rounds when the deployment configures none: 30 minutes. */
 export const DEFAULT_ROUND_INTERVAL_MS = 1_800_000
 
+/** Ceiling for the backed-off interval when the deployment configures none: 2 hours. */
+export const DEFAULT_BACKOFF_MAX_MS = 7_200_000
+
 /** Plugin configuration: how often automatic continuation may spend a round. */
 export interface Config {
   /**
@@ -32,13 +35,63 @@ export interface Config {
    * removes the interval, so a round is reserved at every idle point.
    */
   roundIntervalMs?: number
+  /**
+   * Whether an idle round backs off while the session waits on live subagents
+   * (default true). A round is skipped only when a live subagent is still
+   * unsettled, the inbox is empty, and the previous round called no tool; any
+   * input, tool activity, or child settlement returns the normal interval.
+   */
+  roundBackoffEnabled?: boolean
+  /**
+   * Interval before the first backed-off wake-up, in ms (default 1800000).
+   * Each further consecutive skipped round multiplies it by
+   * `roundBackoffFactor`, capped by `roundBackoffMaxMs`. Values below
+   * `roundIntervalMs` shorten the wait after a skip, so configure this at or
+   * above the normal interval.
+   */
+  roundBackoffInitialMs?: number
+  /** Growth factor per consecutive skipped round, at least 1 (default 2). */
+  roundBackoffFactor?: number
+  /** Ceiling for the backed-off interval, in ms (default 7200000). */
+  roundBackoffMaxMs?: number
 }
 
 export const Config: z<Config> = z.object({
   roundIntervalMs: z.number().step(1).min(0).max(MAX_TIMER_DELAY_MS).default(DEFAULT_ROUND_INTERVAL_MS),
+  roundBackoffEnabled: z.boolean().default(true),
+  roundBackoffInitialMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_ROUND_INTERVAL_MS),
+  roundBackoffFactor: z.number().min(1).max(Number.MAX_VALUE).default(2),
+  roundBackoffMaxMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_BACKOFF_MAX_MS),
 })
 
 type ResolvedConfig = Required<Config>
+
+/** Exponential backoff timing read from plugin config, plus its switch. */
+interface ResolvedBackoff {
+  readonly enabled: boolean
+  readonly initialMs: number
+  readonly factor: number
+  readonly maxMs: number
+}
+
+/**
+ * Read the validated backoff timing from plugin config.
+ * @param config - configuration after schema defaulting.
+ * @returns the backoff switch and its exponential timing.
+ * @throws {RangeError} when the growth factor is not a finite number, which the
+ *   schema accepts because `NaN` satisfies every numeric bound.
+ */
+function resolveBackoff(config: ResolvedConfig): ResolvedBackoff {
+  if (!Number.isFinite(config.roundBackoffFactor)) {
+    throw new RangeError('goal-round-driver roundBackoffFactor must be a finite number')
+  }
+  return {
+    enabled: config.roundBackoffEnabled,
+    initialMs: config.roundBackoffInitialMs,
+    factor: config.roundBackoffFactor,
+    maxMs: config.roundBackoffMaxMs,
+  }
+}
 
 /** Identity reserved before a goal continuation enters the agent inbox. */
 interface RoundIdentity {
@@ -69,6 +122,14 @@ interface DriverState {
   reservedAt: number | undefined
   /** Pending wake-up for a round still inside its interval. */
   timer: ReturnType<typeof setTimeout> | undefined
+  /** Consecutive rounds skipped while waiting on live subagents; 0 at the normal interval. */
+  backoffSkips: number
+  /** Turn of the most recent admitted goal round, to attribute its tool activity. */
+  roundTurn: number | undefined
+  /** Turn most recently opened in this session, so an admitted round knows its own turn. */
+  currentTurn: number | undefined
+  /** Whether the admitted goal round's turn has appended a `tool/call` so far. */
+  roundCalledTool: boolean
 }
 
 /** Whether a source identifies an automatic, positive-numbered goal round. */
@@ -100,7 +161,9 @@ function renderThrown(value: unknown): string {
 
 /** Install automatic same-session continuation and its race fences. */
 export function apply(ctx: Context, config: Config): void {
-  const { roundIntervalMs } = config as ResolvedConfig
+  const resolved = config as ResolvedConfig
+  const { roundIntervalMs } = resolved
+  const backoff = resolveBackoff(resolved)
   const states = new Map<Agent, DriverState>()
 
   /** Create state for an exact currently live agent. */
@@ -117,6 +180,10 @@ export function apply(ctx: Context, config: Config): void {
       stopping: false,
       reservedAt: undefined,
       timer: undefined,
+      backoffSkips: 0,
+      roundTurn: undefined,
+      currentTurn: undefined,
+      roundCalledTool: false,
     }
     states.set(agent, state)
     return state
@@ -163,6 +230,56 @@ export function apply(ctx: Context, config: Config): void {
   function intervalWait(state: DriverState, now: number): number {
     if (state.reservedAt === undefined) return 0
     return Math.max(0, state.reservedAt + roundIntervalMs - now)
+  }
+
+  /** Whether a live subagent of this exact parent is still unsettled. */
+  function hasLiveSubagent(state: DriverState): boolean {
+    return ctx.agents.list().some((candidate) => {
+      const { parentSession, origin } = candidate.session.header
+      return origin === 'subagent' && parentSession === state.agent.id
+    })
+  }
+
+  /**
+   * Whether the most recent admitted goal round appended no `tool/call`. An
+   * agent that has not admitted a round yet never skips: its first round is
+   * unpaced and must run.
+   */
+  function lastRoundCalledNoTool(state: DriverState): boolean {
+    return state.roundTurn !== undefined && !state.roundCalledTool
+  }
+
+  /** Whether this round may skip its wake-up while the session waits on live subagents. */
+  function skipWhileWaiting(state: DriverState): boolean {
+    return backoff.enabled
+      && state.agent.inbox.nextTurn.length === 0
+      && state.agent.inbox.nextStep.length === 0
+      && hasLiveSubagent(state)
+      && lastRoundCalledNoTool(state)
+  }
+
+  /** Interval before the next wake-up after `skips` consecutive skipped rounds. */
+  function backoffInterval(skips: number): number {
+    return Math.min(backoff.maxMs, backoff.initialMs * backoff.factor ** (skips - 1))
+  }
+
+  /**
+   * Skip this wake-up while the session waits on live subagents, record why, and
+   * arm the next interval at the grown backoff delay.
+   */
+  function deferWhileWaiting(state: DriverState): void {
+    state.backoffSkips += 1
+    const delay = backoffInterval(state.backoffSkips)
+    ctx.logger.info(
+      `goal-round-driver: skipped a round for agent "${state.agent.id}" while its subagents are live `
+      + `(skip ${state.backoffSkips}, next wake-up in ${delay}ms)`,
+    )
+    scheduleRound(state, delay)
+  }
+
+  /** Return to the configured interval after input or a reserved round. */
+  function resetBackoff(state: DriverState): void {
+    state.backoffSkips = 0
   }
 
   /** Wake this lifecycle once the interval has elapsed. */
@@ -232,6 +349,16 @@ export function apply(ctx: Context, config: Config): void {
       scheduleRound(state, wait)
       return
     }
+
+    // The interval elapsed and the session is waiting on live subagents with
+    // nothing else to do: skip this wake-up and let the interval grow, instead
+    // of spending a model request per idle point.
+    if (skipWhileWaiting(state)) {
+      deferWhileWaiting(state)
+      return
+    }
+    // A reserved round is activity, so the next wait starts at the normal interval.
+    resetBackoff(state)
 
     const content = renderGoalRoundPrompt(goal, round)
     const message = createUserMessage({
@@ -315,6 +442,16 @@ export function apply(ctx: Context, config: Config): void {
       /* v8 ignore next -- agent/created seeds state for every registered agent, so a disposal always finds one */
       if (state !== undefined) clearTimer(state)
       states.delete(agent)
+      // A settled child is an activity event for its parent: re-drive it so the
+      // parent resumes at its next normal interval instead of waiting out the
+      // backed-off interval armed while the child was still live.
+      const { parentSession, origin } = agent.session.header
+      if (origin !== 'subagent' || parentSession === undefined) return
+      const parent = ctx.agents.get(parentSession)
+      if (parent === undefined) return
+      const parentState = states.get(parent)
+      if (parentState === undefined) return
+      requestDrive(parentState)
     })
     ctx.on('agent/created', ({ agent }) => {
       const state = stateFor(agent)
@@ -323,6 +460,10 @@ export function apply(ctx: Context, config: Config): void {
       state.needsCheckpoint = false
       clearTimer(state)
       state.reservedAt = undefined
+      resetBackoff(state)
+      state.roundTurn = undefined
+      state.currentTurn = undefined
+      state.roundCalledTool = false
     })
     ctx.on('agent/status', ({ agent, status }) => {
       const state = stateFor(agent)
@@ -371,6 +512,7 @@ export function apply(ctx: Context, config: Config): void {
       const attempt = state.attempt
       if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) return
       state.competingQueued = true
+      resetBackoff(state)
       if (attempt?.phase === 'queued') attempt.stale = true
     })
     ctx.on('agent/inbox/claimed', ({ agent, message }) => {
@@ -396,7 +538,16 @@ export function apply(ctx: Context, config: Config): void {
         case 'user/message':
           if (state.attempt !== undefined && event.data.id === state.attempt.messageId) {
             state.attempt.phase = 'admitted'
+            // Attribute this turn's tool activity to the admitted round.
+            state.roundTurn = state.currentTurn
+            state.roundCalledTool = false
           }
+          return
+        case 'turn/start':
+          state.currentTurn = event.data.turn
+          return
+        case 'tool/call':
+          if (state.roundTurn === event.data.turn) state.roundCalledTool = true
           return
         case 'turn/end':
           if (event.data.reason.kind === 'max-tokens') {
