@@ -148,7 +148,7 @@ describe('bounded ceiling recovery', () => {
     expect(recoveries(agent)).toHaveLength(0)
   })
 
-  it('leaves a delegated child alone, whose budget belongs to its parent', async () => {
+  it('skips a delegated child by default, whose budget belongs to its parent', async () => {
     const ctx = await harness()
     const adapter = new MockAdapter([reasoningCeiling(50_000), textResponse('later')])
     ctx.llm.registerAdapter(['mock'], adapter)
@@ -165,6 +165,54 @@ describe('bounded ceiling recovery', () => {
 
     expect(recoveries(child)).toHaveLength(0)
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('recovers a delegated child once coverSubagentSessions is on', async () => {
+    const ctx = await harness({ coverSubagentSessions: true })
+    const adapter = new MockAdapter([reasoningCeiling(50_000), textResponse('child result')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const created = await ctx.agents.create({
+      sessionId: SessionId('covered-child'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      meta: { cwd: '/tmp', parentSession: SessionId('parent'), isSeeded: false, origin: 'subagent', delegationDepth: 1 },
+    })
+    const child = created.agent
+    prompt(child, 'go')
+    await settle(child, adapter, 2)
+
+    const found = recoveries(child)
+    expect(found).toHaveLength(1)
+    expect(found[0]!.source).toEqual({ kind: 'max-tokens-recovery' })
+    // A child owes its caller a result, so the prompt asks for one instead of
+    // the further work the main-session prompt asks for.
+    expect(found[0]!.text).toContain('deliver the smallest concrete result')
+    expect(found[0]!.text).not.toContain('make the single smallest concrete change')
+    expect(answers(child)).toContain('child result')
+  })
+
+  it('leaves the main session unchanged when coverSubagentSessions is on', async () => {
+    const ctx = await harness({ coverSubagentSessions: true })
+    const adapter = new MockAdapter([reasoningCeiling(50_000), textResponse('recovered work')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('root'), { provider: 'mock', model: 'mock' })
+    prompt(agent, 'go')
+    await settle(agent, adapter, 2)
+
+    const found = recoveries(agent)
+    expect(found).toHaveLength(1)
+    expect(found[0]!.text).toContain('make the single smallest concrete change')
+    expect(found[0]!.text).not.toContain('deliver the smallest concrete result')
+    expect(answers(agent)).toContain('recovered work')
+  })
+
+  it('rejects a non-boolean coverSubagentSessions at load', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    // A cordis.yml value can be any YAML scalar, so the schema must refuse the
+    // ones that are not booleans rather than defaulting them away.
+    await expect(ctx.plugin(MaxTokensRecovery, { coverSubagentSessions: 'yes' }))
+      .rejects.toThrow(/expected boolean/)
   })
 
   it('stops listening once its plugin fiber is disposed', async () => {

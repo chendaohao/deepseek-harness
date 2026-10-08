@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-A provider can stop a step at its output-token ceiling while that step streamed only private reasoning. The turn then ends with no visible text and no tool call, so the agent stops making progress while its transcript still looks healthy — the failure is invisible to anyone reading the conversation. This package notices that step and queues exactly one short recovery prompt for the next turn, telling the model to deliver the smallest concrete change instead of re-planning. It recovers once per run of consecutive ceiling hits, and the `dsh` base bundle enables it with `maxRecoveries: 1`.
+A provider can stop a step at its output-token ceiling while that step streamed only private reasoning. The turn then ends with no visible text and no tool call, so the agent stops making progress while its transcript still looks healthy — the failure is invisible to anyone reading the conversation. This package notices that step and queues exactly one short recovery prompt for the next turn, telling the model to deliver the smallest concrete change instead of re-planning. It recovers once per run of consecutive ceiling hits, and the `dsh` base bundle enables it with `maxRecoveries: 1`. Delegated child sessions are left to their parents unless `coverSubagentSessions` turns coverage on.
 
 ## Table of Contents
 
@@ -36,14 +36,20 @@ Choose it when an agent that stops silently is expensive — a background worker
 ```yaml
 - name: '@deepseek-ai/dsh-max-tokens-recovery'
   config:
-    maxRecoveries: 1   # recovery prompts per run of consecutive ceiling hits
+    maxRecoveries: 1           # recovery prompts per run of consecutive ceiling hits
+    coverSubagentSessions: false   # also recover delegated child sessions
 ```
 
 | Field | Default | Meaning |
 |---|---|---|
 | `maxRecoveries` | `1` | Recovery prompts allowed per run of consecutive ceiling hits; `0` disables the guard |
+| `coverSubagentSessions` | `false` | Also recover sessions whose header names a parent session (delegated children) |
 
 A run ends as soon as a step commits visible text or requests a tool call, so an agent that does recover becomes eligible again the next time it burns its ceiling. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-max-tokens-recovery) documents every accepted value.
+
+### Covering delegated child sessions
+
+A delegated child's budget belongs to the parent that started it: a one-shot child owes its caller one result, and a continuable one reports through its settlement notice, so by default the guard leaves the child's ceiling alone. That default is wrong when a worker burns its ceiling unattended and the parent is waiting on a result that will never arrive. Setting `coverSubagentSessions: true` recovers the child too, once per run, bounded by the same `maxRecoveries`; the child's prompt asks for the smallest concrete result instead of the smallest next change, because the caller needs an answer rather than further work.
 
 ### What you get
 
@@ -75,7 +81,7 @@ Because the counter resets on any step that committed work, the budget is per ru
 
 The recovery is an ordinary `user/message` with source `{kind: 'max-tokens-recovery'}`, queued through `Agent.followup`, so it opens its own turn: a ceiling step closes the turn it ended, and extending that turn is not an option. The listener defers the queue with `queueMicrotask`, because `session/event` is delivered inside the append that publishes it and an append rejects any reentrant append — the one a queue mutation would perform.
 
-A delegated child's ceiling is its parent's concern, so the guard ignores every session whose header names a parent session. A one-shot child owes its caller a single result, and a continuable one reports through its settlement notice; recovering inside the child would answer for a caller that never asked and would overwrite the stop reason that caller needs.
+A delegated child's ceiling is its parent's concern by default, so the guard ignores every session whose header names a parent session. A one-shot child owes its caller a single result, and a continuable one reports through its settlement notice; recovering inside the child would answer for a caller that never asked and would overwrite the stop reason that caller needs. `coverSubagentSessions` opts into covering those sessions anyway, and the listener then selects the child prompt below.
 
 ### Source map
 
@@ -105,12 +111,18 @@ A delegated child's ceiling is its parent's concern, so the guard ignores every 
 
 #### What the model sees
 
-One user-role turn, queued after a turn that streamed only reasoning and stopped at the ceiling. Nothing is appended to a step, and no tool schema changes.
+One user-role turn, queued after a turn that streamed only reasoning and stopped at the ceiling. A covered delegated child receives the same turn with the deliverable named as a result instead of a next change. Nothing is appended to a step, and no tool schema changes.
 
 ##### The recovery prompt
 
 ```markdown
 Your previous turn hit the output token ceiling before emitting any visible text or tool call, so it produced nothing. Do not restate the plan or re-derive the design: make the single smallest concrete change or tool call that moves the work forward, and keep the explanation to one short sentence.
+```
+
+##### The delegated child prompt
+
+```markdown
+Your previous turn hit the output token ceiling before emitting any visible text or tool call, so it produced nothing. Do not restate the plan or re-derive the design: deliver the smallest concrete result or tool call that moves the work forward, and keep the explanation to one short sentence.
 ```
 
 #### Token effect
@@ -133,6 +145,7 @@ These limits define when the guard is a poor fit. They are current package const
 - **A recovered agent can still fail** — the prompt improves the odds of a concrete next action and does not guarantee one.
 - **The counter is process-local** — a session resumed from persistence starts a fresh run, so a burn spanning a resume gets a second recovery.
 - **Text-only evidence of progress** — a step that streamed only a tool call counts as work irrespective of whether that call succeeded.
+- **Child coverage is opt-in and unproven against live subagents** — `coverSubagentSessions` is exercised against a child session built by the agent registry, not through a real delegation; a covered child's caller may still need its original stop reason.
 
 <a id="dev-note"></a>
 ### Dev Note
