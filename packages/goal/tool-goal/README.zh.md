@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-tool-goal` 让模型读取持久 goal，并根据人类直接请求推断和创建长期 goal。创建、编辑、暂停或恢复要求该直接请求出现在顶层 agent（智能体）轮次中；完成或阻塞也可以在自主 Goal Round 中执行。更新必须使用先前读取到的精确 goal id 和 revision。`resume` 会重新启用 active-but-disarmed 或 blocked 的 goal，而持久的 paused goal 由用户通过 Web 或 `/goal resume` 恢复。自主阻塞要求同一条件持续达到可配置阈值，默认是连续三个 Round。
+`dsh-tool-goal` 让模型读取持久 goal，并根据人类直接请求推断和创建长期 goal。创建、编辑、暂停或恢复要求该直接请求出现在顶层 agent（智能体）轮次中；完成或阻塞也可以在自主 Goal Round 中执行；完成还可以在由委派子代理汇报开启的根 agent 轮次中执行。更新必须使用先前读取到的精确 goal id 和 revision。`resume` 会重新启用 active-but-disarmed 或 blocked 的 goal，而持久的 paused goal 由用户通过 Web 或 `/goal resume` 恢复。自主阻塞要求同一条件持续达到可配置阈值，默认是连续三个 Round。
 
 ## 目录
 
@@ -52,7 +52,7 @@ kind: "package-reference"
 
 ### 权限规则
 
-工具只为活跃驱动器内、处于开放轮次中的精确活跃调用 agent 执行。`create`、`edit`、`pause` 和 `resume` 还要求运行时根 agent 的当前轮次中存在人类直接消息——subagent 或非人类生产方不能创建或编辑 goal。`resume` 会在 goal 服务执行前拒绝持久的 paused goal；该状态只属于面向用户的恢复路径。`complete` 和 `blocked` 还接受完全一致的当前 Goal Round：来源为 goal 的 Round 可以立即完成 goal，但 `blocked` 调用在达到配置的连续 Round 数量之前会被机械拒绝——模型判断同一条件是否确实持续，并必须在 `blocked_reason` 中说明。人类直接请求可以立即停止 goal。
+工具只为活跃驱动器内、处于开放轮次中的精确活跃调用 agent 执行。`create`、`edit`、`pause` 和 `resume` 还要求运行时根 agent 的当前轮次中存在人类直接消息——subagent 或非人类生产方不能创建或编辑 goal。`resume` 会在 goal 服务执行前拒绝持久的 paused goal；该状态只属于面向用户的恢复路径。`complete` 和 `blocked` 还接受完全一致的当前 Goal Round：来源为 goal 的 Round 可以立即完成 goal，但 `blocked` 调用在达到配置的连续 Round 数量之前会被机械拒绝——模型判断同一条件是否确实持续，并必须在 `blocked_reason` 中说明。人类直接请求可以立即停止 goal。委派汇报轮次只携带完成权威：其中的 blocked 调用会被拒绝，因为宣告持续受阻是人类自己的判断。
 
 成功报告 `complete` 或 `blocked` 的自主 Round 还会在该步骤后结束物理轮次，模型会收到一条结束指令，要求向用户写出最终消息。人类直接变更绝不会触发这种停止：assistant 可以确认变更，循环仍可接收并发的人类 steering（中途引导）。
 
