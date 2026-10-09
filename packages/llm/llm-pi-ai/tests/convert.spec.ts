@@ -956,6 +956,15 @@ describe('mapStopReason / mapUsage', () => {
       .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
   })
 
+  it('classifies gateway queue congestion wording as RATE_LIMIT', () => {
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'solo error code=3004 msg=upstream queued with no output for 120s (queue position 145): Too many current requests. Your queue position is 145. Please wait for a while.',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'Too many current requests' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
+  })
+
   it('uses pi-ai provider-specific overflow classification without losing rate-limit exclusions', () => {
     expect(mapStopReason(assistant({
       stopReason: 'error',
