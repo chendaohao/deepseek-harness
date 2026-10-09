@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-goal-round-driver` automatically continues an active goal in the same session while the agent is idle, continuation is armed, and the configured round allowance remains. Each round gives the model another turn toward the objective; only goal rounds that reach model history consume the allowance, and exhaustion records a blocker. The goal defines the round limit, `dsh-tool-goal` defines when repeated blocking stops continuation, and `roundIntervalMs` paces the unattended rounds. Mount it with `dsh-goal` and `dsh-tool-goal` for unattended multi-round progress; omit it when each step requires human steering.
+`dsh-goal-round-driver` automatically continues an active goal in the same session while the agent is idle, continuation is armed, and the configured round allowance remains. Each round gives the model another turn toward the objective; only goal rounds that reach model history consume the allowance, and exhaustion records a blocker. The goal defines the round limit, `dsh-tool-goal` defines when repeated blocking stops continuation, and `roundIntervalMs` paces the unattended rounds. A round that would only wait on live subagents backs off exponentially instead of spending a request per idle point. Mount it with `dsh-goal` and `dsh-tool-goal` for unattended multi-round progress.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Mount `dsh-goal-round-driver` when an active goal should keep making progress wi
 
 ### Compose it
 
-Mount the driver beside the goal service and the goal tools. `roundIntervalMs` is its only setting, in milliseconds.
+Mount the driver beside the goal service and the goal tools. `roundIntervalMs` paces the rounds; the `roundBackoff*` fields tune how a round that would only wait on live subagents backs off.
 
 ```yaml
 - id: goal
@@ -42,7 +42,19 @@ Mount the driver beside the goal service and the goal tools. `roundIntervalMs` i
   name: '@deepseek-ai/dsh-goal-round-driver'
   config:
     roundIntervalMs: 1_800_000
+    roundBackoffEnabled: true
+    roundBackoffInitialMs: 1_800_000
+    roundBackoffFactor: 2
+    roundBackoffMaxMs: 7_200_000
 ```
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `roundIntervalMs` | number ≥ 0 | `1800000` | Minimum interval between two automatic rounds. `0` reserves a round at every idle point. |
+| `roundBackoffEnabled` | boolean | `true` | Whether a round backs off while the session waits on live subagents. |
+| `roundBackoffInitialMs` | number ≥ 1 | `1800000` | Interval before the first backed-off wake-up. |
+| `roundBackoffFactor` | number ≥ 1 | `2` | Growth factor per consecutive skipped round. |
+| `roundBackoffMaxMs` | number ≥ 1 | `7200000` | Ceiling for the backed-off interval. |
 
 `maxGoalRounds` belongs to the goal definition, while the model-facing blocked threshold belongs to `dsh-tool-goal`; duplicating either value in the driver could produce divergent policy.
 
@@ -51,6 +63,8 @@ Mount the driver beside the goal service and the goal tools. `roundIntervalMs` i
 With an exact live agent idle, an active armed goal, and remaining capacity, the driver queues one goal-round prompt. It names the JSON-quoted objective, round number, and cap, and tells the model to use current workspace, tool results, and durable state as authority. An accepted round starts a distinct request series, so Chat renders its self-contained request header before the goal message. The round enters history as a goal-sourced user message; only an entered goal message consumes the cap, while human messages and stale reservations do not. Goal lifecycle mutations still require the independent authority checks in `dsh-tool-goal`.
 
 The interval paces the unattended rounds: the driver reserves one only after `roundIntervalMs` has elapsed since the previous reservation, and otherwise wakes the lifecycle when the remainder expires. A goal's first round is never paced, and an explicit create, edit, or resume re-authorizes an immediate one, so a goal that waits on background work costs one model request per interval instead of one per idle point.
+
+A wait on live subagents is not progress, so it backs off instead of spending that request every interval. When the interval elapses and all three of these hold — a live subagent of this session is still unsettled, the inbox is empty, and the previous admitted round appended no `tool/call` — the driver skips the round, records an informational notice naming the skip and the armed interval, and re-arms at `roundBackoffInitialMs` multiplied by `roundBackoffFactor` per consecutive skip, capped by `roundBackoffMaxMs`. Any input, tool activity, explicit goal mutation, or settled child returns the wait to `roundIntervalMs` and clears the skip count. Setting `roundBackoffEnabled: false` restores the fixed-interval behavior.
 
 ### When continuation stops
 
@@ -74,6 +88,7 @@ This section explains how the driver schedules rounds without races; the observa
 
 - **Reservation, then admission.** At idle the driver reserves `roundsStarted + 1` for the current `{ goalId, revision }`, queues one `<goal_round>` prompt with a goal message source, and only an entered `user/message` increments `roundsStarted`. A reservation rejected as stale does not consume the round number.
 - **Interval pacing in the reservation.** The interval gate sits in the operation that reserves, so no trigger path can bypass it: an idle point inside the interval arms one timer for the remainder, and teardown cancels it.
+- **Subagent-wait backoff.** Once that interval elapses, the same operation checks the three skip conditions (live unsettled subagent, empty inbox, previous admitted round appended no `tool/call`) and either skips with a recorded notice or reserves. `backoffSkips` is process-local per Agent lifecycle and resets at every session-start edge and on any input, activity, or settled child.
 - **Race fences.** The `agent/pre-step` listener verifies the complete claimed record against the current goal both before and after downstream listeners, so a stale, cancelled, or competing prompt is rejected before its step enters. Human work that arrives before a reservation makes automatic work yield until the agent is idle again.
 - **Durability checkpoint.** `goal/changed` creates a durability obligation: before queuing work the driver awaits `ctx.sessions.flush()` and rechecks the goal revision and competing input after the await. A flush failure arriving through `agent/error` disarms continuation before another round can start.
 - **Fail-closed teardown.** Teardown closes admission, disarms every live goal, cancels active work with the `parent` cause, and awaits the driver plus agent quiescence while its event fence remains installed.
@@ -133,6 +148,7 @@ These limits define when the driver is a poor fit or needs special care. They ar
 - **Accepted-queue unload race** — Cordis plugin unload is asynchronous. A goal prompt already accepted by the agent inbox can begin and consume its round before unload starts; teardown then cancels the request, disarms the goal, and awaits quiescence. No later round starts.
 - **Round cap, not resource budget** — token, currency, time, and provider quota policies remain independent. Their session events are not attributed to the goal message or mapped into goal blocker codes.
 - **No abnormal auto-retry** — transient provider and persistence failures require a later human-authorized resume rather than an implicit retry policy.
+- **Backoff waits on direct live children only** — the skip condition reads live Agents whose session names this session as parent, so a descendant settled behind an intermediate child, or a child that never resumes, keeps the wait passive until the ceiling. The notice is a process log line, not a durable session event, so it is not replayable from the log.
 
 <a id="dev-note"></a>
 ### Dev Note
