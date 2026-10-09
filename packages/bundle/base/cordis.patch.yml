@@ -465,6 +465,18 @@
       config:
         maxRecoveries: 1
 
+    # Serializes compile-class commands (install/build/typecheck/coverage) so
+    # concurrent workers in one checkout cannot overwrite each other's
+    # node_modules, lib/, dist/, and .tsbuildinfo output. Off by default: the
+    # guard DENIES the later command, which is the right trade only where
+    # several agents share one working tree. An overlay row enables it for a
+    # base-backed profile (`$DSH_HOME/cordis.patch.yml`, or a `--patch <file>`):
+    #   - id: compile-serialization
+    #     disabled: false
+    - id: compile-serialization
+      name: '@deepseek-ai/dsh-compile-serialization'
+      disabled: true
+
     # The shared base enables the stable model-facing web_search and web_fetch
     # tools. The Web app disables this host row and composes both tools per agent
     # preset; products with a stricter network policy override tool-web. DeepSeek

@@ -796,6 +796,53 @@ export interface ToolResultPruneConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-pruner -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-compile-serialization -->
+<a id="deepseek-aidsh-compile-serialization"></a>
+
+## `@deepseek-ai/dsh-compile-serialization`
+
+- `inject`: `tools`
+- `source`: [`packages/guard/compile-serialization/src/index.ts:31`](../packages/guard/compile-serialization/src/index.ts)
+
+```ts config-catalog
+/**
+ * Plugin configuration. Every field is deployment-varying and validated at
+ * load: an uncompilable pattern, an empty pattern or tool list, or a
+ * non-positive cap throws instead of degrading to an unguarded deployment.
+ */
+export interface Config {
+  /**
+   * Regular-expression sources matched against a command's text. A command that
+   * matches any entry is compile-class and participates in serialization. The
+   * defaults cover package-manager installs, `build`/`typecheck`/coverage
+   * scripts, a `tsc --build` project build, a coverage run under vitest or jest,
+   * and the common bundlers — every one of them writes shared build output.
+   */
+  commandPatterns?: string[]
+  /**
+   * Tool names whose `command` argument is inspected. Commands arrive as parsed
+   * JSON, so a tool with no string `command` argument is never compile-class.
+   */
+  toolNames?: string[]
+  /**
+   * Maximum characters of the in-flight command quoted in the denial (default
+   * 120). Bounds only the model-visible message; matching always reads the
+   * complete command text.
+   */
+  commandPreviewChars?: number
+  /**
+   * Age in milliseconds after which a still-registered command counts as leaked
+   * and the next compile-class call may take the slot (default 3600000, one
+   * hour). This is a leak valve for a registration whose execution never
+   * reported its outcome, not a work limit: a build that legitimately runs
+   * longer than this would be preempted, so raise it when a single command can.
+   * A registration whose caller signal aborts is reclaimable immediately.
+   */
+  leaseTimeoutMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-compile-serialization -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-cordis-host-runner -->
 <a id="deepseek-aidsh-cordis-host-runner"></a>
 
@@ -2827,7 +2874,7 @@ export interface Config {
 
 - `inject`: `sessions`
 - `refs`: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
-- `source`: [`packages/session-query/session-query-sqlite/src/index.ts:93`](../packages/session-query/session-query-sqlite/src/index.ts)
+- `source`: [`packages/session-query/session-query-sqlite/src/index.ts:92`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ```ts config-catalog
 /** Combined session-query configuration backed by SQLite full-text search. */
