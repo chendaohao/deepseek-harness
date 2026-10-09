@@ -43,6 +43,11 @@ function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
+  // Local OpenAI-compatible gateways report queue overflow as prose instead of
+  // an HTTP status (e.g. cc-switch 2api: "solo error code=3004 msg=upstream
+  // queued with no output for 120s (queue position N): Too many current
+  // requests"). Backing off and resending is the intended response, as for 429.
+  if (/too many (?:current )?requests|queue position|queued with no output/i.test(message)) return 'RATE_LIMIT'
   // A rejected request body (gateway or provider size cap): resending the
   // same request cannot succeed, so it is invalid, not transient.
   if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return 'INVALID_REQUEST'
