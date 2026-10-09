@@ -1343,7 +1343,7 @@ Update the current goal.
     },
     "action": {
       "type": "string",
-      "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count.",
+      "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; complete is additionally allowed in a turn opened by a delegated subagent reporting back. blocked is rejected before the configured minimum round count.",
       "enum": [
         "edit",
         "pause",

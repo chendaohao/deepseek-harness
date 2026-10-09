@@ -428,7 +428,7 @@ class UpdateGoalArgs(TypedDict):
     goal_id: str
     # Exact positive revision returned by get_goal.
     revision: float
-    # edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count.
+    # edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; complete is additionally allowed in a turn opened by a delegated subagent reporting back. blocked is rejected before the configured minimum round count.
     action: Literal["edit", "pause", "resume", "complete", "blocked"]
     # Replacement objective; valid only with action edit.
     objective: NotRequired[str]

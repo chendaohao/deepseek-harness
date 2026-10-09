@@ -242,7 +242,8 @@ export function apply(ctx: Context, config: Config): void {
         required: true,
         enum: UPDATE_ACTIONS,
         description: 'edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed '
-          + 'during an automatic continuation of this goal; blocked is rejected before the configured minimum round count.',
+          + 'during an automatic continuation of this goal; complete is additionally allowed in a turn opened by a '
+          + 'delegated subagent reporting back. blocked is rejected before the configured minimum round count.',
       },
       objective: { type: 'string', description: 'Replacement objective; valid only with action edit.' },
       max_goal_rounds: { type: 'number', description: 'Replacement cap; valid only with action edit.' },
@@ -289,6 +290,12 @@ export function apply(ctx: Context, config: Config): void {
         return Promise.resolve(goalValue(goal))
       }
       const authority = completionAuthority(ctx, execution)
+      if (args.action === 'blocked' && authority.kind === 'delegation-settled') {
+        throw new HarnessError(
+          'blocked requires a direct human turn or a goal round; a delegation report may only complete',
+          'GOAL_TOOL_AUTHORITY_REQUIRED',
+        )
+      }
       if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds)) {
         throw new HarnessError(
           'objective and max_goal_rounds are valid only with action edit',

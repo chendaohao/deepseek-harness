@@ -19,6 +19,7 @@ export interface GoalToolExecution {
 export type GoalToolAuthority =
   | { readonly kind: 'direct-human' }
   | { readonly kind: 'goal-round'; readonly goal: GoalView }
+  | { readonly kind: 'delegation-settled' }
 
 /** Throw one structured tool-policy failure. */
 function reject(message: string, code = 'GOAL_TOOL_AUTHORITY_REQUIRED'): never {
@@ -83,6 +84,26 @@ function hasDirectHumanInput(ctx: Context, execution: GoalToolExecution): boolea
     event.type === 'user/message' && event.data.source.kind === 'user')
 }
 
+/**
+ * Whether the current root-agent turn was opened by delegated work reporting
+ * back — a settlement notice or a direct child message. That turn is where a
+ * delegating agent evaluates results, so it carries completion authority: a
+ * lead whose workers have all reported must be able to close the goal without
+ * waiting for a human or the next scheduled round. It never carries blockage
+ * authority: declaring a persistent blockage is a judgment the human owns.
+ */
+function hasDelegationReport(ctx: Context, execution: GoalToolExecution): boolean {
+  if (!ctx.agents.roots().includes(execution.agent)) return false
+  return someOpenTurnEvent(execution, (event) => {
+    if (event.type !== 'user/message') return false
+    // The subagent seam declares both kinds through MessageSourceMap merging;
+    // comparing the kind as a string keeps this consumer compiling in builds
+    // where the seam's augmentation is absent.
+    const kind: string = event.data.source.kind
+    return kind === 'subagent-settled' || kind === 'agent-message'
+  })
+}
+
 /** Whether this turn is the current goal's exact admitted round. */
 function isMatchingGoalRound(execution: GoalToolExecution, goal: GoalView): boolean {
   return someOpenTurnEvent(execution, event => event.type === 'user/message'
@@ -103,10 +124,11 @@ export function requireDirectHuman(ctx: Context, execution: GoalToolExecution): 
 }
 
 /**
- * Resolve completion authority from either direct human input or the exact goal round.
+ * Resolve completion authority from direct human input, the exact goal round,
+ * or a delegation report settling into a root agent.
  * @param ctx - Context carrying live agents and goal state.
  * @param execution - Authenticated current tool execution.
- * @returns The direct-human or exact-goal-round authority grant.
+ * @returns The direct-human, exact-goal-round, or delegation-settled authority grant.
  */
 export function completionAuthority(ctx: Context, execution: GoalToolExecution): GoalToolAuthority {
   if (hasDirectHumanInput(ctx, execution)) return { kind: 'direct-human' }
@@ -114,5 +136,6 @@ export function completionAuthority(ctx: Context, execution: GoalToolExecution):
   if (goal !== undefined && isMatchingGoalRound(execution, goal)) {
     return { kind: 'goal-round', goal }
   }
+  if (hasDelegationReport(ctx, execution)) return { kind: 'delegation-settled' }
   return reject('complete and blocked require a direct human turn or the current goal round')
 }
