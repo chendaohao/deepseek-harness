@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { JobsSnapshot, JobView, ObservedJob } from '@deepseek-ai/dsh-api-job-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
-  IconChevronDownOutlineRegular, IconStopFillRegular, StateDot, TerminalBlock, useDismissOnOutsidePointer,
+  IconChevronDownOutlineRegular, IconStopFillRegular, StateDot, TerminalBlock, useAnchoredPosition, useDismissOnOutsidePointer,
   type StateDotState, type TerminalBlockLabels,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -49,8 +50,40 @@ const NO_JOBS: readonly JobView[] = []
 /** Minimum gap kept between the popover and the viewport edges (the Menu primitive's portal margin). */
 const VIEWPORT_MARGIN = 12
 
-/** Matches the stylesheet breakpoint where the popover centers as fixed; keep in sync with the module CSS. */
+/** Distance between the trigger's bottom edge and the popover. */
+const MENU_GAP = 5
+
+/**
+ * Breakpoint where the stylesheet owns the popover's placement and pins it to
+ * the viewport center; keep in sync with the module CSS.
+ */
 const NARROW_VIEWPORT_QUERY = '(max-width: 640px)'
+
+/** Unplaced list: hidden but laid out so the first placement measures real dimensions. */
+const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
+
+/** Keyboard-reachable controls inside the list, in document order. */
+const FOCUSABLE = 'button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Whether the viewport is at or below {@link NARROW_VIEWPORT_QUERY}, tracking a
+ * crossing resize so the two placement postures swap live.
+ * @returns true while the stylesheet owns the popover's placement.
+ */
+function useNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(() => typeof window.matchMedia === 'function'
+    && window.matchMedia(NARROW_VIEWPORT_QUERY).matches)
+  useEffect(() => {
+    // jsdom (the unit lane) implements no matchMedia; the wide posture stands.
+    if (typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(NARROW_VIEWPORT_QUERY)
+    const update = (): void => { setNarrow(query.matches) }
+    update()
+    query.addEventListener('change', update)
+    return () => { query.removeEventListener('change', update) }
+  }, [])
+  return narrow
+}
 
 /** How long an armed kill waits for its confirming press before disarming. */
 const KILL_ARM_MS = 3_000
@@ -129,6 +162,7 @@ function formatDuration(elapsedMs: number, t: TranslateNS<typeof NS>): string {
 /** Localized display copy for the embedded terminal panel. */
 function terminalLabels(t: TranslateNS<typeof NS>): TerminalBlockLabels {
   return {
+    commandLine: line => t('terminal.commandLine', { n: line }),
     // The labels contract requires exit-fact formatters, but this panel never
     // passes exit facts, so TerminalBlock never invokes them.
     /* v8 ignore next */
@@ -342,9 +376,6 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLUListElement>(null)
-  // Horizontal shift applied to the trigger-anchored popover so it stays
-  // inside the viewport (the stylesheet alone cannot see the anchor offset).
-  const [menuShift, setMenuShift] = useState(0)
 
   const rows = useMemo(() => ordered(jobs), [jobs])
   const liveRows = useMemo(() => rows.filter(isLive), [rows])
@@ -355,7 +386,23 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
   const settledExpanded = settledOpen ?? liveRows.length === 0
   const visibleCount = liveRows.length + settledRows.length
 
-  useDismissOnOutsidePointer(rootRef, open, setOpen)
+  // The popover portals to the document body: the session header sits in a
+  // clipping column that the right sidebar borders or overlaps, so an in-place
+  // popover is cut off or covered there.
+  // Below the narrow breakpoint the stylesheet owns placement, pinning the
+  // popover to the viewport center; an inline offset would outrank that
+  // `left: 50%` and push it off-center, so the hook is fed the closed state
+  // there and the list renders with no inline coordinates at all.
+  const narrow = useNarrowViewport()
+  const anchorPlacement = useAnchoredPosition({
+    open: open && !narrow,
+    anchorRef: rootRef,
+    panelRef: menuRef,
+    gap: MENU_GAP,
+    margin: VIEWPORT_MARGIN,
+  })
+  const menuStyle = narrow ? undefined : anchorPlacement ?? MEASURE_STYLE
+  useDismissOnOutsidePointer(rootRef, open, setOpen, menuRef)
 
   // The roster follows the mounted session: one stream while this control
   // lives, released with it.
@@ -368,40 +415,6 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
     const timer = setInterval(() => { setNow(Date.now()) }, 1_000)
     return () => { clearInterval(timer) }
   }, [open, liveRows.length])
-
-  // Fit the open popover to the viewport: shift left when the anchored width
-  // would cross the right edge, never past the left margin. The narrow
-  // breakpoint hands placement to the stylesheet's fixed centered posture,
-  // whose left: 50% an inline shift would override, so a crossing resize
-  // drops the inline offset rather than leaving a stale anchored one.
-  useLayoutEffect(() => {
-    if (!open) {
-      setMenuShift(0)
-      return
-    }
-    const fit = (): void => {
-      const narrow = typeof matchMedia === 'function' && matchMedia(NARROW_VIEWPORT_QUERY).matches
-      if (narrow) {
-        setMenuShift(0)
-        return
-      }
-      const root = rootRef.current
-      const menu = menuRef.current
-      /* v8 ignore next -- both refs are attached while the open popover renders. */
-      if (root === null || menu === null) return
-      const width = menu.offsetWidth
-      // Unlaid-out nodes (and jsdom) measure 0: keep the pure CSS anchor.
-      if (width === 0) return
-      const anchorLeft = root.getBoundingClientRect().left
-      setMenuShift(Math.max(
-        VIEWPORT_MARGIN - anchorLeft,
-        Math.min(0, window.innerWidth - VIEWPORT_MARGIN - width - anchorLeft),
-      ))
-    }
-    fit()
-    window.addEventListener('resize', fit)
-    return () => { window.removeEventListener('resize', fit) }
-  }, [open])
 
   // Observation follows visibility: the stream opens when an observable panel
   // expands and closes when it collapses, unmounts, or the popover closes.
@@ -486,11 +499,33 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
     }
   }
 
+  // The portaled list sits at the end of the document, so Tab is bridged to
+  // keep the in-place order: the trigger leads into the list, and leaving
+  // either end of the list returns to the trigger's position in the page.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key !== 'Escape' || !open) return
-    event.preventDefault()
-    setOpen(false)
-    triggerRef.current?.focus()
+    if (!open) return
+    const trigger = triggerRef.current
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+      trigger?.focus()
+      return
+    }
+    const menu = menuRef.current
+    /* v8 ignore next -- both refs are attached while the open list renders. */
+    if (event.key !== 'Tab' || trigger === null || menu === null) return
+    const focusable = [...menu.querySelectorAll<HTMLElement>(FOCUSABLE)]
+    if (event.target === trigger) {
+      // Every list carries a control: a live row's toggle or the settled section's buttons.
+      if (event.shiftKey) return
+      event.preventDefault()
+      focusable[0]?.focus()
+    } else if (event.shiftKey ? event.target === focusable[0] : event.target === focusable.at(-1)) {
+      // Shift+Tab lands on the trigger itself; Tab continues from it to the
+      // control that follows the trigger.
+      if (event.shiftKey) event.preventDefault()
+      trigger.focus()
+    }
   }
 
   const item = (job: JobView) => (
@@ -537,8 +572,13 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
         <IconChevronDownOutlineRegular size={12} className={open ? css.triggerOpen : undefined} />
       </button>
       {open
-        ? (
-          <ul ref={menuRef} className={css.menu} style={menuShift === 0 ? undefined : { left: menuShift }} aria-label={t('list.aria')}>
+        ? createPortal(
+          <ul
+            ref={menuRef}
+            className={css.menu}
+            style={menuStyle}
+            aria-label={t('list.aria')}
+          >
             {liveRows.length > 0
               ? <li className={css.sectionHeader} aria-hidden="true">{t('section.live')}</li>
               : null}
@@ -562,7 +602,8 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
               )
               : null}
             {settledExpanded ? settledRows.map(item) : null}
-          </ul>
+          </ul>,
+          document.body,
         )
         : null}
     </div>

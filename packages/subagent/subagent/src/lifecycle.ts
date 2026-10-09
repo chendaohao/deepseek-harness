@@ -1,15 +1,8 @@
 /**
- * Lifecycle-edge publication for both subagent shapes: the contained emitter,
- * the one-shot run observer, and the continuable Activation observer.
+ * Lifecycle-edge publication for managed subagent activations.
  *
- * The public payload contracts ({@link SubagentRunInfo},
- * {@link SubagentRunEndInfo}) live in `./types.ts` with the rest of the seam's
- * consumer-facing types; this module owns only the implementation and the
- * package-private {@link ActivationObserver} the continuation manager consumes.
- * Keeping the internal control interface out of the published surface is
- * deliberate: the observer's `start`/`capture`/`settle` ordering is a contract
- * between this module and one in-package caller, not something a plugin may
- * depend on.
+ * Public event payloads live in `./types.ts`; the package-private observer
+ * retains only the identity shared by each start/end pair.
  *
  * @module @deepseek-ai/dsh-subagent/lifecycle
  */
@@ -19,12 +12,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
-import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { renderThrown } from '@deepseek-ai/dsh-util-values'
-import type { SessionEvent, SessionId, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
-import { finalAssistantOutput } from './assistant-output.ts'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SubagentRunId } from './types.ts'
-import type { SubagentResult, SubagentRun, SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
+import type { SubagentResult, SubagentRunEndInfo, SubagentRunInfo, TurnBudgetReport } from './types.ts'
 
 /**
  * How one Activation's residency epoch ended, as both the terminal lifecycle
@@ -51,58 +42,27 @@ export interface ActivationTerminal {
   readonly budget?: TurnBudgetReport
 }
 
-/**
- * One turn's last step, as the parent needs it to tell spent output budget
- * from missing context: the terminal reason, the visible text that step
- * committed, and the size of its largest single reasoning block.
- */
-export interface TurnBudgetReport {
-  /** Terminal reason of the epoch's last consumed turn. */
-  readonly turnEnd: string
-  /** Tool calls the last step requested. */
-  readonly toolCalls: number
-  /** Visible text characters the last step committed. */
-  readonly textChars: number
-  /** Characters in the last step's largest single reasoning block. */
-  readonly largestReasoningChars: number
-}
 
 /**
  * Lifecycle observer for one Activation's residency epoch, so continuable
- * children emit the same start/end pair as one-shot runs. Package-private: the
+ * children emit the same start/end pair as the managed execution. Package-private: the
  * continuation manager is the only consumer, and its call ordering is an
  * in-package contract rather than a published extension point.
  */
 export interface ActivationObserver {
   /**
    * Publish the start edge once the epoch is resident.
-   * @param child - the resident child agent, whose log suffix bounds this epoch.
+   * @param child - the resident local Agent, or undefined for an external execution.
    */
-  start(child: Agent): void
-  /**
-   * Snapshot the child-dependent terminal facts while the child is still
-   * registered, because handle disposal unregisters it and consumers resolve it
-   * to read the child's own log and scope.
-   * @param child - the quiescent child agent about to be released.
-   */
-  capture(child: Agent): void
-  /**
-   * Resolve the terminal facts {@link settle} will publish, without publishing
-   * them. The manager's parent delivery must run before the ownership release
-   * that lets the parent settle, which is earlier than the terminal edge; both
-   * therefore read one computation instead of restating the failure rule.
-   * @param failure - the teardown or durability failure, or `undefined` on success.
-   * @returns this epoch's stop reason and final assistant content.
-   */
-  terminal(failure: unknown): ActivationTerminal
+  start(child?: Agent): void
   /**
    * Publish the terminal edge exactly once, pairing this epoch's {@link start},
    * after the disposal outcome is known. Called only for a resident epoch: a
    * failure before residency publishes no edge, because inventing one would
    * report a lifecycle the child never had.
-   * @param failure - the teardown or durability failure, or `undefined` on success.
+   * @param result - the captured result, with teardown failures applied.
    */
-  settle(failure: unknown): void
+  settle(result: SubagentResult): void
 }
 
 /**
@@ -155,49 +115,7 @@ export function createLifecycleEmitter(
 }
 
 /**
- * Emit the start/end lifecycle pair for one accepted one-shot run.
- * @param emit - the contained lifecycle emitter.
- * @param provider - the provider that established the run.
- * @param parent - the delegating parent keying scoped dispatch.
- * @param run - the published run whose settlement closes the pair.
- * @returns the same run, unchanged.
- */
-export function observeRun(
-  emit: LifecycleEmitter,
-  provider: string,
-  parent: Agent,
-  run: SubagentRun,
-): SubagentRun {
-  const identity = {
-    runId: SubagentRunId(randomUUID()),
-    provider,
-    id: run.id,
-    local: run.localAgent !== undefined,
-  }
-  // Attach the terminal observer before dispatching start. Promise reactions
-  // still run after this synchronous start emission, preserving start → end.
-  void run.result.then(
-    (result) => {
-      emit('subagent/end', {
-        ...identity,
-        stopReason: result.stopReason,
-        // Omit the field when no output exists, matching continuable epochs.
-        ...result.output.length === 0 ? {} : { lastAssistantMessage: result.output },
-      }, parent)
-    },
-    () => {
-      emit('subagent/end', { ...identity, stopReason: 'error' }, parent)
-    },
-  )
-  emit('subagent/start', identity, parent)
-  return run
-}
-
-/**
- * Build the observer for one continuable Activation's residency epoch. Observers
- * see the same vocabulary as a one-shot run, so a child's start and settlement
- * remain observable without exposing whether the manager materialized, woke, or
- * cold-resumed it. Creation failure before residency emits no lifecycle edge.
+ * Build the observer for one local or external activation's residency epoch. Creation failure before residency emits no lifecycle edge.
  * @param emit - the contained lifecycle emitter.
  * @param provider - the provider name recorded in the durable descriptor.
  * @param childId - the durable child session id.
@@ -210,42 +128,17 @@ export function createActivationObserver(
   childId: SessionId,
   parent: Agent,
 ): ActivationObserver {
-  const identity = { runId: SubagentRunId(randomUUID()), provider, id: childId, local: true }
-  // A cold resume replays earlier turns, so this epoch's telemetry must come
-  // from the suffix it actually produced — never the whole session, which
-  // would report a previous epoch's answer when this one opened no turn.
-  let boundary: SessionLogOffsetType = SessionLogOffset(0)
-  // Assigned by `capture()`, which the disposal path always runs before
-  // `settle()`; a resident epoch therefore always has its facts by then.
-  let captured: ActivationTerminal = { stopReason: 'completed' }
-  // Teardown failure overrides the epoch's own outcome and withholds its
-  // output: an answer this harness could not durably release is not a result.
-  const terminal = (failure: unknown): ActivationTerminal => failure === undefined
-    ? captured
-    : { stopReason: 'error' }
+  const identity = { runId: SubagentRunId(randomUUID()), provider, id: childId, local: false }
   return {
-    start: (child: Agent): void => {
-      boundary = child.session.seq
+    start: (child?: Agent): void => {
+      identity.local = child !== undefined
       emit('subagent/start', identity, parent)
     },
-    capture: (child: Agent): void => {
-      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-      const own = child.session.snapshotEvents(boundary)
-      const output = finalAssistantOutput(own)
-      const budget = lastTurnBudget(own)
-      captured = {
-        stopReason: epochStopReason(own),
-        ...output === undefined ? {} : { output },
-        ...budget === undefined ? {} : { budget },
-      }
-    },
-    terminal,
-    settle: (failure: unknown): void => {
-      const { stopReason, output } = terminal(failure)
+    settle: ({ stopReason, output }: SubagentResult): void => {
       emit('subagent/end', {
         ...identity,
         stopReason,
-        ...output === undefined ? {} : { lastAssistantMessage: output },
+        ...output.length === 0 ? {} : { lastAssistantMessage: output },
       }, parent)
     },
   }
@@ -267,7 +160,7 @@ export function createActivationObserver(
  * @returns its terminal stop reason; `completed` only for an epoch that both
  *   closed cleanly and had nothing left to run.
  */
-function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopReason'] {
+export function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopReason'] {
   const { end, droppedUnrun } = foldConsumedWork(events)
   switch (end?.data.reason.kind) {
     case 'max-tokens':
@@ -309,7 +202,7 @@ function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopR
  * @param events - this epoch's own event suffix.
  * @returns the report, or `undefined` when the epoch ran no turn.
  */
-function lastTurnBudget(events: readonly SessionEvent[]): TurnBudgetReport | undefined {
+export function lastTurnBudget(events: readonly SessionEvent[]): TurnBudgetReport | undefined {
   const { end } = foldConsumedWork(events)
   if (end === undefined) return undefined
   let last: Extract<SessionEvent, { type: 'assistant/message' | 'assistant/attempt' }> | undefined

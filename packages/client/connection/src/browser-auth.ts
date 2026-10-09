@@ -72,12 +72,13 @@ function header(
   return typeof value === 'string' ? value : undefined
 }
 
-/** Canonical request authority used as the cookie name and signed audience. */
-function requestAuthority(headers: ConnectionTrustRequest['headers']): string | undefined {
+/** Protocol-scoped cookie audience; HTTP retains its existing authority-only spelling. */
+function requestAudience(headers: ConnectionTrustRequest['headers'], secure: boolean): string | undefined {
   const host = header(headers, 'host')
   if (host === undefined) return undefined
   try {
-    return new URL(`http://${host}`).host
+    const url = new URL(`${secure ? 'https:' : 'http:'}//${host}`)
+    return secure ? url.origin : url.host
   } catch {
     return undefined
   }
@@ -124,8 +125,15 @@ function cookieValue(headerValue: string, name: string): string | undefined {
 }
 
 /** Serialize the fixed browser-session attributes; generated names and values are cookie-safe base64url. */
-function sessionCookie(name: string, value: string, expiresAt: number, maxAgeSeconds: number): string {
-  return `${name}=${value}; Max-Age=${String(maxAgeSeconds)}; Path=/; Expires=${new Date(expiresAt).toUTCString()}; HttpOnly; SameSite=Strict`
+function sessionCookie(
+  name: string,
+  value: string,
+  expiresAt: number,
+  maxAgeSeconds: number,
+  secure: boolean,
+): string {
+  const attributes = `${name}=${value}; Max-Age=${String(maxAgeSeconds)}; Path=/; Expires=${new Date(expiresAt).toUTCString()}; HttpOnly; SameSite=Strict`
+  return secure ? `${attributes}; Secure` : attributes
 }
 
 function signature(secret: Buffer, body: string): Buffer {
@@ -239,14 +247,18 @@ export class BrowserAuth {
    * 401 response.
    * @param req - incoming root or configured-index request.
    * @param res - response owned when this method returns false.
+   * @param secure - whether the listener receiving this request serves TLS; the
+   * minted cookie carries `Secure` when it does. Only that listener's own
+   * protocol decides, never a `publicUrl` announcement or a forwarded header:
+   * those describe a hop this process does not terminate.
    * @returns true only when the caller may serve index.html.
    */
-  authorizeIndex(req: ConnectionIndexRequest, res: ConnectionIndexResponse): boolean {
+  authorizeIndex(req: ConnectionIndexRequest, res: ConnectionIndexResponse, secure = false): boolean {
     /* v8 ignore next -- node:http always supplies url on server requests. */
     const url = new URL(req.url ?? '/', 'http://dsh.invalid')
     const tokens = url.searchParams.getAll(TOKEN_QUERY)
     if (tokens.length > 0) {
-      const authority = requestAuthority(req.headers)
+      const authority = requestAudience(req.headers, secure)
       if (req.method === 'GET' && url.pathname === '/' && tokens.length === 1
         && authority !== undefined && tokenMatches(tokens.join(''), this.launchToken)) {
         const issuedAt = Date.now()
@@ -262,13 +274,13 @@ export class BrowserAuth {
           'location': './',
           'referrer-policy': 'no-referrer',
           'set-cookie': sessionCookie(
-            cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),
+            cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000), secure,
           ),
         })
         res.end()
         return false
       }
-      if (req.method === 'GET' && url.pathname === '/' && this.isAuthenticated(req)) {
+      if (req.method === 'GET' && url.pathname === '/' && this.isAuthenticated(req, secure)) {
         res.writeHead(303, {
           'cache-control': 'no-store',
           'location': './',
@@ -280,7 +292,7 @@ export class BrowserAuth {
       this.writeUnauthorized(req, res)
       return false
     }
-    if (this.isAuthenticated(req)) return true
+    if (this.isAuthenticated(req, secure)) return true
     this.writeUnauthorized(req, res)
     return false
   }
@@ -288,10 +300,11 @@ export class BrowserAuth {
   /**
    * Verify the authority-bound browser cookie on a Host request.
    * @param request - request headers carrying Host and Cookie.
+   * @param secure - whether the receiving listener uses TLS, including its default port.
    * @returns true only for an unexpired cookie signed by this activation's loaded secret.
    */
-  isAuthenticated(request: ConnectionTrustRequest): boolean {
-    return this.verify(request) !== undefined
+  isAuthenticated(request: ConnectionTrustRequest, secure = false): boolean {
+    return this.verify(request, secure) !== undefined
   }
 
   /**
@@ -300,10 +313,12 @@ export class BrowserAuth {
    * that own a response attach the header; the upgrade paths drop it
    * (documented semantics: the refresh rides the next plain request).
    * @param request - request headers carrying Host and Cookie.
+   * @param secure - whether the receiving listener serves TLS; the refreshed
+   *   cookie keeps the audience and `Secure` attribute of the original.
    * @returns the authentication verdict plus the refresh Set-Cookie when due.
    */
-  authenticate(request: ConnectionTrustRequest): ConnectionAuthenticationVerdict {
-    const payload = this.verify(request)
+  authenticate(request: ConnectionTrustRequest, secure = false): ConnectionAuthenticationVerdict {
+    const payload = this.verify(request, secure)
     if (payload === undefined) return { authenticated: false }
     if (dayIndex(Date.now()) <= dayIndex(payload.issuedAt)) return { authenticated: true }
     const issuedAt = Date.now()
@@ -317,14 +332,15 @@ export class BrowserAuth {
     return {
       authenticated: true,
       cookieRefresh: sessionCookie(
-        cookieName(payload.authority), fresh, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),
+        cookieName(payload.authority), fresh, expiresAt,
+        Math.floor(this.maxAgeMilliseconds / 1000), secure,
       ),
     }
   }
 
   /** Decode and validate the request's cookie; undefined when absent or unauthenticated. */
-  private verify(request: ConnectionTrustRequest): BrowserCookiePayload | undefined {
-    const authority = requestAuthority(request.headers)
+  private verify(request: ConnectionTrustRequest, secure: boolean): BrowserCookiePayload | undefined {
+    const authority = requestAudience(request.headers, secure)
     const rawCookie = header(request.headers, 'cookie')
     if (authority === undefined || rawCookie === undefined) return undefined
     const value = cookieValue(rawCookie, cookieName(authority))

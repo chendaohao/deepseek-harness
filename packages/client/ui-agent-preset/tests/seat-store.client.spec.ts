@@ -147,7 +147,10 @@ describe('the agent-preset seat apply machinery', () => {
     const gate = controller.pendingApply()
     rig.pending[0]!.resolve(err('session has already started'))
     await gate
-    expect(controller.store.getSnapshot().error).toBe('session has already started')
+    // The refusal carries the rejected preset so the chip's Toast can name it.
+    expect(controller.store.getSnapshot().error).toEqual({
+      preset: { id: 'minimal' }, reason: 'session has already started',
+    })
     expect(controller.store.getSnapshot().busy).toBe(false)
     await controller.pendingApply()
     expect(rig.pending).toHaveLength(1)
@@ -161,8 +164,9 @@ describe('the agent-preset seat apply machinery', () => {
     controller.stage('cordis')
     rig.pending[0]!.reject(new Error('net down'))
     await first
-    // The failed pick surfaced its message; the newer stage survived it.
-    expect(controller.store.getSnapshot().error).toBe('net down')
+    // The failed pick surfaced its message against the preset it named; the
+    // newer stage survived it.
+    expect(controller.store.getSnapshot().error).toEqual({ preset: { id: 'minimal' }, reason: 'net down' })
     expect(controller.store.getSnapshot().current).toBe('cordis')
     const second = controller.apply()
     expect(rig.pending).toHaveLength(2)

@@ -26,12 +26,11 @@ describe('continuable settlement content', () => {
   })
 
   it.each([
-    ['absent output', undefined],
     ['empty output', []],
     ['reasoning-only output', [reasoning]],
     ['empty text', [{ type: 'text', text: '' }]],
-  ] satisfies [string, ContentBlock[] | undefined][])('reports no closing message for %s', (_label, output) => {
-    const message = createSettlementMessage(childId, { stopReason: 'completed', ...output === undefined ? {} : { output } })
+  ] satisfies [string, ContentBlock[]][])('reports no closing message for %s', (_label, output) => {
+    const message = createSettlementMessage(childId, { stopReason: 'completed', output })
 
     expect(message.content).toEqual([
       summary,
@@ -42,6 +41,7 @@ describe('continuable settlement content', () => {
   it('names the spent output budget when the last turn committed nothing visible', () => {
     const message = createSettlementMessage(childId, {
       stopReason: 'max-tokens',
+      output: [],
       budget: { turnEnd: 'max-tokens', toolCalls: 0, textChars: 0, largestReasoningChars: 122_686 },
     })
 
@@ -60,7 +60,7 @@ describe('continuable settlement content', () => {
     ['visible text', { turnEnd: 'max-tokens', toolCalls: 0, textChars: 40, largestReasoningChars: 900 }],
     ['a tool call', { turnEnd: 'max-tokens', toolCalls: 1, textChars: 0, largestReasoningChars: 900 }],
   ])('omits the budget diagnosis when the last turn emitted %s', (_label, budget) => {
-    const message = createSettlementMessage(childId, { stopReason: 'max-tokens', budget })
+    const message = createSettlementMessage(childId, { stopReason: 'max-tokens', output: [], budget })
 
     expect(message.content).toEqual([
       { type: 'text', text: `Background subagent ${childId} hit its output token limit before it finished.` },
@@ -71,6 +71,7 @@ describe('continuable settlement content', () => {
   it('names the ceiling without a recorded reasoning block', () => {
     const message = createSettlementMessage(childId, {
       stopReason: 'max-tokens',
+      output: [],
       budget: { turnEnd: 'max-tokens', toolCalls: 0, textChars: 0, largestReasoningChars: 0 },
     })
 
@@ -85,6 +86,7 @@ describe('continuable settlement content', () => {
     (turnEnd) => {
       const message = createSettlementMessage(childId, {
         stopReason: 'aborted',
+        output: [],
         budget: { turnEnd, toolCalls: 0, textChars: 0, largestReasoningChars: 90_000 },
       })
 
@@ -110,4 +112,17 @@ describe('continuable settlement content', () => {
       second,
     ])
   })
+})
+
+it('includes closing text alongside structured results and diagnostics', () => {
+  expect(createSettlementMessage(childId, {
+    stopReason: 'completed', output: [{ type: 'text', text: 'final answer' }],
+    structured: { answer: 42 }, diagnostic: 'safe diagnostic',
+  }).content).toEqual([
+    summary,
+    { type: 'text', text: 'Its closing message:' },
+    { type: 'text', text: 'final answer' },
+    { type: 'text', text: 'Structured result: {"answer":42}' },
+    { type: 'text', text: 'safe diagnostic' },
+  ])
 })

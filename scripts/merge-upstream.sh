@@ -23,7 +23,6 @@ set -euo pipefail
 #   docs/module-graph.{md,zh.md,i18n.yaml},
 #   docs/persistence-catalog.{md,zh.md,i18n.yaml}, docs/persistence-schema.json,
 #   docs/tool-catalog.md, docs/tool-execution-pipeline.md,
-#   packages/core/scope/src/scoped-events.generated.ts,
 #   packages/core/session/src/known-event-types.ts,
 #   packages/extensions/tool-cordis/src/api-catalog.ts,
 #   packages/extensions/cordis-client-runner/src/client/{api-catalog,slot-catalog}.ts,
@@ -97,7 +96,6 @@ GENERATED_ARTIFACTS=(
   docs/persistence-schema.json
   docs/tool-catalog.md
   docs/tool-execution-pipeline.md
-  packages/core/scope/src/scoped-events.generated.ts
   packages/core/session/src/known-event-types.ts
   packages/extensions/cordis-client-runner/src/client/api-catalog.ts
   packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
@@ -282,7 +280,6 @@ regenerate_fail() {
 }
 for gen in \
   gen-tsconfig-paths \
-  gen-scoped-events \
   gen-cordis-catalog \
   gen-cordis-inspect-catalog \
   gen-client-catalog \
