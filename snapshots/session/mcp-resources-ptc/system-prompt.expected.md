@@ -227,7 +227,7 @@ interface ToolArgsMap {
     goal_id: string;
     /** Exact positive revision returned by get_goal. */
     revision: number;
-    /** edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. */
+    /** edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; complete is additionally allowed in a turn opened by a delegated subagent reporting back. blocked is rejected before the configured minimum round count. */
     action: "edit" | "pause" | "resume" | "complete" | "blocked";
     /** Replacement objective; valid only with action edit. */
     objective?: string;
