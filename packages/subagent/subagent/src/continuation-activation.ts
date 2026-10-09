@@ -869,6 +869,25 @@ export class ContinuableActivationRegistry {
   }
 
   /**
+   * Deliver the settlement account of a child whose live settlement never
+   * reached the parent — reconciliation after a process restart found the
+   * child's persisted epoch ended with no notice in the parent's log.
+   * @param childId - durable child the account names.
+   * @param parent - live resumed parent receiving the account.
+   * @param terminal - account folded from the child's persisted log.
+   */
+  notifyReconciledSettlement(childId: SessionId, parent: Agent, terminal: ActivationTerminal): void {
+    try {
+      this.sendSettlement(childId, parent.id, terminal)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(
+        `subagent "${childId}" reconciled settlement notice was not delivered to its parent: `
+        + errorChain(error),
+      )
+    }
+  }
+
+  /**
    * Tell the durable direct parent how this Activation ended. A parent with no
    * resident Agent receives the account as stored input for its next
    * activation, so the settled child never becomes an unwaited edge.

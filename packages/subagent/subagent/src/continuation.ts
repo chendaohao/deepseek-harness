@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { ReasoningEffortId, contentHasImage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
@@ -42,6 +42,7 @@ import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor
 import { establishCatalogChild } from './catalog.ts'
 import { SubagentError } from './error.ts'
 import { isAdjacentAgentSendMessageTool } from './internal.ts'
+import { coldSettlementTerminal, settlementNoticeCovers } from './settlement-reconciliation.ts'
 import type { ActivationObserver } from './lifecycle.ts'
 import { appendUnattendedMessage, reportUnattendedHandoff } from './unattended-store.ts'
 import type { UnattendedHandoffResult } from './unattended-store.ts'
@@ -426,6 +427,45 @@ export class SubagentContinuationManager {
    */
   async drainChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void> {
     await this.activations.drainChildren(parent, childIds)
+  }
+
+  /**
+   * Deliver settlement accounts for this parent's continuable children whose
+   * live settlement a dead process never delivered. Runs on parent resume: a
+   * child that is resident or already has a covering notice in the parent's
+   * log is skipped, and each remaining catalog child is read from persistence
+   * to decide what the parent must be told.
+   * @param parent - the just-resumed Agent whose durable catalog is reconciled.
+   */
+  async reconcileResumedParent(parent: Agent): Promise<void> {
+    const query = this.ctx.get('sessionQuery')
+    if (query === undefined) return
+    using parentObs = await query.observeSession(parent.id)
+    const catalog = parentObs.projections?.values.subagentCatalog
+    if (catalog === undefined) return
+    const parentEvents = parentObs.events
+    for (const entry of catalog) {
+      if (entry.mode !== 'continuable') continue
+      // Registry residency and plain liveness both prove the child belongs to
+      // this process: a live child's account is its future live settlement.
+      if (this.activations.get(entry.id) !== undefined) continue
+      if (this.ctx.agents.get(entry.id) !== undefined) continue
+      let childObs: SessionObservation
+      try {
+        childObs = await query.observeSession(entry.id)
+      } catch (error: unknown) {
+        this.ctx.logger.warn(
+          `subagent continuation: settlement reconciliation could not read "${entry.id}": ${errorChain(error)}`,
+        )
+        continue
+      }
+      using child = childObs
+      const events = child.events.slice(child.inheritedEventCount)
+      const terminal = coldSettlementTerminal(events)
+      if (terminal === undefined) continue
+      if (settlementNoticeCovers(parentEvents, entry.id, events.at(-1)?.time ?? 0)) continue
+      this.activations.notifyReconciledSettlement(entry.id, parent, terminal)
+    }
   }
 
   /**

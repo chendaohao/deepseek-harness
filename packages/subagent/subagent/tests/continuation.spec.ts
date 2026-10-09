@@ -32,6 +32,7 @@ import { TestSessionQuery } from './test-session-query.ts'
 import { loadStoredSession } from './persistence-helpers.ts'
 import {
   continuationActivations,
+  continuationHandle,
   continuationManager,
   dropContinuationActivation,
 } from './continuation-internals.ts'
@@ -3966,4 +3967,109 @@ describe('SubagentRuntime.interrupt', () => {
     hold.resolve(undefined)
     await drained
   })
+})
+
+describe('settlement reconciliation after a lost settlement', () => {
+  /** Drive the crash shape: turn 1 settles, turn 2 opens, the process "dies". */
+  async function orphanMidTurn(
+    ctx: Context,
+    parent: Agent,
+    adapter: GatedAdapter,
+    gates: { first: PromiseWithResolvers<undefined>; second: PromiseWithResolvers<undefined> },
+  ) {
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    gates.first.resolve(undefined)
+    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
+    await waitNoActivation(ctx, started.childId)
+    // The parent's settlement turn runs to completion before the next step, so
+    // adapter entries stay in script order.
+    await vi.waitFor(() => {
+      expect(adapter.requests.filter(request => request.sessionId === parent.id)).toHaveLength(1)
+    })
+
+    await queuePrompt(ctx, parent, started.childId, message('second task'))
+    await vi.waitFor(() => {
+      expect(adapter.requests.filter(request => request.sessionId === started.childId)).toHaveLength(2)
+    })
+    const handle = continuationHandle(ctx, started.childId)
+    await vi.waitFor(() => {
+      expect(handle.agent.session.snapshotEvents().some(
+        event => event.type === 'turn/start' && event.data.turn === 2,
+      )).toBe(true)
+    })
+
+    dropContinuationActivation(ctx, started.childId)
+    // Resolve the gate only after disposal starts so the adapter observes the
+    // abort instead of completing turn 2, mirroring an interrupted final turn.
+    const disposing = handle.dispose()
+    gates.second.resolve(undefined)
+    await disposing
+    return { childId: started.childId }
+  }
+
+  it('delivers the account of a child whose settlement the dead process never delivered', async () => {
+    const gates = { first: Promise.withResolvers<undefined>(), second: Promise.withResolvers<undefined>() }
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('the answer'), gate: gates.first.promise },
+      { chunks: textResponse('parent ack one') },
+      { chunks: textResponse('never finishes'), gate: gates.second.promise },
+      { chunks: textResponse('parent ack two') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    const { childId } = await orphanMidTurn(ctx, parent, adapter, gates)
+
+    await continuationManager(ctx).reconcileResumedParent(parent)
+
+    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(2) })
+    expect(settlementNotices(parent)[1]!.text).toBe(
+      `Background subagent ${childId} was stopped before it finished.`
+      + '\nIt left no closing message.',
+    )
+  })
+
+  it('does not repeat a settlement the parent already received', async () => {
+    const { ctx, parent } = await setup([textResponse('the answer'), textResponse('parent ack')])
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
+    await waitNoActivation(ctx, started.childId)
+
+    await continuationManager(ctx).reconcileResumedParent(parent)
+
+    expect(settlementNotices(parent)).toHaveLength(1)
+  })
+
+  it('reconciles orphaned children when the parent resumes', async () => {
+    const gates = { first: Promise.withResolvers<undefined>(), second: Promise.withResolvers<undefined>() }
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('the answer'), gate: gates.first.promise },
+      { chunks: textResponse('parent ack one') },
+      { chunks: textResponse('never finishes'), gate: gates.second.promise },
+      { chunks: textResponse('parent ack two') },
+    ])
+    const { ctx } = await setupWith(adapter)
+    const parentId = SessionId('reconcile-resume-parent')
+    const host = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const { childId } = await orphanMidTurn(ctx, host.agent, adapter, gates)
+
+    // The parent leaves without hearing how the child ended; resuming it must
+    // surface the orphaned child's account on its own.
+    await host.dispose()
+    const resumed = await ctx.agents.resume({
+      resumeSessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    try {
+      await vi.waitFor(() => {
+        expect(settlementNotices(resumed.agent).some(notice =>
+          notice.sender === childId
+          && notice.text.startsWith(`Background subagent ${childId} was stopped before it finished.`),
+        )).toBe(true)
+      })
+    } finally {
+      await resumed.dispose()
+    }
+  }, 60_000)
 })
