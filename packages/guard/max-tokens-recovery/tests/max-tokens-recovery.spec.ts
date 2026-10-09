@@ -210,8 +210,10 @@ describe('bounded ceiling recovery', () => {
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     // A cordis.yml value can be any YAML scalar, so the schema must refuse the
-    // ones that are not booleans rather than defaulting them away.
-    await expect(ctx.plugin(MaxTokensRecovery, { coverSubagentSessions: 'yes' }))
+    // ones that are not booleans rather than defaulting them away. The cast
+    // carries that untyped scalar past the static config type; naming the field
+    // here keeps a rename from silently turning this into a no-op.
+    await expect(ctx.plugin(MaxTokensRecovery, { coverSubagentSessions: 'yes' as never }))
       .rejects.toThrow(/expected boolean/)
   })
 
