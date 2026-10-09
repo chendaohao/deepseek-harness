@@ -21,10 +21,15 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
 import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
+import type { AgentMessageSource, SubagentSettledMessageSource } from '@deepseek-ai/dsh-subagent'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'test': { kind: 'test' } & ContextFormed
+    // The subagent seam's merged kinds, re-declared through its exported
+    // types so this suite builds the producer shapes with their identities.
+    'subagent-settled': SubagentSettledMessageSource
+    'agent-message': AgentMessageSource
   }
 }
 
@@ -329,6 +334,73 @@ describe('goal tool execution authority', () => {
       goal_id: 'goal-missing', revision: 1, action: 'pause', objective: 'probe',
     }, root.agent)
     expect(malformed.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+  })
+
+  it('lets a root complete a goal in a turn opened by a delegation report', async () => {
+    const { ctx, root } = await harness()
+    const humanTurn = openTurn(root, { kind: 'user' })
+    const created = ctx.goals.create(root.agent, { objective: 'delegated work' })
+    closeTurn(root, humanTurn)
+
+    openTurn(root, {
+      kind: 'subagent-settled',
+      form: 'notice',
+      summary: 'Background subagent goal-tool-worker finished.',
+      senderSessionId: SessionId('goal-tool-worker'),
+    }, 'Background subagent goal-tool-worker finished.')
+    const completed = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'complete',
+    }, root.agent)
+    expect(resultGoal(completed)).toMatchObject({ phase: 'complete' })
+  })
+
+  it('extends delegation-report authority to direct child messages', async () => {
+    const { ctx, root } = await harness()
+    const humanTurn = openTurn(root, { kind: 'user' })
+    const created = ctx.goals.create(root.agent, { objective: 'delegated work' })
+    closeTurn(root, humanTurn)
+
+    openTurn(root, {
+      kind: 'agent-message',
+      form: 'relay',
+      senderSessionId: SessionId('goal-tool-worker'),
+    }, 'Agent goal-tool-worker sent a message: done')
+    const completed = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'complete',
+    }, root.agent)
+    expect(resultGoal(completed)).toMatchObject({ phase: 'complete' })
+  })
+
+  it('keeps blockage off delegation-report authority', async () => {
+    const { ctx, root } = await harness()
+    openTurn(root, {
+      kind: 'subagent-settled',
+      form: 'notice',
+      summary: 'settled',
+      senderSessionId: SessionId('goal-tool-worker'),
+    })
+    const result = await execute(ctx, 'update_goal', {
+      goal_id: 'goal-missing', revision: 1, action: 'blocked', blocked_reason: 'stuck',
+    }, root.agent)
+    expect(result.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+    expect(result.error?.message).toContain('delegation report may only complete')
+  })
+
+  it('denies delegation-report completion to a non-root agent', async () => {
+    const { ctx, root } = await harness()
+    const child = stubAgent('goal-tool-delegating-child')
+    ctx.agents.enter(child.agent, root.agent)
+    await ctx.agents.announce(child.agent, 'startup')
+    openTurn(child, {
+      kind: 'subagent-settled',
+      form: 'notice',
+      summary: 'settled',
+      senderSessionId: SessionId('goal-tool-grandchild'),
+    })
+    const result = await execute(ctx, 'update_goal', {
+      goal_id: 'goal-missing', revision: 1, action: 'complete',
+    }, child.agent)
+    expect(result.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
   })
 
   it('accepts direct human steering in a goal-sourced root turn', async () => {
