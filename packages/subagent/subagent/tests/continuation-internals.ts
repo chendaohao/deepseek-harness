@@ -28,3 +28,13 @@ export function dropContinuationActivation(ctx: Context, childId: SessionId): vo
   }
   registry.resident.delete(childId)
 }
+
+/** The retained live handle of a resident Activation, for crash-shape teardown. */
+export function continuationHandle(ctx: Context, childId: SessionId) {
+  const registry = continuationActivations(ctx) as unknown as {
+    resident: Map<SessionId, Activation>
+  }
+  const activation = registry.resident.get(childId)
+  if (activation === undefined) throw new Error('expected a resident activation')
+  return activation.handle
+}

@@ -36,6 +36,7 @@ import type {} from '@deepseek-ai/dsh-attachment'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
+import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -234,6 +235,18 @@ export class SubagentRuntime extends TypertRemoteService {
     // Archive admission: this runtime is the owner that knows which live
     // children descend from a Session and how a parent stops them.
     ctx.inject(['agents'], (agentsCtx: Context) => { installSubagentArchiveAdmission(agentsCtx) })
+    ctx.on('agent/created', ({ agent, source }) => {
+      // Only a resume can find continuable children orphaned by a previous
+      // process's death: fresh creations have no catalog yet, and clear/compact
+      // keep their children resident. The reconciliation reads persisted logs,
+      // so it runs detached rather than holding the agent's resume open.
+      if (source !== 'resume') return
+      const manager = this.continuations
+      if (manager === undefined) return
+      void manager.reconcileResumedParent(agent).catch((error: unknown) => {
+        ctx.logger.warn(`subagent settlement reconciliation failed for "${agent.id}": ${errorChain(error)}`)
+      })
+    })
   }
 
   /**
