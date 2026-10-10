@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-提供方可能在某个 step 只流出了私有推理的情况下，把它停在输出 token 上限。该 turn 随后以既无可见文本、也无工具调用结束，于是 agent 不再推进，而它的过程记录看上去仍然健康——这个失败对任何读对话的人都不可见。本包识别出这样的 step，并为下一轮排入一条简短的恢复指令，让模型交付最小的具体改动，而不是重新规划。每一段连续触顶只恢复一次；`dsh` base bundle 以 `maxRecoveries: 1` 启用它。
+提供方可能在某个 step 只流出了私有推理的情况下，把它停在输出 token 上限。该 turn 随后以既无可见文本、也无工具调用结束，于是 agent 不再推进，而它的过程记录看上去仍然健康——这个失败对任何读对话的人都不可见。本包识别出这样的 step，并为下一轮排入一条简短的恢复指令，让模型交付最小的具体改动，而不是重新规划。每一段连续触顶只恢复一次；`dsh` base bundle 以 `maxRecoveries: 1` 启用它。除非打开 `coverSubagentSessions`，被委派的子会话仍交由父级处理。
 
 ## 目录
 
@@ -36,14 +36,20 @@ kind: "package-reference"
 ```yaml
 - name: '@deepseek-ai/dsh-max-tokens-recovery'
   config:
-    maxRecoveries: 1   # recovery prompts per run of consecutive ceiling hits
+    maxRecoveries: 1           # recovery prompts per run of consecutive ceiling hits
+    coverSubagentSessions: false   # also recover delegated child sessions
 ```
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `maxRecoveries` | `1` | 每段连续触顶允许的恢复提示数；`0` 关闭该守卫 |
+| `coverSubagentSessions` | `false` | 同时恢复 header 指明父会话的会话（被委派子级） |
 
 只要有 step 提交了可见文本或发起了工具调用，这一段就结束；因此真正恢复过来的 agent，下次再触顶时仍然合格。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-max-tokens-recovery)记录了所有可接受取值。
+
+### 覆盖被委派子会话
+
+被委派子级的预算属于启动它的父级：一次性子级只欠调用方一个结果，可继续子级通过结算通知汇报，因此守卫默认不碰子级的触顶。当工人无人值守地烧穿预算、而父级还在等一个永远不会到来的结果时，这个默认值就不合适了。设置 `coverSubagentSessions: true` 后，守卫同样会恢复子级，每段连续触顶一次，仍由同一个 `maxRecoveries` 限定；此时给子级的提示要求交付最小的具体结果，而不是最小的下一步改动——调用方要的是答复，不是更多工作。
 
 ### 你会得到什么
 
@@ -75,7 +81,7 @@ kind: "package-reference"
 
 恢复是一条普通的 `user/message`，来源为 `{kind: 'max-tokens-recovery'}`，通过 `Agent.followup` 排入，因此它会开启自己的 turn：触顶的 step 结束了它所在的 turn，无法在该 turn 内追加。监听器用 `queueMicrotask` 延后这次排入，因为 `session/event` 是在发布它的那次 append 内部投递的，而 append 会拒绝任何重入的 append——包括队列变更会执行的那次。
 
-被委派子级的触顶是它父级的问题，因此守卫忽略任何 header 指明父会话的 session。一次性子级只欠调用方一个结果，可继续子级通过结算通知汇报；在子级内部恢复等于替一个从未提出请求的调用方作答，并会覆盖该调用方需要的停止原因。
+被委派子级的触顶默认是它父级的问题，因此守卫忽略任何 header 指明父会话的 session。一次性子级只欠调用方一个结果，可继续子级通过结算通知汇报；在子级内部恢复等于替一个从未提出请求的调用方作答，并会覆盖该调用方需要的停止原因。`coverSubagentSessions` 则选择仍然覆盖这些会话，此时监听器会改用下面的子级提示。
 
 ### 源码地图
 
@@ -105,12 +111,18 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-一个用户角色的 turn，排在一个只流出推理并停在输出上限的 turn 之后。不会向任何 step 追加内容，工具 schema 也不变。
+一个用户角色的 turn，排在一个只流出推理并停在输出上限的 turn 之后。被覆盖的被委派子级收到同一个 turn，只是交付物被点明为结果而非下一步改动。不会向任何 step 追加内容，工具 schema 也不变。
 
 ##### 恢复提示
 
 ```markdown
 Your previous turn hit the output token ceiling before emitting any visible text or tool call, so it produced nothing. Do not restate the plan or re-derive the design: make the single smallest concrete change or tool call that moves the work forward, and keep the explanation to one short sentence.
+```
+
+##### 被委派子级提示
+
+```markdown
+Your previous turn hit the output token ceiling before emitting any visible text or tool call, so it produced nothing. Do not restate the plan or re-derive the design: deliver the smallest concrete result or tool call that moves the work forward, and keep the explanation to one short sentence.
 ```
 
 #### Token 影响
@@ -133,6 +145,7 @@ Your previous turn hit the output token ceiling before emitting any visible text
 - **恢复过的 agent 仍可能失败**——该提示提高了下一步是具体动作的概率，并不保证如此。
 - **计数器仅限进程内**——从持久化恢复的会话会重新开始计数，因此跨越恢复的触顶会得到第二次恢复机会。
 - **以文本作为进展证据**——只流出工具调用的 step 一律算作有工作，无论那次调用是否成功。
+- **子级覆盖是可选且未经真实 subagent 验证**——`coverSubagentSessions` 的测试对象是 agent registry 建出的子会话，不是真实委派链路；被覆盖子级的调用方仍可能需要它原本的停止原因。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -47,10 +47,20 @@ export interface Config {
    * ceiling. `0` disables the guard.
    */
   maxRecoveries?: number
+  /**
+   * Recover a delegated child session's ceiling hits as well (default false).
+   * By default a child's budget is its parent's to manage, so the guard skips
+   * every session whose header names a parent session. Enable this when a
+   * worker burning its ceiling unattended costs more than the result the
+   * parent is waiting for; the recovery then asks the child to deliver the
+   * smallest result it can still report.
+   */
+  coverSubagentSessions?: boolean
 }
 
 export const Config: z<Config> = z.object({
   maxRecoveries: z.number().step(1).min(0).default(1),
+  coverSubagentSessions: z.boolean().default(false),
 })
 
 /**
@@ -62,6 +72,17 @@ const RECOVERY_TEXT =
   'Your previous turn hit the output token ceiling before emitting any visible text or tool call, so it '
   + 'produced nothing. Do not restate the plan or re-derive the design: make the single smallest concrete '
   + 'change or tool call that moves the work forward, and keep the explanation to one short sentence.'
+
+/**
+ * The recovery instruction for a delegated child, which owes its parent a
+ * result rather than further work. The named constraint and the ban on
+ * re-planning are identical to {@link RECOVERY_TEXT}; only the deliverable
+ * differs, so a child whose caller is waiting answers with what it has.
+ */
+const SUBAGENT_RECOVERY_TEXT =
+  'Your previous turn hit the output token ceiling before emitting any visible text or tool call, so it '
+  + 'produced nothing. Do not restate the plan or re-derive the design: deliver the smallest concrete '
+  + 'result or tool call that moves the work forward, and keep the explanation to one short sentence.'
 
 /** The producer label stamped on every recovery prompt, so derived history never renders it as a user prompt. */
 const RECOVERY_SOURCE: MessageSource = { kind: 'max-tokens-recovery' }
@@ -90,16 +111,20 @@ function spentCeilingOnNothing(stream: readonly AssistantStreamRecord[]): boolea
  * @param config - validated plugin configuration.
  */
 export function apply(ctx: Context, config: Config): void {
-  const { maxRecoveries } = config as Required<Config>
+  const { maxRecoveries, coverSubagentSessions } = config as Required<Config>
   const states = new WeakMap<Agent, RecoveryState>()
 
   ctx.on('session/event', (session, event) => {
     const agent = ctx.agents.get(session.id)
-    // A child's budget is its parent's to manage: a one-shot child owes its
-    // parent a single result, and a continuable one reports through its
-    // settlement notice. Recovering here would answer for a caller that never
-    // asked, and would overwrite the stop reason that caller needs.
-    if (session.header.parentSession !== undefined) return
+    // By default a child's budget is its parent's to manage: a one-shot child
+    // owes its parent a single result, and a continuable one reports through
+    // its settlement notice. Recovering there would answer for a caller that
+    // never asked, and would overwrite the stop reason that caller needs. A
+    // deployment opts in with `coverSubagentSessions` when an unattended
+    // worker burning its ceiling costs more than that result; the recovery
+    // then asks the child for the smallest result it can still deliver.
+    const isChild = session.header.parentSession !== undefined
+    if (isChild && !coverSubagentSessions) return
     if (agent === undefined || agent.session !== session) return
     if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') return
     const state = states.get(agent) ?? { recoveries: 0 }
@@ -112,7 +137,10 @@ export function apply(ctx: Context, config: Config): void {
     }
     if (state.recoveries >= maxRecoveries) return
     state.recoveries += 1
-    const content: ContentBlock[] = [{ type: 'text', text: RECOVERY_TEXT }]
+    const content: ContentBlock[] = [{
+      type: 'text',
+      text: isChild ? SUBAGENT_RECOVERY_TEXT : RECOVERY_TEXT,
+    }]
     // `session/event` is delivered inside the append that publishes it, and an
     // append rejects any reentrant append — including the one a queue mutation
     // performs. Deferring past the publishing tick keeps this recovery off that

@@ -9,8 +9,8 @@
   en: a33142c5b9551f09
   zh: ed46f4e1df984be1
 /deepseek-ai-dsh-max-tokens-recovery/summary:
-  en: fab73b696a5c3fc6
-  zh: 5d77fa2d60560c06
+  en: d951a374465b5629
+  zh: 0d388565e45dfd05
 /deepseek-ai-dsh-max-tokens-recovery/table-of-contents:
   en: d152484eb41ac6b4
   zh: f14f34fce35a8d90
@@ -21,8 +21,11 @@
   en: 0cc66415ffec3059
   zh: 8a0fdff59c245486
 /deepseek-ai-dsh-max-tokens-recovery/use-this-package/setting-the-recovery-budget:
-  en: 648491063ce62e21
-  zh: c3ed4468c7e58530
+  en: eb40e07efc272ca1
+  zh: 1796f288869b56ea
+/deepseek-ai-dsh-max-tokens-recovery/use-this-package/covering-delegated-child-sessions:
+  en: cc0bcda69bd37ff8
+  zh: 4a4226080d1ef82b
 /deepseek-ai-dsh-max-tokens-recovery/use-this-package/what-you-get:
   en: 160f6395d4a46815
   zh: 4cbac9b8e5e8bd5f
@@ -36,8 +39,8 @@
   en: 64830640d1b38921
   zh: 43184270ccbcf6c6
 /deepseek-ai-dsh-max-tokens-recovery/understand-the-implementation/recovery-delivery:
-  en: 3352a76f7ac1b86c
-  zh: 65bc3c80160f8f1e
+  en: 6ddc02728b51338f
+  zh: aa8cafd8ec057ea0
 /deepseek-ai-dsh-max-tokens-recovery/understand-the-implementation/source-map:
   en: 75e4d852c5b1a78b
   zh: 35358e35cd40db13
@@ -51,11 +54,14 @@
   en: e248ff69a07e0fc2
   zh: eb4116b9eea4dd6e
 /deepseek-ai-dsh-max-tokens-recovery/model-experience/ceiling-recovery-prompt/what-the-model-sees:
-  en: 1a69619997fb3e7a
-  zh: 2950c2c9660386d0
+  en: 0cb80f66b7d5b738
+  zh: fa0a5bc7741cb3ac
 /deepseek-ai-dsh-max-tokens-recovery/model-experience/ceiling-recovery-prompt/what-the-model-sees/the-recovery-prompt:
   en: f105c1227e610b86
   zh: b3a78e2d5efd4f07
+/deepseek-ai-dsh-max-tokens-recovery/model-experience/ceiling-recovery-prompt/what-the-model-sees/the-delegated-child-prompt:
+  en: a6b75bf019c9e24e
+  zh: 34ff46c44d1a3f1f
 /deepseek-ai-dsh-max-tokens-recovery/model-experience/ceiling-recovery-prompt/token-effect:
   en: 9e81da6a0bdc1857
   zh: a60ba5ecc66edeb9
@@ -63,8 +69,8 @@
   en: 3308cfefcaa56b79
   zh: fce603e4b6f6725b
 /deepseek-ai-dsh-max-tokens-recovery/known-limitations-and-deferred-work:
-  en: f71c697a7128f635
-  zh: 2a61c1f992bdfb2f
+  en: 38b9d54cead408d9
+  zh: 939c1461073be2ed
 /deepseek-ai-dsh-max-tokens-recovery/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: e88aeb617ffb74ea
