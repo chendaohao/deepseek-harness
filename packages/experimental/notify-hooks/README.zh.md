@@ -3,13 +3,13 @@ description: "在 agent 运行期间使用你现有的 Claude Code hooks.json �
 kind: "package-reference"
 ---
 
-# @deepseek-ai/dsh-hooks-claude-code
+# @deepseek-ai/dsh-notify-hooks
 
 [English](README.md) | 中文
 
 ## 概述
 
-`dsh-hooks-claude-code` 在 agent（智能体）运行期间执行你现有 Claude Code `hooks.json` 或 settings 文件中的 command 钩子，无需重写。受支持的钩子会在会话、提示词、工具、停止或 subagent 到达对应时刻时运行。它们可以带模型可见的原因阻塞提示词或工具调用、添加对话上下文，或强制模型再执行一个轮次。需要在 harness 中复用 Claude Code command 钩子时选择本包；没有 Claude Code 对应物的行为应使用原生插件。
+`dsh-notify-hooks` 在 agent（智能体）运行期间执行你现有 Claude Code `hooks.json` 或 settings 文件中的 command 钩子，无需重写。受支持的钩子会在会话、提示词、工具、停止或 subagent 到达对应时刻时运行。它们可以带模型可见的原因阻塞提示词或工具调用、添加对话上下文，或强制模型再执行一个轮次。需要在 harness 中复用 Claude Code command 钩子时选择本包；没有 Claude Code 对应物的行为应使用原生插件。
 
 ## 目录
 
@@ -36,7 +36,7 @@ kind: "package-reference"
 ### 最小配置
 
 ```yaml
-- name: '@deepseek-ai/dsh-hooks-claude-code'
+- name: '@deepseek-ai/dsh-notify-hooks'
   config:
     configPath: ./.claude/hooks.json
     pluginRoot: ./.claude/plugins/my-plugin
@@ -50,8 +50,9 @@ kind: "package-reference"
 | `projectDir` | 会话工作区 | 替换 `${CLAUDE_PROJECT_DIR}` 并设置 `CLAUDE_PROJECT_DIR` 环境变量 |
 | `defaultTimeoutMs` | `600,000` | hook 未设置时的每 hook 超时（即 Claude Code 默认值） |
 | `stderrSummaryMaxChars` | `500` | 持久化 `hook/result` stderr 摘要的字符上限 |
+| `summary` | — | 可选的回合总结配置组；见[回合总结](#回合总结可选) |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-hooks-claude-code)是每个受支持字段的穷尽式真源。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-notify-hooks)是每个受支持字段的穷尽式真源。
 
 ### 你的钩子能做什么
 
@@ -73,6 +74,29 @@ kind: "package-reference"
 - 同一事件上的钩子按配置顺序逐个运行。
 - 如果配置无法读取或解析，桥接会记录警告且不运行任何钩子——agent 仍会启动。
 - 运行失败的钩子（命令错误或崩溃）会被记录，agent 继续运行。
+
+### 回合总结（可选）
+
+在配置中加入 `summary` 组，桥接会把每个完成回合的模型生成摘要写进 `Stop` 钩子载荷的 `summary` 字段，通知类钩子直接发送它，无需自己解析会话日志：
+
+```yaml
+- name: '@deepseek-ai/dsh-notify-hooks'
+  config:
+    configPath: ./.claude/hooks.json
+    summary:
+      provider: stepfun
+      model: step-5-preview
+```
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `provider` + `model` | 必填 | 总结请求使用的 LLM 路由；两者必须同时提供 |
+| `prompt` | 内置 | 总结请求的系统提示词 |
+| `maxTokens` | `512` | 总结请求的输出 token 上限 |
+| `maxInputChars` | `20,000` | 提取的任务/结果输入的字符上限 |
+| `timeoutMs` | `60,000` | 总结请求的端到端超时 |
+
+配置该组后，`Stop` 的行为有两处不同。摘要在回合边界内生成——此时会话仍然存活、回合消息已完整——随后 `Stop` 钩子以脱离方式运行，发送不再拖延边界。阻塞型钩子仍会强制继续，方式是开启一个新回合。总结请求失败（没有 `llm` 服务、提供商不可路由、超时）会被记录并跳过：`Stop` 钩子照常运行，只是没有 `summary` 字段。每次请求与响应都会以 `notify-hooks/summary-request` 与 `notify-hooks/summary-result` 记入会话日志。
 
 -----
 
@@ -130,7 +154,7 @@ matcher subject 是工具名称（`PreToolUse`／`PostToolUse`）、会话源（
 - [hook 协议库](../hook-protocol/README.zh.md)——本桥接应用的共享钩子规则。
 - [钩子桥接 Agent Note](../../../.agents/notes/archived/feature/2026-06-30-hook-bridges.md)——桥接设计、决策映射与延期缺口。
 - [拦截扩展点 参考](../../../docs/tool-execution-pipeline.zh.md)——桥接所映射的类型化 Decision 接口面。
-- [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-hooks-claude-code)——每个受支持配置字段及其源声明。
+- [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-notify-hooks)——每个受支持配置字段及其源声明。
 
 -----
 

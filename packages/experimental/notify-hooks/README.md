@@ -3,13 +3,13 @@ description: "Run your existing Claude Code hooks.json or settings hook config d
 kind: "package-reference"
 ---
 
-# @deepseek-ai/dsh-hooks-claude-code
+# @deepseek-ai/dsh-notify-hooks
 
 English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-hooks-claude-code` runs command hooks from your existing Claude Code `hooks.json` or settings file during agent runs, without requiring a rewrite. Supported hooks can run when sessions, prompts, tools, stops, or subagents reach matching moments. They can block prompts or tool calls with model-visible reasons, add conversation context, or force another model turn. Choose this package to reuse Claude Code command hooks in the harness; use a native plugin for behavior that has no Claude Code equivalent.
+`dsh-notify-hooks` runs command hooks from your existing Claude Code `hooks.json` or settings file during agent runs, without requiring a rewrite. Supported hooks can run when sessions, prompts, tools, stops, or subagents reach matching moments. They can block prompts or tool calls with model-visible reasons, add conversation context, or force another model turn. Choose this package to reuse Claude Code command hooks in the harness; use a native plugin for behavior that has no Claude Code equivalent.
 
 ## Table of Contents
 
@@ -36,7 +36,7 @@ Use it when you own a Claude Code `hooks.json` (or a settings file whose `hooks`
 ### Smallest working setup
 
 ```yaml
-- name: '@deepseek-ai/dsh-hooks-claude-code'
+- name: '@deepseek-ai/dsh-notify-hooks'
   config:
     configPath: ./.claude/hooks.json
     pluginRoot: ./.claude/plugins/my-plugin
@@ -50,8 +50,9 @@ Use it when you own a Claude Code `hooks.json` (or a settings file whose `hooks`
 | `projectDir` | session workspace | Replaces `${CLAUDE_PROJECT_DIR}` and sets the `CLAUDE_PROJECT_DIR` env var |
 | `defaultTimeoutMs` | `600,000` | Per-hook timeout when a hook sets none (the Claude Code default) |
 | `stderrSummaryMaxChars` | `500` | Character cap on the persisted `hook/result` stderr summary |
+| `summary` | — | Optional turn-summary group; see [Turn summaries](#turn-summaries-optional) |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-hooks-claude-code) is the exhaustive source for every accepted field.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-notify-hooks) is the exhaustive source for every accepted field.
 
 ### What your hooks can do
 
@@ -73,6 +74,29 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 - Hooks on the same event run one after another, in config order.
 - If the config cannot be read or parsed, the bridge logs a warning and runs no hooks — the agent still starts.
 - A hook that fails to run (a bad command or a crash) is logged, and the agent continues.
+
+### Turn summaries (optional)
+
+Add a `summary` group to the config and the bridge writes a model-generated summary of every finished turn into the `Stop` hook payload as `summary`, so a notification hook sends it instead of parsing the session log:
+
+```yaml
+- name: '@deepseek-ai/dsh-notify-hooks'
+  config:
+    configPath: ./.claude/hooks.json
+    summary:
+      provider: stepfun
+      model: step-5-preview
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `provider` + `model` | required | The LLM route the summary request uses; both are required together |
+| `prompt` | built-in | System prompt for the summary request |
+| `maxTokens` | `512` | Output-token cap for the summary request |
+| `maxInputChars` | `20,000` | Character cap on the extracted task/result input |
+| `timeoutMs` | `60,000` | End-to-end deadline for the summary request |
+
+With the group present, `Stop` behaves differently in two ways. The summary is generated inside the turn boundary — the session is live and the turn's messages are complete — and the `Stop` hooks then run detached, so sending never delays the boundary. A hook that blocks still forces continuation, through a new turn. A summary request that fails (no `llm` service, an unroutable provider, a timeout) is logged and skipped: the `Stop` hooks still run, without a `summary` field. Each request and response is recorded in the session log as `notify-hooks/summary-request` and `notify-hooks/summary-result`.
 
 -----
 
@@ -130,7 +154,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Hook protocol library](../hook-protocol/README.md) — the shared hook rules this bridge applies.
 - [Hook bridges Agent Note](../../../.agents/notes/archived/feature/2026-06-30-hook-bridges.md) — the bridge design, decision mapping, and deferred gaps.
 - [Interception extension-points reference](../../../docs/tool-execution-pipeline.md) — the typed-Decision surface the bridge maps onto.
-- [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-hooks-claude-code) — every accepted config field and its source declaration.
+- [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-notify-hooks) — every accepted config field and its source declaration.
 
 -----
 

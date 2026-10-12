@@ -5,7 +5,7 @@
  * mapping; shared execution and parsing live in `dsh-hook-protocol`.
  * `updatedInput` is logged and warned but not honored. Bespoke behavior should
  * use typed native plugins on the same extension points.
- * @module @deepseek-ai/dsh-hooks-claude-code
+ * @module @deepseek-ai/dsh-notify-hooks
  */
 
 import type {} from '@deepseek-ai/dsh-working-directory'
@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision, TurnBoundaryProjection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-projection'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -22,7 +22,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
@@ -40,12 +40,35 @@ import {
 // Pulls in the declaration-merged subagent events and the identity pairing their
 // start/end edges.
 import type { SubagentRunId } from '@deepseek-ai/dsh-subagent'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { parseClaudeCodeConfig, type ClaudeCodeHookConfig } from './config.ts'
 
-export const name = 'hooks-claude-code'
+export const name = 'notify-hooks'
 // `shell` runs hooks and `sessionProjections` supplies turn numbers; the rest
 // are read opportunistically via ctx.get so a deployment can omit them.
 export const inject = ['shell', 'sessionProjections', 'workingDirectory']
+
+/**
+ * Model-backed turn-summary controls; the group's presence opts the feature in.
+ * At `Stop` the bridge extracts the turn's human request and final assistant
+ * response, generates a summary with this route, and adds it to the Stop hook
+ * payload as `summary`. The Stop hooks then run detached, so sending the
+ * summary never delays the turn boundary.
+ */
+export interface SummaryConfig {
+  /** Registered LLM provider route for the summary request. */
+  provider: string
+  /** Model id on {@link SummaryConfig.provider}. */
+  model: string
+  /** System prompt for the summary request. */
+  prompt?: string
+  /** Output-token cap for the summary request. */
+  maxTokens?: number
+  /** Character cap for the extracted task/result input. */
+  maxInputChars?: number
+  /** End-to-end deadline for the summary request in milliseconds. */
+  timeoutMs?: number
+}
 
 /** Plugin config: where the CC hook config lives + substitution roots. */
 export interface Config {
@@ -73,7 +96,27 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
+  /**
+   * Optional model-backed turn summary. Presence opts in: at `Stop` the
+   * bridge generates a summary with the configured route and adds it to the
+   * Stop hook payload as `summary`, then runs the Stop hooks detached so
+   * sending never delays the turn boundary. A blocking Stop hook still forces
+   * continuation, through a new turn.
+   */
+  summary?: SummaryConfig
 }
+
+/** Default system prompt for the turn-summary request. */
+const DEFAULT_SUMMARY_PROMPT = 'Summarize the completed task for a push notification. State what the user asked for and what was done, in at most three sentences, in the language of the user request. Plain text only.'
+
+/** Default output-token cap for the turn-summary request. */
+const DEFAULT_SUMMARY_MAX_TOKENS = 512
+
+/** Default character cap for the extracted task/result input. */
+const DEFAULT_SUMMARY_MAX_INPUT_CHARS = 20_000
+
+/** Default end-to-end deadline for the turn-summary request. */
+const DEFAULT_SUMMARY_TIMEOUT_MS = 60_000
 
 export const Config: z<Config> = z.object({
   configPath: z.string().required(),
@@ -81,6 +124,14 @@ export const Config: z<Config> = z.object({
   projectDir: z.string(),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
+  summary: z.object({
+    provider: z.string().required(),
+    model: z.string().required(),
+    prompt: z.string().default(DEFAULT_SUMMARY_PROMPT),
+    maxTokens: z.number().default(DEFAULT_SUMMARY_MAX_TOKENS),
+    maxInputChars: z.number().default(DEFAULT_SUMMARY_MAX_INPUT_CHARS),
+    timeoutMs: z.number().default(DEFAULT_SUMMARY_TIMEOUT_MS),
+  }).default(undefined as unknown as SummaryConfig),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -89,13 +140,54 @@ function nextHandlerId(point: string): string {
   return `claude-code:${point}:${++handlerCounter}`
 }
 
-/** The `{kind:'hooks-claude-code'}` producer source stamped on every context this bridge injects. */
+/** The `{kind:'hooks-claude-code'}` producer source stamped on every context this bridge injects. The kind is a released session-format producer identity, so it stays stable while the package is renamed. */
 const CONTEXT_SOURCE: MessageSource = { kind: 'hooks-claude-code' }
+
+/** Exact model-visible request recorded before one turn-summary dispatch. */
+export interface NotifyHooksSummaryRequestEventData {
+  /** Turn number the summary belongs to. */
+  readonly turn: number
+  /** Registered provider route of the auxiliary request. */
+  readonly provider: string
+  /** Model id of the auxiliary request. */
+  readonly model: string
+  /** Exact auxiliary system prompt. */
+  readonly system: string
+  /** Exact auxiliary message list. */
+  readonly messages: Message[]
+  /** Output-token cap of the auxiliary request. */
+  readonly maxTokens: number
+}
+
+/** Assembled turn-summary response recorded after the stream settles. */
+export interface NotifyHooksSummaryResultEventData {
+  /** Turn number the summary belongs to. */
+  readonly turn: number
+  /** Registered provider route that produced the summary. */
+  readonly provider: string
+  /** Model id that produced the summary. */
+  readonly model: string
+  /** Assembled summary text handed to the Stop hook payload. */
+  readonly text: string
+  /** Terminal finish reason of the auxiliary stream. */
+  readonly finish: 'stop' | 'tool-calls' | 'max-tokens'
+  /** Wall-clock duration of the auxiliary request in milliseconds. */
+  readonly durationMs: number
+}
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /** Log-only pre-dispatch record of one turn-summary model request. */
+    'notify-hooks/summary-request': NotifyHooksSummaryRequestEventData
+    /** Log-only record of one assembled turn summary. */
+    'notify-hooks/summary-result': NotifyHooksSummaryResultEventData
+  }
+}
 
 /** The summary cap bounds a persisted event field — a positive integer or the slice misbehaves silently. */
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`hooks-claude-code: ${name} must be a positive integer`)
+    throw new Error(`notify-hooks: ${name} must be a positive integer`)
   }
 }
 
@@ -114,11 +206,30 @@ export function apply(ctx: Context, config: Config): void {
     })
     parsed = result.config
     for (const s of result.skipped) {
-      ctx.logger.warn(`hooks-claude-code: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
+      ctx.logger.warn(`notify-hooks: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
     }
   } catch (error: unknown) {
-    ctx.logger.warn(`hooks-claude-code: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
+    ctx.logger.warn(`notify-hooks: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
+  }
+
+  // Summary controls resolve after config parsing so a bad value fails at
+  // load, not at a turn boundary. The group's presence is the opt-in.
+  const summaryControls: ResolvedSummary | undefined = config.summary === undefined ? undefined : {
+    provider: config.summary.provider,
+    model: config.summary.model,
+    prompt: config.summary.prompt ?? DEFAULT_SUMMARY_PROMPT,
+    maxTokens: config.summary.maxTokens ?? DEFAULT_SUMMARY_MAX_TOKENS,
+    maxInputChars: config.summary.maxInputChars ?? DEFAULT_SUMMARY_MAX_INPUT_CHARS,
+    timeoutMs: config.summary.timeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
+  }
+  if (summaryControls !== undefined) {
+    assertPositiveInteger('summary.maxTokens', summaryControls.maxTokens)
+    assertPositiveInteger('summary.maxInputChars', summaryControls.maxInputChars)
+    assertPositiveInteger('summary.timeoutMs', summaryControls.timeoutMs)
+    if (ctx.get('llm') === undefined) {
+      ctx.logger.warn('notify-hooks: summary is configured but no llm service is registered — summaries are skipped')
+    }
   }
 
   // Emit-shaped points run detached, so track their chains; disposal aborts
@@ -129,7 +240,7 @@ export function apply(ctx: Context, config: Config): void {
   // handle unregisters the agent. Every retained entry relies on that paired
   // end; a producer that can omit it must provide another release edge.
   const subagentChildren = new Map<SubagentRunId, Agent>()
-  ctx.effect(() => () => detached.drain(), 'hooks-claude-code: drain detached hook runs')
+  ctx.effect(() => () => detached.drain(), 'notify-hooks: drain detached hook runs')
 
   /**
    * Run every command hook configured for `point` whose matcher selects
@@ -179,10 +290,10 @@ export function apply(ctx: Context, config: Config): void {
         }, () => performance.now())
         outputs.push(output)
         if (output.updatedInput !== undefined) {
-          ctx.logger.warn(`hooks-claude-code: ${point} hook requested updatedInput, which is not yet honored (ignored)`)
+          ctx.logger.warn(`notify-hooks: ${point} hook requested updatedInput, which is not yet honored (ignored)`)
         }
         if (output.systemMessage !== undefined) {
-          ctx.logger.warn(`hooks-claude-code: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
+          ctx.logger.warn(`notify-hooks: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
           appendHookResult(session, { turn: opts.turn, point, handlerId, output, stderrSummaryMaxChars, durationMs })
@@ -214,7 +325,7 @@ export function apply(ctx: Context, config: Config): void {
         if (context) agent.inject(context)
       })
       .catch((error: unknown) => {
-        ctx.logger.warn(`hooks-claude-code: SessionStart hook failed: ${String(error)}`)
+        ctx.logger.warn(`notify-hooks: SessionStart hook failed: ${String(error)}`)
       })
     detached.track(run)
     await run
@@ -274,12 +385,33 @@ export function apply(ctx: Context, config: Config): void {
   // machine observe pending input and run another step.
   // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
-    const merged = await runPoint('Stop', '', stopPayload(agent), { agent, turn, signal })
-    if (merged.decision === 'deny') {
-      // A blocking Stop hook forces continuation.
-      const text = merged.reason ?? 'continue: blocked by Stop hook'
-      agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
+    if (summaryControls === undefined) {
+      const merged = await runPoint('Stop', '', stopPayload(agent), { agent, turn, signal })
+      if (merged.decision === 'deny') {
+        // A blocking Stop hook forces continuation.
+        const text = merged.reason ?? 'continue: blocked by Stop hook'
+        agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
+      }
+      return
     }
+    // Summary mode: the summary is generated inside the boundary — the session
+    // is live and the turn's messages are complete — and the Stop hooks then
+    // run detached so sending never delays the boundary.
+    const summary = await generateTurnSummary(ctx, agent, turn, summaryControls,
+      AbortSignal.any([detached.signal, AbortSignal.timeout(summaryControls.timeoutMs)]))
+      .catch((error: unknown) => {
+        ctx.logger.warn(`notify-hooks: turn summary failed: ${String(error)}`)
+        return undefined
+      })
+    const payload = summary === undefined ? stopPayload(agent) : { ...stopPayload(agent), summary }
+    detached.track(runPoint('Stop', '', payload, { agent, signal: detached.signal })
+      .then((merged) => {
+        if (merged.decision === 'deny') {
+          const text = merged.reason ?? 'continue: blocked by Stop hook'
+          agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
+        }
+      })
+      .catch((error: unknown) => { ctx.logger.warn(`notify-hooks: Stop hook failed: ${String(error)}`) }))
   })
 
   // SubagentStart may inject child context; SubagentStop only observes. Both
@@ -292,14 +424,14 @@ export function apply(ctx: Context, config: Config): void {
         const context = contextFrom(merged)
         if (context && child) child.inject(context)
       })
-      .catch((error: unknown) => { ctx.logger.warn(`hooks-claude-code: SubagentStart hook failed: ${String(error)}`) }))
+      .catch((error: unknown) => { ctx.logger.warn(`notify-hooks: SubagentStart hook failed: ${String(error)}`) }))
   })
   ctx.on('subagent/end', (info) => {
     const child = subagentChildren.get(info.runId) ?? ctx.get('agents')?.get(info.id)
     subagentChildren.delete(info.runId)
     // The end edge follows child disposal; committed Session state remains readable.
     detached.track(runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload('SubagentStop', info, child), { ...child ? { agent: child, directory: 'committed' } : {}, signal: detached.signal })
-      .catch((error: unknown) => { ctx.logger.warn(`hooks-claude-code: SubagentStop hook failed: ${String(error)}`) }))
+      .catch((error: unknown) => { ctx.logger.warn(`notify-hooks: SubagentStop hook failed: ${String(error)}`) }))
   })
 }
 
@@ -322,7 +454,7 @@ function lastTurn(ctx: Context, agent: Agent | undefined): number {
 }
 
 /** Flatten content blocks to the text a hook payload carries (the common case). */
-function blocksToText(content: ContentBlock[]): string {
+function blocksToText(content: readonly ContentBlock[]): string {
   return content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map(b => b.text).join('')
 }
 
@@ -364,4 +496,128 @@ function subagentPayload(event: 'SubagentStart' | 'SubagentStop', info: { id: st
     agent_type: SUBAGENT_TYPE,
     ...event === 'SubagentStop' ? { stop_hook_active: false } : {},
   }
+}
+
+/** Resolved turn-summary controls after schema defaults. */
+interface ResolvedSummary {
+  readonly provider: string
+  readonly model: string
+  readonly prompt: string
+  readonly maxTokens: number
+  readonly maxInputChars: number
+  readonly timeoutMs: number
+}
+
+/**
+ * Extract the turn's human request and final assistant response from the
+ * derived history and frame them for the summary request. Bridge-injected
+ * user context and tool results never name the task, so only human user
+ * messages count.
+ * @param messages - the session's derived message history.
+ * @param maxInputChars - character cap for the framed input.
+ * @returns the framed input, or undefined when the turn has no request or no response.
+ */
+function extractTurnInput(messages: readonly Message[], maxInputChars: number): string | undefined {
+  let task = ''
+  let result = ''
+  for (const message of messages) {
+    if (message.role === 'user') {
+      if (message.source.kind !== 'user') continue
+      task = blocksToText(message.content)
+      result = ''
+    } else if (message.role === 'assistant') {
+      result = blocksToText(message.content)
+    }
+  }
+  if (task === '' || result === '') return undefined
+  const head = 'Task:\n' + task + '\n\nResult:\n'
+  const budget = Math.max(0, maxInputChars - head.length)
+  return head + (result.length > budget ? result.slice(0, budget) + '…' : result)
+}
+
+/**
+ * Classify one terminal finish reason. Operational failures throw; every other
+ * terminal kind is recorded.
+ * @param finish - terminal finish reason of the assembled stream.
+ * @returns the recorded finish kind.
+ * @throws {Error} on a provider or abort failure.
+ */
+function terminalFinish(finish: FinishReason): NotifyHooksSummaryResultEventData['finish'] {
+  switch (finish.kind) {
+    case 'stop':
+    case 'tool-calls':
+    case 'max-tokens':
+      return finish.kind
+    case 'error':
+    case 'aborted':
+      throw new Error(`notify-hooks: summary request failed: ${finish.failure.message}`)
+    default:
+      return assertNever(finish, 'FinishReason')
+  }
+}
+
+/**
+ * Generate one turn summary with the configured route, recording the exact
+ * request before dispatch and the assembled response after the stream
+ * settles. The session stays live for the whole call, so both events land
+ * inside the turn they belong to.
+ * @param ctx - context exposing the optional LLM service.
+ * @param agent - the stopping agent whose session receives the log events.
+ * @param turn - the turn number the summary belongs to.
+ * @param controls - resolved summary controls.
+ * @param signal - cancellation covering route preparation and the stream.
+ * @returns the summary text, or undefined when the turn has nothing to summarize or no llm service is registered.
+ */
+async function generateTurnSummary(
+  ctx: Context,
+  agent: Agent,
+  turn: number,
+  controls: ResolvedSummary,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const input = extractTurnInput(agent.session.deriveMessages(), controls.maxInputChars)
+  if (input === undefined) return undefined
+  const llm = ctx.get('llm')
+  if (llm === undefined) return undefined
+  const messages: Message[] = [createUserMessage({
+    content: [{ type: 'text', text: input }],
+    source: CONTEXT_SOURCE,
+  })]
+  agent.session.append('notify-hooks/summary-request', {
+    turn,
+    provider: controls.provider,
+    model: controls.model,
+    system: controls.prompt,
+    messages,
+    maxTokens: controls.maxTokens,
+  })
+  const started = performance.now()
+  const call = await llm.prepareCall({
+    provider: controls.provider,
+    model: controls.model,
+    maxTokens: controls.maxTokens,
+  }, signal)
+  const options: GenerateOptions = {
+    ...call.config,
+    messages,
+    system: controls.prompt,
+    sessionId: agent.session.id,
+    signal,
+  }
+  const assembler = new BlockAssembler()
+  for await (const chunk of call.stream(options)) {
+    signal.throwIfAborted()
+    assembler.push(chunk)
+  }
+  const finish = terminalFinish(assembler.finish)
+  const text = blocksToText(assembler.blocks())
+  agent.session.append('notify-hooks/summary-result', {
+    turn,
+    provider: controls.provider,
+    model: controls.model,
+    text,
+    finish,
+    durationMs: performance.now() - started,
+  })
+  return text
 }

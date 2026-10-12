@@ -15,7 +15,7 @@ Every way a mod behaves differently through this bridge than under Claude Code, 
 | A hooks module may be TypeScript | A `.ts` hooks module loads only where the launcher transpiles (the source launch does; a built install does not) | DSH ships plain Node |
 | Mods run in-process with `$` as their only access to the host | The hooks module runs in-process with Node's globals, no access rule, and the process's full authority: `$.env` reads and writes the harness environment, `$.http.fetch` reaches any URL, `$.fs` and `$.tool.call` act as the session | No sandbox is applied to mods; mount only mods you would run as a plugin |
 | `import type { … } from 'claude-code'`, `declare module 'claude-code' { interface PluginState }` | The `claude-code` module name resolves only inside this repository's test setup, to the bridge's types; a mod outside it imports `@deepseek-ai/dsh-experimental-claude-code-mods` | The type names are the bridge's own |
-| `settings hooks` in `hooks.json` run beside mod hooks | Not run; mount `@deepseek-ai/dsh-hooks-claude-code` for them | Different bridge |
+| `settings hooks` in `hooks.json` run beside mod hooks | Not run; mount `@deepseek-ai/dsh-notify-hooks` for them | Different bridge |
 
 ## Events
 

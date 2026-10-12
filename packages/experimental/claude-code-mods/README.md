@@ -148,7 +148,7 @@ A call whose service is not composed rejects with the missing service's package 
 - [Claude Code mods reference](https://code.claude.com/docs/en/plugins/mods/reference) — the events, methods, and limits this bridge mirrors.
 - [The Web band](../client-ui-claude-code-mods/README.md) — the Client package that draws `ui.render` trees in the input dock.
 - [Experimental packages](../README.md) — publication policy and dependency isolation.
-- [Claude Code hook bridge](../hooks-claude-code/README.md) — the settings-hook bridge; a plugin's `hooks.json` settings hooks need `dsh-hooks-claude-code`.
+- [Claude Code hook bridge](../notify-hooks/README.md) — the settings-hook bridge; a plugin's `hooks.json` settings hooks need `dsh-notify-hooks`.
 - [Tool execution pipeline](../../../docs/tool-execution-pipeline.md) — the waterfalls `tool.call` runs around.
 - [Human commands](../../interaction/commands/README.md) — the registry `$.command.register` lands on.
 
@@ -207,7 +207,7 @@ These limits describe where a Claude Code mod behaves differently through this b
 - **No sandbox, no static analysis, no hot reload** — the hooks module runs in-process with Node's globals and the process's full authority (its environment, network, filesystem, and tools); the `$`-only access rule, `claude plugin validate`, type generation, `--plugin-dir` watching, and the in-session mod authoring flow are not implemented. Mount only mods you would run as a plugin. Mounting a mod again re-runs `register` on the same evaluated module, so module-level variables keep their values.
 - **`turn.complete` text** — the `{ text }` a hook returns reaches the host log, not a line under the answer; `durationMs` counts from the turn's `turn/start`.
 - **`$.session.usage`** — `window` is `0` and `percent` absent until the route's context window and a provider usage report are known through the token meter; `rateLimits` is always empty. `$.fs.stat` reports `mtimeMs: 0`.
-- **`plugin.json` and `hooks.json`** — not read; `defineMod` carries the identity, and a plugin's settings hooks need `@deepseek-ai/dsh-hooks-claude-code`.
+- **`plugin.json` and `hooks.json`** — not read; `defineMod` carries the identity, and a plugin's settings hooks need `@deepseek-ai/dsh-notify-hooks`.
 
 <a id="dev-note"></a>
 ### Dev Note

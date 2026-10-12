@@ -14,12 +14,12 @@ import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
-import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude-code'
+import * as NotifyHooks from '@deepseek-ai/dsh-notify-hooks'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
  * Full-loop bridge tests: a scripted mock MODEL drives the REAL agent loop + REAL
- * bash executor, and the REAL `dsh-hooks-claude-code` bridge runs REAL shell hook
+ * bash executor, and the REAL `dsh-notify-hooks` bridge runs REAL shell hook
  * scripts written to a temp dir — only the model is mocked (the "prefer the real
  * implementation" rule). Each test writes a `hooks.json` + executable scripts,
  * loads the bridge pointed at them, and asserts the hook's effect on the loop.
@@ -45,8 +45,13 @@ function writeConfig(hooks: unknown, scripts: Record<string, string> = {}): stri
   return dir
 }
 
-async function harness(configDir: string, adapter: MockAdapter, beforeHooks?: (ctx: Context) => void): Promise<Context> {
-  return (await harnessWithFiber(configDir, adapter, beforeHooks)).ctx
+async function harness(
+  configDir: string,
+  adapter: MockAdapter,
+  beforeHooks?: (ctx: Context) => void,
+  bridgeConfig?: Partial<Parameters<typeof NotifyHooks.apply>[1]>,
+): Promise<Context> {
+  return (await harnessWithFiber(configDir, adapter, beforeHooks, bridgeConfig)).ctx
 }
 
 /** {@link harness}, also exposing the bridge's fiber for tests that dispose it. */
@@ -54,6 +59,7 @@ async function harnessWithFiber(
   configDir: string,
   adapter: MockAdapter,
   beforeHooks?: (ctx: Context) => void,
+  bridgeConfig?: Partial<Parameters<typeof NotifyHooks.apply>[1]>,
 ): Promise<{ ctx: Context; hooks: Fiber }> {
   const ctx = new Context()
   provideWorkingDirectoryFixture(ctx)
@@ -62,7 +68,7 @@ async function harnessWithFiber(
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   beforeHooks?.(ctx)
-  const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json') })
+  const hooks = await ctx.plugin(NotifyHooks, { configPath: join(configDir, 'hooks.json'), ...bridgeConfig })
   ctx.llm.registerAdapter(['mock'], adapter)
   return { ctx, hooks }
 }
@@ -119,7 +125,7 @@ describe('unmatched hooks and directory recovery', () => {
   })
 })
 
-describe('hooks-claude-code bridge — UserPromptSubmit', () => {
+describe('notify-hooks bridge — UserPromptSubmit', () => {
   it('a UserPromptSubmit hook that exits 2 closes a blocked turn without a step', async () => {
     // UserPromptSubmit ignores its malformed matcher field, then exit 2 blocks
     // with the reason on stderr.
@@ -164,7 +170,7 @@ describe('hooks-claude-code bridge — UserPromptSubmit', () => {
   })
 })
 
-describe('hooks-claude-code bridge — PreToolUse', () => {
+describe('notify-hooks bridge — PreToolUse', () => {
   it('a matching PreToolUse hook that exits 2 denies the tool (isError result), tool never runs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
@@ -211,7 +217,7 @@ describe('hooks-claude-code bridge — PreToolUse', () => {
   })
 })
 
-describe('hooks-claude-code bridge — PostToolUse', () => {
+describe('notify-hooks bridge — PostToolUse', () => {
   it('a PostToolUse hook that blocks (exit 2) turns the result into an isError with feedback', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
@@ -280,7 +286,7 @@ describe('hooks-claude-code bridge — PostToolUse', () => {
   })
 })
 
-describe('hooks-claude-code bridge — SessionStart', () => {
+describe('notify-hooks bridge — SessionStart', () => {
   it('a SessionStart hook injects additionalContext the first request sees', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
@@ -305,7 +311,7 @@ describe('hooks-claude-code bridge — SessionStart', () => {
   })
 })
 
-describe('hooks-claude-code bridge — SubagentStart / SubagentStop (observe)', () => {
+describe('notify-hooks bridge — SubagentStart / SubagentStop (observe)', () => {
   it('runs SubagentStart and SubagentStop hooks when the subagent lifecycle events fire', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
@@ -380,7 +386,7 @@ describe('hooks-claude-code bridge — SubagentStart / SubagentStop (observe)', 
   })
 })
 
-describe('hooks-claude-code bridge — load resilience', () => {
+describe('notify-hooks bridge — load resilience', () => {
   it('a missing config file registers no hooks and does not crash the loop', async () => {
     const adapter = new MockAdapter([textResponse('fine')])
     const ctx = new Context()
@@ -389,7 +395,7 @@ describe('hooks-claude-code bridge — load resilience', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    await ctx.plugin(HooksClaude, { configPath: '/nonexistent/hooks.json' })
+    await ctx.plugin(NotifyHooks, { configPath: '/nonexistent/hooks.json' })
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
@@ -450,7 +456,7 @@ describe('hooks-claude-code bridge — load resilience', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    const fiber = await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
+    const fiber = await ctx.plugin(NotifyHooks, { configPath: join(dir, 'hooks.json') })
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -465,14 +471,101 @@ describe('hooks-claude-code bridge — load resilience', () => {
     // `export default apply` would collapse the module via `unwrapExports`
     // (`exports.default ?? exports`), DROP `inject`, and crash at load with
     // "cannot get property … without inject". Guard the shape directly.
-    expect('default' in HooksClaude).toBe(false)
-    expect(HooksClaude.name).toBe('hooks-claude-code')
-    expect(HooksClaude.inject).toEqual(['shell', 'sessionProjections', 'workingDirectory'])
+    expect('default' in NotifyHooks).toBe(false)
+    expect(NotifyHooks.name).toBe('notify-hooks')
+    expect(NotifyHooks.inject).toEqual(['shell', 'sessionProjections', 'workingDirectory'])
     const loader = Object.create(Loader.prototype) as Loader
-    const unwrapped = loader.unwrapExports(HooksClaude) as Record<string, unknown>
-    expect(unwrapped).toBe(HooksClaude)
-    expect(unwrapped.name).toBe('hooks-claude-code')
+    const unwrapped = loader.unwrapExports(NotifyHooks) as Record<string, unknown>
+    expect(unwrapped).toBe(NotifyHooks)
+    expect(unwrapped.name).toBe('notify-hooks')
     expect(unwrapped.inject).toEqual(['shell', 'sessionProjections', 'workingDirectory'])
     expect(typeof unwrapped.apply).toBe('function')
+  })
+})
+
+describe('notify-hooks bridge — Stop turn summary', () => {
+  it('generates a summary at Stop, delivers it in the Stop payload, and records both events', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-summary-'))
+    dirs.push(dir)
+    const payloadPath = join(dir, 'payload.json')
+    const capture = join(dir, 'capture.sh')
+    writeFileSync(capture, '#!/usr/bin/env bash\ncat > ' + payloadPath + '\n')
+    chmodSync(capture, 0o755)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: capture }] }] } }))
+
+    const adapter = new MockAdapter([textResponse('the work is finished')])
+    const summaryAdapter = new MockAdapter([textResponse('did the thing, all green')])
+    const ctx = await harness(dir, adapter, undefined, {
+      summary: { provider: 'mock-summary', model: 'mock', maxTokens: 128, timeoutMs: 5000 },
+    })
+    ctx.llm.registerAdapter(['mock-summary'], summaryAdapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'please do the thing' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    // The Stop hook runs detached, so poll for its observable effect.
+    await waitFor(() => existsSync(payloadPath))
+
+    const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
+    expect(payload.hook_event_name).toBe('Stop')
+    expect(payload.summary).toBe('did the thing, all green')
+    // The summary request reached the configured route, not the conversation route.
+    expect(summaryAdapter.requests).toHaveLength(1)
+    expect(summaryAdapter.requests[0]!.provider).toBe('mock-summary')
+
+    const request = events(agent).find(e => e.type === 'notify-hooks/summary-request')
+    expect(request?.type === 'notify-hooks/summary-request' && request.data.provider).toBe('mock-summary')
+    expect(request?.type === 'notify-hooks/summary-request' && request.data.maxTokens).toBe(128)
+    const result = events(agent).find(e => e.type === 'notify-hooks/summary-result')
+    expect(result?.type === 'notify-hooks/summary-result' && result.data.text).toBe('did the thing, all green')
+    expect(result?.type === 'notify-hooks/summary-result' && result.data.finish).toBe('stop')
+  })
+
+  it('without summary config the Stop payload carries no summary', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-nosummary-'))
+    dirs.push(dir)
+    const payloadPath = join(dir, 'payload.json')
+    const capture = join(dir, 'capture.sh')
+    writeFileSync(capture, '#!/usr/bin/env bash\ncat > ' + payloadPath + '\n')
+    chmodSync(capture, 0o755)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: capture }] }] } }))
+
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(dir, adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    await waitFor(() => existsSync(payloadPath))
+
+    const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
+    expect(payload.hook_event_name).toBe('Stop')
+    expect('summary' in payload).toBe(false)
+  })
+
+  it('a failing summary route still runs the Stop hooks without a summary', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-sumfail-'))
+    dirs.push(dir)
+    const payloadPath = join(dir, 'payload.json')
+    const capture = join(dir, 'capture.sh')
+    writeFileSync(capture, '#!/usr/bin/env bash\ncat > ' + payloadPath + '\n')
+    chmodSync(capture, 0o755)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: capture }] }] } }))
+
+    // No adapter is registered for the configured route, so preparation rejects.
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(dir, adapter, undefined, {
+      summary: { provider: 'missing-provider', model: 'mock', timeoutMs: 5000 },
+    })
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    await waitFor(() => existsSync(payloadPath))
+
+    const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
+    expect(payload.hook_event_name).toBe('Stop')
+    expect('summary' in payload).toBe(false)
+    // The request is recorded before dispatch, so the failed attempt stays
+    // reconstructable; only the result event is absent.
+    expect(events(agent).some(e => e.type === 'notify-hooks/summary-request')).toBe(true)
+    expect(events(agent).some(e => e.type === 'notify-hooks/summary-result')).toBe(false)
   })
 })

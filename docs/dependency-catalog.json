@@ -1645,11 +1645,11 @@
       ]
     },
     {
-      "name": "@deepseek-ai/dsh-hooks-claude-code",
+      "name": "@deepseek-ai/dsh-notify-hooks",
       "version": "0.1.5-rc.2",
       "installations": [
         {
-          "location": "node_modules/@deepseek-ai/dsh-hooks-claude-code",
+          "location": "node_modules/@deepseek-ai/dsh-notify-hooks",
           "direct": true,
           "optional": false,
           "peer": false

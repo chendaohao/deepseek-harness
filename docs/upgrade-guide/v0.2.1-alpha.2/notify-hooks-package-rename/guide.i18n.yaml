@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.2/notify-hooks-package-rename/guide.md
+/:
+  en: b04eda8bb81c6858
+  zh: 9e07c2d01e2a5ee8
+/the-hooks-bridge-is-now-dsh-notify-hooks:
+  en: d89972b587f0cabb
+  zh: 6501b5e2aae9ed6e
+/the-hooks-bridge-is-now-dsh-notify-hooks/change:
+  en: 346f680be00b7e24
+  zh: efd331d3c6a9e019
+/the-hooks-bridge-is-now-dsh-notify-hooks/migration:
+  en: 15153fd7ba2ebe00
+  zh: 0026d356908dc160
