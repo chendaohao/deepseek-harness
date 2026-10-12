@@ -176,6 +176,8 @@ flowchart LR
   cfg --> plugin_dsh_base_repeat_tool_reminder
   plugin_dsh_base_max_tokens_recovery["max-tokens-recovery<br/>@deepseek-ai/dsh-max-tokens-recovery"]
   cfg --> plugin_dsh_base_max_tokens_recovery
+  plugin_dsh_base_compile_serialization["compile-serialization<br/>@deepseek-ai/dsh-compile-serialization"]
+  cfg --> plugin_dsh_base_compile_serialization
   plugin_dsh_base_web["web<br/>@deepseek-ai/dsh-web"]
   cfg --> plugin_dsh_base_web
   plugin_dsh_base_web_search_deepseek["web-search-deepseek<br/>@deepseek-ai/dsh-web-search-deepseek"]
@@ -286,6 +288,7 @@ flowchart LR
 | `tool-goal` | `@deepseek-ai/dsh-tool-goal` |
 | `repeat-tool-reminder` | `@deepseek-ai/dsh-repeat-tool-reminder` |
 | `max-tokens-recovery` | `@deepseek-ai/dsh-max-tokens-recovery` |
+| `compile-serialization` | `@deepseek-ai/dsh-compile-serialization` |
 | `web` | `@deepseek-ai/dsh-web` |
 | `web-search-deepseek` | `@deepseek-ai/dsh-web-search-deepseek` |
 | `web-fetch-http` | `@deepseek-ai/dsh-web-fetch-http` |

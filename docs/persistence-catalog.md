@@ -47,6 +47,8 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:llm/retry` | event | `525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336` | [`{ type: "llm/retry" }`](#persistence-type-sha256-525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336) |
 | `event:llm/retry-started` | event | `48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3` | [`{ type: "llm/retry-started" }`](#persistence-type-sha256-48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3) |
 | `event:model/selection` | event | `35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc` | [`{ type: "model/selection" }`](#persistence-type-sha256-35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc) |
+| `event:notify-hooks/summary-request` | event | `b0254c67f77e25c0ac06565d64f886d7fa87e8cd2d5917a1cf9690a054ef3d33` | [`{ type: "notify-hooks/summary-request" }`](#persistence-type-sha256-b0254c67f77e25c0ac06565d64f886d7fa87e8cd2d5917a1cf9690a054ef3d33) |
+| `event:notify-hooks/summary-result` | event | `8b7609e7ca20f5ab56f259f83e2285ee3156f517643d818fd4ea5bc415123c04` | [`{ type: "notify-hooks/summary-result" }`](#persistence-type-sha256-8b7609e7ca20f5ab56f259f83e2285ee3156f517643d818fd4ea5bc415123c04) |
 | `event:permission/preset` | event | `5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b` | [`{ type: "permission/preset" }`](#persistence-type-sha256-5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b) |
 | `event:plan/mode` | event | `a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f` | [`{ type: "plan/mode" }`](#persistence-type-sha256-a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f) |
 | `event:request/context` | event | `37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf` | [`{ type: "request/context" }`](#persistence-type-sha256-37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf) |
@@ -63,6 +65,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:subagent/catalog` | event | `53750b9abf61efb7992b0aadc3e247ec927449c63266df28230fd1139f5590ac` | [`{ type: "subagent/catalog" }`](#persistence-type-sha256-53750b9abf61efb7992b0aadc3e247ec927449c63266df28230fd1139f5590ac) |
 | `event:subagent/descriptor` | event | `b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5` | [`{ type: "subagent/descriptor" }`](#persistence-type-sha256-b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5) |
 | `event:subagent/model-selection-policy` | event | `a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc` | [`{ type: "subagent/model-selection-policy" }`](#persistence-type-sha256-a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc) |
+| `event:subagent/worker-route` | event | `0b0ad6085ff8eefd380b579be5331360bb8d2f10c83b7d0a08897998177bc9e8` | [`{ type: "subagent/worker-route" }`](#persistence-type-sha256-0b0ad6085ff8eefd380b579be5331360bb8d2f10c83b7d0a08897998177bc9e8) |
 | `event:system/message` | event | `69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1` | [`{ type: "system/message" }`](#persistence-type-sha256-69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1) |
 | `event:team/member` | event | `4fb59762612c3e3ac3a3bd4f84c9c148d3c3893bd422ba2b201cc039fabd49bc` | [`{ type: "team/member" }`](#persistence-type-sha256-4fb59762612c3e3ac3a3bd4f84c9c148d3c3893bd422ba2b201cc039fabd49bc) |
 | `event:team/message/delivered` | event | `48f9c19417a1abbedfa59f4667bba36b93ac2db407adf5e84cb3ba0de30942cb` | [`{ type: "team/message/delivered" }`](#persistence-type-sha256-48f9c19417a1abbedfa59f4667bba36b93ac2db407adf5e84cb3ba0de30942cb) |
@@ -668,6 +671,30 @@ Source: [`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src
 
 Source: [`packages/api/session-controller/src/types.ts:40`](../packages/api/session-controller/src/types.ts)
 
+### `notify-hooks/*`
+
+<a id="notify-hookssummary-request--log-only"></a>
+
+#### `notify-hooks/summary-request` — log-only
+
+```ts persistence-catalog
+/** Log-only pre-dispatch record of one turn-summary model request. */
+'notify-hooks/summary-request': NotifyHooksSummaryRequestEventData
+```
+
+Source: [`packages/experimental/notify-hooks/src/index.ts:181`](../packages/experimental/notify-hooks/src/index.ts)
+
+<a id="notify-hookssummary-result--log-only"></a>
+
+#### `notify-hooks/summary-result` — log-only
+
+```ts persistence-catalog
+/** Log-only record of one assembled turn summary. */
+'notify-hooks/summary-result': NotifyHooksSummaryResultEventData
+```
+
+Source: [`packages/experimental/notify-hooks/src/index.ts:183`](../packages/experimental/notify-hooks/src/index.ts)
+
 ### `permission/*`
 
 <a id="permissionpreset--log-only"></a>
@@ -955,6 +982,27 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:38`](../packages/subagent
 ```
 
 Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../packages/subagent/tool-subagent/src/model-selection-state.ts)
+
+<a id="subagentworker-route--log-only"></a>
+
+#### `subagent/worker-route` — log-only
+
+```ts persistence-catalog
+/**
+ * Records that this Session's LLM route follows the named Host settings
+ * namespace instead of the route baked at creation, so every later
+ * activation — a cold resume included — re-resolves it. Appended by the
+ * delegation tool that opted into `workerRouteSettings`; absence means the
+ * route fixed at creation. Log-only: it carries no `surfaceOp` and never
+ * enters model history.
+ */
+'subagent/worker-route': {
+  /** User-settings namespace this Session's route follows. */
+  namespace: string
+}
+```
+
+Source: [`packages/subagent/tool-subagent/src/worker-route-state.ts:19`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 ### `system/*`
 
@@ -2133,6 +2181,22 @@ SHA-256: `e8de0f457fed5b9ff94dc4950b59ef75fd8ba8af665cc7899485924a62653367`
 
 `"notice"`
 
+<a id="persistence-type-sha256-a60c1634b9969ac7391479d6ff1135f5393c16af88b2a41b24e89189d85d2d7f"></a>
+
+### `"notify-hooks/summary-request"`
+
+SHA-256: `a60c1634b9969ac7391479d6ff1135f5393c16af88b2a41b24e89189d85d2d7f`
+
+`"notify-hooks/summary-request"`
+
+<a id="persistence-type-sha256-53bab25002dd60680f063a2006dbcf4f36c4be6e4c4e77f863b4d115a6e42b77"></a>
+
+### `"notify-hooks/summary-result"`
+
+SHA-256: `53bab25002dd60680f063a2006dbcf4f36c4be6e4c4e77f863b4d115a6e42b77`
+
+`"notify-hooks/summary-result"`
+
 <a id="persistence-type-sha256-d28765f87d6b6ab408e0b2f3e7e297791b004b806d8e302c49903ebae815feb2"></a>
 
 ### `"one-shot"`
@@ -2564,6 +2628,14 @@ SHA-256: `5ebce1317eacd2c148456627a09668e927ee15c204f0643f5ea76b46b54a2647`
 SHA-256: `0a8a062bc9c3c0d97fd97742262f2ea53dd32297f834e81114870d38ac3dc6da`
 
 `"subagent/model-selection-policy"`
+
+<a id="persistence-type-sha256-a5693b01d2e93be1b514dff7079205fb32e9a94d52bdf27d0772f3f400f1a447"></a>
+
+### `"subagent/worker-route"`
+
+SHA-256: `a5693b01d2e93be1b514dff7079205fb32e9a94d52bdf27d0772f3f400f1a447`
+
+`"subagent/worker-route"`
 
 <a id="persistence-type-sha256-511801b0a6470d98566e8385d3dffddb2b67f79fcf73ed6056f46c3cc0a245a7"></a>
 
@@ -4228,6 +4300,48 @@ Sources: [`packages/api/session-controller/src/types.ts:100`](../packages/api/se
 | `provider` | required | `string` |
 | `reasoningEffort` | optional | `string` |
 
+<a id="persistence-type-sha256-f6ef3499a32918b2c3e1bea1dacbcacf88677cb524794c0c07030d9d95c365d0"></a>
+
+<a id="persistence-type-notifyhookssummaryrequesteventdata"></a>
+
+<a id="persistence-type-packagesexperimentalnotify-hookssrcindextsnotifyhookssummaryrequesteventdata"></a>
+
+### `NotifyHooksSummaryRequestEventData`
+
+SHA-256: `f6ef3499a32918b2c3e1bea1dacbcacf88677cb524794c0c07030d9d95c365d0`
+
+Sources: [`packages/experimental/notify-hooks/src/index.ts:147`](../packages/experimental/notify-hooks/src/index.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `maxTokens` | required | `number` |
+| `messages` | required | [`Message[]`](#persistence-type-sha256-2a7af7fd2c501d79bb0fd8744a75675222060ad0a2058186f64fffa27e09a016) |
+| `model` | required | `string` |
+| `provider` | required | `string` |
+| `system` | required | `string` |
+| `turn` | required | `number` |
+
+<a id="persistence-type-sha256-9952f0f6d8558db4ec0bb6e097d03dffe0aa61a77c4b4871d30b055c8745d744"></a>
+
+<a id="persistence-type-notifyhookssummaryresulteventdata"></a>
+
+<a id="persistence-type-packagesexperimentalnotify-hookssrcindextsnotifyhookssummaryresulteventdata"></a>
+
+### `NotifyHooksSummaryResultEventData`
+
+SHA-256: `9952f0f6d8558db4ec0bb6e097d03dffe0aa61a77c4b4871d30b055c8745d744`
+
+Sources: [`packages/experimental/notify-hooks/src/index.ts:163`](../packages/experimental/notify-hooks/src/index.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `durationMs` | required | `number` |
+| `finish` | required | [`union (3 variants)`](#persistence-type-sha256-21c7b61cae5936dff816e5dcb4e50abb81181bfdf059a3a4f89a511c68da0fab) |
+| `model` | required | `string` |
+| `provider` | required | `string` |
+| `text` | required | `string` |
+| `turn` | required | `number` |
+
 <a id="persistence-type-sha256-8e8e91646a5cae3fc78f7532a0013ff2088ae47077642c2edd507a508209b8af"></a>
 
 <a id="persistence-type-oneshotscheduledispatchchange"></a>
@@ -5544,6 +5658,18 @@ One of:
 
 - [`{ compactionId, llmStreamCall, maxTokens?, model, … }`](#persistence-type-sha256-a99ec0993c62c058e50af9f68922202a3b54f5e259bc2abf1915a73381d2316d)
 - [`{ compactionId, maxTokens?, model, provider, … }`](#persistence-type-sha256-576a2de8355eb09850963ff5953420b172e274d9283666eb7d889097db120796)
+
+<a id="persistence-type-sha256-21c7b61cae5936dff816e5dcb4e50abb81181bfdf059a3a4f89a511c68da0fab"></a>
+
+### `union (3 variants)`
+
+SHA-256: `21c7b61cae5936dff816e5dcb4e50abb81181bfdf059a3a4f89a511c68da0fab`
+
+One of:
+
+- `"max-tokens"`
+- `"stop"`
+- `"tool-calls"`
 
 <a id="persistence-type-sha256-5776e5553ff2dfe3f5bc202dbb1e7c9f93e35a531aebb7764c23b2b6153b2ccc"></a>
 
@@ -7714,6 +7840,18 @@ Sources: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/
 | `mode` | required | [`SandboxMode`](#persistence-type-sha256-fab2bb09bc5e3b9db0685e8f5500b029af1a2b33e70bc703c1d5d0f596fbc1fd) |
 | `source` | optional | `"delegation"` |
 
+<a id="persistence-type-sha256-78314a75b0160404dc0f554f99261038668b8d12859b10610fd6c41a4355ea6b"></a>
+
+### `{ namespace }`
+
+SHA-256: `78314a75b0160404dc0f554f99261038668b8d12859b10610fd6c41a4355ea6b`
+
+Sources: [`packages/subagent/tool-subagent/src/worker-route-state.ts:19`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `namespace` | required | `string` |
+
 <a id="persistence-type-sha256-11f70b595aa76897fc4e25a352bfa718c659f44b799e5aa14e84e5a38fe72912"></a>
 
 ### `{ policy, source? }`
@@ -8329,6 +8467,38 @@ SHA-256: `35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc`
 | `time` | required | `number` |
 | `type` | required | `"model/selection"` |
 
+<a id="persistence-type-sha256-b0254c67f77e25c0ac06565d64f886d7fa87e8cd2d5917a1cf9690a054ef3d33"></a>
+
+<a id="persistence-type-eventnotify-hookssummary-request"></a>
+
+### `{ type: "notify-hooks/summary-request" }`
+
+SHA-256: `b0254c67f77e25c0ac06565d64f886d7fa87e8cd2d5917a1cf9690a054ef3d33`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`NotifyHooksSummaryRequestEventData`](#persistence-type-sha256-f6ef3499a32918b2c3e1bea1dacbcacf88677cb524794c0c07030d9d95c365d0) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"notify-hooks/summary-request"` |
+
+<a id="persistence-type-sha256-8b7609e7ca20f5ab56f259f83e2285ee3156f517643d818fd4ea5bc415123c04"></a>
+
+<a id="persistence-type-eventnotify-hookssummary-result"></a>
+
+### `{ type: "notify-hooks/summary-result" }`
+
+SHA-256: `8b7609e7ca20f5ab56f259f83e2285ee3156f517643d818fd4ea5bc415123c04`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`NotifyHooksSummaryResultEventData`](#persistence-type-sha256-9952f0f6d8558db4ec0bb6e097d03dffe0aa61a77c4b4871d30b055c8745d744) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"notify-hooks/summary-result"` |
+
 <a id="persistence-type-sha256-5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b"></a>
 
 <a id="persistence-type-eventpermissionpreset"></a>
@@ -8614,6 +8784,22 @@ SHA-256: `a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc`
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"subagent/model-selection-policy"` |
+
+<a id="persistence-type-sha256-0b0ad6085ff8eefd380b579be5331360bb8d2f10c83b7d0a08897998177bc9e8"></a>
+
+<a id="persistence-type-eventsubagentworker-route"></a>
+
+### `{ type: "subagent/worker-route" }`
+
+SHA-256: `0b0ad6085ff8eefd380b579be5331360bb8d2f10c83b7d0a08897998177bc9e8`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`{ namespace }`](#persistence-type-sha256-78314a75b0160404dc0f554f99261038668b8d12859b10610fd6c41a4355ea6b) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"subagent/worker-route"` |
 
 <a id="persistence-type-sha256-69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1"></a>
 

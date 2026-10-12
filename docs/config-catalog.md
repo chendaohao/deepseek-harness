@@ -189,7 +189,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-gateway`
 
 - `inject`: `typert`
-- `source`: [`packages/api/gateway/src/index.ts:149`](../packages/api/gateway/src/index.ts)
+- `source`: [`packages/api/gateway/src/index.ts:150`](../packages/api/gateway/src/index.ts)
 
 ```ts config-catalog
 /** Gateway transport configuration. */
@@ -1516,7 +1516,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-goal-round-driver`
 
 - `inject`: `agents` · `goals` · `sessions`
-- `source`: [`packages/goal/goal-round-driver/src/index.ts:27`](../packages/goal/goal-round-driver/src/index.ts)
+- `source`: [`packages/goal/goal-round-driver/src/index.ts:30`](../packages/goal/goal-round-driver/src/index.ts)
 
 ```ts config-catalog
 /** Plugin configuration: how often automatic continuation may spend a round. */
@@ -1528,6 +1528,25 @@ export interface Config {
    * removes the interval, so a round is reserved at every idle point.
    */
   roundIntervalMs?: number
+  /**
+   * Whether an idle round backs off while the session waits on live subagents
+   * (default true). A round is skipped only when a live subagent is still
+   * unsettled, the inbox is empty, and the previous round called no tool; any
+   * input, tool activity, or child settlement returns the normal interval.
+   */
+  roundBackoffEnabled?: boolean
+  /**
+   * Interval before the first backed-off wake-up, in ms (default 1800000).
+   * Each further consecutive skipped round multiplies it by
+   * `roundBackoffFactor`, capped by `roundBackoffMaxMs`. Values below
+   * `roundIntervalMs` shorten the wait after a skip, so configure this at or
+   * above the normal interval.
+   */
+  roundBackoffInitialMs?: number
+  /** Growth factor per consecutive skipped round, at least 1 (default 2). */
+  roundBackoffFactor?: number
+  /** Ceiling for the backed-off interval, in ms (default 7200000). */
+  roundBackoffMaxMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-goal-round-driver -->
@@ -1575,45 +1594,6 @@ export interface HmrConfig extends ChokidarOptions {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-hmr -->
-
-<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-hooks-claude-code -->
-<a id="deepseek-aidsh-hooks-claude-code"></a>
-
-## `@deepseek-ai/dsh-hooks-claude-code`
-
-- `inject`: `shell` · `sessionProjections` · `workingDirectory`
-- `source`: [`packages/experimental/hooks-claude-code/src/index.ts:51`](../packages/experimental/hooks-claude-code/src/index.ts)
-
-```ts config-catalog
-/** Plugin config: where the CC hook config lives + substitution roots. */
-export interface Config {
-  /**
-   * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
-   * Process-level: read once at load, a relative path resolves against the process
-   * launch cwd, so one config applies to the whole process.
-   * TODO(per-session-hook-config): per-session discovery of a project-local
-   * `hooks.json` from each `session/new.cwd`.
-   */
-  configPath: string
-  /**
-   * Replaces `${CLAUDE_PLUGIN_ROOT}` in command strings (the plugin's root dir).
-   */
-  pluginRoot?: string
-  /**
-   * Replaces `${CLAUDE_PROJECT_DIR}` in command strings AND is exported as the
-   * `CLAUDE_PROJECT_DIR` env var for hook processes. When omitted, the env var
-   * defaults per-run to the agent's current directory (the
-   * same dir the hook runs in) — Claude Code always exports this var, and common
-   * unmodified hooks reference `$CLAUDE_PROJECT_DIR` for project-relative paths.
-   */
-  projectDir?: string
-  /** Default per-hook timeout in ms when a hook sets none (CC default: 600000). */
-  defaultTimeoutMs?: number
-  /** Character cap for the `hook/result` event's persisted stderr summary. */
-  stderrSummaryMaxChars?: number
-}
-```
-<!-- END GENERATED config-catalog:@deepseek-ai/dsh-hooks-claude-code -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-hooks-codex -->
 <a id="deepseek-aidsh-hooks-codex"></a>
@@ -2306,6 +2286,15 @@ export interface Config {
    * ceiling. `0` disables the guard.
    */
   maxRecoveries?: number
+  /**
+   * Recover a delegated child session's ceiling hits as well (default false).
+   * By default a child's budget is its parent's to manage, so the guard skips
+   * every session whose header names a parent session. Enable this when a
+   * worker burning its ceiling unattended costs more than the result the
+   * parent is waiting for; the recovery then asks the child to deliver the
+   * smallest result it can still report.
+   */
+  coverSubagentSessions?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-max-tokens-recovery -->
@@ -2404,6 +2393,75 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-message-feedback -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-notify-hooks -->
+<a id="deepseek-aidsh-notify-hooks"></a>
+
+## `@deepseek-ai/dsh-notify-hooks`
+
+- `inject`: `shell` · `sessionProjections` · `workingDirectory`
+- `source`: [`packages/experimental/notify-hooks/src/index.ts:74`](../packages/experimental/notify-hooks/src/index.ts)
+
+```ts config-catalog
+/** Plugin config: where the CC hook config lives + substitution roots. */
+export interface Config {
+  /**
+   * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
+   * Process-level: read once at load, a relative path resolves against the process
+   * launch cwd, so one config applies to the whole process.
+   * TODO(per-session-hook-config): per-session discovery of a project-local
+   * `hooks.json` from each `session/new.cwd`.
+   */
+  configPath: string
+  /**
+   * Replaces `${CLAUDE_PLUGIN_ROOT}` in command strings (the plugin's root dir).
+   */
+  pluginRoot?: string
+  /**
+   * Replaces `${CLAUDE_PROJECT_DIR}` in command strings AND is exported as the
+   * `CLAUDE_PROJECT_DIR` env var for hook processes. When omitted, the env var
+   * defaults per-run to the agent's current directory (the
+   * same dir the hook runs in) — Claude Code always exports this var, and common
+   * unmodified hooks reference `$CLAUDE_PROJECT_DIR` for project-relative paths.
+   */
+  projectDir?: string
+  /** Default per-hook timeout in ms when a hook sets none (CC default: 600000). */
+  defaultTimeoutMs?: number
+  /** Character cap for the `hook/result` event's persisted stderr summary. */
+  stderrSummaryMaxChars?: number
+  /**
+   * Optional model-backed turn summary. Presence opts in: at `Stop` the
+   * bridge generates a summary with the configured route and adds it to the
+   * Stop hook payload as `summary`, then runs the Stop hooks detached so
+   * sending never delays the turn boundary. A blocking Stop hook still forces
+   * continuation, through a new turn.
+   */
+  summary?: SummaryConfig
+}
+
+/**
+ * Model-backed turn-summary controls; the group's presence opts the feature in.
+ * At `Stop` the bridge extracts the turn's human request and final assistant
+ * response, generates a summary with this route, and adds it to the Stop hook
+ * payload as `summary`. The Stop hooks then run detached, so sending the
+ * summary never delays the turn boundary.
+ */
+export interface SummaryConfig {
+  /** Registered LLM provider route for the summary request. */
+  provider: string
+  /** Model id on {@link SummaryConfig.provider}. */
+  model: string
+  /** System prompt for the summary request. */
+  prompt?: string
+  /** Output-token cap for the summary request. */
+  maxTokens?: number
+  /** Character cap for the extracted task/result input. */
+  maxInputChars?: number
+  /** End-to-end deadline for the summary request in milliseconds. */
+  timeoutMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-notify-hooks -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-office-to-pdf -->
 <a id="deepseek-aidsh-office-to-pdf"></a>
@@ -4193,7 +4251,7 @@ export interface Config {
 
 - `inject`: `tools` · `subagents` · `systemPrompt` · `sessionProjections`
 - `refs`: [`AgentOptions`](subsystems/core.md)
-- `source`: [`packages/subagent/tool-subagent/src/index.ts:49`](../packages/subagent/tool-subagent/src/index.ts)
+- `source`: [`packages/subagent/tool-subagent/src/index.ts:63`](../packages/subagent/tool-subagent/src/index.ts)
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
@@ -4748,6 +4806,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-jobs` | — | [`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-layout` | — | [`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-message-feedback` | — | [`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-mobile` | — | [`packages/client/ui-mobile/src/index.ts`](../packages/client/ui-mobile/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-model-selection` | — | [`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-open-in-app` | — | [`packages/client/ui-open-in-app/src/index.ts`](../packages/client/ui-open-in-app/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-permission-presets` | — | [`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts) |

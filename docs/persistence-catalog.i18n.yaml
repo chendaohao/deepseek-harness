@@ -9,8 +9,8 @@
   en: 1387c4505dde2faf
   zh: 48570fa1c13d6910
 /session-persistence-event-catalog/persistence-type-fingerprints:
-  en: 2c6532300be14dd1
-  zh: e6fe55f143637064
+  en: b2caee4bcc588d97
+  zh: 1773d4a44d6149a4
 /session-persistence-event-catalog/event-envelope:
   en: 7ebb1a2e0dd1f916
   zh: 8946f415dda5c1b8
@@ -134,6 +134,15 @@
 /session-persistence-event-catalog/events/model/model-selection-log-only:
   en: ea963e9ec025c667
   zh: f6eea77d22442cd8
+/session-persistence-event-catalog/events/notify-hooks:
+  en: 3f16c1d65060992c
+  zh: 3f16c1d65060992c
+/session-persistence-event-catalog/events/notify-hooks/notify-hooks-summary-request-log-only:
+  en: dc878f3bfb21e37d
+  zh: 6df8f2e3d6553c8f
+/session-persistence-event-catalog/events/notify-hooks/notify-hooks-summary-result-log-only:
+  en: 6ffd1b46799c42b7
+  zh: 09a48fd2e60bcdb8
 /session-persistence-event-catalog/events/permission:
   en: 19917bc5438e60af
   zh: 19917bc5438e60af
@@ -207,8 +216,11 @@
   en: f5d53639dc5afdfc
   zh: 8c553e7397d08832
 /session-persistence-event-catalog/events/subagent/subagent-model-selection-policy-log-only:
-  en: cdf085d18fae747a
-  zh: 83cd5cf56fef4050
+  en: 1d1f2ffc838ff2e7
+  zh: 36a167282b56a813
+/session-persistence-event-catalog/events/subagent/subagent-worker-route-log-only:
+  en: c97b86cd547c3b23
+  zh: 08b528568f14e417
 /session-persistence-event-catalog/events/system:
   en: 8cac41d2fb575975
   zh: 8cac41d2fb575975
@@ -603,8 +615,14 @@
   en: 005dea2ea78fc1d6
   zh: 005dea2ea78fc1d6
 /session-persistence-event-catalog/resolved-persistence-types/notice:
-  en: 00df59bcc5c6edbb
-  zh: 00df59bcc5c6edbb
+  en: 21d0e9eeca6415a2
+  zh: 21d0e9eeca6415a2
+/session-persistence-event-catalog/resolved-persistence-types/notify-hooks-summary-request:
+  en: e16c864f16a334c8
+  zh: e16c864f16a334c8
+/session-persistence-event-catalog/resolved-persistence-types/notify-hooks-summary-result:
+  en: ec92655a2ab6023c
+  zh: ec92655a2ab6023c
 /session-persistence-event-catalog/resolved-persistence-types/one-shot:
   en: afd1613dd3d4da80
   zh: afd1613dd3d4da80
@@ -765,8 +783,11 @@
   en: e932f06c949f5f6c
   zh: e932f06c949f5f6c
 /session-persistence-event-catalog/resolved-persistence-types/subagent-model-selection-policy:
-  en: 25ccd80df944ac00
-  zh: 25ccd80df944ac00
+  en: cdff104c4d817b3e
+  zh: cdff104c4d817b3e
+/session-persistence-event-catalog/resolved-persistence-types/subagent-worker-route:
+  en: ac6b9a075e775a8c
+  zh: ac6b9a075e775a8c
 /session-persistence-event-catalog/resolved-persistence-types/success:
   en: 801923015f7dc7e4
   zh: 801923015f7dc7e4
@@ -1116,8 +1137,14 @@
   en: 3b677f021d7dd4d3
   zh: 2a875742b22879a2
 /session-persistence-event-catalog/resolved-persistence-types/modelselection:
-  en: 771e9ab3e64076bc
-  zh: 30d5095a93549d55
+  en: 13deac0715b23d49
+  zh: 6c13c919258334ba
+/session-persistence-event-catalog/resolved-persistence-types/notifyhookssummaryrequesteventdata:
+  en: 59961a837df34f7a
+  zh: 5f6c370131632e4a
+/session-persistence-event-catalog/resolved-persistence-types/notifyhookssummaryresulteventdata:
+  en: f83dd9f71effe86e
+  zh: 218f8262a2308cb0
 /session-persistence-event-catalog/resolved-persistence-types/oneshotscheduledispatchchange:
   en: a3300babe57b6b67
   zh: 4aaf06a149b399c3
@@ -1341,15 +1368,18 @@
   en: 69d360cf5a1ae6b4
   zh: f23faf39a2a0e6f1
 /session-persistence-event-catalog/resolved-persistence-types/union-2-variants~3:
-  en: 5a1af9849b0967ea
-  zh: 1085d793bbc47360
+  en: a815a275f31c6d58
+  zh: 1468a05531beb4f4
 /session-persistence-event-catalog/resolved-persistence-types/union-3-variants:
+  en: 1b1e0c2ce077544b
+  zh: 0041cd6d32cf3693
+/session-persistence-event-catalog/resolved-persistence-types/union-3-variants~2:
   en: ab07ee7c506483d4
   zh: 299e31a106d93dfe
-/session-persistence-event-catalog/resolved-persistence-types/union-3-variants~2:
+/session-persistence-event-catalog/resolved-persistence-types/union-3-variants~3:
   en: faa507a889e1c476
   zh: b5f13f6f0590152f
-/session-persistence-event-catalog/resolved-persistence-types/union-3-variants~3:
+/session-persistence-event-catalog/resolved-persistence-types/union-3-variants~4:
   en: 5fc89a7ec1cecd78
   zh: dc66aa8e4aae1847
 /session-persistence-event-catalog/resolved-persistence-types/union-6-variants:
@@ -1869,8 +1899,11 @@
   en: 91a948ede28ebcb5
   zh: 8a2b0ac6bb68a09e
 /session-persistence-event-catalog/resolved-persistence-types/mode-source:
-  en: 3028b222670ce5ad
-  zh: cae4c9437e560d61
+  en: 3725669666a234a8
+  zh: d38ddb471d8f823e
+/session-persistence-event-catalog/resolved-persistence-types/namespace:
+  en: 7b296fd0b2f7a291
+  zh: 852a0bcfdce42ff9
 /session-persistence-event-catalog/resolved-persistence-types/policy-source:
   en: 00f1d435f82d2753
   zh: c2ab108ad2748a6c
@@ -1992,8 +2025,14 @@
   en: c0ad371b1f636530
   zh: 6b79634088e8d9da
 /session-persistence-event-catalog/resolved-persistence-types/type-model-selection:
-  en: 0c6a1ef6a38ac10b
-  zh: 0522b4477e992088
+  en: 31e44771cf66079c
+  zh: 15117ec959bef3fb
+/session-persistence-event-catalog/resolved-persistence-types/type-notify-hooks-summary-request:
+  en: d962d36467934898
+  zh: 6a24b6a807fd848b
+/session-persistence-event-catalog/resolved-persistence-types/type-notify-hooks-summary-result:
+  en: edb01e79ec364325
+  zh: ccae8166a58413d0
 /session-persistence-event-catalog/resolved-persistence-types/type-permission-preset:
   en: 965e836b012404b3
   zh: 0ab923cc8a41e7f2
@@ -2046,8 +2085,11 @@
   en: 2adab4361a5b558d
   zh: 7f2a8da669f9e117
 /session-persistence-event-catalog/resolved-persistence-types/type-subagent-model-selection-policy:
-  en: 9dd6539f4a5d9d16
-  zh: d886630b70a4bce8
+  en: a1ad99a354a6fd43
+  zh: f6d0be8d9389c4ba
+/session-persistence-event-catalog/resolved-persistence-types/type-subagent-worker-route:
+  en: 6ca7a5f0f8dd1efc
+  zh: a392ffd7ed5d211f
 /session-persistence-event-catalog/resolved-persistence-types/type-system-message:
   en: 7fb45f52932f268b
   zh: 5019109b99274589
