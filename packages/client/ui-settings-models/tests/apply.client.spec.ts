@@ -162,6 +162,20 @@ describe('ui-settings-models apply', () => {
     expect(after.slots.entries('settings.section')).toHaveLength(1)
   })
 
+  it('the injected worker-route handle loads the catalog through the page plugin', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const injected = b.slots.entries('settings.section')[0]!.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
+    const workerRoute = injected().workerRoute
+    expect(workerRoute.catalog.getSnapshot()).toEqual({ value: null, status: 'idle' })
+    // The callback is the page plugin's own catalog loader, not a stub: the
+    // model catalog remote answers this call and the store publishes it.
+    workerRoute.loadCatalog()
+    await vi.waitFor(() => { expect(workerRoute.catalog.getSnapshot().status).toBe('ready') })
+    expect(workerRoute.catalog.getSnapshot().value?.default).toEqual({ provider: 'alpha', model: 'm' })
+  })
+
   it('the label thunk follows the active locale without re-registration', async () => {
     const b = await bench()
     declare(b.slots)

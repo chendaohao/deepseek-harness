@@ -7,6 +7,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { WorkerRouteSection } from '../src/client/WorkerRouteSection.tsx'
+import { WorkerRouteCatalog } from '../src/client/worker-route.ts'
 import type { WorkerRouteCatalogState, WorkerRouteSettings } from '../src/client/worker-route.ts'
 import { en } from '../src/client/locales.ts'
 
@@ -64,6 +65,8 @@ function scopeWith(overrides: Partial<ConfigFormSnapshot<WorkerRouteSettings>> =
     user: undefined,
     revision: 1,
     writable: true,
+    writeRefusal: undefined,
+    writeFailure: undefined,
     mode: 'host',
     ...overrides,
   }
@@ -86,13 +89,88 @@ function catalogWith(value: ModelCatalog | null) {
   })
 }
 
-function mount(overrides: Partial<ConfigFormSnapshot<WorkerRouteSettings>> = {}, catalog: ModelCatalog | null = CATALOG) {
+function mount(
+  overrides: Partial<ConfigFormSnapshot<WorkerRouteSettings>> = {},
+  catalog: ModelCatalog | null = CATALOG,
+) {
   const { scope, set } = scopeWith(overrides)
   const store = catalogWith(catalog)
   const loadCatalog = vi.fn()
-  render(<WorkerRouteSection scope={scope} catalog={store} loadCatalog={loadCatalog} t={t} />)
+  render(
+    <WorkerRouteSection scope={scope} catalog={store} loadCatalog={loadCatalog} t={t} />,
+  )
   return { set, loadCatalog, store }
 }
+
+describe('WorkerRouteCatalog', () => {
+  /** A context whose session remote answers the catalog read with `answer`. */
+  function catalogCtx(answer: () => Promise<unknown>) {
+    // The constructor takes the client Context; only the one remote member the
+    // catalog reads is scripted here.
+    return { remote: { session: { modelCatalog: answer } } } as never
+  }
+
+  const CATALOG_VALUE = { default: { provider: 'alpha', model: 'm' }, routableProviders: [], groups: [], failures: [] }
+
+  it('publishes the answered catalog and shares one in-flight read', async () => {
+    let resolveRead: (value: unknown) => void = () => {}
+    const read = new Promise((resolve) => { resolveRead = resolve })
+    const modelCatalog = vi.fn(() => read)
+    const catalog = new WorkerRouteCatalog(catalogCtx(modelCatalog))
+
+    catalog.load()
+    catalog.load()
+    expect(catalog.store.getSnapshot().status).toBe('loading')
+    expect(modelCatalog).toHaveBeenCalledTimes(1)
+
+    resolveRead({ ok: true, value: CATALOG_VALUE })
+    await vi.waitFor(() => { expect(catalog.store.getSnapshot().status).toBe('ready') })
+    expect(catalog.store.getSnapshot().value).toEqual(CATALOG_VALUE)
+  })
+
+  it('keeps the load idempotent once a catalog is held', async () => {
+    const modelCatalog = vi.fn(() => Promise.resolve({ ok: true, value: CATALOG_VALUE }))
+    const catalog = new WorkerRouteCatalog(catalogCtx(modelCatalog))
+
+    catalog.load()
+    await vi.waitFor(() => { expect(catalog.store.getSnapshot().status).toBe('ready') })
+    catalog.load()
+
+    expect(modelCatalog).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a refused catalog read without publishing a value', async () => {
+    const catalog = new WorkerRouteCatalog(catalogCtx(
+      () => Promise.resolve({ ok: false, error: { message: 'catalog down' } }),
+    ))
+
+    catalog.load()
+    await vi.waitFor(() => { expect(catalog.store.getSnapshot().status).toBe('error') })
+    expect(catalog.store.getSnapshot().value).toBeNull()
+  })
+
+  it('reports a rejected catalog read without publishing a value', async () => {
+    const catalog = new WorkerRouteCatalog(catalogCtx(() => Promise.reject(new Error('carrier down'))))
+
+    catalog.load()
+    await vi.waitFor(() => { expect(catalog.store.getSnapshot().status).toBe('error') })
+    expect(catalog.store.getSnapshot().value).toBeNull()
+  })
+
+  it('refetches after a reset, which is what a reconnected client needs', async () => {
+    const modelCatalog = vi.fn(() => Promise.resolve({ ok: true, value: CATALOG_VALUE }))
+    const catalog = new WorkerRouteCatalog(catalogCtx(modelCatalog))
+
+    catalog.load()
+    await vi.waitFor(() => { expect(catalog.store.getSnapshot().status).toBe('ready') })
+    catalog.reset()
+    expect(catalog.store.getSnapshot()).toEqual({ value: null, status: 'idle' })
+
+    catalog.load()
+    await vi.waitFor(() => { expect(catalog.store.getSnapshot().status).toBe('ready') })
+    expect(modelCatalog).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('WorkerRouteSection', () => {
   it('shows the stored route and loads the catalog once', () => {
@@ -102,6 +180,7 @@ describe('WorkerRouteSection', () => {
     expect(value(screen.getByLabelText(en.workerRouteProvider))).toBe('alpha')
     expect(value(screen.getByLabelText(en.workerRouteModel))).toBe('alpha-fast')
     expect(value(screen.getByLabelText(en.workerRouteEffort))).toBe('high')
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('writes each picked field through the settings scope', () => {
@@ -110,8 +189,18 @@ describe('WorkerRouteSection', () => {
     fireEvent.change(screen.getByLabelText(en.workerRouteProvider), { target: { value: 'beta' } })
     expect(set).toHaveBeenCalledWith('provider', 'beta')
 
+    fireEvent.change(screen.getByLabelText(en.workerRouteModel), { target: { value: 'alpha-fast' } })
+    expect(set).toHaveBeenCalledWith('model', 'alpha-fast')
+
     fireEvent.change(screen.getByLabelText(en.workerRouteEffort), { target: { value: 'low' } })
     expect(set).toHaveBeenCalledWith('reasoningEffort', 'low')
+  })
+
+  it('writes a typed effort through the fallback text field', () => {
+    const { set } = mount({ value: { provider: 'beta', model: 'beta-plain', reasoningEffort: 'high' } })
+
+    fireEvent.change(screen.getByLabelText(en.workerRouteEffort), { target: { value: 'medium' } })
+    expect(set).toHaveBeenCalledWith('reasoningEffort', 'medium')
   })
 
   it('offers only the efforts the selected model advertises', () => {
@@ -141,6 +230,29 @@ describe('WorkerRouteSection', () => {
     expect(value(screen.getByLabelText(en.workerRouteModel))).toBe('gamma-only')
   })
 
+  it('renders the block with empty controls while the first section has not landed', () => {
+    const { scope } = scopeWith({ status: 'loading', value: undefined })
+    const store = catalogWith(CATALOG)
+    const { container } = render(
+      <WorkerRouteSection scope={scope} catalog={store} loadCatalog={() => {}} t={t} />,
+    )
+
+    // `loading` is not `unavailable`: the section renders and every control is
+    // disabled until a value arrives, so the layout does not jump in later.
+    expect(container.childElementCount).toBe(1)
+    expect(screen.getByLabelText(en.workerRouteProvider).tagName).toBe('SELECT')
+    expect(disabled(screen.getByLabelText(en.workerRouteProvider))).toBe(true)
+    expect(disabled(screen.getByLabelText(en.workerRouteModel))).toBe(true)
+    expect(disabled(screen.getByLabelText(en.workerRouteEffort))).toBe(true)
+  })
+
+  it('drops the effort picker to the fallback field when a stored provider is not in the catalog', () => {
+    mount({ value: { provider: 'gamma', model: 'gamma-only', reasoningEffort: 'high' } }, CATALOG)
+
+    // No group means no advertised efforts, so the stored id stays editable.
+    expect(screen.getByLabelText(en.workerRouteEffort).tagName).toBe('INPUT')
+  })
+
   it('renders nothing while the Host does not expose the namespace', () => {
     const { scope } = scopeWith({ status: 'unavailable', value: undefined })
     const store = catalogWith(null)
@@ -157,5 +269,33 @@ describe('WorkerRouteSection', () => {
     expect(disabled(screen.getByLabelText(en.workerRouteProvider))).toBe(true)
     expect(disabled(screen.getByLabelText(en.workerRouteModel))).toBe(true)
     expect(disabled(screen.getByLabelText(en.workerRouteEffort))).toBe(true)
+  })
+
+  it('disables the controls from the Host-published refusal, not a client-side guess', () => {
+    mount({ writeRefusal: 'worker "w-1" is running' })
+
+    expect(disabled(screen.getByLabelText(en.workerRouteProvider))).toBe(true)
+    expect(disabled(screen.getByLabelText(en.workerRouteModel))).toBe(true)
+    expect(disabled(screen.getByLabelText(en.workerRouteEffort))).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe(en.workerRouteLocked)
+  })
+
+  it('reports a refused write instead of reverting silently', () => {
+    mount({ writeFailure: 'refused' })
+
+    expect(screen.getByRole('alert').textContent).toBe(en.workerRouteRefused)
+    expect(disabled(screen.getByLabelText(en.workerRouteProvider))).toBe(false)
+  })
+
+  it('reports a stale-revision write as a reload rather than a refusal', () => {
+    mount({ writeFailure: 'conflict' })
+
+    expect(screen.getByRole('alert').textContent).toBe(en.workerRouteConflict)
+  })
+
+  it('shows no failure notice before any write is rejected', () => {
+    mount()
+
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

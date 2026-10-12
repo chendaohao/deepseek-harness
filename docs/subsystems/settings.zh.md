@@ -37,6 +37,19 @@ Project Config schemas into forms and own optional instance-level UI policy.
  */
 configure(presentation: { auto?: boolean }, owner: Fiber = this.ctx.fiber): () => void
 
+/**
+ * Register one namespace's write veto. Every write into `ns` consults the
+ * registered guards before it resolves a value, so a refusal never reaches
+ * the profile document.
+ * @param ns - profile entry id whose writes this guard governs; the write
+ * surface names namespaces as plain strings, and this registration point
+ * follows it.
+ * @param guard - predicate returning a refusal reason, or undefined to allow.
+ * @returns the registration handle; scope it by adopting its `dispose`
+ *   into the calling fiber's own effect.
+ */
+guard(ns: string, guard: SettingsWriteGuard): SettingsWriteGuardRegistration
+
 /** Locate the profile patch for native editing.
  * @returns The existing profile patch path.
  */
@@ -140,12 +153,15 @@ Source: [`packages/api/settings-controller/src/index.ts`](../../packages/api/set
 
 #### `settings/document-updated` — emit
 
-One profile entry's form values, availability, or page policy changed. Form clients re-read its schema, resolved values, and revision.
+One profile entry's form values, availability, page policy, or write admissibility changed. Form clients re-read its schema, resolved values, revision, and write refusal. A guard-answer flip emits with the revision unchanged: it is not a document edit and does not trip the optimistic-write fence.
 
 ```ts cordis-catalog
 /**
- * One profile entry's form values, availability, or page policy changed.
- * Form clients re-read its schema, resolved values, and revision.
+ * One profile entry's form values, availability, page policy, or write
+ * admissibility changed. Form clients re-read its schema, resolved values,
+ * revision, and write refusal. A guard-answer flip emits with the revision
+ * unchanged: it is not a document edit and does not trip the
+ * optimistic-write fence.
  * @param ns Profile entry id.
  * @param revision The entry's new revision.
  * @mode emit

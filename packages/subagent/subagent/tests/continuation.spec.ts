@@ -27,6 +27,7 @@ import type { SubagentRunEndInfo, SubagentRunInfo } from '../src/index.ts'
 import type { SubagentPromptRequestId } from '../src/control-types.ts'
 import * as activationResults from '../src/activation.ts'
 import { requireLocalActivation } from '../src/activation.ts'
+import { SUBAGENT_CATALOG_VERSION, establishCatalogChild, establishExternalCatalogChild } from '../src/catalog.ts'
 import { TestSessionQuery } from './test-session-query.ts'
 import { loadStoredSession } from './persistence-helpers.ts'
 import {
@@ -2998,7 +2999,7 @@ describe('continuable settlement delivery', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} ran out of room before it finished.\nIts closing message:\nhalf an ans`,
+      `Background subagent ${started.childId} hit its output token limit before it finished.\nIts closing message:\nhalf an ans`,
     )
   })
 
@@ -3523,6 +3524,32 @@ describe('continuable settlement delivery', () => {
     expect(warnings.some(warning => warning.includes('had no resident agent to receive it'))).toBe(true)
 
     releaseChild.resolve(undefined)
+    await waitNoActivation(ctx, started.childId)
+  })
+
+  it('reports a settlement account the parent cannot receive without storing it', async () => {
+    const releaseChild = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('still running'), gate: releaseChild.promise }])
+    const { ctx } = await setupWith(adapter)
+    const warnings: string[] = []
+    ctx.logger.warn = (text: string) => { warnings.push(text) }
+    const parentId = SessionId('unattended-settlement-parent')
+    const host = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const started = await ctx.subagents.startActivation({ ...startSpec(host.agent), delivery: 'parent' })
+    await host.dispose()
+    // The parent's Session stays live in the registry with no Agent behind it, so
+    // its own inbox still owns ordering and the account must be reported instead
+    // of appended to a log that Session is holding open.
+    ctx.sessions.enter(ctx.sessions.get(parentId) ?? ctx.sessions.prepare(parentId, {}))
+
+    releaseChild.resolve(undefined)
+    await vi.waitFor(() => {
+      expect(warnings.some(warning => warning.includes('open without an Agent'))).toBe(true)
+    })
+    await started.result
     await waitNoActivation(ctx, started.childId)
   })
 
@@ -4350,4 +4377,192 @@ describe('settlement reconciliation after a lost settlement', () => {
       await resumed.dispose()
     }
   }, 60_000)
+
+  it('reports a resume-time reconciliation failure without failing the resume', async () => {
+    const { ctx } = await setup([textResponse('the answer'), textResponse('the answer')])
+    const parentId = SessionId('reconcile-failure-parent')
+    const host = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    // One committed turn gives the parent a stored log, which a later resume reads.
+    host.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await host.agent.whenIdle()
+    await host.dispose()
+    const warnings: string[] = []
+    ctx.logger.warn = (text: string) => { warnings.push(text) }
+    // Reconciliation runs detached off the resume, so a query failure must be
+    // reported on its own instead of surfacing as a resume failure.
+    vi.spyOn(ctx.sessionQuery, 'observeSession').mockRejectedValue(new Error('session store unavailable'))
+
+    const resumed = await ctx.agents.resume({
+      resumeSessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    try {
+      await vi.waitFor(() => {
+        expect(warnings.some(warning =>
+          warning.includes(`subagent settlement reconciliation failed for "${parentId}"`)
+          && warning.includes('session store unavailable'),
+        )).toBe(true)
+      })
+    } finally {
+      await resumed.dispose()
+    }
+  }, 60_000)
+
+  it('leaves a continuable child whose own log holds no account alone', async () => {
+    const { ctx, parent } = await setup([textResponse('the answer')])
+    const childId = SessionId('never-ran-child')
+    const child = ctx.sessions.create(childId)
+    await ctx.sessions.flush(child)
+    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Never started' })
+
+    // The catalog names a child with no own event to account for: there is no
+    // epoch to report and no last event a notice could be measured against.
+    await subagentManager(ctx).reconcileResumedParent(parent)
+
+    expect(settlementNotices(parent)).toHaveLength(0)
+  })
+
+  it('accepts a resume-time creation with no bound activation manager', async () => {
+    const { ctx } = await setup([textResponse('the answer')])
+    const parentId = SessionId('managerless-resume-parent')
+    const host = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    host.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await host.agent.whenIdle()
+    await host.dispose()
+    // A composition that owns no manager (its agents service left) has no child
+    // catalog to reconcile; the resume must still complete on its own.
+    const bound = subagentManager(ctx)
+    ctx.subagents['manager'] = undefined
+    try {
+      const resumed = await ctx.agents.resume({
+        resumeSessionId: parentId,
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      await resumed.dispose()
+    } finally {
+      ctx.subagents['manager'] = bound
+    }
+  }, 60_000)
+
+  it('declines reconciliation where no Session query is mounted', async () => {
+    const { ctx, parent } = await setupWith(new MockAdapter([textResponse('the answer')]), { sessionQuery: false })
+    // Without the query service no projection exists to read, so there is no
+    // catalog to reconcile and no failure to report.
+    await expect(subagentManager(ctx).reconcileResumedParent(parent)).resolves.toBeUndefined()
+  })
+
+  it('declines reconciliation when the parent cut carries no subagent catalog', async () => {
+    const { ctx, parent } = await setup([textResponse('the answer')])
+    const query = ctx.sessionQuery
+    const observe = query.observeSession.bind(query)
+    // A projection registry that does not publish this projection leaves the
+    // parent's cut without a catalog: there is nothing that could name a child.
+    vi.spyOn(query, 'observeSession').mockImplementation(async (id, options) => {
+      const observation = await observe(id, options)
+      if (id !== parent.id) return observation
+      const withoutCatalog = { ...observation }
+      delete withoutCatalog.projections
+      return withoutCatalog
+    })
+
+    await expect(subagentManager(ctx).reconcileResumedParent(parent)).resolves.toBeUndefined()
+    expect(settlementNotices(parent)).toHaveLength(0)
+  })
+
+  it('leaves every catalog entry that is not a continuable child alone', async () => {
+    const { ctx, parent } = await setup([textResponse('the answer')])
+    // An external execution has no local Session to read, and a one-shot child
+    // was never resumable: neither can be settled into the parent's log.
+    establishExternalCatalogChild(parent.session, SessionId('external-child'), 'External work')
+    parent.session.append('subagent/catalog', {
+      version: SUBAGENT_CATALOG_VERSION,
+      childId: SessionId('one-shot-child'),
+      childCreatedAt: Date.now(),
+      mode: 'one-shot',
+      label: 'One-shot work',
+    })
+
+    await subagentManager(ctx).reconcileResumedParent(parent)
+
+    expect(settlementNotices(parent)).toHaveLength(0)
+  })
+
+  it('leaves a child that is still resident to its own live settlement', async () => {
+    const releaseChild = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('child answer'), gate: releaseChild.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(ctx.agents.get(started.childId)).toBeDefined() })
+
+    // The live Activation owns this child's account; reconciling it here would
+    // deliver a duplicate the child itself is about to produce.
+    await subagentManager(ctx).reconcileResumedParent(parent)
+    expect(settlementNotices(parent)).toHaveLength(0)
+
+    releaseChild.resolve(undefined)
+    await started.result
+    await waitNoActivation(ctx, started.childId)
+  })
+
+  it('steers a reconciled account when the parent is mid-turn', async () => {
+    const gates = { first: Promise.withResolvers<undefined>(), second: Promise.withResolvers<undefined>() }
+    const script = [
+      { chunks: textResponse('the answer'), gate: gates.first.promise },
+      { chunks: textResponse('parent ack one') },
+      { chunks: textResponse('never finishes'), gate: gates.second.promise },
+      { chunks: textResponse('parent ack two') },
+    ]
+    const adapter = new GatedAdapter(script)
+    const { ctx, parent } = await setupWith(adapter)
+    await orphanMidTurn(ctx, parent, adapter, gates)
+
+    // Hold the parent inside its own next turn: the reconciled account has to
+    // join a turn already in flight as a steer instead of queueing behind it.
+    const hold = Promise.withResolvers<undefined>()
+    script.push({ chunks: textResponse('parent holds the turn'), gate: hold.promise })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'keep working' }], source: { kind: 'user' } }))
+    await vi.waitFor(() => { expect(parent.status).toBe('running') })
+
+    const steers: string[] = []
+    const realSteer = parent.steer.bind(parent)
+    vi.spyOn(parent, 'steer').mockImplementation((message) => {
+      steers.push(message.id)
+      realSteer(message)
+    })
+    await subagentManager(ctx).reconcileResumedParent(parent)
+    expect(steers).toHaveLength(1)
+
+    hold.resolve(undefined)
+    await parent.whenIdle()
+  })
+
+  it('logs a reconciled account the parent refused', async () => {
+    const gates = { first: Promise.withResolvers<undefined>(), second: Promise.withResolvers<undefined>() }
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('the answer'), gate: gates.first.promise },
+      { chunks: textResponse('parent ack one') },
+      { chunks: textResponse('never finishes'), gate: gates.second.promise },
+      { chunks: textResponse('parent ack two') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    await orphanMidTurn(ctx, parent, adapter, gates)
+    const warnings: string[] = []
+    ctx.logger.warn = (text: string) => { warnings.push(text) }
+    const refusal = new Error('parent closed admission')
+    vi.spyOn(parent, 'followup').mockImplementation(() => { throw refusal })
+
+    // A parent that refuses the notice must not fail whoever resumed it; the
+    // refusal is reported on its own.
+    await subagentManager(ctx).reconcileResumedParent(parent)
+    expect(warnings.some(warning =>
+      warning.includes('reconciled settlement notice was not delivered')
+      && warning.includes('parent closed admission'),
+    )).toBe(true)
+  })
 })

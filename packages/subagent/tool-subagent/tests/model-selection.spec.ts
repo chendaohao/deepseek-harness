@@ -16,6 +16,7 @@ import {
   assertAllowedModelRoutes,
   assertAllowedModelSelection,
   preflightChildLlmRoute,
+  requestedAgentOptions,
 } from '../src/model-selection.ts'
 import { callSubagent, modelSelectionSetupAgent, setup, text } from './harness.ts'
 
@@ -37,6 +38,27 @@ function parentWithRoute(
   const id = SessionId('parent-with-route')
   return { id, options, session: Session.create(id) } as unknown as Agent
 }
+
+describe('requestedAgentOptions', () => {
+  const PARENT = { provider: 'alpha', model: 'parent-model', reasoningEffort: ReasoningEffortId('high') }
+
+  it('inherits an effort-only override over the parent route when nothing is configured', () => {
+    // No configured layer at all: the override names only an effort, so the
+    // function still has to produce a route rather than dropping the effort.
+    expect(requestedAgentOptions(PARENT, undefined, { reasoning_effort: 'low' }, true)).toEqual({
+      reasoningEffort: 'low',
+    })
+  })
+
+  it('clears a configured effort when the request changes the route', () => {
+    const configured = { provider: 'alpha', model: 'configured-model', reasoningEffort: ReasoningEffortId('high'), maxTokens: 321 }
+
+    // The route moves and no effort is named, so the configured effort — which
+    // belongs to the old model — is dropped while the rest of the layer stays.
+    expect(requestedAgentOptions(PARENT, configured, { provider: 'alpha', model: 'other-model' }, true))
+      .toEqual({ provider: 'alpha', model: 'other-model', maxTokens: 321 })
+  })
+})
 
 describe('dsh-tool-subagent model selection', () => {
   it('rejects empty route ids at the configuration boundary', () => {
@@ -365,10 +387,15 @@ describe('dsh-tool-subagent model selection', () => {
 
     // The configured 'high' is not declared: the core normalizes it to the
     // model's declared default ('low') instead of failing the request.
+    // Child creation accepts only the Agent the registry created, so the
+    // parent route rides the live Agent's options the way a logged
+    // selection would.
+    const parent = modelSelectionSetupAgent(ctx)
+    ;(parent as { options: Agent['options'] }).options = parentWithRoute().options
     const result = await callSubagent(
       ctx,
       { description: 'same route', prompt: 'do it' },
-      { agent: parentWithRoute() },
+      { agent: parent },
     )
     expect(result.isError).toBe(false)
     expect(starts).toBe(1)

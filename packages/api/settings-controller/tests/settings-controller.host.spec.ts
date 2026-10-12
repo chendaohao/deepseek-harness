@@ -81,6 +81,13 @@ it('omits absent optional descriptor fields and contains primitive write failure
   const { ctx, controller } = await boot()
   vi.spyOn(ctx.settings, 'describe').mockReturnValue([{ ns: 'first' as never, schema: {}, value: {}, autoGenerate: true, applies: 'live', revision: 0 }])
   expect(controller.describe().namespaces[0]).toEqual({ ns: 'first', schema: {}, value: {}, autoGenerate: true, applies: 'live', revision: 0, secrets: [] })
+  // A published refusal is a descriptor field like any other: it reaches the
+  // wire view so the form can disable for the Host's own reason.
+  vi.spyOn(ctx.settings, 'describe').mockReturnValue([{
+    ns: 'first' as never, schema: {}, value: {}, autoGenerate: true, applies: 'live', revision: 0,
+    writeRefusal: 'worker "w-1" is running',
+  }])
+  expect(controller.describe().namespaces[0]).toMatchObject({ writeRefusal: 'worker "w-1" is running' })
   vi.spyOn(ctx.settings, 'update').mockRejectedValueOnce('storage unavailable')
   await expect(controller.update('first', {}, undefined)).rejects.toMatchObject({ code: 'settings/rejected' })
 })

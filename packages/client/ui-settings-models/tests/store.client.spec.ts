@@ -194,6 +194,37 @@ describe('ModelsSettingsStore', () => {
     expect(store.store.getSnapshot().status).toBe('ready')
   })
 
+  it('reports the mirror\'s own failure when it holds no document', async () => {
+    const { ctx, mirror } = api({ describeSettings: () => Promise.resolve(remoteFail('settings down')) })
+    const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+
+    await store.load()
+
+    // The mirror has no held view, so the page reports the mirror's failure
+    // instead of joining rows over nothing.
+    expect(store.store.getSnapshot()).toMatchObject({ status: 'error', error: 'settings down' })
+  })
+
+  it('falls back to its own copy when the mirror holds no document and names no failure', async () => {
+    const { ctx } = api()
+    // The mirror's initial state: no answer held, no read finished. Nothing
+    // has failed yet, so the page still has to say why it cannot render.
+    const untouched = {
+      getSnapshot: () => ({ status: 'idle' as const, view: undefined, error: null }),
+      subscribe: () => () => {},
+      ensure: () => Promise.resolve(),
+      acceptView: () => {},
+    }
+    const store = new ModelsSettingsStore(ctx, settingsSchema, untouched)
+
+    await store.load()
+
+    expect(store.store.getSnapshot()).toMatchObject({
+      status: 'error',
+      error: 'settings are unavailable in this browser',
+    })
+  })
+
   it('surfaces a configurable-provider directory failure', async () => {
     const { ctx, face, mirror } = api()
     const llm = (face as unknown as {

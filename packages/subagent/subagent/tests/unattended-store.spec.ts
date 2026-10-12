@@ -10,7 +10,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { appendUnattendedMessage } from '../src/unattended-store.ts'
+import { appendUnattendedMessage, reportUnattendedHandoff } from '../src/unattended-store.ts'
 import { loadStoredSession } from './persistence-helpers.ts'
 
 const cleanups: Array<() => Promise<void>> = []
@@ -148,6 +148,20 @@ describe('appendUnattendedMessage', () => {
     const ctx = new Context()
     const outcome = await appendUnattendedMessage(ctx, SessionId('nowhere'), runtimeMessage('dropped'))
     expect(outcome).toBe('no-durable-store')
+  })
+
+  it('reports an unconfigured deployment instead of naming a destination it never had', () => {
+    const ctx = new Context()
+    const warnings: string[] = []
+    ctx.logger.warn = (text: string) => { warnings.push(text) }
+
+    // The deployment fact, not the message, is what the operator has to change:
+    // naming the Session here would read as a delivery that only went missing.
+    reportUnattendedHandoff(ctx, SessionId('nowhere'), 'no-durable-store')
+
+    expect(warnings).toEqual([
+      'message for "nowhere" was not stored because this process has no Session persistence configured',
+    ])
   })
 
   it('rejects when the destination has no stored Session', async () => {

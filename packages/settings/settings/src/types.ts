@@ -42,6 +42,13 @@ export interface SettingsNamespaceView {
    * than silently overwriting a concurrent change.
    */
   revision: number
+  /**
+   * Why a write into this namespace would be refused right now, absent when the
+   * next write is admitted. The Host's own current answer, so a form can
+   * disable its controls with the real reason rather than a client-side guess
+   * that can disagree with the write funnel.
+   */
+  writeRefusal?: string
 }
 
 /**
@@ -66,8 +73,11 @@ export interface SettingsDescribeValue {
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
-     * One profile entry's form values, availability, or page policy changed.
-     * Form clients re-read its schema, resolved values, and revision.
+     * One profile entry's form values, availability, page policy, or write
+     * admissibility changed. Form clients re-read its schema, resolved values,
+     * revision, and write refusal. A guard-answer flip emits with the revision
+     * unchanged: it is not a document edit and does not trip the
+     * optimistic-write fence.
      * @param ns Profile entry id.
      * @param revision The entry's new revision.
      * @mode emit

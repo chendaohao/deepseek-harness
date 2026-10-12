@@ -1262,6 +1262,105 @@ describe('SubagentHeaderLineage', () => {
   })
 })
 
+describe('SubagentHeaderLineage worker-route chip', () => {
+  /** Child-session header whose projection carries one model-selection view. */
+  function renderChild(selection?: { provider: string; model: string; reasoningEffort?: string }) {
+    const input = props(catalog())
+    const initial = input.useSessions(state => state)
+    const modelSelection = selection === undefined ? null : { lastUsed: selection, next: selection }
+    return render(<HeaderCatalog
+      {...input}
+      sessionId={CHILD}
+      lineageSessionId={CHILD}
+      displayTitle="worker"
+      useSessions={select => select({
+        ...initial,
+        projectionsBySession: {
+          ...initial.projectionsBySession,
+          [CHILD]: {
+            state: 'idle' as const,
+            error: null,
+            values: modelSelection === null ? {} : { modelSelection },
+          },
+        },
+      })}
+    />)
+  }
+
+  it('names the route its next request uses without offering a control', () => {
+    renderChild({ provider: 'workbuddy', model: 'deepseek-v4.1-flash', reasoningEffort: 'high' })
+
+    const chip = screen.getByText('workbuddy / deepseek-v4.1-flash · high')
+    expect(chip.closest('button')).toBeNull()
+    expect(screen.queryByRole('button', { name: /workbuddy/ })).toBeNull()
+  })
+
+  it('points at the Models page as the only read-write path', () => {
+    renderChild({ provider: 'workbuddy', model: 'deepseek-v4.1-flash' })
+
+    // Keyboard modality first: a tooltip never follows focus that a pointer owned.
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    fireEvent.focus(screen.getByText('workbuddy / deepseek-v4.1-flash').closest('[tabindex="0"]')!)
+    expect(screen.getByRole('tooltip').textContent).toContain('设置 › 模型 › 工人路由')
+  })
+
+  it('omits an effort the route never recorded', () => {
+    renderChild({ provider: 'alpha', model: 'fast' })
+    expect(screen.getByText('alpha / fast')).toBeTruthy()
+  })
+
+  it('falls back to the last used route until a newer pick is consumed', () => {
+    const input = props(catalog())
+    const initial = input.useSessions(state => state)
+    render(<HeaderCatalog
+      {...input}
+      sessionId={CHILD}
+      lineageSessionId={CHILD}
+      displayTitle="worker"
+      useSessions={select => select({
+        ...initial,
+        projectionsBySession: {
+          ...initial.projectionsBySession,
+          [CHILD]: {
+            state: 'idle' as const,
+            error: null,
+            values: { modelSelection: { lastUsed: { provider: 'alpha', model: 'fast' }, next: null } },
+          },
+        },
+      })}
+    />)
+    expect(screen.getByText('alpha / fast')).toBeTruthy()
+  })
+
+  it('renders nothing before any request recorded a route', () => {
+    renderChild()
+    expect(screen.queryByText(/workbuddy|alpha \/ fast/)).toBeNull()
+  })
+
+  it('renders nothing when both projection arms are empty', () => {
+    const input = props(catalog())
+    const initial = input.useSessions(state => state)
+    render(<HeaderCatalog
+      {...input}
+      sessionId={CHILD}
+      lineageSessionId={CHILD}
+      displayTitle="worker"
+      useSessions={select => select({
+        ...initial,
+        projectionsBySession: {
+          ...initial.projectionsBySession,
+          [CHILD]: {
+            state: 'idle' as const,
+            error: null,
+            values: { modelSelection: { lastUsed: null, next: null } },
+          },
+        },
+      })}
+    />)
+    expect(screen.queryByText(/alpha|workbuddy/)).toBeNull()
+  })
+})
+
 describe('SubagentReadOnlyComposer', () => {
   it('explains the exact missing-parent recovery path', () => {
     render(<SubagentReadOnlyComposer matched={{ reason: 'parent-unavailable' }} t={t} />)

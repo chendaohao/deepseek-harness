@@ -250,8 +250,8 @@ export function reorderedProviderIds(
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
   const { controller, useSnapshot, operations, schema, t, workerRoute, renderSlot } = props
   if (
-    controller === undefined || useSnapshot === undefined || operations === undefined
-    || schema === undefined || t === undefined || workerRoute === undefined
+    controller === undefined || useSnapshot === undefined
+    || operations === undefined || schema === undefined || t === undefined || workerRoute === undefined
   ) return null
   return (
     <Loaded

@@ -7,6 +7,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import { MockAdapter } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -37,6 +38,7 @@ async function boot(config: tool.Config, onStart?: (request: SubagentStartReques
   // Brings up LLM, sessions, projections, systemPrompt, tools, and the Agent registry.
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
+  await mountWorkingDirectoryFixture(ctx)
   await ctx.plugin(SubagentRuntime)
   // The route preflight resolves the child route through the live adapter, so
   // every provider these tests name must actually be registered.
@@ -93,12 +95,38 @@ describe('SubagentWorkerRouteConfig', () => {
     await ctx.fiber.dispose()
   })
 
+  it('rejects a stored route a runtime write emptied', async () => {
+    // The Loader path cannot produce this: Schemastery's `min(1)` refuses the
+    // write first. A volatile reference gives no such guarantee once a writer
+    // outside the schema sets it, so the read is what must stay loud.
+    const ctx = new Context()
+    const service = new SubagentWorkerRouteConfig(ctx, {
+      provider: { get: () => 'alpha' },
+      model: { get: () => '' },
+      reasoningEffort: { get: () => 'low' },
+    })
+
+    expect(() => service.current()).toThrow('requires a non-empty `model`')
+    await ctx.fiber.dispose()
+  })
+
   it('fails loud when the tool opts in without the settings owner composed', async () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
-    await expect(ctx.plugin(tool, { provider: 'mock', workerRouteSettings: true }))
-      .rejects.toThrow('workerRouteSettings')
+    const fiber = ctx.plugin(tool, { provider: 'mock', workerRouteSettings: true })
+    await expect(fiber).rejects.toThrow('workerRouteSettings')
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('SubagentWorkerRouteConfig mounting', () => {
+  it('mounts without a settings service', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentWorkerRouteConfig, COMPOSED_ROUTE)
+
+    expect(ctx.subagentWorkerRoute.current()).toEqual(COMPOSED_ROUTE)
     await ctx.fiber.dispose()
   })
 })
@@ -169,6 +197,7 @@ describe('worker route settings reach the delegated child', () => {
     const live = await liveConfig(ctx, SubagentWorkerRouteConfig, COMPOSED_ROUTE)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     ctx.llm.registerAdapter(['alpha'], new MockAdapter([], REASONING))
     await mock.mountScriptedProvider(ctx, { name: 'mock', onStart: (request) => { starts.push(request) } })

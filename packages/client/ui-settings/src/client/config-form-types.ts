@@ -32,6 +32,20 @@ export interface ConfigFormSnapshot<T> {
    * callers by the server-side fence.
    */
   writable: boolean
+  /**
+   * Why the Host would refuse a write into this namespace right now, absent
+   * while the next write is admitted. The Host's own answer, so a form disables
+   * its controls for the real reason instead of re-deriving the condition.
+   */
+  writeRefusal: string | undefined
+  /**
+   * Outcome of the latest write this form attempted: absent when it was
+   * accepted, `refused` when the Host rejected it (a guard veto or a validation
+   * failure), `conflict` when the namespace changed since this form read it.
+   * A refusal also reloads Host state, so the form shows the rejected edit
+   * instead of a silent revert.
+   */
+  writeFailure: 'refused' | 'conflict' | undefined
   /** `host`: this scope syncs with the Host document. */
   mode: 'host'
 }

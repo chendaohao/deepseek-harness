@@ -4,6 +4,12 @@
  * it only has to exist so {@link ModelsSection} renders.
  */
 
+/**
+ * Inert worker-route injected face for specs that exercise the provider
+ * directory. The block itself is covered by worker-route.client.spec.tsx; here
+ * it only has to exist so {@link ModelsSection} renders.
+ */
+
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelsSectionInjected } from '../src/client/ModelsSection.tsx'
 import type { WorkerRouteCatalogState, WorkerRouteSettings } from '../src/client/worker-route.ts'
@@ -26,6 +32,8 @@ const SNAPSHOT = {
   user: undefined,
   revision: 1,
   writable: true,
+  writeRefusal: undefined,
+  writeFailure: undefined,
   mode: 'host' as const,
 }
 

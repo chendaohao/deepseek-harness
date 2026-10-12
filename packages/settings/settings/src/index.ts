@@ -28,6 +28,13 @@ export interface SettingsDescriptor {
   user?: unknown
   applies: 'live'
   secrets?: RedactedSecret[]
+  /**
+   * Why a write into this namespace would be refused right now, or undefined
+   * when the next write is admitted. A registered guard's current answer, so a
+   * settings page mirrors the Host's own admission decision instead of
+   * re-deriving the condition from client-side state.
+   */
+  writeRefusal?: string
 }
 
 /** Wire readers always request secret redaction. */
@@ -60,6 +67,48 @@ export class SettingsConflictError extends Error {
     this.name = 'SettingsConflictError'
     this.expected = expected
     this.actual = actual
+  }
+}
+
+/**
+ * One namespace's write veto. The guard is a pure predicate over facts its own
+ * registrant owns, so a namespace with several registrants collects every
+ * refusal instead of letting registration order decide.
+ * @returns why the write must be refused, or undefined to allow it.
+ */
+export type SettingsWriteGuard = () => string | undefined
+
+/**
+ * Handle to one registered namespace write guard.
+ *
+ * Guards are pull-based predicates over facts their registrant owns, so the
+ * service cannot observe an answer change itself: the registrant calls
+ * {@link SettingsWriteGuardRegistration.refresh} when those facts moved, and a
+ * flipped answer is republished as `settings/document-updated`, the event
+ * form mirrors reload on.
+ */
+export interface SettingsWriteGuardRegistration {
+  /** Remove this exact guard. */
+  readonly dispose: () => void
+  /**
+   * Republish the namespace's current refusal; emits nothing when the answer
+   * is unchanged.
+   */
+  readonly refresh: () => void
+}
+
+/** Refusal raised when a registered namespace guard vetoes a write. */
+export class SettingsWriteRefusedError extends Error {
+  /** Stable machine code for wire layers mapping this to their own taxonomy. */
+  readonly code = 'SETTINGS_WRITE_REFUSED'
+
+  /**
+   * @param ns - the namespace whose write was refused.
+   * @param reason - the registrant's explanation of the refusal.
+   */
+  constructor(readonly ns: SettingsNamespace, readonly reason: string) {
+    super(`settings namespace "${ns}" refused the write: ${reason}`)
+    this.name = 'SettingsWriteRefusedError'
   }
 }
 
@@ -226,6 +275,9 @@ export class SettingsForms extends Service {
   private closed = false
   private scheduled = false
   private readonly presentations = new Map<Fiber, { auto?: boolean }>()
+  private readonly writeGuards = new Map<string, Set<SettingsWriteGuard>>()
+  /** Last refusal each namespace published through describe() or a guard refresh. */
+  private readonly publishedRefusals = new Map<string, string | undefined>()
 
   constructor(private readonly ownerContext: Context) {
     super(ownerContext, 'settings')
@@ -287,6 +339,63 @@ export class SettingsForms extends Service {
     }
   }
 
+  /**
+   * Register one namespace's write veto. Every write into `ns` consults the
+   * registered guards before it resolves a value, so a refusal never reaches
+   * the profile document.
+   * @param ns - profile entry id whose writes this guard governs; the write
+   * surface names namespaces as plain strings, and this registration point
+   * follows it.
+   * @param guard - predicate returning a refusal reason, or undefined to allow.
+   * @returns the registration handle; scope it by adopting its `dispose`
+   *   into the calling fiber's own effect.
+   */
+  guard(ns: string, guard: SettingsWriteGuard): SettingsWriteGuardRegistration {
+    const dispose = this.ownerContext.effect(() => {
+      let guards = this.writeGuards.get(ns)
+      if (guards === undefined) {
+        guards = new Set()
+        this.writeGuards.set(ns, guards)
+      }
+      guards.add(guard)
+      return () => {
+        const live = this.writeGuards.get(ns)
+        /* v8 ignore next -- the disposer runs once per successful registration, so the entry it added is still here */
+        if (live === undefined) return
+        live.delete(guard)
+        if (live.size === 0) this.writeGuards.delete(ns)
+        this.publishedRefusals.delete(ns)
+      }
+    }, 'settings.guard()')
+    return {
+      // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; keep the Cordis disposer so effects can adopt it.
+      dispose,
+      refresh: () => { this.publishRefusalChange(ns) },
+    }
+  }
+
+  /** Join every refusal registered for one namespace, or undefined to allow. */
+  private refusal(ns: string): string | undefined {
+    const reasons = [...this.writeGuards.get(ns) ?? []]
+      .flatMap(guard => guard() ?? [])
+    return reasons.length === 0 ? undefined : reasons.join('; ')
+  }
+
+  /**
+   * Emit `settings/document-updated` for one namespace when its published
+   * refusal no longer matches the guards' current answer. The revision rides
+   * along unchanged: a guard flip is not a document edit and must not trip
+   * the optimistic-write fence.
+   */
+  private publishRefusalChange(ns: string): void {
+    if (this.closed) return
+    const current = this.refusal(ns)
+    if (this.publishedRefusals.get(ns) === current) return
+    this.publishedRefusals.set(ns, current)
+    const revision = [...this.revisions.values()].find(record => record.ns === ns)?.revision ?? 0
+    this.ownerContext.emit('settings/document-updated', ns as SettingsNamespace, revision)
+  }
+
   private invalidate(): void {
     if (this.scheduled || this.closed) return
     this.scheduled = true
@@ -332,9 +441,12 @@ export class SettingsForms extends Service {
       const base = projectForm(form, plainConfig(inheritedConfig(entry.fiber.runtime, resolved)))
       const user = projectForm(form, override)
       const redacted = redactSecrets(form as z<never>, value)
+      const writeRefusal = this.refusal(entry.options.id)
+      this.publishedRefusals.set(entry.options.id, writeRefusal)
       return [{
         autoGenerate,
         ns: entry.options.id as SettingsNamespace, schema: form.toJSON(), revision, applies: 'live' as const,
+        ...writeRefusal === undefined ? {} : { writeRefusal },
         value: options?.redactSecrets ? redacted.value : value,
         base: options?.redactSecrets ? redactSecrets(form as z<never>, base).value : base,
         user: options?.redactSecrets ? redactSecrets(form as z<never>, user).value : user,
@@ -390,6 +502,8 @@ export class SettingsForms extends Service {
     change: (current: Record<string, unknown>, base: Record<string, unknown>, schema: z) => Record<string, unknown>,
     expected?: number, paths: readonly (readonly string[])[] = [],
   ): Promise<void> {
+    const refusal = this.refusal(ns)
+    if (refusal !== undefined) throw new SettingsWriteRefusedError(ns as SettingsNamespace, refusal)
     const entry = this.ownerContext.configEditor.entries().find(row => row.options.id === ns)
     const schema = entry === undefined ? undefined : this.schema(entry)
     if (entry === undefined || schema === undefined) throw new Error(`No configurable plugin entry "${ns}"`)

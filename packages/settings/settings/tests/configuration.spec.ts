@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 import z from '@deepseek-ai/schemastery'
+import { SettingsWriteRefusedError } from '../src/index.ts'
 import { configurationFixture as fixture } from './configuration-fixture.ts'
 
 it('persists a model edit, updates the real consumer without remounting, and restores it at restart', async () => {
@@ -345,6 +346,28 @@ it('imports the removed settings.yaml into the profile and keeps rejected sectio
   expect(blocked.agentDefaultModel.currentSelection().model).toBe('blocked')
 })
 
+it('reports the profile writable and locates its patch for the native editor', async () => {
+  const { ctx, profile } = await fixture()
+  // The profile is the deployment's own patch, so it always accepts form edits;
+  // the native editor receives that path without the wire view exposing it.
+  expect(ctx.settings.writable).toBe(true)
+  expect(ctx.settings.documentPath).toBe(profile.patchPath)
+  await expect(ctx.settings.prepareDocument()).resolves.toBe(profile.patchPath)
+})
+
+it('consumes an empty legacy settings.yaml without importing a section', async () => {
+  const { ctx, home, start } = await fixture()
+  await ctx.fiber.dispose()
+  const legacy = join(home, 'settings.yaml')
+  // An empty document parses to null: there is no section to import, so the
+  // whole file is consumed rather than retried on every boot.
+  writeFileSync(legacy, '')
+  const restored = await start()
+  await vi.waitFor(() => { expect(existsSync(`${legacy}.imported`)).toBe(true) })
+  expect(existsSync(legacy)).toBe(false)
+  await restored.fiber.dispose()
+})
+
 it('describes an entry whose required field only the profile supplies, and reports a failed refresh instead of crashing', async () => {
   const { ctx, profile, start } = await fixture({
     schema: z.object({ ordinary: z.string(), required: z.string().required(), count: z.number().default(2).volatile() }),
@@ -359,4 +382,91 @@ it('describes an entry whose required field only the profile supplies, and repor
   restored.emit('app-boot/config-reload')
   const failures = (): unknown[] => restored.logger.buffer.filter(message => message.type === 'error').map((message): unknown => message.args[0])
   await vi.waitFor(() => { expect(failures()).toContainEqual(expect.objectContaining({ message: 'refresh failed' })) })
+})
+
+it('guards one namespace without touching another, and lets the guard change its answer', async () => {
+  const { ctx, profile } = await fixture()
+  const before = readFileSync(profile.patchPath, 'utf8')
+  let reason: string | undefined = 'a worker still holds this route'
+  const release = ctx.settings.guard('first', () => reason)
+
+  const refusal: unknown = await ctx.settings.update('first', { count: 5 }).catch((error: unknown) => error)
+  expect(refusal).toBeInstanceOf(SettingsWriteRefusedError)
+  expect((refusal as SettingsWriteRefusedError).code).toBe('SETTINGS_WRITE_REFUSED')
+  expect((refusal as SettingsWriteRefusedError).ns).toBe('first')
+  expect((refusal as SettingsWriteRefusedError).reason).toBe('a worker still holds this route')
+  // A refused write leaves the document untouched and other namespaces writable.
+  expect(readFileSync(profile.patchPath, 'utf8')).toBe(before)
+  await ctx.settings.update('second', { count: 5 })
+
+  // The guard is consulted per write, so settling the worker unblocks the next one.
+  reason = undefined
+  await ctx.settings.update('first', { count: 5 })
+  expect(ctx.settings.describe().find(row => row.ns === 'first')!.value).toMatchObject({ count: 5 })
+
+  // Release drops this exact guard only.
+  release.dispose()
+  await ctx.settings.update('first', { count: 6 })
+  expect(ctx.settings.describe().find(row => row.ns === 'first')!.value).toMatchObject({ count: 6 })
+})
+
+it('collects every guard registered for one namespace', async () => {
+  const { ctx } = await fixture()
+  ctx.settings.guard('first', () => 'first reason')
+  ctx.settings.guard('first', () => undefined)
+  ctx.settings.guard('first', () => 'second reason')
+
+  await expect(ctx.settings.update('first', { count: 5 }))
+    .rejects.toThrow('refused the write: first reason; second reason')
+})
+
+it('publishes the current refusal through describe, so a form mirrors the write funnel', async () => {
+  const { ctx } = await fixture()
+  let reason: string | undefined
+  const release = ctx.settings.guard('first', () => reason)
+
+  // Nothing registered a veto yet, so the namespace publishes no reason.
+  expect(ctx.settings.describe().find(row => row.ns === 'first')!.writeRefusal).toBeUndefined()
+  reason = 'a worker still holds this route'
+  expect(ctx.settings.describe().find(row => row.ns === 'first')!.writeRefusal).toBe('a worker still holds this route')
+  // Another namespace's guard never reaches this one.
+  expect(ctx.settings.describe().find(row => row.ns === 'second')!.writeRefusal).toBeUndefined()
+
+  // A page must not keep disabling its controls after the veto clears.
+  reason = undefined
+  expect(ctx.settings.describe().find(row => row.ns === 'first')!.writeRefusal).toBeUndefined()
+
+  reason = 'released guard'
+  release.dispose()
+  expect(ctx.settings.describe().find(row => row.ns === 'first')!.writeRefusal).toBeUndefined()
+})
+
+it('republishes a flipped guard answer as document-updated with the revision unchanged', async () => {
+  const { ctx } = await fixture()
+  let reason: string | undefined
+  const registration = ctx.settings.guard('first', () => reason)
+  const published: Array<{ ns: string, revision: number }> = []
+  ctx.on('settings/document-updated', (ns: string, revision: number) => { published.push({ ns, revision }) })
+
+  // Seed the published answer; an unchanged answer publishes nothing.
+  const revision = ctx.settings.describe().find(row => row.ns === 'first')!.revision
+  registration.refresh()
+  expect(published).toHaveLength(0)
+
+  // The veto appears: an open form hears it without a write attempt.
+  reason = 'a worker still holds this route'
+  registration.refresh()
+  expect(published).toEqual([{ ns: 'first', revision }])
+
+  // A repeat without a flip is silent; clearing the veto publishes the release.
+  registration.refresh()
+  expect(published).toHaveLength(1)
+  reason = undefined
+  registration.refresh()
+  expect(published).toEqual([{ ns: 'first', revision }, { ns: 'first', revision }])
+
+  // A guard flip is not a document edit: the optimistic-write fence stands.
+  const view = ctx.settings.describe().find(row => row.ns === 'first')!
+  expect(view.writeRefusal).toBeUndefined()
+  expect(view.revision).toBe(revision)
 })

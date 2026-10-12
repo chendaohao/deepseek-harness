@@ -31,6 +31,7 @@ import { settingsSchema } from './settings-schema.client.ts'
 afterEach(cleanup)
 
 const t: ModelsSectionInjected['t'] = key => en[key]
+
 const OPENAI_TARGET = { provider: 'openai', displayName: 'openai' }
 const openaiCopy = (template: string): string => providerCopy(template, OPENAI_TARGET)
 const DEEPSEEK_TARGET = { provider: 'deepseek-official', displayName: 'DeepSeek' }
@@ -285,11 +286,15 @@ function cardSeatCalls(
     ])
 }
 
-async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
+async function mountFace(
+  scripted: ReturnType<typeof scriptedFace>,
+) {
   const { face, update, mutate, set, unset } = scripted
   const ctx = ctxWith(face)
   const mirror = new SettingsDescribeMirror(ctx)
   const controller = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  // Prime the store so the mount under test starts from an already-ready
+  // snapshot; the page's own first load is the caller's to script.
   await controller.load()
   const renderSlot = stubRenderSlot()
   const injected: ModelsSectionProps = {
@@ -347,9 +352,10 @@ describe('ModelsSection', () => {
     const read = Promise.withResolvers<RemoteResult<Record<string, CredentialInfo>>>()
     const started = Promise.withResolvers<undefined>()
     face.credentials.describe.mockImplementationOnce(() => { started.resolve(undefined); return read.promise })
-    let refreshing: Promise<void> | undefined
+    // The refresh is already in flight when the replacement surface mounts.
+    const refreshing = controller.load()
+    await act(async () => { await started.promise })
     try {
-      await act(async () => { refreshing = controller.load(); await started.promise })
       expect(controller.store.getSnapshot().namespaces.get('llm-deepseek')?.revision).toBe(0)
       render(<ModelsSection
         controller={controller}
@@ -357,6 +363,7 @@ describe('ModelsSection', () => {
         operations={operationsWith(face)}
         schema={settingsSchema}
         t={t}
+        workerRoute={stubWorkerRoute()}
         renderSlot={() => null}
       />)
       expect(screen.getByRole('heading', { name: en.title })).toBeTruthy()
@@ -2011,6 +2018,13 @@ describe('ModelsSection', () => {
     await screen.findByText('DeepSeek')
   })
 
+  it('leaves the worker route open while the Host admits a write', async () => {
+    await mountSection()
+
+    expect(screen.getByLabelText<HTMLSelectElement>(en.workerRouteProvider).disabled).toBe(false)
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
   it('removes by unsetting the profile path, never by rebuilding the section', async () => {
     // The page only needs to name the profile path; rebuilding the section
     // would widen the write for no benefit.
@@ -2294,6 +2308,44 @@ describe('ModelsSection', () => {
 
       expect(row.style.transform).toBe('')
       expect(localStorage.getItem(PROVIDER_ORDER_KEY)).toBeNull()
+    })
+
+    it('retires only its own pending order when a superseded drop settles', async () => {
+      stubRowGeometry()
+      const { face } = await mountDraggableRows()
+
+      let land: () => void = () => {}
+      const held = new Promise<void>((resolve) => { land = resolve })
+      let reloads = 0
+      face.llm.listProviders.mockImplementation(() => {
+        reloads += 1
+        // Hold the first drop's confirming read open; the second drop's read
+        // answers normally and settles both callers' joined loads.
+        return reloads === 2 ? held.then(() => remoteOk([
+          { id: 'deepseek-official', name: 'DeepSeek' },
+          { id: 'openai', name: 'openai' },
+        ])) : Promise.resolve(remoteOk([
+          { id: 'deepseek-official', name: 'DeepSeek' },
+          { id: 'openai', name: 'openai' },
+        ]))
+      })
+
+      const first = pressRow(0)
+      fireEvent.pointerMove(first.row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      fireEvent.pointerUp(first.row, { clientX: 10, clientY: LIST_TOP + GRAB + 80, pointerId: 7 })
+      expect(renderedIds().slice(0, 2)).toEqual(['openai', 'deepseek-official'])
+
+      const second = pressRow(0)
+      fireEvent.pointerMove(second.row, { clientX: 10, clientY: LIST_TOP + GRAB + 160, pointerId: 7 })
+      fireEvent.pointerUp(second.row, { clientX: 10, clientY: LIST_TOP + GRAB + 160, pointerId: 7 })
+      expect(renderedIds().slice(0, 3)).toEqual(['deepseek-official', 'anthropic', 'openai'])
+
+      // The second drop's reload answers and settles the first drop's joined
+      // load with it; that first drop's callback must leave the newer order
+      // in charge rather than clearing it.
+      await act(async () => { land() })
+      await waitFor(() => { expect(face.llm.listProviders).toHaveBeenCalledTimes(3) })
+      expect(renderedIds().slice(0, 3)).toEqual(['deepseek-official', 'anthropic', 'openai'])
     })
 
     it('ends the drag when the platform cancels the pointer', async () => {

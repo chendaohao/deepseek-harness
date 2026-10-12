@@ -1214,8 +1214,11 @@ export class SubagentManager {
       using child = childObs
       const events = child.events.slice(child.inheritedEventCount)
       const terminal = coldSettlementTerminal(events)
+      // A terminal account exists only for a non-empty suffix, so folding the
+      // suffix yields the closing event time a covering notice has to reach.
       if (terminal === undefined) continue
-      if (settlementNoticeCovers(parentEvents, entry.id, events.at(-1)?.time ?? 0)) continue
+      const childLastEventTime = events.reduce((_, event) => event.time, 0)
+      if (settlementNoticeCovers(parentEvents, entry.id, childLastEventTime)) continue
       this.notifyReconciledSettlement(entry.id, parent, terminal)
     }
   }
@@ -1370,12 +1373,15 @@ export class SubagentManager {
     }
   }
 
-  /** Deliver one resident continuable child's message to its live direct parent. */
-  private sendToParent(
+  /**
+   * Deliver one resident continuable child's message to its direct parent,
+   * storing it against the parent's log when no parent Agent is resident.
+   */
+  private async sendToParent(
     activation: Activation,
     sender: Agent,
     content: ContentBlock[],
-  ): MessageId {
+  ): Promise<MessageId> {
     /* v8 ignore next 6 -- only synchronous re-entrant teardown can open this
      * transaction between exact-agent authorization and this no-await span. */
     if (activation.closing !== undefined) {
@@ -1384,16 +1390,25 @@ export class SubagentManager {
         'ACTIVATION_CLOSING',
       )
     }
-    const parent = this.ctx.agents.get(activation.parent.id)
-    if (parent !== activation.parent) {
-      throw new SubagentError(
-        'direct parent is not live; the message was not delivered',
-        'PARENT_UNAVAILABLE',
-      )
-    }
     const message = createAgentMessage(sender, content)
-    this.sendAgentMessage(parent, message)
-    return message.id
+    const parent = this.ctx.agents.get(activation.parent.id)
+    if (parent === activation.parent) {
+      this.sendAgentMessage(parent, message)
+      return message.id
+    }
+    // The parent left while the child kept running: its next activation reads
+    // the stored log, so the message cannot vanish with the missing Agent.
+    try {
+      const outcome = await appendUnattendedMessage(this.ctx, activation.parent.id, message)
+      if (outcome === 'stored') return message.id
+      reportUnattendedHandoff(this.ctx, activation.parent.id, outcome)
+    } catch (error: unknown) {
+      reportUnattendedHandoff(this.ctx, activation.parent.id, { rejected: error })
+    }
+    throw new SubagentError(
+      'direct parent is not live; the message was not delivered',
+      'PARENT_UNAVAILABLE',
+    )
   }
 
   /** Send one Agent message while translating only the target's own rejection. */

@@ -188,4 +188,18 @@ describe('the forwarded-write fence on credentials', () => {
     await controller.set('DEEPSEEK_API_KEY', 'sk-live')
     await expect(controller.unset('DEEPSEEK_API_KEY')).resolves.toBeUndefined()
   })
+
+  it('defaults the fence to closed when constructed without a schema-validated config', async () => {
+    const ctx = new Context()
+    await ctx.plugin(MemoryCredentials, { DEEPSEEK_API_KEY: 'sk-seeded' })
+    // Direct construction skips the Config schema, so the constructor's own
+    // fallback is what decides: a missing field must read as "fence closed"
+    // rather than as a configured true.
+    const controller = new CredentialsController(ctx, {})
+    const forwarded = { headers: { 'x-dsh-proxied': '1' } }
+    const failure = await Promise.resolve()
+      .then(() => runWithRequestFacts(forwarded, () => controller.set('DEEPSEEK_API_KEY', 'sk-live')))
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'settings/forwarded-write-disabled' })
+  })
 })

@@ -83,6 +83,7 @@ function namespaceView(descriptor: SettingsDescriptor): SettingsNamespaceView {
     applies: descriptor.applies,
     secrets: (descriptor.secrets ?? []).map(secret => ({ path: [...secret.path], set: secret.set })),
     revision: descriptor.revision,
+    ...descriptor.writeRefusal === undefined ? {} : { writeRefusal: descriptor.writeRefusal },
   }
 }
 

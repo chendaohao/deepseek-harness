@@ -7,7 +7,7 @@ import {
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
-  IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconRefreshOutlineRegular, StateDot, Tooltip,
+  IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconRefreshOutlineRegular, StateDot, Tag, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
@@ -421,6 +421,40 @@ function CatalogRows({
         )
       })}
     </>
+  )
+}
+
+/** One session's effective route as `provider / model · effort`, effort omitted when the adapter default applies. */
+function routeText(selection: NonNullable<SessionProjectionMap['modelSelection']['next']>): string {
+  const route = `${selection.provider} / ${selection.model}`
+  return selection.reasoningEffort === undefined ? route : `${route} · ${selection.reasoningEffort}`
+}
+
+/**
+ * Read-only chip naming the route one subagent session's next request uses,
+ * folded from that session's own durable `modelSelection` projection. The chip
+ * carries no RPC and no control: an addressed subagent session exposes no
+ * model-selection write path, so the only way to change this route is the
+ * Models settings page the tooltip points at.
+ * @param props - the session whose projection is read, its selector hook, and copy.
+ * @returns the chip, or null before any request recorded a route.
+ */
+function WorkerRouteChip({ sessionId, useSessions, t }: {
+  sessionId: SessionId
+  useSessions: SubagentHeaderLineageProps['useSessions']
+  t: TranslateNS<typeof NS>
+}) {
+  const projections = useSessions(state => state.projectionsBySession)
+  const selection = projections[sessionId]?.values.modelSelection
+  const route = selection?.next ?? selection?.lastUsed
+  if (route === null || route === undefined) return null
+  return (
+    <Tooltip label={t('route.tooltip')} side="bottom" align="end">
+      {/* The chip is presentation; this anchor owns keyboard reach and the focus ring. */}
+      <span className={css.routeAnchor} tabIndex={0}>
+        <Tag className={css.routeBadge}><span className={css.routeLabel}>{routeText(route)}</span></Tag>
+      </span>
+    </Tooltip>
   )
 }
 
@@ -852,6 +886,7 @@ export function SubagentHeaderLineage({
           {...shared}
         />
       )}
+      <WorkerRouteChip sessionId={lineageSessionId} useSessions={useSessions} t={t} />
     </>
   )
 }

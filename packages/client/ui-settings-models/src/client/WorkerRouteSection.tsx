@@ -94,12 +94,25 @@ export function WorkerRouteSection({ scope, catalog, loadCatalog, t }: WorkerRou
   const group = value === undefined ? undefined : groupFor(groups, value.provider)
   const model = modelFor(group, value?.model ?? '')
   const efforts = model?.reasoning?.efforts ?? []
-  const disabled = !state.writable || value === undefined
+  /* v8 ignore next -- a model with advertised efforts implies a stored route, so the `??` fallback satisfies the nullable type */
+  const storedEffort = value?.reasoningEffort ?? ''
+  // The Host publishes why it would refuse the next write, so the controls are
+  // disabled by that answer rather than by a client-side re-derivation of it.
+  const locked = state.writeRefusal !== undefined
+  const disabled = !state.writable || value === undefined || locked
 
   return (
     <section className={styles['section']} aria-labelledby={`${fieldId}-title`}>
       <h3 id={`${fieldId}-title`} className={styles['title']}>{t('workerRouteTitle')}</h3>
       <p className={styles['intro']}>{t('workerRouteIntro')}</p>
+      {/* The Host's own refusal reason explains the disabled controls below. */}
+      {locked && <p className={styles['notice']} role="status">{t('workerRouteLocked')}</p>}
+      {/* A rejected write must never read as a silent revert. */}
+      {state.writeFailure !== undefined && (
+        <p className={styles['error']} role="alert">
+          {t(state.writeFailure === 'conflict' ? 'workerRouteConflict' : 'workerRouteRefused')}
+        </p>
+      )}
       <div className={styles['rows']}>
         <RouteSelect
           label={t('workerRouteProvider')}
@@ -124,14 +137,14 @@ export function WorkerRouteSection({ scope, catalog, loadCatalog, t }: WorkerRou
             ? (
               <select
                 className={`${styles['input']} ${styles['selectInput']}`}
-                value={value?.reasoningEffort ?? ''}
+                value={storedEffort}
                 aria-label={t('workerRouteEffort')}
                 disabled={disabled}
                 onChange={(event) => { void scope.set('reasoningEffort', event.target.value) }}
               >
-                {efforts.some(effort => effort.id === value?.reasoningEffort)
+                {efforts.some(effort => effort.id === storedEffort)
                   ? null
-                  : <option value={value?.reasoningEffort ?? ''}>{value?.reasoningEffort ?? ''}</option>}
+                  : <option value={storedEffort}>{storedEffort}</option>}
                 {efforts.map(effort => <option key={effort.id} value={effort.id}>{effort.name}</option>)}
               </select>
             )

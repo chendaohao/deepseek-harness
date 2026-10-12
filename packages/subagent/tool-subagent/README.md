@@ -47,7 +47,7 @@ Load the subagent service, an in-process or remote backend, and this tool; then 
 | `provider` | required | Provider name on `ctx.subagents` (e.g. `spawn`, `fork`, `acp`) |
 | `toolName` | `subagent` | Model-facing tool name; distinct for every loaded instance |
 | `modelSelectionSettings` | `false` | Sample the Host's exact-route authorization preference for each top-level Session; a standing preset observes matching Sessions, while direct Agent setup passes its Session explicitly; requires provider `agentOptions` support |
-| `workerRouteSettings` | `false` | Read the Host `subagent-worker-route` setting as this instance's baseline child route on every call, so a settings update reaches the next delegation without rebuilding the definition; configured `agentOptions` stays as the fallback beneath it; requires provider `agentOptions` support |
+| `workerRouteSettings` | `false` | Read the Host `subagent-worker-route` setting as this instance's baseline child route on every call; a child the setting itself routed records that fact and re-resolves it at every later request, so a settings update needs neither a rebuild nor a restart. Writes into that namespace are refused while a worker that follows it is running. Configured `agentOptions` stays as the fallback beneath it; requires provider `agentOptions` support |
 | `agentOptions` | — | Configured child `provider`, `model`, adapter-owned `reasoningEffort`, and positive `maxTokens` defaults; requires provider `agentOptions` support and overlays any provider-owned route defaults |
 | `persona` | — | Per-child persona; requires the provider's `persona` capability |
 | `toolFilter` | — | Per-child global-tool restriction; requires the `toolFilter` capability |
@@ -72,6 +72,10 @@ A call supplies `provider` and `model` together, or supplies only an effort when
 ### Setting the default child route
 
 Set `workerRouteSettings: true` to let a Host setting, rather than the composition file, choose the route every child starts on. The tool then reads the `subagent-worker-route` section — `provider`, `model`, and `reasoningEffort` — on each call, so an edit reaches the next delegation without rebuilding the tool definition or restarting the process. A route in that setting outranks configured `agentOptions`, which stays as the fallback for a deployment that never writes the section; a model-facing selection still outranks both. This mode requires a backend that advertises `agentOptions`.
+
+A child the setting itself routed records a durable `subagent/worker-route` marker, so every later activation — a cold resume included — re-resolves provider, model, and effort from the section and appends the usual model-change notice to its next request. A call that names its own route or effort keeps what it named and records no marker, and a child created by a different tool row keeps its creation route.
+
+The same plugin owns that namespace's write guard. A route rewrite is refused while a worker that follows the setting is running: the child re-reads the setting at every request, and a rewrite landing while a request is being assembled would change the route of work already on its way to a provider. The guard cannot tell assembly apart from the gaps between a turn's requests, so the whole turn holds the write. A settled or failed worker stays continuable but is not in use, and a worker the setting never routed keeps its creation route, so neither holds the write — that window is what the recovery flow needs. The refusal reason is published through `settings.describe()`, so a client disables its controls from the Host's own answer instead of re-deriving the condition.
 
 The section is owned by the Host plane, so a preset row that reads it must be able to resolve the service across any scope isolation it mounts under. A deployment that composes no owner fails the mount rather than delegating on a route nothing can change.
 
@@ -109,6 +113,8 @@ The tool's description derives from `provider.inheritsParentContext`: a fresh ch
 | [`src/model-selection.ts`](src/model-selection.ts) | Request/config merge and live LLM route preflight |
 | [`src/model-selection-settings.ts`](src/model-selection-settings.ts) | Host-owned opt-in setting sampled for new Sessions |
 | [`src/worker-route-settings.ts`](src/worker-route-settings.ts) | Host-owned default child route read on every call |
+| [`src/worker-route-state.ts`](src/worker-route-state.ts) | Session event that marks a child as following that setting |
+| [`src/worker-route-guard.ts`](src/worker-route-guard.ts) | Write-guard predicate for that setting, over the live Agent registry |
 | [`src/model-selection-state.ts`](src/model-selection-state.ts) | Session event that records and inherits the sampled decision |
 | [`src/list-models.ts`](src/list-models.ts) | `list_subagent_models` runtime discovery tool |
 
@@ -217,6 +223,8 @@ These limits define what this tool does not return or enforce; they are current 
 
 - **This tool does not wait for results** — use the completion notice or child messages. Programmatic result waiting belongs to the subagent service.
 - **Shipped fork tools cannot select a child LLM route** — they inherit the parent's provider and model to keep the copied conversation prefix eligible for KV Cache reuse. Re-enable selection only when route changes preserve reuse or expose a bounded recomputation cost.
+- **Only the setting's own route follows it later** — a child keeps its creation route when the delegation named a route or effort of its own, and a tool row without `workerRouteSettings` never marks its children. A reader older than the marker refuses the containing log rather than routing a child it cannot reconstruct.
+- **The worker-route write guard covers the settings form** — it consults the Agent registry, so it refuses `update`, `replace`, and `mutate` while a following worker is running, but cannot stop a direct profile-patch edit.
 - **Non-routing child policy is fixed per instance** — another persona, tool filter, or depth cap requires another distinctly named tool. LLM selection requires an enabled per-Session preference and a provider that advertises `agentOptions`; both in-process providers and DSH SDK advertise it, while ACP, Codex, and Claude Code reject it rather than ignore it.
 
 <a id="dev-note"></a>

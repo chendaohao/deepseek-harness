@@ -38,6 +38,10 @@ Reset restores the value beneath the profile override, including schema defaults
 
 Each form reports `autoGenerate`, enabled by default, for clients that build pages from the schema; no shipped client does so yet. A plugin that ships its own page registers `configure({ auto: false }, ctx.fiber)` as an effect inside an optional `ctx.inject(['settings'], ...)` child from `apply`: the child names the plugin fiber the policy belongs to, a late-loading or replaced Settings service picks the policy up, and the business plugin runs without Settings. The policy does not remove configuration reads or writes.
 
+### Namespace write guards
+
+A namespace that cannot accept a write in some runtime state registers a guard instead of asking every client to disable its own controls. `ctx.settings.guard(ns, guard)` is the Service Definition's registration point, the namespace owner is the Service Provider that supplies the policy, and the service's write funnel (`update`, `replace`, `mutate`) is the Consumer that consults it before resolving any value: a guard is a pure predicate returning a refusal reason or `undefined`, every guard registered for that namespace runs, a refusal raises `SettingsWriteRefusedError` with the namespace and the collected reasons, and the profile document is never touched. Registration returns a handle: adopt its `dispose` into the registering fiber's own effect, and call its `refresh()` when the facts the predicate reads moved — the guard is pull-based, so a flipped answer republishes as `settings/document-updated` only from that signal. `describe()` publishes the current guard answer as the descriptor's `writeRefusal`, so a form disables its controls from the Host's own admission decision rather than a client-side re-derivation that can disagree with the write funnel.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
@@ -70,6 +74,7 @@ Consumers that change request prefixes determine cache effects.
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- A guard covers form writes only: a direct edit of the profile patch, a home patch, or a command-line overlay bypasses it, so whoever can write the composition can still change a guarded namespace.
 - Nested Includes own separate configurations and are not editable through the active profile’s form.
 - Field-level resets restore inherited values; they cannot delete a value supplied by a lower configuration layer. Unsetting an array index removes that element.
 

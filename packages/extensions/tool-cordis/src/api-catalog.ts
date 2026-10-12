@@ -2603,6 +2603,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['If this instance already has a registered policy.'],
       },
       {
+        signature: 'guard(ns: string, guard: SettingsWriteGuard): SettingsWriteGuardRegistration',
+        description: 'Register one namespace\'s write veto. Every write into `ns` consults the registered guards before it resolves a value, so a refusal never reaches the profile document.',
+        parameters: [{ name: 'ns', description: 'profile entry id whose writes this guard governs; the write surface names namespaces as plain strings, and this registration point follows it.' }, { name: 'guard', description: 'predicate returning a refusal reason, or undefined to allow.' }],
+        returns: 'the registration handle; scope it by adopting its `dispose` into the calling fiber\'s own effect.',
+      },
+      {
         signature: 'prepareDocument(): Promise<string>',
         description: 'Locate the profile patch for native editing.',
         parameters: [],
@@ -3068,7 +3074,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'subagentWorkerRoute',
     summary: 'Singleton settings owner read when a delegation tool resolves its child default route.',
-    description: 'Singleton settings owner read when a delegation tool resolves its child default route. The route reaches the LLM adapter only through the delegation preflight, which validates the provider, model, and effort together.',
+    description: 'Singleton settings owner read when a delegation tool resolves its child default route. The route reaches the LLM adapter only through the delegation preflight, which validates the provider, model, and effort together.\n\nA route rewrite is not refused here: a marked child re-reads this setting at every request, so an edit is safe at any point of its life. What owns the refusal is the delegation tool, which knows which of its children are mid-turn.',
     methods: [
       {
         signature: 'current(): SubagentWorkerRouteSettings',
@@ -4427,8 +4433,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'settings/document-updated',
     mode: 'emit',
     signature: '\'settings/document-updated\'(ns: SettingsNamespace, revision: number): void',
-    summary: 'One profile entry\'s form values, availability, or page policy changed.',
-    description: 'One profile entry\'s form values, availability, or page policy changed. Form clients re-read its schema, resolved values, and revision.',
+    summary: 'One profile entry\'s form values, availability, page policy, or write admissibility changed.',
+    description: 'One profile entry\'s form values, availability, page policy, or write admissibility changed. Form clients re-read its schema, resolved values, revision, and write refusal. A guard-answer flip emits with the revision unchanged: it is not a document edit and does not trip the optimistic-write fence.',
     parameters: [{ name: 'ns', description: 'Profile entry id.' }, { name: 'revision', description: 'The entry\'s new revision.' }],
   },
   {
@@ -7377,7 +7383,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsDescriptor',
-    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    autoGenerate: boolean;\n    schema: unknown;\n    value: unknown;\n    revision: number;\n    base?: unknown;\n    user?: unknown;\n    applies: \'live\';\n    secrets?: RedactedSecret[];\n}',
+    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    autoGenerate: boolean;\n    schema: unknown;\n    value: unknown;\n    revision: number;\n    base?: unknown;\n    user?: unknown;\n    applies: \'live\';\n    secrets?: RedactedSecret[];\n    writeRefusal?: string;\n}',
   },
   {
     name: 'SettingsDocumentOpenValue',
@@ -7389,7 +7395,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsNamespaceView',
-    declaration: 'export interface SettingsNamespaceView {\n    autoGenerate: boolean;\n    ns: string;\n    schema: JsonValue;\n    value: JsonValue;\n    base?: JsonValue;\n    user?: JsonValue;\n    applies: \'live\';\n    secrets: SettingsSecretView[];\n    revision: number;\n}',
+    declaration: 'export interface SettingsNamespaceView {\n    autoGenerate: boolean;\n    ns: string;\n    schema: JsonValue;\n    value: JsonValue;\n    base?: JsonValue;\n    user?: JsonValue;\n    applies: \'live\';\n    secrets: SettingsSecretView[];\n    revision: number;\n    writeRefusal?: string;\n}',
   },
   {
     name: 'SettingsPathOp',
@@ -7402,6 +7408,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SettingsSecretView',
     declaration: 'export interface SettingsSecretView {\n    path: string[];\n    set: boolean;\n}',
+  },
+  {
+    name: 'SettingsWriteGuard',
+    declaration: 'export type SettingsWriteGuard = () => string | undefined;',
+  },
+  {
+    name: 'SettingsWriteGuardRegistration',
+    declaration: 'export interface SettingsWriteGuardRegistration {\n    readonly dispose: () => void;\n    readonly refresh: () => void;\n}',
   },
   {
     name: 'ShellExecRequest',

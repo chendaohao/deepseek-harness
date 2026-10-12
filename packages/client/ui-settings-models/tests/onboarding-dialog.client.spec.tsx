@@ -8,6 +8,7 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
+import { OnboardingModal } from '../src/client/OnboardingModal.tsx'
 import type { DeepSeekOnboardingDialogProps } from '../src/client/DeepSeekOnboardingDialog.tsx'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { ModelsSettingsStore } from '../src/client/store.ts'
@@ -281,6 +282,26 @@ describe('DeepSeekOnboardingDialog', () => {
     await act(async () => { await h.controller.load() })
     await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
     expect(h.complete).toHaveBeenCalledOnce()
+  })
+})
+
+describe('OnboardingModal', () => {
+  it('takes focus on the title when the step has no form control', async () => {
+    render(<OnboardingModal title={en.onboardingTitle} focusTitle>body</OnboardingModal>)
+
+    const title = await screen.findByRole('heading', { name: en.onboardingTitle })
+    // The step owns no focusable control, so the title is the tab stop the
+    // dialog hands the keyboard to; it is focusable only for this posture.
+    await waitFor(() => { expect(document.activeElement).toBe(title) })
+    expect(title.getAttribute('tabindex')).toBe('-1')
+  })
+
+  it('leaves the title out of the tab order and unfocused by default', async () => {
+    render(<OnboardingModal title={en.onboardingTitle}>body</OnboardingModal>)
+
+    const title = await screen.findByRole('heading', { name: en.onboardingTitle })
+    expect(title.getAttribute('tabindex')).toBeNull()
+    expect(document.activeElement).not.toBe(title)
   })
 })
 

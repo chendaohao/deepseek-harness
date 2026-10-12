@@ -34,6 +34,10 @@ function rejected<T>(): Answer<T> {
   return { ok: false, error: new RemoteError('settings/rejected', 'conflict', { ns: 'ui-test' }) }
 }
 
+function conflicted<T>(): Answer<T> {
+  return { ok: false, error: new RemoteError('settings/conflict', 'stale', { ns: 'ui-test', expected: 2, actual: 3 }) }
+}
+
 /** The providing plugin's context, scripted down to the settings namespace. */
 function ctxWith(settings: object) {
   return { remote: { settings } } as never
@@ -283,6 +287,47 @@ describe('ConfigFormController', () => {
     await scope.set('preference', 'dark')
     await scope.set('preference', 'system')
     expect(published.map(section => section?.preference)).toEqual([undefined, 'system', 'light'])
+  })
+
+  it('publishes the Host refusal reason so a form can disable for the real cause', async () => {
+    const describeCall = vi.fn().mockResolvedValueOnce(ok({
+      writable: true, hasDocument: true,
+      namespaces: [{ ...view({ preference: 'system' }, 2), writeRefusal: 'worker "w-1" is running' }],
+    }))
+    const { mirror, scope } = derivedScope({ describe: describeCall })
+    await mirror.load()
+    expect(scope.getSnapshot().writeRefusal).toBe('worker "w-1" is running')
+    // The reason rides the describe answer, so an admitted write clears it.
+    describeCall.mockResolvedValueOnce(described({ preference: 'system' }, 3))
+    await mirror.load()
+    expect(scope.getSnapshot().writeRefusal).toBeUndefined()
+  })
+
+  it('reports a refused write instead of only reverting to Host state', async () => {
+    const describeCall = vi.fn()
+      .mockResolvedValueOnce(described({ preference: 'system' }, 2))
+      .mockResolvedValueOnce(described({ preference: 'light' }, 3))
+    const mutate = vi.fn()
+      .mockResolvedValueOnce(rejected())
+      .mockResolvedValueOnce(ok(view({ preference: 'dark' }, 4)))
+    const { mirror, scope } = derivedScope({ describe: describeCall, mutate })
+    await mirror.load()
+    await scope.set('preference', 'dark')
+    expect(scope.getSnapshot().writeFailure).toBe('refused')
+
+    // An accepted write clears the notice for the next attempt.
+    await scope.set('preference', 'dark')
+    expect(scope.getSnapshot().writeFailure).toBeUndefined()
+  })
+
+  it('distinguishes a stale-revision conflict from a refusal', async () => {
+    const describeCall = vi.fn().mockResolvedValueOnce(described({ preference: 'system' }, 2))
+    const { mirror, scope } = derivedScope({ describe: describeCall, mutate: vi.fn().mockResolvedValue(conflicted()) })
+    await mirror.load()
+    await scope.set('preference', 'dark')
+    // The two need different user action: a refusal is a blocked edit, a
+    // conflict is a stale page that only has to be retried.
+    expect(scope.getSnapshot().writeFailure).toBe('conflict')
   })
 
   it('does not recover superseded refused writes', async () => {

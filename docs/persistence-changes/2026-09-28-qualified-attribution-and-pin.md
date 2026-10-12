@@ -27,11 +27,11 @@ id: 2026-09-28-qualified-attribution-and-pin
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-09-16-session-format-v4"
+    previous: "2026-09-21-user-question-reply"
     after: "ec92be0e17a42a02eedaa745826a5ad3ca3e5dc612ce3f1a8baebbf0b945fb0d"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-09-16-session-format-v4"
+    previous: "2026-09-21-user-question-reply"
     after: "d9ce2b5a5cf5015008dcd4de4a6097b8b513a4f615e335d825b960d58d3b0153"
     decision: same-version
   - root: "event:session/pin"
@@ -39,11 +39,11 @@ changes:
     after: "b899dc9ced85ea481542ee210c92b3893f07408e1f7308552e67b448754e8d2f"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-09-16-session-format-v4"
+    previous: "2026-09-21-user-question-reply"
     after: "b6b2cfd1a51bf17ec5d19b2959b6eab64335c9505148f0955550659cf64b0343"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-09-16-session-format-v4"
+    previous: "2026-09-21-user-question-reply"
     after: "394b60fa0bd6fa9c133547281d19dbf50fe24a8c155c9c062b73df52dff71bf5"
     decision: same-version
 ```

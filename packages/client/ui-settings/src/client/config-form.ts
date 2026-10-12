@@ -42,6 +42,17 @@ interface ConfigFormSpec<T> {
 }
 
 /**
+ * Classify one rejected settings write for the form that attempted it. A stale
+ * revision is a different user action from a refused one: the first re-reads
+ * and re-applies, the second needs the operator to clear the condition.
+ * @param code - the wire failure code the Host answered with.
+ * @returns the form-level failure kind.
+ */
+function writeFailureOf(code: string): 'refused' | 'conflict' {
+  return code === 'settings/conflict' ? 'conflict' : 'refused'
+}
+
+/**
  * One namespace's derived view over the shared describe mirror, plus that
  * namespace's serialized Host writes. Writes carry the latest known namespace
  * revision, fold their answers back into the mirror, and teardown waits for
@@ -80,6 +91,8 @@ export class ConfigFormController<T> implements ConfigForm<T> {
       user: undefined,
       revision: undefined,
       writable: false,
+      writeRefusal: undefined,
+      writeFailure: undefined,
       mode: 'host',
     })
     this.unsubscribe = mirror.subscribe(() => { this.derive() })
@@ -134,10 +147,11 @@ export class ConfigFormController<T> implements ConfigForm<T> {
       const revision = expectedRevision ?? this.pendingRevision ?? this.getSnapshot().revision
       const response = await this.ctx.remote.settings.mutate(this.spec.namespace, ownedOps, revision)
       if (!response.ok) {
-        await this.recover(generation)
+        await this.recover(generation, writeFailureOf(response.error.code))
         return false
       }
       if (this.disposed) return true
+      this.store.update((draft) => { draft.writeFailure = undefined })
       if (generation === this.writeGeneration) {
         this.pendingRevision = undefined
         this.mirror.acceptView(response.value)
@@ -149,9 +163,10 @@ export class ConfigFormController<T> implements ConfigForm<T> {
   }
 
   /** Reload Host state for the latest failed write; superseded failures leave recovery to it. */
-  private async recover(generation: number): Promise<void> {
+  private async recover(generation: number, failure: 'refused' | 'conflict'): Promise<void> {
     if (this.disposed || generation !== this.writeGeneration) return
     this.pendingRevision = undefined
+    this.store.update((draft) => { draft.writeFailure = failure })
     await this.mirror.load()
   }
 
@@ -189,6 +204,7 @@ export class ConfigFormController<T> implements ConfigForm<T> {
       this.store.update((draft) => {
         draft.status = 'unavailable'
         draft.writable = writable
+        draft.writeRefusal = undefined
       })
       return
     }
@@ -198,6 +214,7 @@ export class ConfigFormController<T> implements ConfigForm<T> {
       draft.base = view.base
       draft.user = view.user
       draft.writable = writable
+      draft.writeRefusal = view.writeRefusal
       if (decoded === undefined) return
       draft.status = 'ready'
       draft.value = decoded

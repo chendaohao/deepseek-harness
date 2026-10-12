@@ -38,6 +38,10 @@ Settings 启动后、Loader 完成所有条目的加载时，早期版本留在 
 
 每个表单报告 `autoGenerate`（默认开启），供按 schema 生成页面的客户端使用；目前没有已发布的客户端这样做。自带页面的插件在 `apply` 中于可选的 `ctx.inject(['settings'], ...)` 子级内以 effect 注册 `configure({ auto: false }, ctx.fiber)`：子级指明策略所属的插件 fiber，迟加载或被替换的 Settings 服务也会采用该策略，业务插件无需 Settings 即可运行。策略不移除配置读写。
 
+### 命名空间写入守卫
+
+某个命名空间在特定运行状态下不能接受写入时，由拥有它的插件注册守卫，而不是让每个客户端各自禁用控件。`ctx.settings.guard(ns, guard)` 是 Service Definition 的注册点，命名空间拥有者是提供策略的 Service Provider，服务唯一的写入入口（`update`、`replace`、`mutate`）是消费该注册点的 Consumer：它在解析任何取值之前咨询守卫。守卫是纯谓词，返回拒绝原因或 `undefined`；该命名空间注册的每个守卫都会运行，任一守卫拒绝时抛出带命名空间与全部原因的 `SettingsWriteRefusedError`，profile 文档不会被触碰。注册返回一个句柄：把它的 `dispose` 收进注册方自己 fiber 的 effect 以限定生命周期；守卫是拉取式谓词，其依据的事实变化时要调用句柄的 `refresh()`，翻转后的答复才会以 `settings/document-updated` 重新发布。`describe()` 会把守卫当前的答复作为描述符的 `writeRefusal` 发布出去，因此表单依据宿主自身的准入判断禁用控件，而不是靠可能与写入入口不一致的客户端推断。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
@@ -70,6 +74,7 @@ Settings 启动后、Loader 完成所有条目的加载时，早期版本留在 
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- 守卫只覆盖表单写入：直接编辑 profile patch、home patch 或命令行 overlay 都会绕过它，因此能写入组合的人仍可改动受守卫的命名空间。
 - 嵌套 Include 独立拥有配置，不能通过当前 profile 的表单编辑。
 - 字段重置恢复继承值，不能删除下层配置提供的值。取消设置数组索引会移除该元素。
 

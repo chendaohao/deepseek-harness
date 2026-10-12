@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-10-worker-route-reselection-and-write-guard.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-10-worker-route-reselection-and-write-guard.md
+/agent-note-worker-route-children-re-resolve-their-llm-route-per-request:
+  en: b4735abcbaa3a807
+  zh: db1f4ca6a43cae81
+/agent-note-worker-route-children-re-resolve-their-llm-route-per-request/problem:
+  en: a1416b329745ba1b
+  zh: e151d11c276e82ac
+/agent-note-worker-route-children-re-resolve-their-llm-route-per-request/decision:
+  en: d1b0b37808ebffa1
+  zh: e1ced6c1f9512111
+/agent-note-worker-route-children-re-resolve-their-llm-route-per-request/alternatives-considered:
+  en: 8f475296d18be46d
+  zh: 3bc12a1c19fd4964
+/agent-note-worker-route-children-re-resolve-their-llm-route-per-request/consequences:
+  en: dacd8fb928ec68be
+  zh: 5d8158098e0ef7f0
+/agent-note-worker-route-children-re-resolve-their-llm-route-per-request/testing:
+  en: 06b33fa8e562568e
+  zh: 9c37315c595e2bee

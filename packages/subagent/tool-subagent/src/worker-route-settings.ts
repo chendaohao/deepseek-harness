@@ -53,6 +53,10 @@ function assertWorkerRoute(value: SubagentWorkerRouteSettings): void {
  * Singleton settings owner read when a delegation tool resolves its child
  * default route. The route reaches the LLM adapter only through the delegation
  * preflight, which validates the provider, model, and effort together.
+ *
+ * A route rewrite is not refused here: a marked child re-reads this setting at
+ * every request, so an edit is safe at any point of its life. What owns the
+ * refusal is the delegation tool, which knows which of its children are mid-turn.
  */
 export class SubagentWorkerRouteConfig extends Service {
   static Config = z.object({

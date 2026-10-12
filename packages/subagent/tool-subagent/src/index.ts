@@ -11,7 +11,8 @@ import z from '@deepseek-ai/schemastery'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import { installModelSelection } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
@@ -21,6 +22,9 @@ import {
   parentAgentOptionsForDelegation,
 } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
+// Type-only: pulls the settings service's Context merge so the write guard this
+// plugin registers resolves without a runtime dependency on the implementation.
+import type {} from '@deepseek-ai/dsh-settings'
 import {
   assertAllowedModelSelection,
   hasConfiguredLlmSelection,
@@ -31,7 +35,17 @@ import {
 import type { DelegationModelRequest, ModelSelectionPolicy } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
 import type {} from './model-selection-settings.ts'
-import type { SubagentWorkerRouteSettings } from './worker-route-settings.ts'
+import type SubagentWorkerRouteConfig from './worker-route-settings.ts'
+import {
+  SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE,
+  type SubagentWorkerRouteSettings,
+} from './worker-route-settings.ts'
+import {
+  recordSubagentWorkerRoute,
+  subagentWorkerRouteMark,
+  subagentWorkerRouteProjectionDefinition,
+} from './worker-route-state.ts'
+import { workerRouteWriteRefusal } from './worker-route-guard.ts'
 import {
   recordSubagentModelSelection,
   subagentModelSelectionProjectionDefinition,
@@ -169,6 +183,16 @@ function providerWording(inheritsConversation: boolean): { description: string; 
  * @param config - delegation-tool configuration.
  * @param session - unpublished Session supplied by a direct Agent setup; omit for a standing composition.
  */
+/**
+ * Agents already carrying a worker-route selection installation. A parent can
+ * mount several delegation rows with `workerRouteSettings: true`, and each
+ * row's `agent/created` listener would install its own copy — two
+ * installations would both append the model-change notice to the child's
+ * transcript. The dedupe key is the Agent itself, so the set is shared across
+ * rows; keyed weakly, a disposed Agent's entry dies with it.
+ */
+const workerRouteSelectionInstalled = new WeakSet<Agent>()
+
 export function apply(ctx: Context, config: Config, session?: Session): void {
   // Direct apply() bypasses Schemastery's numeric constraints. A direct-apply
   // omission stays capless (the schema default only runs through the loader).
@@ -181,6 +205,74 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
 
   const modelSelectionCapable = config.modelSelectionSettings === true
   ctx.sessionProjections.register(subagentModelSelectionProjectionDefinition)
+  ctx.sessionProjections.register(subagentWorkerRouteProjectionDefinition)
+
+  const workerRouteConfig = config.workerRouteSettings === true
+    ? ctx.get('subagentWorkerRoute')
+    : undefined
+  if (config.workerRouteSettings === true && workerRouteConfig === undefined) {
+    throw new Error(
+      'tool-subagent: `workerRouteSettings` requires '
+      + '@deepseek-ai/dsh-tool-subagent/worker-route-settings in the Host scope',
+    )
+  }
+  // Bound rather than captured: the service instance reads through its own
+  // settings source, so each call observes the current stored route.
+  const workerRoute = workerRouteConfig === undefined
+    ? undefined
+    : (): SubagentWorkerRouteSettings => workerRouteConfig.current()
+  // One guard per composition, on this plugin's own scope: a tool row can hold
+  // a continuable child after the fiber that delegated it is gone, so the
+  // refusal has to outlive the row that started the worker. A deployment
+  // without the settings service has no write path to guard.
+  const settingsService = ctx.get('settings')
+  const guardRegistration = workerRouteConfig !== undefined && settingsService !== undefined
+    ? settingsService.guard(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, () =>
+      workerRouteWriteRefusal(ctx.sessionProjections, ctx.get('agents')?.list() ?? []))
+    : undefined
+  if (guardRegistration !== undefined) {
+    const registration = guardRegistration
+    ctx.effect(() => registration.dispose, 'tool-subagent: worker-route write guard')
+    // The guard predicate is pull-based, so a flip is published from the
+    // transition that causes it: a marked worker entering or leaving
+    // 'running'. This is what lets an open settings page re-enable its
+    // pickers when the worker it waited on settles.
+    ctx.on('agent/status', ({ agent }) => {
+      if (subagentWorkerRouteMark(ctx.sessionProjections, agent.session) !== undefined) registration.refresh()
+    })
+  }
+
+  /**
+   * Route one marked child's later requests from the current setting. The
+   * reference's `current` is a getter, so prompt assembly and request routing
+   * re-read the setting instead of the route baked into the child's creation
+   * options. One Agent takes one installation: within a row, a fresh child's
+   * marker lands after its creation dispatch already ran and a resumed Agent
+   * is announced once; across rows, the module-level installation set decides,
+   * because two opted-in rows each announce the same resumed child.
+   */
+  const installWorkerRouteSelection = (routeConfig: SubagentWorkerRouteConfig, child: Agent): void => {
+    if (subagentWorkerRouteMark(ctx.sessionProjections, child.session) === undefined) return
+    if (workerRouteSelectionInstalled.has(child)) return
+    workerRouteSelectionInstalled.add(child)
+    const selection: ModelSelectionRef = {
+      get current() {
+        const route = routeConfig.current()
+        return { provider: route.provider, model: route.model, reasoningEffort: route.reasoningEffort }
+      },
+      assembled: undefined,
+    }
+    child.ctx.effect(
+      () => installModelSelection(child.ctx, selection),
+      'tool-subagent: worker-route selection',
+    )
+  }
+  if (workerRouteConfig !== undefined) {
+    const routeConfig = workerRouteConfig
+    // A cold resume re-creates the child from its log, so the marker it already
+    // carries is what selects it here; this serial dispatch precedes its prompt.
+    ctx.on('agent/created', ({ agent }) => { installWorkerRouteSelection(routeConfig, agent) })
+  }
 
   const assertSubagentProviderConfiguration = (subagentProvider: SubagentProvider): void => {
     if (ctx.subagents.resolveMaxDepth(config.maxDepth) !== undefined && !subagentProvider.capabilities.depthLimit) {
@@ -333,6 +425,10 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             requestedChildAgentOptions,
             modelRequest,
           )
+          // The setting owns this child's route unless the call named one: an
+          // explicit per-call route or effort keeps the route it created.
+          const followsWorkerRoute = settingsRoute !== undefined
+            && !hasDelegationModelRequest(modelRequest)
           if (requiresRoutePreflight) {
             const llm = runtimeCtx.get('llm')
             if (llm === undefined) {
@@ -368,6 +464,17 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             signal: exec.signal,
             delivery: 'parent',
           })
+          if (followsWorkerRoute && workerRouteConfig !== undefined) {
+            // The marker is durable so a cold resume reinstalls from it; this
+            // live install is what makes the child's NEXT request observe the
+            // current setting without waiting for a restart.
+            /* v8 ignore next -- a composition without the Agent registry has no local child to route */
+            const child = runtimeCtx.get('agents')?.get(started.childId)
+            if (child !== undefined) {
+              recordSubagentWorkerRoute(runtimeCtx.sessionProjections, child.session)
+              installWorkerRouteSelection(workerRouteConfig, child)
+            }
+          }
           return { kind: 'activation' as const, subagentId: started.childId }
         },
       })
@@ -414,21 +521,6 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
       },
     })
   }
-
-  const workerRouteConfig = config.workerRouteSettings === true
-    ? ctx.get('subagentWorkerRoute')
-    : undefined
-  if (config.workerRouteSettings === true && workerRouteConfig === undefined) {
-    throw new Error(
-      'tool-subagent: `workerRouteSettings` requires '
-      + '@deepseek-ai/dsh-tool-subagent/worker-route-settings in the Host scope',
-    )
-  }
-  // Bound rather than captured: the service instance reads through its own
-  // settings source, so each call observes the current stored route.
-  const workerRoute = workerRouteConfig === undefined
-    ? undefined
-    : (): SubagentWorkerRouteSettings => workerRouteConfig.current()
 
   if (config.modelSelectionSettings !== true) {
     install(ctx, undefined, workerRoute)

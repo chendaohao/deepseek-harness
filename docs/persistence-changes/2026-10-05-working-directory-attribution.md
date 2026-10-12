@@ -27,19 +27,19 @@ id: 2026-10-05-working-directory-attribution
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-09-21-user-question-reply"
+    previous: "2026-09-29-max-tokens-recovery-source"
     after: "9a36727716d0e73f681f3b725e7f28f89417c68174c8af0ff2b1ef52b08326a0"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-09-21-user-question-reply"
+    previous: "2026-09-29-max-tokens-recovery-source"
     after: "ba5b10ea77d68f4a29439a9bd2a14f6a560acf55731749d57237757cc72fbc06"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-09-21-user-question-reply"
+    previous: "2026-09-29-max-tokens-recovery-source"
     after: "19fab83e64cf84ee8a6caf62c592e85c9b195bfd19e84a2667c6693a395681fd"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-09-21-user-question-reply"
+    previous: "2026-09-29-max-tokens-recovery-source"
     after: "2ace3b8059b82b6d9837fed518ca97a99eb37c4482df7aad0e71c85489428ade"
     decision: same-version
 ```

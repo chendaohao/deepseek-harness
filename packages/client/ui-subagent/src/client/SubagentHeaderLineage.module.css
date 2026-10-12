@@ -334,6 +334,36 @@
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
+/* Focusable anchor for the route chip's tooltip: the chip itself carries no
+   interaction, so this span owns keyboard reach and the focus ring. */
+.routeAnchor {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  border-radius: 999px;
+  corner-shape: round;
+  outline: none;
+}
+
+.routeAnchor:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.routeBadge {
+  max-width: 240px;
+}
+
+/* Ellipsis on the inner box: the capsule is a flex container, so its own
+   text-overflow would not clip the text node. */
+.routeLabel {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .notice,
 .error {
   padding: 8px 10px;

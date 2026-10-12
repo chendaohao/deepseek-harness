@@ -47,7 +47,7 @@ kind: "package-reference"
 | `provider` | 必填 | `ctx.subagents` 上的提供方名称（如 `spawn`、`fork`、`acp`） |
 | `toolName` | `subagent` | 面向模型的工具名称；每个已加载实例必须不同 |
 | `modelSelectionSettings` | `false` | 为每个顶层 Session 读取宿主的精确路由授权偏好；常驻 preset 观察匹配 Session，直接 Agent setup 则显式传入其 Session；要求提供方支持 `agentOptions` |
-| `workerRouteSettings` | `false` | 每次调用都读取宿主 `subagent-worker-route` 设置，作为本实例的子级基线路由，因此设置改动无需重建工具定义即可作用于下一次委派；配置的 `agentOptions` 保留为其下方的兜底；要求提供方支持 `agentOptions` |
+| `workerRouteSettings` | `false` | 每次调用都读取宿主 `subagent-worker-route` 设置，作为本实例的子级基线路由；由该设置本身路由的子会话会记下这一点，并在之后每次请求重新解析，因此设置改动既不需要重建定义也不需要重启。跟随该设置的工人正在运行时，写入该命名空间会被拒绝。配置的 `agentOptions` 保留为其下方的兜底；要求提供方支持 `agentOptions` |
 | `agentOptions` | — | 配置的子级 `provider`、`model`、适配器所有的 `reasoningEffort` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
 | `persona` | — | 每个子 agent 独立的 persona；要求提供方具备 `persona` 能力 |
 | `toolFilter` | — | 每个子 agent 独立的全局工具限制；要求提供方具备 `toolFilter` 能力 |
@@ -72,6 +72,10 @@ kind: "package-reference"
 ### 设置默认子级路由
 
 设置 `workerRouteSettings: true`，即可让宿主设置（而非组合文件）决定每个子 agent 的起始路由。工具随后在每次调用时读取 `subagent-worker-route` 区段——`provider`、`model` 与 `reasoningEffort`——因此一次编辑就能作用于下一次委派，无需重建工具定义，也无需重启进程。该设置中的路由优先于配置的 `agentOptions`，后者保留为从未写入该区段的部署的兜底；面向模型的选择仍然优先于两者。此模式要求后端声明 `agentOptions`。
+
+由该设置本身路由的子会话会记录一个持久化的 `subagent/worker-route` 标记，因此之后每次激活（包含冷恢复）都从该区段重新解析 provider、model 与 reasoningEffort，并在下一次请求上追加常规的模型切换告知。调用中自己指名路由或推理档的子会话保持所指定的值，不留标记；由其他工具行创建的子会话保持创建时的路由。
+
+同一个插件持有该命名空间的写入守卫。当跟随该设置的工人正在运行时，路由改写会被拒绝：子会话每次请求都重读该设置，改写若落在请求组装期间，就会改变已在发往提供方途中的请求的路由。守卫无法区分请求组装与一轮中各请求之间的间隙，因此整个运行轮次都持有写入。已结算或失败的工人仍可续聊但不在使用中，而该设置从未路由过的工人保持创建时的路由，因此两者都不持锁——恢复流程需要的正是这个窗口。拒绝原因通过 `settings.describe()` 发布，客户端据此禁用控件，而不是自行推断该条件。
 
 该区段由宿主面持有，因此读取它的 preset 行必须能够跨其挂载所在的作用域隔离解析该服务。未组合任何持有者的部署会让挂载失败，而不是在一条无人能改的路由上委派。
 
@@ -109,6 +113,8 @@ kind: "package-reference"
 | [`src/model-selection.ts`](src/model-selection.ts) | 请求／配置合并与实时 LLM 路由预检 |
 | [`src/model-selection-settings.ts`](src/model-selection-settings.ts) | 为新 Session 读取的宿主所有 opt-in 设置 |
 | [`src/worker-route-settings.ts`](src/worker-route-settings.ts) | 每次调用读取的宿主所有默认子级路由 |
+| [`src/worker-route-state.ts`](src/worker-route-state.ts) | 标记子会话跟随该设置的 Session 事件 |
+| [`src/worker-route-guard.ts`](src/worker-route-guard.ts) | 针对该设置的写入守卫判定，基于实时 Agent 注册表 |
 | [`src/model-selection-state.ts`](src/model-selection-state.ts) | 记录并继承已读取决定的 Session 事件 |
 | [`src/list-models.ts`](src/list-models.ts) | `list_subagent_models` 运行时发现工具 |
 
@@ -217,6 +223,8 @@ Start independent delegations with `subagent` or `subagent_fork` together in one
 
 - **本工具不等待结果**——使用完成通知或子任务消息。程序化结果等待由 subagent 服务提供。
 - **随附 fork 工具不能选择子级 LLM 路由**——它们继承父级提供方与模型，使复制的对话前缀仍有资格复用 KV Cache。仅当路由变更能保留复用或公开有界重算成本时，才重新启用选择。
+- **只有设置本身给出的路由会一直跟随它**——委派时自己指名路由或推理档的子会话保持创建路由，未开启 `workerRouteSettings` 的工具行也不会标记其子会话。早于该标记的读取方会拒绝整份日志，而不是去路由一个它无法重建的子会话。
+- **工人路由写入守卫只覆盖设置表单**——它查询 Agent 注册表，因此会在跟随该设置的工人处于请求进行中时拒绝 `update`、`replace` 与 `mutate`，但无法阻止直接编辑 profile patch。
 - **非路由子 agent 策略按实例固定**——另一个 persona、工具过滤器或深度上限需要另一个名称不同的工具。LLM 选择要求启用逐 Session 偏好，且提供方必须声明 `agentOptions`；两个进程内提供方和 DSH SDK 会声明该能力，而 ACP、Codex 与 Claude Code 会拒绝它，而不是忽略它。
 
 <a id="dev-note"></a>

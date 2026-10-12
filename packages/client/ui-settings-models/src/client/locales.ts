@@ -114,10 +114,13 @@ export const en = {
   onboardingSaving: 'Saving…',
   keyRequired: 'Enter an API key to continue.',
   workerRouteTitle: 'Worker route',
-  workerRouteIntro: 'The model that delegated work runs on. Takes effect for new sessions; a session already running keeps the route it started with.',
+  workerRouteIntro: 'The model that delegated work runs on. Children re-read it on every request, so a change reaches each worker\'s next turn.',
   workerRouteProvider: 'Worker provider',
   workerRouteModel: 'Worker model',
   workerRouteEffort: 'Worker reasoning effort',
+  workerRouteLocked: 'A delegated worker is running; settle or stop it before changing the route',
+  workerRouteRefused: 'The Host refused this change. The stored route is unchanged.',
+  workerRouteConflict: 'This page was stale; it reloaded the stored route. Try the change again.',
 }
 
 /** The settings.models namespace key union. */
@@ -237,8 +240,11 @@ export const zh: { [Key in keyof typeof en]: string } = {
   onboardingSaving: '保存中…',
   keyRequired: '请输入 API 密钥后继续。',
   workerRouteTitle: '工人路由',
-  workerRouteIntro: '派出去的活由哪个模型来干。新建会话生效;已在跑的会话保持它开始时用的路由。',
+  workerRouteIntro: '派出去的活由哪个模型来干。子会话每次请求都重新读取它，改完在工人的下一轮请求生效。',
   workerRouteProvider: '工人提供方',
   workerRouteModel: '工人模型',
   workerRouteEffort: '工人思考等级',
+  workerRouteLocked: '有工人在运行，结算或停止后可修改',
+  workerRouteRefused: 'Host 拒绝了这次修改，已保存的路由没有变化。',
+  workerRouteConflict: '这个页面上的数据已过期，已重新读取已保存的路由，请再改一次。',
 }

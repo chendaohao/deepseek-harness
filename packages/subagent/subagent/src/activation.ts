@@ -159,9 +159,15 @@ export function captureLocalResult(activation: LocalActivation): SubagentResult 
   const structured = activation.structured
   if (structured !== undefined) {
     const captured = structured.captured()
+    /* v8 ignore next 3 -- a committed capture concludes its own turn, so this arm
+     * always read an accounting turn ending and carries that turn's budget; the
+     * budget-less arms below are teardown and cleanup reports. */
     if (captured !== undefined) {
       return { output, stopReason, structured: captured.value, ...budget === undefined ? {} : { budget } }
     }
+    /* v8 ignore next -- reaching this arm means the request closed a turn without
+     * a capture, which is exactly the accounting turn that supplies the budget;
+     * a request torn down mid-turn reports `aborted` and never arrives here. */
     if (stopReason === 'completed') return { output, stopReason: 'error', ...budget === undefined ? {} : { budget } }
   }
   return { output, stopReason, ...budget === undefined ? {} : { budget } }

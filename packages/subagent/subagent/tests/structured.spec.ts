@@ -13,7 +13,7 @@ import SubagentRuntime, {
 } from '@deepseek-ai/dsh-subagent'
 import type { Config as ToolConfig, ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { defineContentToolFixture, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
-import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { TestSessionQuery } from './test-session-query.ts'
 import { mountLocalActivations, startTestActivation } from './local-activation.ts'
 import { queueHostSubagentPrompt } from '../src/internal.ts'
@@ -999,5 +999,51 @@ describe('in-process structured output', () => {
     expect(valid.isError).toBeFalsy()
     await run.dispose()
     expect((await run.result).structured).toEqual({ answer: 5 })
+  })
+
+  it('reports the completed turn budget alongside a capture that concluded it', async () => {
+    // The capture concludes its turn, so the epoch holds both a committed value
+    // and the budget of the turn that committed it.
+    const { ctx, parent } = await setup([toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 })])
+    const run = await startTestActivation(ctx, 'spawn', structuredRequest(parent))
+    const result = await run.result
+    expect(result.structured).toEqual({ answer: 7 })
+    expect(result.stopReason).toBe('completed')
+    expect(result.budget).toEqual({
+      turnEnd: 'completed', toolCalls: 2, textChars: 0, largestReasoningChars: 0,
+    })
+    await run.dispose()
+  })
+
+  it('concludes the epoch at the capture instead of asking the model for another step', async () => {
+    // The committed value is the epoch's answer: the loop never reopens a step
+    // after the capture, so a scripted continuation goes unconsumed and the
+    // epoch reports the budget of the turn the capture closed.
+    const { ctx, parent, adapter } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
+      textResponse('post-capture'),
+    ])
+    const run = await startTestActivation(ctx, 'spawn', structuredRequest(parent))
+    const result = await run.result
+    expect(adapter.requests).toHaveLength(1)
+    expect(result.structured).toEqual({ answer: 9 })
+    expect(result.stopReason).toBe('completed')
+    expect(result.budget).toBeDefined()
+    await run.dispose()
+  })
+
+  it('reports the closing budget of a structured request that spent its ceiling uncaptured', async () => {
+    // The child hit the output limit before it ever called the capture tool, so
+    // the epoch has no structured value: the budget is the only part of the
+    // result that names the limit that stopped it.
+    const { ctx, parent } = await setup([maxTokensResponse('half an ans')])
+    const run = await startTestActivation(ctx, 'spawn', structuredRequest(parent))
+    const result = await run.result
+    expect(result.structured).toBeUndefined()
+    expect(result.stopReason).toBe('max-tokens')
+    expect(result.budget).toEqual({
+      turnEnd: 'max-tokens', toolCalls: 0, textChars: 'half an ans'.length, largestReasoningChars: 0,
+    })
+    await run.dispose()
   })
 })
