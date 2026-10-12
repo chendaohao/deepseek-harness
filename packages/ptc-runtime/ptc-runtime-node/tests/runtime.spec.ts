@@ -350,6 +350,19 @@ describe('Node program process — strip-failure localization', () => {
     expect(result.error?.message).toContain('first syntax error at program line 1')
   })
 
+  it('truncates an over-long failing line in the excerpt', async () => {
+    const { run } = await setup()
+    // One line longer than the excerpt cap, so the shown text is cut and
+    // marked rather than echoed in full.
+    const program = `const x = { a: "b }; // ${'z'.repeat(250)}`
+    const result = await run({ program, bindings: [] })
+    expect(result.error?.kind).toBe('exception')
+    expect(result.error?.message).toContain('first syntax error at program line 1')
+    const shown = result.error?.message.split('\n').find(line => line.startsWith('>')) ?? ''
+    expect(shown.length).toBeLessThan(program.length)
+    expect(shown).toBe(`>   1 | ${program.slice(0, 200)}…`)
+  })
+
   it('leaves in-worker thrown errors unlocalized', async () => {
     const { run } = await setup()
     const result = await run({ program: 'throw new Error("boom")', bindings: [] })

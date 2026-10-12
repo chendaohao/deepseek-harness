@@ -960,6 +960,44 @@ describe('Web session model selection', () => {
     })
     await ctx.fiber.dispose()
   })
+
+  it('applies the provider-default pick even when the memory drop fails', async () => {
+    const { ctx, sessionId } = await harness()
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      rememberedEffort: () => 'max',
+      forgetEffort: () => Promise.reject(new Error('read-only document')),
+      cwd: '/tmp',
+    })
+
+    const accepted = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffortExplicit: true,
+    })))
+    expect(accepted.selected).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high',
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('does not remember an explicit effort a route without reasoning metadata never resolved', async () => {
+    const { ctx, sessionId } = await harness()
+    registerTextOnly(ctx)
+    const rememberEffort = vi.fn(() => Promise.resolve())
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      rememberEffort,
+      cwd: '/tmp',
+    })
+
+    // The route answers no levels, so resolution reports no effort and there is
+    // nothing durable to record for a later plain switch.
+    const accepted = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain', reasoningEffort: 'max',
+    })))
+    expect(accepted.selected).toEqual({ provider: 'text-only', model: 'plain' })
+    expect(rememberEffort).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
 })
 
 it('initializes the account model without reasoning metadata and rejects an empty account catalog', async () => {

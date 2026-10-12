@@ -68,6 +68,23 @@ it('keeps the per-model memory when a selection write replaces the section', asy
   expect(ctx.agentDefaultModel.rememberedEffort('acme-gateway', 'acme-large')).toBe('high')
 })
 
+it('records a first effort for a configuration that never stored a per-model map', async () => {
+  const ctx = new Context()
+  onTestFinished(() => ctx.fiber.dispose())
+  await liveConfig(ctx, DefaultModel, { provider: 'p', model: 'm' })
+  const committed: Record<string, unknown>[] = []
+  ctx.provide('configEditor', {
+    edit: (_entry: unknown, change: (current: Record<string, unknown>) => Record<string, unknown>) => {
+      committed.push(change({ provider: 'p', model: 'm' }))
+      return Promise.resolve()
+    },
+  } as never)
+  await ctx.agentDefaultModel.rememberEffort('acme-gateway', 'acme-large', 'high')
+  expect(committed).toEqual([{
+    provider: 'p', model: 'm', reasoningEfforts: { 'acme-gateway/acme-large': 'high' },
+  }])
+})
+
 it('serializes overlapping saves and continues after a rejected write', async () => {
   const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
   const { ctx } = await configurationFixture({ hmr: false })

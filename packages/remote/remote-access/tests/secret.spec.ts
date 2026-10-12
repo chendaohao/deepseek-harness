@@ -161,6 +161,11 @@ describe('device cookies', () => {
     expect(verifyCookie(secret, swapped)).toBeUndefined()
   })
 
+  it('rejects a three-part value that carries no device id', () => {
+    const secret = randomBytes(32)
+    expect(verifyCookie(secret, 'v3..AAAA')).toBeUndefined()
+  })
+
   it('rejects tampering, malformed values, foreign versions, and a wrong secret', () => {
     const secret = randomBytes(32)
     const value = mintCookie(secret, DEVICE_ID)

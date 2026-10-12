@@ -618,6 +618,48 @@ describe('released event and payload inventory', () => {
       .toThrow(/content does not match/)
   })
 
+  it('accepts a feedback item note and refuses a blank one', () => {
+    const item = (extra: Record<string, unknown>) => ({
+      sessionId: 'feedback-session',
+      item: { messageId: 'assistant-1', rating: 'positive', version: 'v1', createdAt: 1, updatedAt: 1, ...extra },
+    })
+
+    // The note is optional: absent is valid, a non-empty one is valid, and the
+    // empty string is the shape that must be refused rather than stored.
+    expect(() => { assertPayload('feedback/message-put', item({})) }).not.toThrow()
+    expect(() => { assertPayload('feedback/message-put', item({ note: 'helpful' })) }).not.toThrow()
+    expect(() => { assertPayload('feedback/message-put', item({ note: '' })) })
+      .toThrow(/item\.note/)
+  })
+
+  it('validates a legacy round-zero goal creation message', () => {
+    const change = {
+      kind: 'goal/change', version: 1, operation: 'create',
+      goal: { id: 'goal', revision: 2, objective: 'ship', phase: 'active', maxGoalRounds: 3 },
+      roundsStarted: 1, createdAt: 3, updatedAt: 4,
+    }
+    const content = [{
+      type: 'text',
+      text: `<goal_state>${JSON.stringify({
+        goal: change.goal,
+        roundsStarted: change.roundsStarted,
+        createdAt: change.createdAt,
+        updatedAt: change.updatedAt,
+      })}</goal_state>`,
+    }]
+    const message = {
+      id: 'legacy-goal-create', role: 'user', content,
+      source: { kind: 'goal', goalId: 'goal', revision: 2, round: 0, change },
+    }
+
+    // The create arm reads the change's `goal` rather than its `cleared`, so
+    // both operations of the same payload family are exercised.
+    expect(() => { assertPayload('user/message', message) }).not.toThrow()
+    expect(() => { assertPayload('user/message', {
+      ...message, source: { ...message.source, goalId: 'other' },
+    }) }).toThrow(/does not match/)
+  })
+
   it('refuses malformed logical headers, cuts, event envelopes, and surface metadata', () => {
     const base = v1Artifact('turn/start', { turn: 1 })
     const invalidHeaders = [

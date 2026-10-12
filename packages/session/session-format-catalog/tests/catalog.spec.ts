@@ -94,11 +94,16 @@ describe('first-party Session format catalog', () => {
   })
 
   it('admits every installed event type through the newest released inventory', () => {
-    // Two exemptions, both named here so any other addition must extend the
-    // newest released inventory instead of landing on this list:
-    // `developer/message` is introduced by the current format, and
-    // `session/pin` is the abandoned type the v3-to-v4 edge drops.
-    const currentFormatIntroduced = new Set(['developer/message'])
+    // Exemptions, each named here so any other addition must extend the newest
+    // released inventory instead of landing on this list: `developer/message`,
+    // `working-directory/change`, and `subagent/worker-route` are introduced
+    // by the current format, and `session/pin` is the abandoned type the
+    // v3-to-v4 edge drops.
+    const currentFormatIntroduced = new Set([
+      'developer/message',
+      'working-directory/change',
+      'subagent/worker-route',
+    ])
     const abandoned = new Set(['session/pin'])
     expect(
       [...KNOWN_SESSION_EVENT_TYPES].filter(type => (

@@ -286,6 +286,47 @@ describe('named mode', () => {
     delete process.env.TUNNEL_ARGS_MARKER
   })
 
+  it('appends DSH_TUNNEL_EXTRA_INGRESS rules ahead of the default and drops unusable lines', async () => {
+    const marker = join(root!, 'named-extra-args')
+    process.env.TUNNEL_ARGS_MARKER = marker
+    process.env.DSH_TUNNEL_EXTRA_INGRESS = [
+      'extra.example.com|/api/*|http://127.0.0.1:9001',
+      '  bare.example.com || http://127.0.0.1:9002  ',
+      // Not host|path|service and not host||service: no service to route to.
+      'malformed.example.com|/only-path',
+      // A path-less rule needs no path field, and blank lines are dropped.
+      '',
+      'wild.example.com|*|http://127.0.0.1:9003',
+    ].join('\n')
+    const binary = await script('named-extra.sh', [
+      '#!/bin/sh',
+      'cat "$3" > "$TUNNEL_ARGS_MARKER.config"',
+      "echo 'Registered tunnel connection conn=0x1' >&2",
+      'sleep 60',
+      '',
+    ].join('\n'))
+    internals.urlTimeoutMs = 2_000
+    const service = await withService({
+      enabled: true, binaryPath: binary, mode: 'named', name: 'dsh', hostname: 'dsh.example.com',
+    })
+    const session = await service.open(12_345)
+    await session.close()
+    const config = await readFile(marker + '.config', 'utf8')
+    // Each accepted rule carries both of its fields, and every extra rule
+    // precedes the default path-less rule that would otherwise shadow it.
+    expect(config).toContain('- hostname: extra.example.com\n    path: /api/*\n    service: http://127.0.0.1:9001')
+    expect(config).toContain('- hostname: bare.example.com\n    service: http://127.0.0.1:9002')
+    expect(config).toContain('- hostname: wild.example.com\n    service: http://127.0.0.1:9003')
+    expect(config).not.toContain('malformed.example.com')
+    const defaultRule = config.indexOf('- hostname: dsh.example.com')
+    for (const host of ['extra.example.com', 'bare.example.com', 'wild.example.com']) {
+      expect(config.indexOf(`- hostname: ${host}`)).toBeLessThan(defaultRule)
+    }
+    expect(config).toContain('service: http_status:404')
+    delete process.env.TUNNEL_ARGS_MARKER
+    delete process.env.DSH_TUNNEL_EXTRA_INGRESS
+  })
+
   it('reuses the per-session ingress config across spawn retries', async () => {
     const argsLog = join(root!, 'named-retry-args')
     const runCount = join(root!, 'named-retry-count')

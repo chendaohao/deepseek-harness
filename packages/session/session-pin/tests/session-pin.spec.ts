@@ -34,6 +34,24 @@ describe('SessionPinService', () => {
       .toThrow(/not live in this store/)
   })
 
+  it('folds no snapshot before any pin event and ignores unrelated events', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SessionPinService)
+    const session = ctx.sessions.create(SessionId('pin-unrelated'))
+    expect(ctx.sessionPin.get(session)).toBeUndefined()
+    expect(foldSessionPin(session.snapshotEvents())).toBeUndefined()
+
+    ctx.sessionPin.setPin(session, true)
+    // A committed non-pin event must leave the pinned state where the pin
+    // event put it.
+    session.append('turn/start', { turn: 1 })
+    const snapshot = ctx.get('sessionProjections')?.snapshot(session)
+    expect(snapshot?.values.pinned).toMatchObject({ pinned: true })
+    expect(ctx.sessionPin.get(session)?.pinned).toBe(true)
+  })
+
   it('registers the pinned projection unit', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

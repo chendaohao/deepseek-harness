@@ -30,7 +30,10 @@ import type { OpenInAppLauncher } from '../src/resolver.ts'
 let root: string | undefined
 let context: Context | undefined
 /** Answer the connection stub gives every route until a test changes it. */
-const trust: { rejection: 401 | 403 | undefined } = { rejection: undefined }
+const trust: { rejection: 401 | 403 | undefined; cookieRefresh: string | undefined } = {
+  rejection: undefined,
+  cookieRefresh: undefined,
+}
 
 /** Desktop Linux kernel release: the fact `isWsl` reads when no marker is set. */
 const DESKTOP_LINUX_RELEASE = '6.8.0-generic'
@@ -42,6 +45,7 @@ afterEach(async () => {
   root = undefined
   internals.catalog = {}
   trust.rejection = undefined
+  trust.cookieRefresh = undefined
   vi.unstubAllEnvs()
 })
 
@@ -73,7 +77,15 @@ async function boot(layers: readonly LaunchEnvironmentLayerInput[] = []): Promis
   context = new Context()
   context.provide(DSH_LAUNCH_ENVIRONMENT_KEY, createLaunchEnvironmentSnapshot(layers))
   context.baseUrl = pathToFileURL(root).href + '/'
-  context.provide('connection', { requestRejection: () => trust.rejection } as never)
+  context.provide('connection', {
+    requestRejection: (
+      _req: unknown,
+      appendHeader?: (name: 'set-cookie', value: string) => void,
+    ) => {
+      if (trust.cookieRefresh !== undefined) appendHeader?.('set-cookie', trust.cookieRefresh)
+      return trust.rejection
+    },
+  } as never)
   // The plugin resolves PATH names through the composition's subprocess
   // capability; the not-found rejection is the provider's real signal.
   context.provide('subprocess', {
@@ -191,6 +203,18 @@ describe('open-in-app host routes (real Loader composition)', () => {
     expect((await fetch(`${base}/open-in-app/apps`)).status).toBe(401)
     trust.rejection = undefined
     expect((await fetch(`${base}/open-in-app/apps`)).status).toBe(200)
+  })
+
+  it('carries the connection cookie refresh on the served response', async () => {
+    internals.catalog = { platform: 'darwin', run: vi.fn<NativeCommandRunner>(), resolveExecutable: pathTable() }
+    const base = await boot()
+    trust.cookieRefresh = 'dsh_session=refreshed; Path=/; HttpOnly'
+    const response = await fetch(`${base}/open-in-app/apps`)
+
+    // A cookie that crossed a UTC day is re-minted by the connection fence; the
+    // route must hand that refresh back or the browser keeps the expiring one.
+    expect(response.status).toBe(200)
+    expect(response.headers.get('set-cookie')).toContain('dsh_session=refreshed')
   })
 
   it('serves the resolved catalog, one cached icon, and launches from the same resolution', async () => {

@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { createServer, request as httpRequest } from 'node:http'
 import { Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
@@ -199,7 +199,12 @@ describe('connection node half', () => {
     provideBrowserCredentials(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(ctx.get('connection')).toBeInstanceOf(Object)
+    const connection = ctx.get('connection') as HostConnectionHandle
+    expect(connection).toBeInstanceOf(Object)
+    // No Web carrier yet: the fence still applies with the plain-HTTP default
+    // protocol, so a loopback request is authenticated against rather than
+    // crashing on an absent protocol.
+    expect(connection.requestRejection(fakeRequest({ host: '127.0.0.1:3080' }))).toBe(401)
     await fiber.dispose()
   })
 
@@ -427,6 +432,30 @@ describe('connection node half', () => {
     await dispose()
   })
 
+  it('attaches the daily cookie refresh to a rejection call that owns a response', async () => {
+    vi.useFakeTimers()
+    // Issue the browser cookie on an earlier UTC day, then present it on the
+    // next one: the fence admits it and the refresh must reach the response.
+    vi.setSystemTime(new Date('2026-08-24T00:00:00.000Z'))
+    const { connection, dispose } = await mounted()
+    const cookie = browserCookie(connection, '127.0.0.1:3080')
+    vi.setSystemTime(new Date('2026-08-25T00:00:00.000Z'))
+    const headers: Record<string, string> = {}
+    try {
+      expect(connection.requestRejection(
+        fakeRequest({ host: '127.0.0.1:3080', cookie }),
+        (name, value) => { headers[name] = value },
+      )).toBeUndefined()
+      expect(headers['set-cookie']).toContain('Max-Age=2592000')
+      // The upgrade path owns no response and therefore drops the refresh.
+      expect(connection.requestRejection(fakeRequest({ host: '127.0.0.1:3080', cookie }))).toBeUndefined()
+    } finally {
+      await dispose()
+    }
+  })
+
+  afterEach(() => { vi.useRealTimers() })
+
   it('provides a disposable dedicated RPC channel', async () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
@@ -474,6 +503,45 @@ describe('connection node half', () => {
     expect(routes.map(candidate => candidate.path)).toEqual([API_PATH])
     await fiber.dispose()
     expect(routes).toHaveLength(0)
+  })
+
+  it('attaches the daily cookie refresh to a dedicated RPC channel response', async () => {
+    vi.useFakeTimers()
+    // Issue the browser cookie on an earlier UTC day so the request that opens
+    // the dedicated channel is due a refresh; the route owns the response, so
+    // the refresh must land on it as a Set-Cookie header.
+    vi.setSystemTime(new Date('2026-08-24T00:00:00.000Z'))
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    provideBrowserCredentials(ctx)
+    ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    try {
+      await fiber.await()
+      const connection = ctx.get('connection') as HostConnectionHandle
+      const cookie = browserCookie(connection, '127.0.0.1:3080')
+      const remove = connection.rpc.handle('/rpc', async () => ({ ok: true, value: null }))
+      const route = routes.find(candidate => candidate.path === '/rpc')!
+      vi.setSystemTime(new Date('2026-08-25T00:00:00.000Z'))
+      const result = fakeResponse()
+      await route.handler(fakePost({
+        host: '127.0.0.1:3080',
+        cookie,
+      }, '/rpc/any', {
+        type: 'client-request',
+        rpcId: RpcId('rpc-refresh'),
+        method: 'goals/create',
+        payload: { args: {} },
+      } satisfies ClientRequest), result.response)
+      expect(result.state.status).toBe(200)
+      // The route attaches the refresh with appendHeader, so read it back
+      // through the response recorder's own header view.
+      const refreshed = result.response.getHeader('set-cookie')
+      expect(refreshed).toContain('Max-Age=2592000')
+      await remove()
+    } finally {
+      await fiber.dispose()
+    }
   })
 
   it('dispatches claimed /api endpoints and withdraws the claim', async () => {

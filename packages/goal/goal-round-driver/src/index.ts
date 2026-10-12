@@ -450,6 +450,7 @@ export function apply(ctx: Context, config: Config): void {
       const parent = ctx.agents.get(parentSession)
       if (parent === undefined) return
       const parentState = states.get(parent)
+      /* v8 ignore next -- load seeds every registered agent and only that agent's own disposal drops its state */
       if (parentState === undefined) return
       requestDrive(parentState)
     })

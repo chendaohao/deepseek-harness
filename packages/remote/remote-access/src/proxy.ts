@@ -68,6 +68,7 @@ function withCookieRefresh(headers: OutgoingHttpHeaders, verdict: AuthorizeResul
   // Client-side response headers always carry set-cookie as an array (node
   // guarantees it), so the refresh appends after the target's own cookies.
   const existing = headers['set-cookie']
+  /* v8 ignore next -- unreachable single-string arm: node's HTTP client always presents a received set-cookie as an array. */
   const prior = Array.isArray(existing) ? existing : existing === undefined ? [] : [existing]
   return { ...headers, 'set-cookie': [...prior, verdict.cookieRefresh] }
 }

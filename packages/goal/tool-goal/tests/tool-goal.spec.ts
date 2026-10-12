@@ -371,6 +371,24 @@ describe('goal tool execution authority', () => {
     expect(resultGoal(completed)).toMatchObject({ phase: 'complete' })
   })
 
+  it('ignores an open-turn event that carries no message source at all', async () => {
+    const { ctx, root } = await harness()
+    const humanTurn = openTurn(root, { kind: 'user' })
+    const created = ctx.goals.create(root.agent, { objective: 'delegated work' })
+    closeTurn(root, humanTurn)
+
+    // The open turn holds a non-message event only: no delegation report is
+    // visible in it, so completion stays unauthorised.
+    root.session.append('turn/start', { turn: 2 })
+    root.session.append('step/start', { turn: 2, step: 1 })
+    await ctx.fiber.await()
+    const result = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'complete',
+    }, root.agent)
+
+    expect(result.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+  })
+
   it('keeps blockage off delegation-report authority', async () => {
     const { ctx, root } = await harness()
     openTurn(root, {

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-remote/client'
+import { apply as hostApply } from '../src/index.ts'
 import { RemoteFooterAction } from '../src/client/RemoteFooterAction.tsx'
 import type { RemoteFooterActionInjected } from '../src/client/RemoteFooterAction.tsx'
 
@@ -34,6 +35,10 @@ function declare(slots: SlotRegistry): () => void {
 describe('ui-remote apply', () => {
   it('declares the services it uses', () => {
     expect(inject).toEqual(['slots', 'locale', 'remote'])
+  })
+
+  it('keeps the host Loader entry inert', () => {
+    expect(() => { hostApply() }).not.toThrow()
   })
 
   it('registers the footer action and dictionaries, and frees them on teardown', async () => {

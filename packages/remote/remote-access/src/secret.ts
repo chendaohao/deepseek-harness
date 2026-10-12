@@ -56,6 +56,7 @@ export function verifyCookie(secret: Buffer, value: string | undefined): string 
   if (value === undefined) return undefined
   const parts = value.split('.')
   if (parts.length !== 3 || parts[0] !== 'v3') return undefined
+  /* v8 ignore next -- a three-part value always has an element at index 1 */
   const deviceId = parts[1] ?? ''
   /* v8 ignore next -- a three-part value always has an element at index 2 */
   const mac = parts[2] ?? ''

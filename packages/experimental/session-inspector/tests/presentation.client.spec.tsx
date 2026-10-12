@@ -13,12 +13,13 @@ import { en } from '../src/client/locales.ts'
 import { mainChatRoot } from '../src/client/views/chat-node/dom.ts'
 import { InspectorChatPicker } from '../src/client/views/chat-node/picker.ts'
 import { installInspectorTableGeometry } from './table-geometry.client.ts'
+import { stubMatchMedia } from './match-media.client.ts'
 
 beforeEach(() => { installInspectorTableGeometry() })
 afterEach(cleanup)
 
 it('switches presentation in one table and follows a linked node through its collapsed parent', async () => {
-  vi.stubGlobal('matchMedia', () => ({ matches: true }))
+  stubMatchMedia(true)
   onTestFinished(() => { cleanup(); vi.unstubAllGlobals() })
   const step = { text: 'step content' }
   const turn = { step }

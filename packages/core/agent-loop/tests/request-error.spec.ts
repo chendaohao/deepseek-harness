@@ -172,6 +172,35 @@ describe('agent/request-error', () => {
     expect(agent.session.snapshotEvents().filter(event => event.type === 'request/header')).toHaveLength(2)
   })
 
+  it('degrades the effort only once, so a second rejection ends the turn', async () => {
+    const adapter = new MockAdapter([
+      fail('model rejected reasoning_effort', 'INVALID_REQUEST'),
+      fail('model rejected reasoning_effort', 'INVALID_REQUEST'),
+      textResponse('unused'),
+    ], { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] })
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('request-error-degrade-once'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    ctx.on('agent/request', async (payload, next) => {
+      const config = await next()
+      if (payload.degradedEffort === true) return config
+      return { ...config, reasoningEffort: ReasoningEffortId('high') }
+    })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    // The first rejection drops the effort; the retry is already degraded, so a
+    // second rejection must surface rather than loop the same degradation.
+    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[1]?.reasoningEffort).toBeUndefined()
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'error' } },
+    })
+  })
+
   it('does not drop the effort for a failure that is not an effort rejection', async () => {
     const adapter = new MockAdapter([
       fail('upstream busy', 'RATE_LIMIT'),

@@ -249,6 +249,7 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
       entry?.limit?.output,
       entry?.top_provider?.max_completion_tokens,
     )
+    /* v8 ignore next -- a null entry has no id, so the `continue` above already skipped it */
     const input = entry === null ? undefined : declaredModalities(entry)
     models.push({
       id,
@@ -312,6 +313,7 @@ export async function discoverModels(
         name: model.name,
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
+        /* v8 ignore next -- every installed catalog entry declares at least one modality */
         ...model.input.length > 0 ? { input: [...model.input] } : {},
         inputModalities: [...model.input],
       }))

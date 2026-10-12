@@ -299,4 +299,42 @@ describe('BrowserAuth', () => {
     await expect(createAuth(new RecordCredentials(), Number.MAX_SAFE_INTEGER))
       .rejects.toThrow(/safe timestamp range/u)
   })
+
+  it('mints a fresh full-lifetime cookie once the presented one crossed a UTC day', async () => {
+    vi.useFakeTimers()
+    const store = new RecordCredentials()
+    // Exchange on an earlier UTC day so the issued cookie is unexpired but
+    // stale for the daily refresh cadence.
+    vi.setSystemTime(new Date('2026-08-24T00:00:00.000Z'))
+    const auth = await createAuth(store)
+    const { cookie } = exchange(auth)
+    const tls = exchange(auth, '127.0.0.1:3080', true)
+    const name = cookie.slice(0, cookie.indexOf('='))
+    const stale = cookie.slice(cookie.indexOf('=') + 1)
+
+    // Same UTC day: authenticated with no refresh header.
+    expect(auth.authenticate(request('/', '127.0.0.1:3080', { cookie }), false))
+      .toEqual({ authenticated: true })
+
+    // Next UTC day: authenticated, and a refreshed cookie is attached.
+    vi.setSystemTime(new Date('2026-08-25T00:00:00.000Z'))
+    const refreshed = auth.authenticate(request('/', '127.0.0.1:3080', { cookie }), false)
+    expect(refreshed.authenticated).toBe(true)
+    const refreshHeader = refreshed.cookieRefresh
+    if (refreshHeader === undefined) throw new Error('a crossed UTC day must refresh the cookie')
+    expect(refreshHeader).toContain(`${name}=`)
+    expect(refreshHeader).toContain('Max-Age=2592000')
+    expect(refreshHeader).not.toContain('; Secure')
+    // The refreshed value differs from the presented one and re-authenticates.
+    expect(refreshHeader).not.toContain(`=${stale};`)
+
+    // An unauthenticated request has no refresh to offer.
+    expect(auth.authenticate(request('/'), false)).toEqual({ authenticated: false })
+
+    // A TLS listener mints its refresh with the Secure attribute, from a cookie
+    // that same listener issued (the audience is protocol-scoped).
+    const secureRefresh = auth.authenticate(request('/', '127.0.0.1:3080', { cookie: tls.cookie }), true)
+    expect(secureRefresh.authenticated).toBe(true)
+    expect(secureRefresh.cookieRefresh).toContain('; Secure')
+  })
 })

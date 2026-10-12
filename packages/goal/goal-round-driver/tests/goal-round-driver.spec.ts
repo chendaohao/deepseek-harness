@@ -1473,6 +1473,34 @@ describe('subagent-wait backoff', () => {
     }
   })
 
+  it('does not attribute a tool call from another turn to the admitted round', async () => {
+    const test = await backoffHarness([textResponse('round one')], {
+      roundIntervalMs: 1_000,
+      roundBackoffInitialMs: 1_000,
+    })
+    try {
+      await test.liveChild()
+      test.ctx.goals.create(test.agent, { objective: 'attribute only this round', maxGoalRounds: 9 })
+
+      await vi.advanceTimersByTimeAsync(0)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+
+      // A call logged for a different turn is not this round's activity, so the
+      // wait stays passive: the next wake-up backs off instead of resuming at
+      // the configured interval.
+      test.agent.session.append('tool/call', {
+        turn: 999, step: 0, callId: ToolCallId('elsewhere'), name: 'poll', arguments: '{}',
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      await settle()
+      expect(test.adapter.requests).toHaveLength(1)
+      expect(skippedRounds(test)).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('returns to the normal interval when a live child settles', async () => {
     const test = await backoffHarness([textResponse('round one'), textResponse('round two')], {
       roundIntervalMs: 1_000,
@@ -1633,5 +1661,67 @@ describe('backoff configuration', () => {
   it('fails the load on a non-finite growth factor the numeric bounds cannot reject', async () => {
     const loaded = await load({ roundBackoffFactor: Number.NaN })
     expect(loaded.error).toBeInstanceOf(RangeError)
+  })
+})
+
+describe('settled-child re-drive', () => {
+  /** Mount a loop and the driver without creating the goal session yet. */
+  async function bareHarness(): Promise<Context> {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(GoalService)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([]))
+    return ctx
+  }
+
+  /** One live subagent of an explicitly created parent. */
+  async function childOf(ctx: Context, parent: AgentHandle, name: string): Promise<AgentHandle> {
+    return await ctx.agents.create({
+      sessionId: SessionId(name),
+      parentAgent: parent.agent,
+      meta: { parentSession: parent.agent.id, origin: 'subagent' },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+  }
+
+  it('ignores a settled child whose parent agent is no longer registered', async () => {
+    const ctx = await bareHarness()
+    await ctx.plugin(goalSession, { roundIntervalMs: 0 })
+    const parent = await ctx.agents.create({
+      sessionId: SessionId('goal-parent-retired'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const child = await childOf(ctx, parent, 'goal-child-orphaned')
+    expect(child.agent.session.header.parentSession).toBe(parent.agent.id)
+    expect(child.agent.session.header.origin).toBe('subagent')
+
+    // The parent retired first, so the settled child has nothing left to re-drive.
+    await parent.dispose()
+    expect(ctx.agents.get(parent.agent.id)).toBeUndefined()
+    await child.dispose()
+    expect(ctx.agents.get(child.agent.id)).toBeUndefined()
+  })
+
+  it('lets the driver unload while a settled child of a pre-existing parent departs', async () => {
+    const ctx = await bareHarness()
+    // The parent predates the driver; load still seeds state for every
+    // registered agent, so this exercises the re-drive path over that state.
+    const parent = await ctx.agents.create({
+      sessionId: SessionId('goal-parent-predating'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const driver = await ctx.plugin(goalSession, { roundIntervalMs: 0 })
+    const child = await childOf(ctx, parent, 'goal-child-of-predating')
+    expect(child.agent.session.header.parentSession).toBe(parent.agent.id)
+
+    // A child settling while its driver unloads must not fail the unload or
+    // leave either agent registered.
+    const unloading = driver.dispose()
+    await child.dispose()
+    await unloading
+    expect(ctx.agents.get(child.agent.id)).toBeUndefined()
+    expect(ctx.agents.get(parent.agent.id)).toBeDefined()
   })
 })

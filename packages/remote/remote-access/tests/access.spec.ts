@@ -1,4 +1,5 @@
 import { createServer, request as httpRequest, type Server } from 'node:http'
+import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -7,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { Context } from '@deepseek-ai/cordis'
 import qrcode from 'qrcode-terminal'
 import RemoteAccess, { internals } from '../src/index.ts'
+import { COOKIE_NAME, mintCookie } from '../src/secret.ts'
 
 vi.mock('qrcode-terminal', () => ({
   default: { generate: vi.fn((text: string, _options: unknown, done: (qr: string) => void) => { done('QR:' + text) }) },
@@ -60,7 +62,11 @@ beforeEach(async () => {
   process.env.DSH_HOME = root
   saved = { ...internals }
   tunnel = fakeTunnel()
-  target = createServer((req, res) => { res.writeHead(200); res.end('target:' + (req.url ?? '')) })
+  target = createServer((req, res) => {
+    if (req.url === '/with-cookie') res.setHeader('set-cookie', 'upstream=1; Path=/')
+    res.writeHead(200)
+    res.end('target:' + (req.url ?? ''))
+  })
   await new Promise<void>((resolve) => { target!.listen(0, '127.0.0.1', resolve) })
   targetPort = (target.address() as AddressInfo).port
   context = new Context()
@@ -320,6 +326,173 @@ describe('enabled', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(session.close).toHaveBeenCalled()
     expect(logSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('control plane surface', () => {
+  /** A recording ServerResponse stand-in for direct route invocation. */
+  function fakeResponse(): {
+    writeHead: ReturnType<typeof vi.fn>
+    end: ReturnType<typeof vi.fn>
+    status(): number | undefined
+    body(): string
+  } {
+    const writeHead = vi.fn()
+    const end = vi.fn()
+    return {
+      writeHead,
+      end,
+      status: () => writeHead.mock.calls[0]?.[0] as number | undefined,
+      body: () => end.mock.calls[0]?.[0] as string,
+    }
+  }
+
+  it('lists the roster and issues a one-time pair link for the open tunnel', async () => {
+    await boot()
+    const route = controlRoute()
+    const proxyPort = tunnel.openPorts[0]!
+    await rawRequest(proxyPort, '/pair/' + pairToken(), { host: 'fake.tunnel.example' })
+
+    const listRes = fakeResponse()
+    route.handler({ url: '/remote/devices', method: 'GET', headers: {} } as never, listRes as never)
+    expect(listRes.status()).toBe(200)
+    expect(JSON.parse(listRes.body())).toMatchObject({ devices: [{ name: 'mobile' }] })
+
+    const pairRes = fakeResponse()
+    route.handler({ url: '/remote/pair/issue', method: 'POST', headers: {} } as never, pairRes as never)
+    expect(pairRes.status()).toBe(200)
+    const url = (JSON.parse(pairRes.body()) as { url: string }).url
+    expect(url).toMatch(/^https:\/\/fake-slug\.trycloudflare\.com\/pair\/[A-Za-z0-9_-]{20,60}$/)
+    // The issued token pairs a second device through the proxy.
+    const issued = url.slice(url.indexOf('/pair/'))
+    const paired = await rawRequest(proxyPort, issued, { host: 'fake.tunnel.example' })
+    expect(paired.status).toBe(302)
+  })
+
+  it('stops every paired device from the control plane', async () => {
+    await boot()
+    const route = controlRoute()
+    const proxyPort = tunnel.openPorts[0]!
+    const paired = await rawRequest(proxyPort, '/pair/' + pairToken(), { host: 'fake.tunnel.example' })
+    const cookie = String(paired.headers['set-cookie']).split(';')[0]!
+    expect((await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })).status).toBe(200)
+
+    const stopRes = fakeResponse()
+    route.handler({ url: '/remote/stop', method: 'POST', headers: {} } as never, stopRes as never)
+    expect(stopRes.status()).toBe(200)
+    expect(stopRes.body()).toBe('{}')
+    expect((await rawRequest(proxyPort, '/echo', { host: 'fake.tunnel.example', cookie })).status).toBe(401)
+  })
+
+  it('answers 404 for an unknown path, an unknown device action, and a missing url', async () => {
+    await boot()
+    const route = controlRoute()
+    const unknown = fakeResponse()
+    route.handler({ url: '/remote/nope', method: 'GET', headers: {} } as never, unknown as never)
+    expect(unknown.status()).toBe(404)
+    const action = fakeResponse()
+    route.handler({ url: '/remote/devices/x/drop', method: 'POST', headers: {} } as never, action as never)
+    expect(action.status()).toBe(404)
+    // node:http always sets req.url; the route also answers when it is absent.
+    const noUrl = fakeResponse()
+    route.handler({ method: 'GET', headers: {} } as never, noUrl as never)
+    expect(noUrl.status()).toBe(404)
+  })
+
+  it('answers 400 for a malformed device id and 404 for an unknown one', async () => {
+    await boot()
+    const route = controlRoute()
+    const malformed = fakeResponse()
+    route.handler({ url: '/remote/devices/%E0%A4%A/revoke', method: 'POST', headers: {} } as never, malformed as never)
+    expect(malformed.status()).toBe(400)
+    expect(malformed.body()).toBe('bad device id')
+    const unknown = fakeResponse()
+    route.handler({ url: '/remote/devices/nobody/revoke', method: 'POST', headers: {} } as never, unknown as never)
+    expect(unknown.status()).toBe(404)
+    const noName = fakeResponse()
+    route.handler({ url: '/remote/devices/nobody/rename', method: 'POST', headers: {} } as never, noName as never)
+    expect(noName.status()).toBe(400)
+  })
+
+  it('logs a throwing device-change listener instead of failing the request', async () => {
+    await boot()
+    const route = controlRoute()
+    const proxyPort = tunnel.openPorts[0]!
+    const logged = vi.spyOn(context!.logger, 'error').mockImplementation(() => {})
+    context!.on('remote/devices/change', () => { throw new Error('listener exploded') })
+
+    // Pairing registers a device, which republishes the roster: the throwing
+    // listener must not turn the pairing redirect into a failure.
+    const paired = await rawRequest(proxyPort, '/pair/' + pairToken(), { host: 'fake.tunnel.example' })
+    expect(paired.status).toBe(302)
+    expect(logged).toHaveBeenCalledWith(expect.any(Error))
+
+    const stopRes = fakeResponse()
+    route.handler({ url: '/remote/stop', method: 'POST', headers: {} } as never, stopRes as never)
+    expect(stopRes.status()).toBe(200)
+  })
+
+  it('hands a device the bare root when the tunnel has already ended', async () => {
+    internals.restartMax = 0
+    await boot()
+    const route = controlRoute()
+    const proxyPort = tunnel.openPorts[0]!
+    const token = pairToken()
+    context!.emit('remote-tunnel/state', { status: 'ended' })
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    // No live session: the state read reports a down tunnel with no URL, a pair
+    // issue is unavailable, and pairing falls back to the bare root.
+    const stateRes = fakeResponse()
+    route.handler({ url: '/remote/state', method: 'GET', headers: {} } as never, stateRes as never)
+    expect(JSON.parse(stateRes.body())).toEqual({ tunnelUrl: null, tunnelStatus: 'down', devices: [] })
+    const pairRes = fakeResponse()
+    route.handler({ url: '/remote/pair/issue', method: 'POST', headers: {} } as never, pairRes as never)
+    expect(pairRes.status()).toBe(503)
+    expect(pairRes.body()).toBe('tunnel unavailable')
+    const paired = await rawRequest(proxyPort, '/pair/' + token, { host: 'fake.tunnel.example' })
+    expect(paired.status).toBe(302)
+    expect(paired.headers.location).toBe('/')
+  })
+
+  it('republishes a liveness touch and appends the day-rolled cookie refresh', async () => {
+    // Seed the roster and secret so the paired cookie is minted before boot: a
+    // lastSeen from an earlier UTC day both crosses the touch-notify interval
+    // and rolls the cookie's Max-Age on the relayed response.
+    const secret = randomBytes(32)
+    const seededLastSeen = Date.now() - 2 * 86_400_000
+    await mkdir(join(root!, 'secrets'), { recursive: true })
+    await writeFile(join(root!, 'secrets', 'remote-pair'), secret)
+    await writeFile(join(root!, 'secrets', 'remote-roster.json'), JSON.stringify([
+      { deviceId: 'seed-device', name: 'seed', createdAt: seededLastSeen, lastSeen: seededLastSeen },
+      { deviceId: 'seed-plain', name: 'plain', createdAt: seededLastSeen, lastSeen: seededLastSeen },
+    ]))
+    const changes: unknown[] = []
+    context!.on('remote/devices/change', (devices) => { changes.push(devices) })
+    await boot()
+    const proxyPort = tunnel.openPorts[0]!
+    const value = mintCookie(secret, 'seed-device')
+    const relayed = await rawRequest(proxyPort, '/with-cookie', {
+      host: 'fake.tunnel.example', cookie: COOKIE_NAME + '=' + value,
+    })
+
+    expect(relayed.status).toBe(200)
+    // The gate's refresh appends after the target's own cookie.
+    const setCookie = relayed.headers['set-cookie']
+    expect(setCookie).toEqual([
+      'upstream=1; Path=/',
+      expect.stringContaining(COOKIE_NAME + '=' + value),
+    ])
+    // A target that sets no cookie of its own gets the refresh alone.
+    const plain = await rawRequest(proxyPort, '/echo', {
+      host: 'fake.tunnel.example', cookie: COOKIE_NAME + '=' + mintCookie(secret, 'seed-plain'),
+    })
+    expect(plain.headers['set-cookie']).toEqual([expect.stringContaining(COOKIE_NAME + '=v3.seed-plain.')])
+    // The liveness touches are not structural, so the roster is republished but
+    // never persisted.
+    expect(changes).toHaveLength(2)
+    const persisted = JSON.parse(await readFile(join(root!, 'secrets', 'remote-roster.json'), 'utf8')) as { lastSeen: number }[]
+    expect(persisted.map(record => record.lastSeen)).toEqual([seededLastSeen, seededLastSeen])
   })
 })
 

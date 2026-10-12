@@ -21,6 +21,15 @@ import { canOpenNativePath, nativeFileManager, revealNativePath, openNativeAssoc
 
 const signal = () => new AbortController().signal
 
+/** A WSL Linux host hands paths to the Windows desktop, so its ambient file manager is Explorer. */
+const ambientWsl = osRelease().toLowerCase().includes('microsoft')
+  || Boolean(process.env.WSL_DISTRO_NAME) || Boolean(process.env.WSL_INTEROP)
+
+/** The file-manager action the ambient host resolves to. */
+const ambientFileManager = process.platform === 'darwin' ? 'finder'
+  : process.platform === 'win32' ? 'explorer'
+    : process.platform === 'linux' ? (ambientWsl ? 'explorer' : 'directory') : null
+
 beforeEach(() => { execFileMock.mockReset() })
 
 describe('native path opener', () => {
@@ -416,15 +425,23 @@ describe('native file manager', () => {
     await expect(revealNativePath('/file', AbortSignal.abort(new Error('cancelled')), { run })).rejects.toThrow('cancelled')
     expect(run).not.toHaveBeenCalled()
     await expect(revealNativePath('/file', signal(), { platform: 'darwin', run })).rejects.toThrow('desktop failed')
-    expect(nativeFileManager()).toBe(process.platform === 'darwin' ? 'finder' : process.platform === 'win32' ? 'explorer' : 'directory')
+    expect(nativeFileManager()).toBe(ambientFileManager)
   })
 })
 
 
-it('uses the native runner for a file-manager handoff when none is injected', async () => {
-  execFileMock.mockImplementation((_command, _args, _options, callback) => { callback(null, '', '') })
-  await revealNativePath('/tmp/report.txt', signal())
-  expect(execFileMock).toHaveBeenCalled()
+it('hands the ambient file-manager gesture to the native runner when none is injected', async () => {
+  // Pin the ambient platform's kernel so the WSL branch stays reachable when the
+  // suite runs on Windows, which has no wslpath to translate through.
+  execFileMock.mockImplementation((command, _args, _options, callback) => {
+    callback(null, command === 'wslpath' ? 'C:\\work\\report.txt' : '', '')
+  })
+  await revealNativePath('/tmp/report.txt', signal(), { osRelease: osRelease() })
+  if (ambientFileManager === null) throw new Error(`no file manager on ${process.platform}`)
+  // Each manager names one command: Finder and the Linux directory opener take
+  // the path, Explorer (native or WSL-translated) takes the encoded target.
+  const command = ambientFileManager === 'finder' ? 'open' : ambientFileManager === 'explorer' ? 'explorer.exe' : 'xdg-open'
+  expect(execFileMock).toHaveBeenCalledWith(command, expect.any(Array), expect.anything(), expect.any(Function))
 })
 
 

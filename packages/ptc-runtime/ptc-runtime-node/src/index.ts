@@ -74,6 +74,7 @@ const STRIP_EXCERPT_LINE_CHARS = 200
  */
 function localizedStripMessage(program: string, error: unknown): string {
   const base = messageOf(error)
+  /* v8 ignore next -- defensive: only an engine-level throw reaches this with a non-SyntaxError or an empty message. */
   if (!(error instanceof SyntaxError) || base === '') return base
   const lines = program.split('\n')
   /** Whether the program's first `n` lines wrapped and stripped fail with the full program's message. */
@@ -85,6 +86,7 @@ function localizedStripMessage(program: string, error: unknown): string {
       return prefixError instanceof Error && prefixError.message === base
     }
   }
+  /* v8 ignore next -- defensive: the full-length prefix rebuilds the caller's own strip input, so it reproduces the message. */
   if (!prefixFails(lines.length)) return base
   let low = 1
   let high = lines.length
@@ -95,6 +97,7 @@ function localizedStripMessage(program: string, error: unknown): string {
   }
   const excerpt: string[] = []
   for (let number = Math.max(1, low - 1); number <= Math.min(lines.length, low + 1); number += 1) {
+    /* v8 ignore next -- unreachable: the loop bounds keep `number - 1` inside `lines`. */
     const text = lines[number - 1] ?? ''
     const shown = text.length > STRIP_EXCERPT_LINE_CHARS ? `${text.slice(0, STRIP_EXCERPT_LINE_CHARS)}…` : text
     excerpt.push(`${number === low ? '>' : ' '} ${String(number).padStart(3)} | ${shown}`)

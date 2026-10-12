@@ -336,6 +336,19 @@ describe('draft-provider model discovery', () => {
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
   })
 
+  it('skips a null row in a data array without reading its fields', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({ data: [null, { id: 'kept' }, 'scalar', 7] }),
+    })
+    const ctx = await harness()
+
+    // A gateway may pad its data array with nulls or scalars. Each is skipped
+    // on its missing id, before any per-entry field is read.
+    expect(await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url })).toEqual([
+      { id: 'kept', name: 'kept' },
+    ])
+  })
+
   it('drops unusable rows rather than failing the whole listing', async () => {
     const server = await listingServer({
       body: JSON.stringify({

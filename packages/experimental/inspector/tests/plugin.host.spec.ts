@@ -38,7 +38,7 @@ describe('experimental Inspector Host plugin', () => {
     const registerUpgrade = vi.fn<(_route: WebUpgradeRoute) => () => void>(() => releaseUpgrade)
     const routes: Pick<WebServer, 'register' | 'registerUpgrade'> = { register: registerRoute, registerUpgrade }
     let authenticated = false
-    const auth: Pick<BrowserAuth, 'isAuthenticated'> = { isAuthenticated: () => authenticated }
+    const auth: Pick<BrowserAuth, 'authenticate'> = { authenticate: () => ({ authenticated }) }
     context.provide('webServer', routes as WebServer)
     const connection = new HostConnectionService(context, [], auth as BrowserAuth)
     const fiber = context.plugin(

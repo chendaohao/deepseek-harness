@@ -8,7 +8,7 @@
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -215,5 +215,55 @@ describe('real Loader composition', () => {
     await frontendEntry!.fiber?.dispose()
     expect((await request(port, '/no/such/route')).status).toBe(404)
     expect(() => server.registerFallback(() => {})).not.toThrow()
+  })
+
+  it('revalidates a served body against If-None-Match and names its cache class', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const server = loaded.webServer
+    const port = server.port
+    const launchUrl = loaded.connection.authenticatedUrl(`http://127.0.0.1:${String(port)}`)
+    const exchange = await fetch(launchUrl, { redirect: 'manual' })
+    const setCookie = exchange.headers.get('set-cookie')
+    if (setCookie === null) throw new Error('authenticated frontend did not set a cookie')
+    const cookie = setCookie.split(';', 1)[0]!
+
+    await writeFile(join(root!, 'dist', 'app-1234567890abcdef.js'), 'export const hashed = true')
+    await writeFile(join(root!, 'dist', 'sw.js'), 'export const worker = true')
+    const assets = [
+      // A content-hashed name is immutable; the worker script needs its own
+      // revalidation cadence; everything else takes the short class.
+      ['/app-1234567890abcdef.js', 'public, max-age=31536000, immutable'],
+      ['/sw.js', 'no-cache'],
+      ['/app.js', 'public, max-age=3600, must-revalidate'],
+    ] as const
+    for (const [path, cacheControl] of assets) {
+      const response = await fetch(`http://127.0.0.1:${String(port)}${path}`, { headers: { cookie } })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('cache-control')).toBe(cacheControl)
+      const etag = response.headers.get('etag')
+      expect(etag).toMatch(/^".+"$/)
+      // The client's held validator answers 304 with no body and headers intact.
+      const revalidated = await fetch(`http://127.0.0.1:${String(port)}${path}`, {
+        headers: { cookie, 'if-none-match': etag! },
+      })
+      expect(revalidated.status).toBe(304)
+      expect(revalidated.headers.get('etag')).toBe(etag)
+      expect(await revalidated.text()).toBe('')
+      // A stale validator still receives the full body.
+      const refreshed = await fetch(`http://127.0.0.1:${String(port)}${path}`, {
+        headers: { cookie, 'if-none-match': '"stale"' },
+      })
+      expect(refreshed.status).toBe(200)
+      expect(await refreshed.text()).not.toBe('')
+    }
+
+    // A dotted name whose tail is not a hash keeps the short class, and a
+    // name with no extension at all takes it because it is not an asset.
+    for (const path of ['/app.notahash.js', '/bare']) {
+      await writeFile(join(root!, 'dist', basename(path)), 'x')
+      const response = await fetch(`http://127.0.0.1:${String(port)}${path}`, { headers: { cookie } })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('cache-control')).toBe('public, max-age=3600, must-revalidate')
+    }
   })
 })

@@ -1,11 +1,15 @@
 /** File association results and explicit handler authorization at the native command adapter. */
 import { readFile } from 'node:fs/promises'
+import { release as osRelease } from 'node:os'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as runner from '../src/runner.ts'
 import { nativeFileApplications, openNativeFileApplication } from '../src/file-applications.ts'
 
 const application = { id: '/Applications/Music.app', name: 'Music', default: true, icon: null }
 const signal = new AbortController().signal
+
+/** WSL answers Linux paths through the Windows desktop, so ambient linux facts describe win32. */
+const wsl = osRelease().toLowerCase().includes('microsoft') || Boolean(process.env.WSL_DISTRO_NAME) || Boolean(process.env.WSL_INTEROP)
 
 describe('native file associations', () => {
   it('passes file paths as arguments and preserves the desktop default', async () => {
@@ -112,7 +116,9 @@ it('uses the production command adapter and current platform when no override is
     stdout: command === 'gio' ? 'standard::content-type: audio/mpeg' : command === 'env' ? 'No applications found' : JSON.stringify([application]), stderr: '',
   }))
   onTestFinished(() => { run.mockRestore() })
-  expect(await nativeFileApplications('/file.mp3', signal)).toEqual(process.platform === 'linux' ? [] : [application])
+  // A WSL host answers through the Windows desktop, not the Linux adapter.
+  const expected = process.platform === 'linux' && !wsl ? [] : [application]
+  expect(await nativeFileApplications('/file.mp3', signal)).toEqual(expected)
   await openNativeFileApplication('/file.mp3', application.id, signal, { platform: 'darwin' })
   expect(run).toHaveBeenLastCalledWith('open', ['-a', application.id, '/file.mp3'], signal, 'hidden')
 })

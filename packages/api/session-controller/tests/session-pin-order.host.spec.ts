@@ -98,4 +98,60 @@ describe('session list pin ordering', () => {
     expect(response.value.items[2]).not.toHaveProperty('pinned')
     expect(response.value.items[2]).not.toHaveProperty('pinAt')
   })
+
+  it('orders unpinned rows behind pinned ones, ties below, and a pin without a time last', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    installSessionReadTestServices(ctx)
+    const metas = [
+      header('unpinned-old', 100),
+      header('pinned-new', 500),
+      header('pinned-null', 400),
+      header('pinned-same-low', 300),
+      header('pinned-same-high', 350),
+    ]
+    providePersistence(ctx, {
+      list: () => Promise.resolve(metas),
+      locate: () => ({ kind: 'jsonl', path: '/not-read' }),
+    })
+    ctx.provide('sessionProjectionCache', {
+      cachedSnapshot: (meta: SessionHeader) => {
+        const metadata = { blank: false, lastPromptAt: meta.createdAt }
+        if (meta.id === sid('unpinned-old')) {
+          return { asOfSeq: 0, values: { sessionListMetadata: metadata } }
+        }
+        // A pin recorded without a time keeps the pinned flag but exposes no
+        // `pinAt` cell, and it sorts below every timed pin.
+        if (meta.id === sid('pinned-null')) {
+          return { asOfSeq: 1, values: { sessionListMetadata: metadata, pinned: { pinned: true, pinAt: null } } }
+        }
+        if (meta.id === sid('pinned-new')) {
+          return { asOfSeq: 1, values: { sessionListMetadata: metadata, pinned: { pinned: true, pinAt: 500 } } }
+        }
+        // Two rows pinned at the SAME time: the pin time cannot order them, so
+        // the comparator must fall through to recency.
+        return { asOfSeq: 1, values: { sessionListMetadata: metadata, pinned: { pinned: true, pinAt: 300 } } }
+      },
+    } as never)
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+    })
+
+    const response = await remote.list(request({}))
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('unreachable')
+    // Timed pins first (equal times fall back to recency), then the untimed pin,
+    // then the unpinned row — the pinned group never sorts below an unpinned one.
+    expect(response.value.items.map(item => item.sessionId)).toEqual([
+      'pinned-new',
+      'pinned-same-high',
+      'pinned-same-low',
+      'pinned-null',
+      'unpinned-old',
+    ])
+    expect(response.value.items[2]).toMatchObject({ pinned: true, pinAt: 300 })
+    expect(response.value.items[3]).toMatchObject({ pinned: true })
+    expect(response.value.items[3]).not.toHaveProperty('pinAt')
+  })
 })

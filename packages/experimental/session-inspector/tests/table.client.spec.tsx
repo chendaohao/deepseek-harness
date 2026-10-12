@@ -12,6 +12,7 @@ import type { InspectorObjectReference } from '../src/client/views/objects.ts'
 import { en } from '../src/client/locales.ts'
 import { chatNodeWithLocation } from './chat-node-fixture.client.ts'
 import { installInspectorTableGeometry } from './table-geometry.client.ts'
+import { stubMatchMedia } from './match-media.client.ts'
 
 beforeEach(() => { installInspectorTableGeometry() })
 afterEach(cleanup)
@@ -78,7 +79,7 @@ it('virtualizes the table and updates the selected row in place with an animatio
     if (previous === undefined) Reflect.deleteProperty(Element.prototype, 'animate')
     else Object.defineProperty(Element.prototype, 'animate', previous)
   })
-  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+  stubMatchMedia(false)
   onTestFinished(() => { vi.unstubAllGlobals() })
   const rows = createSnapshotStore<readonly InspectorRow[]>(Array.from({ length: 1000 }, (_, index) => ({ key: String(index), depth: 0 })))
   const records = new Map(rows.getSnapshot().map(row => [row.key, {
@@ -172,7 +173,7 @@ it('shows the complete row identity in a tooltip outside the table clipping area
 })
 
 it('handles empty history, pagination retry, loading state, and removal of the selected record', async () => {
-  vi.stubGlobal('matchMedia', () => ({ matches: true }))
+  stubMatchMedia(true)
   onTestFinished(() => { cleanup(); vi.unstubAllGlobals() })
   const rows = createSnapshotStore<readonly InspectorRow[]>([])
   const session = createSnapshotStore({ ...sessionSnapshot('paging-session' as SessionId), hasMore: true })
@@ -211,7 +212,7 @@ it('handles empty history, pagination retry, loading state, and removal of the s
 })
 
 it('keeps reference details navigable after their table row has disappeared', () => {
-  vi.stubGlobal('matchMedia', () => ({ matches: true }))
+  stubMatchMedia(true)
   onTestFinished(() => { cleanup(); vi.unstubAllGlobals() })
   const child = { text: 'reference value' }
   const reference: InspectorObjectReference = { id: 'retired', kind: 'node', identity: 'retired',

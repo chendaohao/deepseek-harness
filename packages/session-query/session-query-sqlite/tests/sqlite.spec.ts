@@ -1256,6 +1256,32 @@ describe('SQLite reconciliation and source lifecycle', () => {
     await expect(ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'needle' }))
       .resolves.toMatchObject({ items: [{ seq: SessionSeq(2) }] })
   })
+
+  it('fails the observation when a cold read fails for a reason other than the format edge', async () => {
+    const durable = header('cold-read-failure')
+    TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    TestPersistence.readEffect = () => { throw new Error('stored log is unreadable') }
+
+    // Only a permanently refused format may drop a source; any other cold-read
+    // failure is a real fault and must reach the caller.
+    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
+  })
+
+  it('propagates an aborted cold read as an abort', async () => {
+    const durable = header('cold-read-aborted')
+    TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    TestPersistence.readEffect = () => {
+      throw new SessionQueryError('cold read aborted', 'SESSION_QUERY_ABORTED')
+    }
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_ABORTED'))
+  })
 })
 
 describe('SQLite schema, cancellation, and real persistence integration', () => {

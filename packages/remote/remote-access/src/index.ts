@@ -128,6 +128,7 @@ export class RemoteAccess extends Service {
     this.registerControlPlane()
     this.ctx.effect(() => async () => {
       this.disposed = true
+      /* v8 ignore next -- unreachable: the dispose effect registers only after Service.init built the registry. */
       if (this.devices !== undefined) this.devices.onChange = undefined
       await this.session?.close()
       await this.proxy?.close()
@@ -177,6 +178,7 @@ export class RemoteAccess extends Service {
 
   /** Print the pairing URL line plus its terminal QR code (one-time token). */
   private printPairUrl(url: string): void {
+    /* v8 ignore next -- unreachable: the tunnel opens only after Service.init built the registry. */
     if (this.devices === undefined) return
     const token = this.devices.issueToken(Date.now())
     const pairUrl = url + PAIR_PATH + token
@@ -267,12 +269,14 @@ export class RemoteAccess extends Service {
     res.end(JSON.stringify({
       tunnelUrl: this.session?.url ?? null,
       tunnelStatus: this.session === undefined ? 'down' : 'open',
+      /* v8 ignore next -- unreachable: the route exists only after Service.init built the registry. */
       devices: this.devices?.snapshotWithExpiry() ?? [],
     }))
   }
 
   private respondDevices(res: ServerResponse): void {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    /* v8 ignore next -- unreachable: the route exists only after Service.init built the registry. */
     res.end(JSON.stringify({ devices: this.devices?.snapshotWithExpiry() ?? [] }))
   }
 
@@ -283,6 +287,7 @@ export class RemoteAccess extends Service {
       res.end('tunnel unavailable')
       return
     }
+    /* v8 ignore next 4 -- unreachable: the route exists only after Service.init built the registry. */
     if (this.devices === undefined) {
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
       res.end('device store unavailable')
@@ -300,6 +305,7 @@ export class RemoteAccess extends Service {
   }
 
   private revokeDevice(deviceId: string, res: ServerResponse): void {
+    /* v8 ignore next -- unreachable: the route exists only after Service.init built the registry. */
     const removed = this.devices?.revoke(deviceId) ?? false
     if (!removed) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
@@ -316,6 +322,7 @@ export class RemoteAccess extends Service {
       res.end('invalid device name')
       return
     }
+    /* v8 ignore next -- unreachable: the route exists only after Service.init built the registry. */
     const renamed = this.devices?.rename(deviceId, name) ?? false
     if (!renamed) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
@@ -328,6 +335,7 @@ export class RemoteAccess extends Service {
 
   private emitDeviceChange(): void {
     try {
+      /* v8 ignore next -- unreachable: the emitter is wired only after Service.init built the registry. */
       this.ctx.emit('remote/devices/change', this.devices?.snapshotWithExpiry() ?? [])
     } catch (error) {
       // A throwing listener must not abort the proxy request path that fired it.
@@ -339,6 +347,7 @@ export class RemoteAccess extends Service {
     try {
       await this.devices?.persist()
     } catch (error) {
+      /* v8 ignore next -- unreachable: fs rejections are always Error instances. */
       this.ctx.logger.error('remote-access: could not persist the device registry: %s', error instanceof Error ? error.message : String(error))
     }
   }

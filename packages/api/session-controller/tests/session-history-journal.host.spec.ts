@@ -3,10 +3,10 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent, type AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { LlmAttemptId, ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionHistoryController } from '@deepseek-ai/dsh-api-session-controller/src/history.ts'
 import type { SessionFollowFrame, SessionPage, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
@@ -1118,5 +1118,54 @@ describe('Session history raw journal', () => {
       message: 'session follow buffer exceeded',
     })
     await ctx.fiber.dispose()
+  })
+
+  it('flags overflow for a creation snapshot larger than the follow buffer', async () => {
+    const { ctx } = await harness()
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    const sessionId = SessionId('journal-created-overflow')
+    // Build the target out of the store first: `session/created` can only fire
+    // for an id the store does not already hold, and the seed must exceed the
+    // buffer so the creation-path bound (not the live-append bound) trips.
+    const prepared = ctx.sessions.prepare(sessionId, { meta: { cwd: '/workspace' } })
+    for (let turn = 0; turn < 10_100; turn++) prepared.append('turn/start', { turn })
+    const observationStarted = Promise.withResolvers<undefined>()
+    const releaseObservation = Promise.withResolvers<undefined>()
+    const originalObserve = ctx.sessionQuery.observeSession.bind(ctx.sessionQuery)
+    // Hold the source observation open so `snapshotCursor` is still undefined
+    // when the creation lands; that replay folds the entire seed in one step.
+    const observe = vi.spyOn(ctx.sessionQuery, 'observeSession').mockImplementation(async (id, options) => {
+      observationStarted.resolve(undefined)
+      await releaseObservation.promise
+      return await originalObserve(id, options)
+    })
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId },
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    try {
+      const opening = iterator.next()
+      await observationStarted.promise
+      const detach = ctx.sessions.enter(prepared)
+      ctx.effect(() => detach, 'journal.created-overflow')
+      ctx.sessions.announce(prepared)
+      releaseObservation.resolve(undefined)
+      await expect(opening).resolves.toMatchObject({
+        done: false,
+        value: { type: 'snapshot' },
+      })
+      // The opening reports the seed it already carried; the pump then fails
+      // loud on the overflow the creation replay flagged.
+      await expect(iterator.next()).rejects.toMatchObject({
+        code: 'session/stream-overflow',
+        message: 'session follow buffer exceeded',
+      })
+    } finally {
+      releaseObservation.resolve(undefined)
+      observe.mockRestore()
+      abort.abort()
+      await ctx.fiber.dispose()
+    }
   })
 })

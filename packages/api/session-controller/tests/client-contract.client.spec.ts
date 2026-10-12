@@ -10,6 +10,7 @@ import type { ISession } from '../src/client/contract/session.ts'
 import type { ProjectionsBaseline } from '../src/client/sessions/projection-store.ts'
 import { ProjectionValueStore } from '../src/client/sessions/projection-store.ts'
 import type { PromptContentPart as SessionPromptContentPart, SessionPageRequest } from '../src/types.ts'
+import { transportResult } from '../src/client/contract/result.ts'
 import { ev, plainTurn } from './event-script.client.ts'
 
 type RenameSuccess = Extract<Awaited<ReturnType<ISession['rename']>>, { readonly ok: true }>
@@ -56,6 +57,19 @@ function assistantSettlement(seq: SessionSeq): SessionAssistantSettlementEntry {
 }
 
 describe('Client Session contracts', () => {
+  it('folds a rejected carrier operation into the Client failure vocabulary', () => {
+    expect(transportResult(new Error('carrier down'))).toEqual({
+      ok: false,
+      error: { code: 'internal', message: 'carrier down', details: {} },
+    })
+    // A non-Error rejection still yields an actionable message instead of
+    // losing the value to a generic fold.
+    expect(transportResult('wire closed')).toEqual({
+      ok: false,
+      error: { code: 'internal', message: 'wire closed', details: {} },
+    })
+  })
+
   it('requires branded Session positions at internal event fixture boundaries', () => {
     expectTypeOf(entry).parameter(0).toEqualTypeOf<SessionSeq>()
     expectTypeOf(ev.user).parameter(0).toEqualTypeOf<SessionSeq>()

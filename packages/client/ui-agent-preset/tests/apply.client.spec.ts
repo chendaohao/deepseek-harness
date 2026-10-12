@@ -1248,6 +1248,27 @@ describe('ui-agent-preset apply', () => {
     expect(section.startCreatorDraft).toBeUndefined()
   })
 
+  it('routes the seat gate to the unbound seat when no blank Session is retained', async () => {
+    const { ctx, slots, calls } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    // The flow is wired, but no blank Session is retained by the main view, so
+    // the gate has no session-bound seat to hand the staged pick to.
+    ctx.provide('sessions', sessionsDouble(ctx, { byId: {} }) as never)
+    ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
+
+    const gate = ctx.get('agentPresetSeat') as { pendingApply(): Promise<void> } | undefined
+    expect(gate).toBeDefined()
+    await gate!.pendingApply()
+
+    // The unbound seat owns no Session, so a staged pick applies nowhere and
+    // nothing is written.
+    expect(calls).toEqual([])
+    conversation()
+  })
+
   it('answers the seat gate with a no-op while the conversation flow is absent', async () => {
     const { ctx, slots } = await bench()
     ctx.provide('sessions', sessionsDouble(ctx, { byId: {} }) as never)

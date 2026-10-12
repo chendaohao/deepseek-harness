@@ -10,12 +10,13 @@ import { InspectorTable, type InspectorTableProps } from '../src/client/views/In
 import type { InspectorRecord, InspectorRow } from '../src/client/views/table-model.ts'
 import { en } from '../src/client/locales.ts'
 import { installInspectorTableGeometry } from './table-geometry.client.ts'
+import { stubMatchMedia } from './match-media.client.ts'
 
 beforeEach(() => { installInspectorTableGeometry() })
 afterEach(cleanup)
 
 it('filters only on confirmation, preserves contextual ancestors, and reveals picked rows', async () => {
-  vi.stubGlobal('matchMedia', () => ({ matches: true }))
+  stubMatchMedia(true)
   onTestFinished(() => { cleanup(); vi.unstubAllGlobals() })
   const rows = createSnapshotStore<readonly InspectorRow[]>([
     { key: 'assistant', depth: 0 },

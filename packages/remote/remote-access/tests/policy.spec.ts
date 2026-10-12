@@ -155,6 +155,13 @@ describe('deviceName', () => {
   it('falls back to mobile/desktop for unknown agents', () => {
     expect(deviceName('Mozilla/5.0 (mobi) custom')).toBe('mobile')
     expect(deviceName('some/unknown agent')).toBe('desktop')
+    // A desktop Linux agent names the OS; a Gecko agent names Firefox.
+    expect(deviceName(
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    )).toBe('Linux · Chrome')
+    expect(deviceName(
+      'Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0',
+    )).toBe('Linux · Firefox')
   })
 })
 
@@ -302,6 +309,23 @@ describe('handlePairing', () => {
     const { res: thirdRes, calls: thirdCalls } = response()
     expect(policy.handlePairing(phone, thirdRes, '/pair/AAAA')).toBe(true)
     expect(thirdCalls[0]!.status).toBe(429)
+  })
+
+  it('falls back to the shared unknown bucket when the key resolver declines', () => {
+    const policy = createAccessPolicy(secret, registry(), {
+      now: () => NOW,
+      pairMaxAttempts: 1,
+      // The extension point documents undefined as "no key for this request".
+      pairAttemptKey: () => undefined,
+    })
+    const phone = request({ remoteAddress: '127.0.0.1', headers: { 'user-agent': 'Mozilla/5.0 (iPhone)' } })
+    const desktop = request({ remoteAddress: '127.0.0.1', headers: { 'user-agent': 'Mozilla/5.0 (Windows)' } })
+    expect(policy.handlePairing(phone, response().res, '/pair/AAAA')).toBe(true)
+    // Both keyless requests share one bucket, so the desktop's attempt is the
+    // limited one even though its address and agent differ.
+    const { res: limitedRes, calls: limitedCalls } = response()
+    expect(policy.handlePairing(desktop, limitedRes, '/pair/AAAA')).toBe(true)
+    expect(limitedCalls[0]!.status).toBe(429)
   })
 
   it('keys the rate limit by a custom pairAttemptKey when supplied', () => {

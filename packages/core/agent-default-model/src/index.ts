@@ -159,6 +159,7 @@ export class AgentDefaultModelConfig extends Service {
   private async editEfforts(change: (efforts: Record<string, string>) => Record<string, string>): Promise<void> {
     await this.editConfig(current => ({
       ...current,
+      /* v8 ignore next -- unreachable: z.dict() gives the field a `{}` default, so a volatile dict reads an object, never undefined. */
       reasoningEfforts: change({ ...(this.config.reasoningEfforts.get() ?? {}) }),
     }))
   }

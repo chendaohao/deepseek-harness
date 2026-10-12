@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -8,7 +8,8 @@ import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as MaxTokensRecovery from '@deepseek-ai/dsh-max-tokens-recovery'
 import type { Config } from '@deepseek-ai/dsh-max-tokens-recovery'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 
 /** A step that streams only reasoning and stops at the provider's token ceiling. */
 function reasoningCeiling(reasoningChars: number, visibleText = ''): StreamChunk[] {
@@ -234,6 +235,72 @@ describe('bounded ceiling recovery', () => {
 
     expect(recoveries(agent)).toHaveLength(0)
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('does not recover a step that committed a tool call with no visible text', async () => {
+    const ctx = await harness()
+    const adapter = new MockAdapter([toolCallResponse('ceiling-call', 'noop', {}), textResponse('after the call')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'noop',
+      description: '',
+      parameters: {},
+      async execute() { return [{ type: 'text', text: 'ok' }] },
+    }))
+    const agent = await ctx.agentLoop.create(SessionId('tool-call'), { provider: 'mock', model: 'mock' })
+    prompt(agent, 'go')
+    await settle(agent, adapter, 1)
+
+    // The step committed a tool call, so it did not burn the ceiling on
+    // nothing even though it emitted no visible text.
+    expect(recoveries(agent)).toHaveLength(0)
+  })
+
+  it('ignores session events for a session no agent owns', async () => {
+    const ctx = await harness()
+    const session = ctx.sessions.create(SessionId('orphan'))
+    session.append('turn/start', { turn: 1 })
+
+    expect(ctx.agents.get(session.id)).toBeUndefined()
+  })
+
+  it('drops the per-agent recovery state when the agent is disposed', async () => {
+    const ctx = await harness()
+    const adapter = new MockAdapter([reasoningCeiling(50_000), textResponse('recovered before disposal')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('disposed'), agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    prompt(handle.agent, 'go')
+    await settle(handle.agent, adapter, 2)
+    expect(recoveries(handle.agent)).toHaveLength(1)
+
+    await handle.dispose()
+    expect(ctx.agents.get(SessionId('disposed'))).toBeUndefined()
+    // Disposal is not a rollback: the recovery the guard queued stays in the
+    // session log.
+    expect(recoveries(handle.agent)).toHaveLength(1)
+  })
+
+  it('reports a recovery the queue refused instead of failing the settled turn', async () => {
+    const ctx = await harness()
+    const adapter = new MockAdapter([reasoningCeiling(50_000), textResponse('never queued')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('refused'), { provider: 'mock', model: 'mock' })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    // A closed queue is the failure the deferred queueMicrotask isolates: the
+    // refusal must surface as a log line, not as a rejection of the turn that
+    // already ended.
+    const queue = agent.followup.bind(agent)
+    vi.spyOn(agent, 'followup').mockImplementation((message) => {
+      if (message.source.kind === 'max-tokens-recovery') throw new Error('queue closed')
+      queue(message)
+    })
+    prompt(agent, 'go')
+    await settle(agent, adapter, 1)
+
+    expect(recoveries(agent)).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not queue a recovery for agent "refused"'))
   })
 
   it('recovers again after an intervening turn that produced work', async () => {

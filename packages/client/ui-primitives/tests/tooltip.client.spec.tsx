@@ -704,6 +704,38 @@ describe('Tooltip', () => {
     }
   })
 
+  it('returns to hover semantics when the device crosses back to fine input', () => {
+    vi.useFakeTimers()
+    let change: (() => void) | undefined
+    const mql = {
+      matches: true,
+      addEventListener: vi.fn((_type: string, cb: () => void) => { change = cb }),
+      removeEventListener: vi.fn(),
+    }
+    vi.stubGlobal('matchMedia', vi.fn(() => mql))
+    try {
+      render(
+        <Tooltip label="Timing details">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      // A coarse device shows the bubble on the press itself.
+      fireEvent.pointerDown(screen.getByText('anchor'))
+      expect(screen.getByRole('tooltip')).toBeTruthy()
+      mql.matches = false
+      act(() => { change?.() })
+      // The cross back keeps the open bubble and restores hover-only presses.
+      expect(screen.getByRole('tooltip')).toBeTruthy()
+      fireEvent.mouseLeave(screen.getByText('anchor'))
+      expect(screen.queryByRole('tooltip')).toBeNull()
+      fireEvent.pointerDown(screen.getByText('anchor'))
+      expect(screen.queryByRole('tooltip')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('dismisses an open bubble when the device crosses into coarse input', () => {
     let change: (() => void) | undefined
     const mql = {

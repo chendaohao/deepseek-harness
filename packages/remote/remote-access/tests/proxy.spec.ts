@@ -29,6 +29,7 @@ beforeEach(async () => {
     const chunks: Buffer[] = []
     req.on('data', (chunk) => { chunks.push(chunk as Buffer) })
     req.on('end', () => {
+      if (req.url === '/with-refresh') res.setHeader('set-cookie', 'upstream=1; Path=/')
       res.writeHead(201, { 'content-type': 'application/json', 'x-proxied': 'yes' })
       res.end(JSON.stringify({
         method: req.method,
@@ -133,6 +134,16 @@ describe('HTTP relaying', () => {
     expect(response.status).toBe(401)
     expect(response.headers['content-type']).toContain('text/html')
     expect(response.body).toBe(PAIR_REQUIRED_PAGE)
+  })
+
+  it('appends the gate refresh after the target set-cookie on the relayed response', async () => {
+    const refresh = 'dsh_remote=v3.device.mac; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000'
+    const proxy = await startProxy({
+      authorize: () => ({ admitted: true, cookieRefresh: refresh }),
+    })
+    const response = await rawRequest(proxy.port, '/with-refresh', { host: 'fake.tunnel.example' })
+    expect(response.status).toBe(201)
+    expect(response.headers['set-cookie']).toEqual(['upstream=1; Path=/', refresh])
   })
 
   it('owns pair paths through the policy without forwarding', async () => {
@@ -315,6 +326,30 @@ describe('WebSocket relaying', () => {
     expect(devices.isLive(deviceId)).toBe(false)
   })
 
+  it('keeps a relay that still authorizes across a re-authorization tick', async () => {
+    proxyInternals.reauthorizeIntervalMs = 20
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+    })
+    const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port) + '/api/events')
+    await new Promise<void>((resolve) => { client.on('open', () => { resolve() }) })
+    // Several ticks pass with the gate still admitting: the relay must survive
+    // them and keep echoing.
+    await sleepMs(80)
+    expect(client.readyState).toBe(WebSocket.OPEN)
+    const echoed = new Promise<string>((resolve) => {
+      client.on('message', (data) => {
+        const parts = Array.isArray(data) ? data : [Buffer.isBuffer(data) ? data : Buffer.from(data)]
+        resolve(Buffer.concat(parts).toString('utf8'))
+      })
+    })
+    client.send('still here')
+    await expect(echoed).resolves.toBe('still here')
+    client.close()
+  })
+
   it('buffers frames that precede the upstream handshake and flushes them on open', async () => {
     const upstream = await delayedUpgradeServer()
     await proxy?.close()
@@ -390,6 +425,29 @@ describe('WebSocket relaying', () => {
       })
     })
     await expect(relayed).resolves.toBeUndefined()
+  })
+
+  it('drops an upstream ping once the downstream leg began closing', async () => {
+    // A zero miss budget closes the pair on the first relayed ping; the leg is
+    // the silent raw socket, so it stays in CLOSING and later pings arrive with
+    // no open leg to forward to.
+    proxyInternals.pongMissMax = 0
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+    })
+    let pings = 0
+    wss!.on('connection', (socket) => {
+      // Stop reading so the relay's close frame is never processed: the target
+      // keeps its end open and keeps pinging while the downstream leg closes.
+      socket.pause()
+      const timer = setInterval(() => { pings += 1; socket.ping() }, 5)
+      socket.on('close', () => { clearInterval(timer) })
+    })
+    const leg = await silentLeg(proxy.port, '/api/remote.mux')
+    await expect.poll(() => pings, { timeout: 2_000 }).toBeGreaterThan(3)
+    leg.destroy()
   })
 
   it('closes the pair when the downstream leg stops answering relayed pings', async () => {

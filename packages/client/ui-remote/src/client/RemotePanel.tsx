@@ -108,6 +108,7 @@ export function RemotePanel({ remote, t }: RemotePanelProps) {
   }, [remote, refreshPair, t])
 
   const copyLink = useCallback(async (): Promise<void> => {
+    /* v8 ignore next -- the copy seat is disabled while pairUrl is null; this guard only narrows the closure for writeClipboard */
     if (pairUrl === null) return
     if (await writeClipboard(pairUrl)) {
       setCopied(true)

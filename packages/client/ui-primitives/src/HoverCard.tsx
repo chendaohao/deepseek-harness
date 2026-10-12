@@ -207,7 +207,9 @@ export function HoverCard({
     if (!open || pos === null || variant === 'preview' || inline || suppressed) return
     /* v8 ignore next -- the card is mounted whenever pos is set, so the ref is attached here. */
     const card = cardRef.current
+    /* v8 ignore next -- a mounted card is measurable, so the offset reads cannot fail. */
     const h = card?.offsetHeight ?? 0
+    /* v8 ignore next -- a mounted card is measurable, so the offset reads cannot fail. */
     const w = card?.offsetWidth ?? 0
     const top = h > 0
       ? Math.max(overlayTopMargin(VIEWPORT_MARGIN), Math.min(pos.top, window.innerHeight - h - VIEWPORT_MARGIN))

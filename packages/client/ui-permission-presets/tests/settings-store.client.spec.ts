@@ -186,6 +186,25 @@ describe('permission settings store', () => {
     expect(controller.store.getSnapshot()).toMatchObject({ currentValue: 'workspace-write', revision: 2 })
   })
 
+  it('hides the row when the mirror holds no answer after a failed read', async () => {
+    // The mirror reports `unavailable` once a read failed with no answer held:
+    // the row hides itself exactly like an unserved namespace.
+    const face = {
+      getSnapshot: () => ({ status: 'unavailable' as const, view: undefined, error: 'settings host unreachable' }),
+      subscribe: () => () => {},
+      ensure: () => Promise.resolve(),
+      acceptView: () => {},
+    }
+    const controller = new PermissionPresetSettingsController(
+      face, { remote: { settings: { describe: vi.fn(), mutate: vi.fn() } } } as never, directory,
+    )
+    await controller.load()
+    expect(controller.store.getSnapshot()).toMatchObject({
+      status: 'unavailable', writable: false, currentValue: '', options: [],
+    })
+    controller.dispose()
+  })
+
   it('disposal stops deriving and suppresses in-flight writes', async () => {
     const neverRead = vi.fn()
     const { controller: neverLoaded } = permissionController({ describe: neverRead, mutate: vi.fn() })

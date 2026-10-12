@@ -2,13 +2,20 @@
 import { execFile, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { tmpdir, release as osRelease } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { nativeFileApplications, openNativeFileApplication } from '../src/file-applications.ts'
 import type { NativeCommandRunner } from '../src/runner.ts'
 
-const gioAvailable = process.platform === 'linux' && spawnSync('gio', ['help'], { stdio: 'ignore' }).error === undefined
+/**
+ * GIO reaches the Linux desktop directly. On WSL the same call would answer
+ * through the Windows desktop instead — `nativeFileApplications` returns before
+ * the Linux adapter runs, and `openNativeFileApplication` launches through
+ * `wslpath`/Explorer — so this real-GIO lane holds the desktop Linux hosts only.
+ */
+const desktopLinux = process.platform === 'linux' && !osRelease().toLowerCase().includes('microsoft')
+const gioAvailable = desktopLinux && spawnSync('gio', ['help'], { stdio: 'ignore' }).error === undefined
 const execute = promisify(execFile)
 
 /** Desktop Exec quoted-argument syntax; GIO performs its expansion. */

@@ -139,11 +139,28 @@ describe('persistence', () => {
     await expect(registry.load()).rejects.toThrow(/must be a JSON array/)
   })
 
-  it('a memory-only registry persists nothing', async () => {
+  it('a memory-only registry loads and persists nothing', async () => {
     const registry = new DeviceRegistry(undefined)
+    await registry.load()
+    expect(registry.snapshot()).toEqual([])
     registry.register('mobile', NOW)
     await registry.persist()
     expect(registry.snapshot()).toHaveLength(1)
+  })
+
+  it('surfaces a read failure that is not a missing file', async () => {
+    // A directory at the registry path fails with EISDIR: only ENOENT means
+    // "empty roster", so every other code must reach the caller.
+    await mkdir(devicesPath(), { recursive: true })
+    const registry = new DeviceRegistry(devicesPath())
+    await expect(registry.load()).rejects.toThrow(/EISDIR/)
+  })
+
+  it('refuses a registry file holding a malformed record', async () => {
+    await mkdir(join(root!, 'secrets'), { recursive: true })
+    await writeFile(devicesPath(), JSON.stringify([null, { deviceId: 5, name: 'x' }]))
+    const registry = new DeviceRegistry(devicesPath())
+    await expect(registry.load()).rejects.toThrow(/holds a malformed record/)
   })
 
   it('persists via the structural onChange hook', async () => {
