@@ -95,6 +95,13 @@ function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setDat
   return { effectAllowed: 'uninitialized', dropEffect: 'none', setData: vi.fn() }
 }
 
+/** Workspace section rows in render order: treeitems whose expansion state marks a header. */
+function workspaceSections(): (string | null)[] {
+  return screen.getAllByRole('treeitem')
+    .filter(row => row.getAttribute('aria-expanded') !== null)
+    .map(row => row.textContent)
+}
+
 // The default child stub: an open directory flow shows its marker; the two
 // Session row lists stay empty (their entries have their own spec). A stub
 // satisfies the generic render signature only with an erased owner type.
@@ -446,6 +453,35 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
+  it('reads a persisted v5 view with no Workspace-section order as Manual', () => {
+    const key = 'dsh.workspace.view.v5'
+    const previous = localStorage.getItem(key)
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        groupBy: 'workspace', orderBy: 'updated', groupExpansion: { alpha: true, beta: true },
+        sessionOrderByAccount: {}, archivedFilter: 'default',
+      }))
+      const b = mount({
+        useSessions: hook(sessionState([summary('alpha-s', 10), summary('beta-s', 90)])),
+        useWorkspaces: hook(workspaceState([
+          workspace('alpha', ['alpha-s']), workspace('beta', ['beta-s']),
+        ])),
+      })
+      // Absent field reads as Manual: the Host order stands although beta's
+      // member is newer, and the first write records the selected mode.
+      expect(b.store.getSnapshot().workspaceOrderBy).toBeUndefined()
+      expect(workspaceSections()).toEqual([expect.stringContaining('alpha'), expect.stringContaining('beta')])
+      fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: '手动顺序' }))
+      expect(b.store.getSnapshot().workspaceOrderBy).toBe('manual')
+      expect(workspaceSections()).toEqual([expect.stringContaining('alpha'), expect.stringContaining('beta')])
+    } finally {
+      cleanup()
+      if (previous === null) localStorage.removeItem(key)
+      else localStorage.setItem(key, previous)
+    }
+  })
+
   it('renders the grouped tree by default and switches to the flat list via Group by', () => {
     const sessions = sessionState([summary('alpha-s', 2), summary('beta-s', 1)])
     const b = mount({
@@ -459,12 +495,16 @@ describe('WorkspaceBrowser', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
-    expect(screen.getAllByRole('separator')).toHaveLength(2)
+    expect(screen.getAllByRole('separator')).toHaveLength(3)
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-      '按工作区', '按工作区树', '单列表', '手动排序', '最近更新', '隐藏已归档', '全部对话（显示已归档）', '仅显示已归档',
+      '按工作区', '按工作区树', '单列表', '手动顺序', '最近活跃',
+      '手动排序', '最近更新', '隐藏已归档', '全部对话（显示已归档）', '仅显示已归档',
     ])
     expect(screen.getByRole('menuitem', { name: '按工作区' }).querySelector('svg')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '最近活跃' }).querySelector('svg')).toBeTruthy()
+    // Workspace sections exist in this grouping, so their order rows are live.
+    expect(screen.getByRole('menuitem', { name: '最近活跃' }).hasAttribute('disabled')).toBe(false)
     fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
     // Store-driven flip: title changes, rows flatten newest-first, headers gone.
     expect(b.store.getSnapshot().groupBy).toBe('flat')
@@ -485,6 +525,108 @@ describe('WorkspaceBrowser', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
+  })
+
+  it('orders Workspace sections by member activity and restores the supplied order in Manual', async () => {
+    localStorage.clear()
+    const stale = summary('stale', 10)
+    const fresh = summary('fresh', 90)
+    const workspaces = [
+      { ...workspace('alpha', ['stale']), updatedAt: '2026-01-01T00:00:00.000Z' },
+      { ...workspace('beta', ['fresh']), updatedAt: '2026-01-01T00:00:00.000Z' },
+    ]
+    const b = mount({
+      useSessions: hook(sessionState([stale, fresh])),
+      useWorkspaces: hook(workspaceState(workspaces)),
+    })
+    const pick = (name: string) => {
+      fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+      fireEvent.click(screen.getByRole('menuitem', { name }))
+    }
+    expect(workspaceSections()).toEqual([expect.stringContaining('alpha'), expect.stringContaining('beta')])
+
+    pick('最近活跃')
+    await waitFor(() => {
+      expect(workspaceSections()).toEqual([expect.stringContaining('beta'), expect.stringContaining('alpha')])
+      expect(b.store.getSnapshot().workspaceOrderBy).toBe('recency')
+    })
+    // The projection is live: an older member updating reorders the sections.
+    rerender(b, { useSessions: hook(sessionState([summary('stale', 500), fresh])) })
+    await waitFor(() => {
+      expect(workspaceSections()).toEqual([expect.stringContaining('alpha'), expect.stringContaining('beta')])
+    })
+
+    // Manual restores the Host-supplied order, which the projection never wrote.
+    pick('手动顺序')
+    await waitFor(() => {
+      expect(b.store.getSnapshot().workspaceOrderBy).toBe('manual')
+      expect(workspaceSections()).toEqual([expect.stringContaining('alpha'), expect.stringContaining('beta')])
+    })
+
+    // The choice survives a remount through the view store.
+    pick('最近活跃')
+    await waitFor(() => { expect(b.store.getSnapshot().workspaceOrderBy).toBe('recency') })
+    b.view.unmount()
+    const restored = mount({ useSessions: hook(sessionState([stale, fresh])), useWorkspaces: b.props.useWorkspaces })
+    expect(restored.store.getSnapshot().workspaceOrderBy).toBe('recency')
+    expect(workspaceSections()).toEqual([expect.stringContaining('beta'), expect.stringContaining('alpha')])
+    restored.view.unmount()
+  })
+
+  it('ranks a memberless Workspace by its own mutation time and never drags a section in recency', async () => {
+    localStorage.clear()
+    const owned = summary('owned', 20)
+    const workspaces = [
+      { ...workspace('alpha', ['owned']), updatedAt: '2026-01-01T00:00:00.000Z' },
+      { ...workspace('empty', []), updatedAt: '2027-01-01T00:00:00.000Z' },
+    ]
+    const insertWorkspaceBefore = vi.fn(async () => {})
+    const b = mount({
+      useSessions: hook(sessionState([owned])),
+      useWorkspaces: hook(workspaceState(workspaces)),
+      insertWorkspaceBefore,
+    })
+    const pick = (name: string) => {
+      fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+      fireEvent.click(screen.getByRole('menuitem', { name }))
+    }
+    pick('最近活跃')
+    await waitFor(() => {
+      expect(workspaceSections()).toEqual([expect.stringContaining('empty'), expect.stringContaining('alpha')])
+    })
+
+    const source = screen.getByText('empty').closest('[role="treeitem"]') as HTMLElement
+    const target = screen.getByText('alpha').closest('[role="treeitem"]') as HTMLElement
+    target.getBoundingClientRect = () => ({
+      top: 100, bottom: 134, left: 0, right: 200, width: 200, height: 34, x: 0, y: 100, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'drop', 130)
+    fireEvent.dragEnd(source)
+    // A projected order has no position to write, so the row is not draggable
+    // and the Host order stays untouched.
+    expect(source.getAttribute('draggable')).toBe('false')
+    expect(insertWorkspaceBefore).not.toHaveBeenCalled()
+    expect(b.store.getSnapshot().workspaceOrderBy).toBe('recency')
+
+    // Manual order restores the durable drag affordance on the same rows.
+    pick('手动顺序')
+    await waitFor(() => {
+      expect((screen.getByText('empty').closest('[role="treeitem"]') as HTMLElement).getAttribute('draggable'))
+        .toBe('true')
+    })
+    b.view.unmount()
+  })
+
+  it('disables the Workspace-order rows in the flat grouping, which renders no sections', () => {
+    const b = mount()
+    b.store.actions.setGroupBy('flat')
+    rerender(b, {})
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    expect(screen.getByRole('menuitem', { name: '手动顺序' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('menuitem', { name: '最近活跃' }).hasAttribute('disabled')).toBe(true)
+    // Session ordering stays live in the same menu.
+    expect(screen.getByRole('menuitem', { name: '手动排序' }).hasAttribute('disabled')).toBe(false)
   })
 
   it('picking 全部对话（显示已归档） keeps existing rows and reveals archived ones in place', () => {

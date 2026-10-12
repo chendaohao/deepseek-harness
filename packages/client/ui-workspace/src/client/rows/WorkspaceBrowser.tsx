@@ -31,7 +31,9 @@ import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
+import type {
+  ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState, WorkspaceOrderBy,
+} from '../tree.ts'
 import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY,
@@ -102,17 +104,27 @@ function useNativeDragAcceptance(active: boolean): void {
   }, [active])
 }
 
-/** Grouping, ordering, and archived-filter menu; own open state so it resets with the wide chrome. */
-function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrderPick, onArchivedFilterPick, t }: {
+/**
+ * Grouping, both ordering modes, and the archived filter; own open state so it
+ * resets with the wide chrome. Workspace-order rows are disabled in the flat
+ * grouping, which renders no Workspace sections to order.
+ */
+function ViewOptionsMenu({
+  groupBy, orderBy, workspaceOrderBy, archivedFilter,
+  onGroupPick, onOrderPick, onWorkspaceOrderPick, onArchivedFilterPick, t,
+}: {
   groupBy: SessionGroupBy
   orderBy: SessionOrderBy
+  workspaceOrderBy: WorkspaceOrderBy
   archivedFilter: ArchivedFilter
   onGroupPick: (mode: SessionGroupBy) => void
   onOrderPick: (mode: SessionOrderBy) => void
+  onWorkspaceOrderPick: (mode: WorkspaceOrderBy) => void
   onArchivedFilterPick: (filter: ArchivedFilter) => void
   t: WorkspaceBrowserProps['t']
 }) {
   const [open, setOpen] = useState(false)
+  const sectionsGrouped = groupBy !== 'flat'
   return (
     <Menu
       open={open}
@@ -122,6 +134,20 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
         { id: 'workspace', label: t('groupBy.workspace'), icon: <IconFolderCloseRegular /> },
         { id: 'workspace-tree', label: t('groupBy.workspaceTree'), icon: <IconWorkspaceTreeOutlineRegular /> },
         { id: 'flat', label: t('groupBy.flat'), icon: <IconFlatListOutlineRegular /> },
+        { type: 'separator' as const, id: 'workspace-order-separator' },
+        { type: 'label' as const, id: 'workspace-order-by', text: t('workspaceOrderBy.label') },
+        {
+          id: 'workspace-manual',
+          label: t('workspaceOrderBy.manual'),
+          icon: <IconChevronsUpDownOutlineRegular />,
+          disabled: !sectionsGrouped,
+        },
+        {
+          id: 'workspace-recency',
+          label: t('workspaceOrderBy.recency'),
+          icon: <IconClockOutlineRegular />,
+          disabled: !sectionsGrouped,
+        },
         { type: 'separator' as const, id: 'order-by-separator' },
         { type: 'label' as const, id: 'order-by', text: t('orderBy.label') },
         { id: 'manual', label: t('orderBy.manual'), icon: <IconChevronsUpDownOutlineRegular /> },
@@ -134,12 +160,15 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
       ]}
       selectedIds={[
         groupBy,
+        workspaceOrderBy === 'manual' ? 'workspace-manual' : 'workspace-recency',
         orderBy,
         { default: 'hide-archived', show: 'show-archived', only: 'only-archived' }[archivedFilter],
       ]}
       onSelect={(id) => {
         if (id === 'workspace' || id === 'workspace-tree' || id === 'flat') onGroupPick(id)
-        else if (id === 'manual' || id === 'updated') onOrderPick(id)
+        else if (id === 'workspace-manual' || id === 'workspace-recency') {
+          onWorkspaceOrderPick(id === 'workspace-manual' ? 'manual' : 'recency')
+        } else if (id === 'manual' || id === 'updated') onOrderPick(id)
         else if (id === 'hide-archived') onArchivedFilterPick('default')
         else if (id === 'show-archived') onArchivedFilterPick('show')
         else if (id === 'only-archived') onArchivedFilterPick('only')
@@ -231,6 +260,8 @@ type SessionTreeProps = Pick<
   home?: string | undefined
   /** Workspaces in Host group order with browser-projected Session order. */
   workspaces: readonly WorkspaceView[]
+  /** Workspace-section order: Host order, or member activity when `recency`. */
+  workspaceOrderBy: WorkspaceOrderBy
   /** Browser-projected order for Sessions outside every Workspace. */
   ungroupedSessionIds: readonly SessionId[]
   /** Whether the current Workspace stream has a complete Host baseline. */
@@ -279,7 +310,7 @@ function EmptySessions({ rowState, onLeaveArchivedOnly, t }: Pick<SessionTreePro
 
 /** The scrolling session tree; unmounting drops the sessions subscription and local row limits. */
 function SessionTree({
-  list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds,
+  list, useSessionStatus, startSession, open, workspaces, workspaceOrderBy, ungroupedSessionIds,
   rowState, onLeaveArchivedOnly,
   workspaceReady, animationResetKey, usePanelInfo,
   onRenameRequest, onDeleteRequest, onSessionRenameRequest,
@@ -337,8 +368,9 @@ function SessionTree({
     () => deriveGroups(list, workspaces, rowState, statuses, {
       expandedGroups,
       ungroupedOrder: ungroupedSessionIds,
+      workspaceOrder: workspaceOrderBy,
     }),
-    [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds],
+    [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds, workspaceOrderBy],
   )
   useEffect(() => {
     for (let key = revealGroup; key !== undefined; key = parents.get(key)) {
@@ -427,7 +459,10 @@ function SessionTree({
     const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
       ? workspaceDrag.over.half
       : null
-    const workspaceDragProps = workspaceId === undefined ? undefined : {
+    // Recency is a projection of member activity, so a row drag cannot name a
+    // durable Host position: the row is not draggable until Manual order is
+    // selected again, which leaves the Host order untouched by the projection.
+    const workspaceDragProps = workspaceId === undefined || workspaceOrderBy === 'recency' ? undefined : {
       start: () => {
         workspaceDropCommitted.current = false
         setWorkspaceDrag({ workspaceId, over: null })
@@ -892,6 +927,9 @@ export function WorkspaceBrowser({
   const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
   const groupBy = useStore(s => s.groupBy)
   const orderBy = useStore(s => s.orderBy)
+  // Persisted blobs written before Workspace-section ordering existed rehydrate
+  // without the field; they read as Manual, the order the list already showed.
+  const workspaceOrderBy = useStore(s => s.workspaceOrderBy ?? 'manual')
   // Persisted view blobs written before the archived filter existed rehydrate
   // without the field; they read as the default hide-archived view.
   const archivedFilter = useStore(s => s.archivedFilter ?? 'default')
@@ -1274,9 +1312,11 @@ export function WorkspaceBrowser({
             <ViewOptionsMenu
               groupBy={groupBy}
               orderBy={orderBy}
+              workspaceOrderBy={workspaceOrderBy}
               archivedFilter={archivedFilter}
               onGroupPick={actions.setGroupBy}
               onOrderPick={(mode) => { actions.setOrderBy(mode, activeSessionOrders) }}
+              onWorkspaceOrderPick={actions.setWorkspaceOrderBy}
               onArchivedFilterPick={actions.setArchivedFilter}
               t={t}
             />
@@ -1387,10 +1427,11 @@ export function WorkspaceBrowser({
                 onSessionRenameRequest={requestSessionRename}
                 renderSlot={renderSlot}
                 workspaces={orderedWorkspaces}
+                workspaceOrderBy={workspaceOrderBy}
                 ungroupedSessionIds={orderedUngroupedSessionIds}
                 workspaceReady={workspaceReady}
                 nestWorkspaces={groupBy === 'workspace-tree'}
-                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                animationResetKey={`${groupBy}/${orderBy}/${workspaceOrderBy}/${archivedFilter}`}
                 groupExpansion={groupExpansion}
                 setGroupExpanded={actions.setGroupExpanded}
                 setSessionOrder={saveSessionOrder}

@@ -8,8 +8,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   type ArchivedFilter,
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
-  pinCurrentBlank, reconcileManualOrder, sessionMemberIds, visibleSessionIds, workspaceLabel, UNGROUPED_KEY,
+  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, orderWorkspacesByRecency,
+  owningGroupKey, owningParentFolder, pinCurrentBlank, reconcileManualOrder, sessionMemberIds,
+  visibleSessionIds, workspaceActivityAt, workspaceLabel, UNGROUPED_KEY,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 
@@ -519,6 +520,72 @@ describe('deriveGroups', () => {
     )
     expect(looseGroups.find(group => group.key === UNGROUPED_KEY)!.containsCurrent).toBe(true)
   })
+
+  it('keeps the supplied section order unless recency is selected', () => {
+    const sessions = list(summary('stale', 10), summary('fresh', 90))
+    const workspaces = [workspace('alpha', ['stale']), workspace('beta', ['fresh'])]
+    expect(deriveGroups(sessions, workspaces, noRows, noAttention, view(['alpha', 'beta']))
+      .map(group => group.key)).toEqual(['alpha', 'beta'])
+    expect(deriveGroups(sessions, workspaces, noRows, noAttention, {
+      ...view(['alpha', 'beta']), workspaceOrder: 'recency',
+    }).map(group => group.key)).toEqual(['beta', 'alpha'])
+  })
+
+  it('keeps Ungrouped last in the recency section order', () => {
+    const sessions = list(summary('loose', 500), summary('owned', 10))
+    const groups = deriveGroups(
+      sessions, [workspace('alpha', ['owned'])], noRows, noAttention,
+      { ...view(['alpha', UNGROUPED_KEY]), workspaceOrder: 'recency' },
+    )
+    // Ungrouped accounts for Sessions no Workspace owns, so it is never ranked
+    // against Workspace sections however fresh its members are.
+    expect(groups.map(group => group.key)).toEqual(['alpha', UNGROUPED_KEY])
+  })
+})
+
+describe('Workspace section recency', () => {
+  const aged = (id: string, sessionIds: string[], updatedAt: string): WorkspaceView =>
+    ({ ...workspace(id, sessionIds), updatedAt })
+
+  it('ranks a Workspace by its freshest known member', () => {
+    const summaries = list(summary('old', 10), summary('new', 90)).byId
+    expect(workspaceActivityAt(aged('alpha', ['old', 'new'], '2026-01-01T00:00:00.000Z'), summaries)).toBe(90)
+    // A member without a summary is unknown, not zero.
+    expect(workspaceActivityAt(aged('alpha', ['missing', 'old'], '2026-01-01T00:00:00.000Z'), summaries)).toBe(10)
+  })
+
+  it('falls back to the Workspace mutation time when no member Session is known', () => {
+    const summaries = list(summary('other', 10)).byId
+    expect(workspaceActivityAt(aged('empty', [], '2026-06-01T00:00:00.000Z'), summaries))
+      .toBe(Date.parse('2026-06-01T00:00:00.000Z'))
+    expect(workspaceActivityAt(aged('pending', ['absent'], '2026-06-01T00:00:00.000Z'), summaries))
+      .toBe(Date.parse('2026-06-01T00:00:00.000Z'))
+  })
+
+  it('orders ranked sections newest first, then memberless Workspaces by their own mutation time', () => {
+    const summaries = list(
+      summary('old', Date.parse('2026-02-01T00:00:00.000Z')),
+      summary('new', Date.parse('2026-08-01T00:00:00.000Z')),
+    ).byId
+    const workspaces = [
+      aged('alpha', ['old'], '2026-01-01T00:00:00.000Z'),
+      aged('empty', [], '2026-09-01T00:00:00.000Z'),
+      aged('beta', ['new'], '2026-01-01T00:00:00.000Z'),
+    ]
+    expect(orderWorkspacesByRecency(workspaces, summaries).map(item => item.workspaceId))
+      .toEqual([wid('empty'), wid('beta'), wid('alpha')])
+    expect(orderWorkspacesByRecency([], summaries)).toEqual([])
+  })
+
+  it('breaks equal activity by Workspace id without reordering the input', () => {
+    const summaries = list(summary('one', 50), summary('two', 50), summary('three', 50)).byId
+    const workspaces = [workspace('zeta', ['one']), workspace('alpha', ['two']), workspace('mid', ['three'])]
+    // Three equal ranks drive the tie-break in both directions, so id order
+    // decides regardless of the input sequence.
+    expect(orderWorkspacesByRecency(workspaces, summaries).map(item => item.workspaceId))
+      .toEqual([wid('alpha'), wid('mid'), wid('zeta')])
+    expect(workspaces.map(item => item.workspaceId)).toEqual([wid('zeta'), wid('alpha'), wid('mid')])
+  })
 })
 
 describe('deriveFlat', () => {
@@ -759,6 +826,7 @@ describe('createWorkspaceViewStore', () => {
     const store = createWorkspaceViewStore().create()
     expect(store.getSnapshot().groupBy).toBe('workspace')
     expect(store.getSnapshot().orderBy).toBe('updated')
+    expect(store.getSnapshot().workspaceOrderBy).toBe('manual')
     store.actions.setGroupBy('flat')
     store.actions.setOrderBy('updated', {})
     store.actions.setGroupExpanded('alpha', true)
@@ -780,6 +848,24 @@ describe('createWorkspaceViewStore', () => {
     expect(store.getSnapshot()).toMatchObject({ orderBy: 'updated', sessionOrderByAccount: {} })
     store.actions.setOrderBy('manual', { alpha: ['one', 'two'] })
     expect(store.getSnapshot().sessionOrderByAccount).toEqual({ alpha: ['one', 'two'] })
+  })
+
+  it('keeps the Workspace-section order independent of the Session order mode', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setWorkspaceOrderBy('recency')
+    expect(store.getSnapshot().workspaceOrderBy).toBe('recency')
+    // A Session drag selects Manual for Sessions only: the section order and
+    // the saved positions both survive, so switching sections never rewrites them.
+    store.actions.setSessionOrder('alpha', ['two', 'one'], {})
+    expect(store.getSnapshot()).toMatchObject({
+      workspaceOrderBy: 'recency',
+      orderBy: 'manual',
+      sessionOrderByAccount: { alpha: ['two', 'one'] },
+    })
+    store.actions.setOrderBy('updated', {})
+    expect(store.getSnapshot().workspaceOrderBy).toBe('recency')
+    store.actions.setWorkspaceOrderBy('manual')
+    expect(store.getSnapshot()).toMatchObject({ workspaceOrderBy: 'manual', orderBy: 'updated' })
   })
 
   it('snapshots every account when a recency drag selects Manual', () => {

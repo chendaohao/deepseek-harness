@@ -64,6 +64,9 @@ export interface SessionNode {
 /** Session order selected by the Workspace browser. */
 export type SessionOrderBy = 'manual' | 'updated'
 
+/** Workspace-section order selected by the Workspace browser. */
+export type WorkspaceOrderBy = 'manual' | 'recency'
+
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
   /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
@@ -111,6 +114,52 @@ export interface TreeView {
   expandedGroups: readonly string[]
   /** Browser-local order for Sessions without a backing Workspace account. */
   ungroupedOrder?: readonly string[]
+  /**
+   * Rank Workspace sections by member activity instead of the supplied order.
+   * The Ungrouped bucket keeps its trailing slot: it accounts for Sessions no
+   * Workspace owns, so it has no Workspace to rank against.
+   */
+  workspaceOrder?: WorkspaceOrderBy
+}
+
+/**
+ * Latest known member-Session activity for one Workspace section.
+ * @param workspace - Workspace row whose members are ranked.
+ * @param summaries - current Session summaries; members without one are unknown.
+ * @returns the greatest member `updatedAt`, or the Workspace's own mutation
+ * time (epoch ms) when no member Session is known — including a Workspace with
+ * no members at all, whose section still participates in the ranking.
+ */
+export function workspaceActivityAt(
+  workspace: WorkspaceView,
+  summaries: SessionListState['byId'],
+): number {
+  let newest = Number.NEGATIVE_INFINITY
+  for (const id of workspace.sessionIds) {
+    const updatedAt = summaries[id]?.updatedAt
+    if (updatedAt !== undefined && updatedAt > newest) newest = updatedAt
+  }
+  return newest === Number.NEGATIVE_INFINITY ? Date.parse(workspace.updatedAt) : newest
+}
+
+/**
+ * Project Workspace sections by member activity, newest first.
+ * @param workspaces - Workspaces in Host group order.
+ * @param summaries - current Session summaries feeding each member maximum.
+ * @returns sections ranked by {@link workspaceActivityAt} descending, with
+ * Workspace id as the deterministic tie-break.
+ */
+export function orderWorkspacesByRecency(
+  workspaces: readonly WorkspaceView[],
+  summaries: SessionListState['byId'],
+): WorkspaceView[] {
+  return workspaces
+    .map(workspace => ({ workspace, rank: workspaceActivityAt(workspace, summaries) }))
+    .sort((a, b) => {
+      if (a.rank !== b.rank) return b.rank - a.rank
+      return a.workspace.workspaceId < b.workspace.workspaceId ? -1 : 1
+    })
+    .map(entry => entry.workspace)
 }
 
 interface Group {
@@ -430,7 +479,7 @@ function sessionNode(
  * @param workspaces - real Workspaces in Host group order with caller-projected Session order.
  * @param rowState - registry-global pin and archive sets plus the archived filter.
  * @param statuses - unified UI status by Session.
- * @param view - local expansion arrays.
+ * @param view - local expansion arrays plus the Workspace-section order mode.
  * @returns group sections in render order.
  */
 export function deriveGroups(
@@ -447,8 +496,11 @@ export function deriveGroups(
   const currentGroup = current === undefined
     ? undefined
     : owningGroupKey(workspaces, current)
+  const sections = view.workspaceOrder === 'recency'
+    ? orderWorkspacesByRecency(workspaces, list.byId)
+    : workspaces
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
+  for (const g of groupByWorkspace(list, sections, archived, rowState.archivedFilter, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,

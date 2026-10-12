@@ -4,6 +4,10 @@
   - menuitem "Workspace Tree"
   - menuitem "In one list"
   - separator
+  - text: Order workspaces
+  - menuitem "Manual order"
+  - menuitem "Latest activity"
+  - separator
   - text: Order by
   - menuitem "Manual"
   - menuitem "Last updated"
