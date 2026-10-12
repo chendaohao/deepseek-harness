@@ -135,6 +135,7 @@
     { "path": "./packages/client/ui-open-in-app" },
     { "path": "./packages/client/ui-theme/tsconfig.client.json" },
     { "path": "./packages/client/ui-remote" },
+    { "path": "./packages/client/ui-mobile" },
     { "path": "./packages/client/ui-settings/tsconfig.client.json" },
     { "path": "./packages/client/ui-settings-general/tsconfig.client.json" },
     { "path": "./packages/client/ui-settings-models" },

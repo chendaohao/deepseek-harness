@@ -48,6 +48,7 @@ import {
   RemoteStreamMuxServer,
   rejectRemoteStreamUpgrade,
 } from './stream-server.ts'
+import type { RemoteStreamOpener } from './stream-server.ts'
 import {
   REMOTE_EVENT_STREAM_ENDPOINT,
   REMOTE_EVENT_STREAM_READY,
@@ -249,21 +250,43 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     })
     ctx.inject(['connection', 'webServer'], (webCtx) => {
-      // Facts of the most recent mux upgrade; streams opened later run under
-      // them. The slot is a closure local, not a service field: the effect
-      // below runs a generator, where `this` is not bound.
+      // Facts of the most recent mux upgrade on this listener; streams opened
+      // later run under them. The slot is a closure local, not a service field:
+      // the effect below runs a generator, where `this` is not bound.
+      //
+      // FIXME: the slot is shared by every mux connection on the route, so with
+      // two live sockets (a desktop page and a proxied phone) a stream opened
+      // on one connection after the other's upgrade runs under the OTHER
+      // connection's facts, misclassifying the forwarded-write fence in both
+      // directions. Binding facts per connection needs a stream-server
+      // signature change; tracked as a follow-up.
       const requestFacts: { current: RequestFacts | undefined } = { current: undefined }
       const listen = (): void => {
+        /**
+         * Open one mux stream under the most recently assigned request facts.
+         *
+         * A mux stream outlives its upgrade request's async context, so the
+         * facts are re-installed around every stream open explicitly rather
+         * than relied on to propagate. The facts are read from the shared slot
+         * at open time — the latest upgrade's, not necessarily this
+         * connection's (see the FIXME above). The empty-facts arm covers only a
+         * stream opened outside that route, which no caller builds.
+         */
+        const openMuxStream: RemoteStreamOpener = (endpoint, payload, uplink, peer, control) => {
+          const facts = requestFacts.current
+          /* v8 ignore next 3 -- the upgrade handler assigns the facts slot
+           * synchronously before `handleUpgrade`, so every stream this mux opens
+           * already has facts; the factless arm covers only a stream opened
+           * outside that route, which no caller builds. */
+          if (facts === undefined) {
+            return this.openWireStream(endpoint, payload, uplink, peer, control.signal, control)
+          }
+          return runWithRequestFacts(facts, () => this.openWireStream(
+            endpoint, payload, uplink, peer, control.signal, control,
+          ))
+        }
         const mux = new RemoteStreamMuxServer(
-          (endpoint, payload, uplink, peer, control) =>
-            // A mux stream outlives the upgrade request's async context, so the
-            // facts captured at upgrade time are re-installed around every
-            // stream open explicitly rather than relied on to propagate.
-            requestFacts.current !== undefined
-              ? runWithRequestFacts(requestFacts.current, () => this.openWireStream(
-                endpoint, payload, uplink, peer, control.signal, control,
-              ))
-              : this.openWireStream(endpoint, payload, uplink, peer, control.signal, control),
+          openMuxStream,
           this.wireStream.failure,
           resolved.websocketHeartbeatIntervalMs,
           resolved.streamInboxBytes,

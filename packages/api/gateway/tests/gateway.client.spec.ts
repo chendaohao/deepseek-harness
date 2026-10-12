@@ -3287,6 +3287,72 @@ describe('Remote stream client carrier lifecycle', () => {
       visibility.dispatchEvent(new Event('visibilitychange'))
       expect(FakeWebSocket.sockets).toHaveLength(3)
       desktop()
+      // A disposed carrier has already stopped; the foreground return must not
+      // resurrect it through a resume the client itself refuses.
+      await client.close()
+      const closedCount = FakeWebSocket.sockets.length
+      const afterClose = installForegroundResync(client, {
+        isPhone: () => true,
+        targets: { visibility, page },
+        visibilityState: () => 'visible',
+      })
+      visibility.dispatchEvent(new Event('visibilitychange'))
+      expect(FakeWebSocket.sockets).toHaveLength(closedCount)
+      afterClose()
+    })
+  })
+
+  it('foreground resync reads the live document visibility and assumes visible with no document', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const client = new RemoteStreamMuxClient()
+      client.start()
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.readyState).toBe(FakeWebSocket.OPEN) })
+      const visibility = new EventTarget()
+      const page = new EventTarget()
+
+      // No injected reader: the default one reads document.visibilityState, so a
+      // visible foreground return recycles exactly like the injected seam does.
+      const documentRef = { baseURI: 'https://harness.example', visibilityState: 'hidden' }
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: documentRef })
+      const uninstall = installForegroundResync(client, { isPhone: () => true, targets: { visibility, page } })
+      visibility.dispatchEvent(new Event('visibilitychange'))
+      expect(FakeWebSocket.sockets).toHaveLength(1)
+      documentRef.visibilityState = 'visible'
+      visibility.dispatchEvent(new Event('visibilitychange'))
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(2) })
+      uninstall()
+
+      // A runtime with no document has no visibility to read; with both targets
+      // supplied there is still a foreground event to bind, and the page return
+      // is treated as visible rather than silently skipped. The shell-supplied
+      // transport base replaces the document base the mux route resolves against.
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: undefined })
+      Object.defineProperty(globalThis, '__DSH_TRANSPORT__', {
+        configurable: true,
+        value: { streamBaseUrl: 'https://harness.example/' },
+      })
+      const headless = installForegroundResync(client, { isPhone: () => true, targets: { visibility, page } })
+      visibility.dispatchEvent(new Event('visibilitychange'))
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(3) })
+      headless()
+
+      // With no injected targets the installer binds the live document and
+      // window, which is the path a real browser page takes.
+      const liveVisibility = new EventTarget()
+      const livePage = new EventTarget()
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: liveVisibility })
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: livePage })
+      const liveUninstall = installForegroundResync(client, { isPhone: () => true })
+      livePage.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }))
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(4) })
+      liveUninstall()
+
+      // A document without a window offers no page target, so there is no
+      // foreground event to bind and the installer declines.
+      Reflect.deleteProperty(globalThis, 'window')
+      expect(installForegroundResync(client, { isPhone: () => true })).toBeTypeOf('function')
+      expect(FakeWebSocket.sockets).toHaveLength(4)
+      Reflect.deleteProperty(globalThis, '__DSH_TRANSPORT__')
       await client.close()
     })
   })

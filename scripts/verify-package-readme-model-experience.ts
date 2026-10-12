@@ -114,6 +114,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/store': { kind: 'none', reason: 'Browser-side state primitives; register nothing model-facing.' },
   'packages/client/ui-renderer': { kind: 'none', reason: 'Browser-side render assembly; registers nothing model-facing.' },
   'packages/client/ui-remote': { kind: 'none', reason: 'Browser-side remote-control surface renders logged state over the /api wire and never assembles or sends a provider request itself.' },
+  'packages/client/ui-mobile': { kind: 'none', reason: 'Browser-side phone adaptation layer: device gating, a touch stylesheet, and swipe gestures; it assembles no provider request and reads no Session state.' },
   'packages/client/ui-session': { kind: 'none', reason: 'Browser-side Session adapter; registers nothing model-facing.' },
   'packages/client/connection': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/file-upload': { kind: 'none', reason: 'Browser-side request-body transport; registers nothing model-facing.' },

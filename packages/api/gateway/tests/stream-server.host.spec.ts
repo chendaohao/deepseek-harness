@@ -286,6 +286,17 @@ describe('Remote stream mux server carrier lifecycle', () => {
     expect(plainBytes).toBeGreaterThan(64 * 1024)
     expect(compressedBytes).toBeLessThan(plainBytes / 4)
   })
+
+  it('declines the extension at construction when compression is off', async () => {
+    const entry = await startMux(async () => (async function * () { yield { text: 'plain' } })(), 2_000, 262_144, undefined, false)
+    // A deployment that turned the negotiation off must reach the client as a
+    // refused extension, not merely as a smaller frame.
+    const socket = await connect(entry.url, true, true)
+    expect(socket.extensions).not.toContain('permessage-deflate')
+    const message = once(socket, 'message')
+    socket.send(openFrame('uncompressed'))
+    expect(String((await message)[0])).toContain('plain')
+  })
 })
 
 describe('Remote stream mux server Peer binding', () => {
@@ -531,9 +542,10 @@ async function startMux(
   heartbeatIntervalMs = 2_000,
   streamInboxBytes = 262_144,
   peer?: PeerScope,
+  compress = true,
 ): Promise<RunningMux> {
   const admitted = peer ?? await fixturePeer()
-  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs, streamInboxBytes)
+  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs, streamInboxBytes, compress)
   const http = createServer()
   http.on('upgrade', (request, socket, head) => { mux.handleUpgrade(request, socket, head, admitted) })
   await new Promise<void>((resolve, reject) => {

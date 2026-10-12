@@ -83,6 +83,7 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
     changes: RemoteJournalChange<Page, Entry, string>[],
     failed: (error: unknown) => void,
     factory: RemoteStreamFactory = STREAM_FACTORY,
+    carrierFailed?: (error: RemoteStreamCarrierError) => void,
   ) {
     super(factory, {
       name: 'fixture journal',
@@ -96,6 +97,7 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
       continues: value => value.continued === true,
       publish: (change) => { changes.push(change) },
       failed,
+      ...(carrierFailed === undefined ? {} : { carrierFailed }),
     })
   }
 
@@ -139,6 +141,11 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
   protected override repairRequest(request: PageRequest): PageRequest {
     return request.limit === undefined ? {} : { limit: request.limit }
   }
+
+  /** Expose the cursor this stream would report to a replacement generation. */
+  cursorForReplacement(): number | undefined {
+    return this.appliedCursor
+  }
 }
 
 function journalFixture(
@@ -146,7 +153,7 @@ function journalFixture(
   pages: PageSource[],
   factory: RemoteStreamFactory = STREAM_FACTORY,
 ): {
-  readonly journal: RemoteJournalStream<Page, Entry, number, PageRequest, string>
+  readonly journal: FixtureJournal
   readonly changes: RemoteJournalChange<Page, Entry, string>[]
   readonly failed: ReturnType<typeof vi.fn>
   readonly calls: string[]
@@ -186,6 +193,23 @@ function remoteItem(
   return { generation, value, signal, accept: vi.fn() }
 }
 
+/**
+ * Minimal stand-in for a RemoteStream: the journal logic under test reads only
+ * these four members, and the class's private supervisor state stays
+ * unreachable. The one assertion bridges the class's nominal private fields;
+ * every fake stream in this file goes through here so it stays the only cast.
+ * The iterator carries the concrete frame type the test scripts; the generic
+ * factory signature is what the assertion answers for.
+ */
+function stubStream<Item>(lifetime: AbortController, iterator: AsyncIterator<RemoteStreamItem<JournalFrame>>): RemoteStream<Item> {
+  return {
+    signal: lifetime.signal,
+    restart: () => {},
+    dispose: async () => { lifetime.abort() },
+    [Symbol.asyncIterator]: () => iterator,
+  } as unknown as RemoteStream<Item>
+}
+
 function controlledFactory(
   next: () => Promise<IteratorResult<RemoteStreamItem<JournalFrame>>>,
 ): RemoteStreamFactory {
@@ -196,12 +220,26 @@ function controlledFactory(
         next,
         return: async () => ({ done: true as const, value: undefined }),
       }
-      return {
-        signal: lifetime.signal,
-        restart: () => {},
-        dispose: async () => { lifetime.abort() },
-        [Symbol.asyncIterator]: () => iterator,
-      } as unknown as RemoteStream<Item>
+      return stubStream(lifetime, iterator)
+    },
+  }
+}
+
+/** A controlled factory that also exposes the stream lifetime every item reads. */
+function separableFactory(
+  next: () => Promise<IteratorResult<RemoteStreamItem<JournalFrame>>>,
+): { readonly factory: RemoteStreamFactory; readonly lifetime: AbortController } {
+  const lifetime = new AbortController()
+  return {
+    lifetime,
+    factory: {
+      $stream<Item>(): RemoteStream<Item> {
+        const iterator = {
+          next,
+          return: async () => ({ done: true as const, value: undefined }),
+        }
+        return stubStream(lifetime, iterator)
+      },
     },
   }
 }
@@ -890,6 +928,128 @@ describe('RemoteJournalStream', () => {
     expect(failedFollow.failed.mock.calls[0]?.[0]).toMatchObject({ message: 'follow failed' })
     expect(failedFollow.changes).toHaveLength(1)
     await failedFollow.journal.dispose()
+  })
+
+  it('reports the applied cursor to a replacement generation only once one is held', async () => {
+    const fixture = journalFixture(
+      [{ frames: [opened(4, page('initial', [0, 1, 2, 3, 4]))], hold: true }],
+      [],
+    )
+    // Before the first opening there is nothing to continue from: a replacement
+    // generation must ask for the whole window rather than claim a cursor.
+    expect(fixture.journal.cursorForReplacement()).toBeUndefined()
+    await fixture.journal.open({})
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(1) })
+    expect(fixture.journal.cursorForReplacement()).toBe(4)
+    await fixture.journal.dispose()
+  })
+
+  it('hands an aborted page generation straight to the replacement opening', async () => {
+    const generation = new AbortController()
+    const gap = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const replacement = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const results = [
+      Promise.resolve<IteratorResult<RemoteStreamItem<JournalFrame>>>({
+        done: false,
+        value: remoteItem(1, opened(0, page('initial', [0])), generation.signal),
+      }),
+      gap.promise,
+      replacement.promise,
+    ]
+    // Aborting the item's generation leaves the stream lifetime itself live, so
+    // the loop must recover by consuming the replacement instead of reporting.
+    const { factory } = separableFactory(() => results.shift() ?? Promise.resolve({ done: true, value: undefined }))
+    const fixture = journalFixture(
+      [],
+      // The page never settles on its own; only its generation's abort ends it.
+      [signal => new Promise<Page>((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('page aborted')) }, { once: true })
+      })],
+      factory,
+    )
+
+    await fixture.journal.open({})
+    // The carrier died while this entry was in flight, so the item arrives
+    // already carrying an aborted generation: the repair loop's abort-first
+    // check is what must hand the queued replacement opening over.
+    generation.abort()
+    gap.resolve({
+      done: false,
+      value: remoteItem(1, { type: 'entry', entry: { seq: 2 } }, generation.signal),
+    })
+    replacement.resolve({
+      done: false,
+      value: remoteItem(2, opened(2, page('replacement', [0, 1, 2])), new AbortController().signal),
+    })
+
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
+    expect(fixture.changes.at(-1)).toMatchObject({ page: { marker: 'replacement' } })
+    // The repair page was already issued when the abort landed; the replacement
+    // opening is what actually closed the gap.
+    expect(fixture.pageCursors).toEqual([2])
+    expect(fixture.failed).not.toHaveBeenCalled()
+    await fixture.journal.dispose()
+  })
+
+  it('omits the carrier-failure observer from the physical options when none was configured', async () => {
+    const seen: { hasCarrierFailed?: boolean } = {}
+    const factory: RemoteStreamFactory = {
+      $stream<Item>(options: RemoteStreamOptions<Item>): RemoteStream<Item> {
+        seen.hasCarrierFailed = options.carrierFailed !== undefined
+        return stubStream(new AbortController(), {
+          next: () => new Promise<never>(() => {}),
+        })
+      },
+    }
+    const carrierFailed = vi.fn()
+    const withoutObserver = new FixtureJournal([], [], [], [], [], [], [], vi.fn(), factory)
+    expect(seen.hasCarrierFailed).toBe(false)
+    // A caller that observed the failure must have it registered on the
+    // physical stream, not merely accepted and dropped.
+    new FixtureJournal([], [], [], [], [], [], [], vi.fn(), factory, carrierFailed)
+    expect(seen.hasCarrierFailed).toBe(true)
+    await withoutObserver.dispose()
+  })
+
+  it('surfaces an aborted page error when the whole stream was disposed', async () => {
+    const generation = new AbortController()
+    const gap = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const results = [
+      Promise.resolve<IteratorResult<RemoteStreamItem<JournalFrame>>>({
+        done: false,
+        value: remoteItem(1, opened(0, page('initial', [0])), generation.signal),
+      }),
+      gap.promise,
+    ]
+    const { factory, lifetime } = separableFactory(() => {
+      const next = results.shift()
+      // The iterator stays open after the scripted items: a replacement cannot
+      // arrive, so the failed page is the only outcome the race can observe.
+      return next ?? new Promise<IteratorResult<RemoteStreamItem<JournalFrame>>>(() => {})
+    })
+    const fixture = journalFixture(
+      [],
+      [signal => new Promise<Page>((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('page aborted by disposal')) }, { once: true })
+      })],
+      factory,
+    )
+
+    await fixture.journal.open({})
+    gap.resolve({
+      done: false,
+      value: remoteItem(1, { type: 'entry', entry: { seq: 2 } }, generation.signal),
+    })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([2]) })
+    // The stream lifetime died with the page: there is no replacement to hand
+    // the iterator to, so the page's own failure is what the stream reports
+    // rather than a rerouted attempt at recovery.
+    lifetime.abort(new Error('stream disposed'))
+    generation.abort(new Error('stream disposed'))
+
+    await vi.waitFor(() => { expect(fixture.failed).toHaveBeenCalledOnce() })
+    expect(fixture.failed.mock.calls[0]?.[0]).toMatchObject({ message: 'page aborted by disposal' })
+    await fixture.journal.dispose()
   })
 
   it('rejects an iterator that ends before its opening cursor', async () => {

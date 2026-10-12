@@ -1,0 +1,66 @@
+/*
+ * Phone adaptation layer. Scoped to the phone device class by the host element
+ * attribute below, so no rule here can reach a desktop page even though the
+ * sheet is document-wide.
+ *
+ * Selector contract: the shipped Web GUI compiles CSS Modules as
+ * `[hash]_[local]` (packages/client/tsdown.client.ts), so a local class name
+ * survives as a suffix. Targeting `[class$="_composerSeat"]` therefore matches
+ * that one component's seat without naming a hash. This is the same device the
+ * framework's own styling already depends on; a rename of the local class is a
+ * deliberate act and shows up as a diff in the owning package.
+ *
+ * Values are semantic `--dsw-*` aliases only. The touch sizes below are
+ * component-local properties because they encode this layer's own layout
+ * contract (the sizes a finger needs), not theme scale.
+ */
+
+[data-dsh-mobile-layer] {
+  --dsh-mobile-touch-target: 44px;
+  --dsh-mobile-input-font-size: 16px;
+  --dsh-mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --dsh-mobile-safe-top: env(safe-area-inset-top, 0px);
+  --dsh-mobile-safe-left: env(safe-area-inset-left, 0px);
+  --dsh-mobile-safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* Touch targets on the collapsed rail. 56px wide but a 24px glyph, so the
+   tappable box has to be grown to the 44px minimum. */
+[data-dsh-mobile-layer] [class$="_iconButton"] {
+  min-width: var(--dsh-mobile-touch-target);
+  min-height: var(--dsh-mobile-touch-target);
+}
+
+/* iOS zooms the viewport when a focused input renders below 16px. This is the
+   single most disruptive desktop-inherited behavior on a phone. */
+[data-dsh-mobile-layer] [class$="_composerSeat"] textarea,
+[data-dsh-mobile-layer] [class$="_composerSeat"] input,
+[data-dsh-mobile-layer] [class$="_composerSeat"] [contenteditable='true'] {
+  font-size: var(--dsh-mobile-input-font-size);
+}
+
+/* The composer clears the home indicator. Applied to the seat rather than the
+   frame so the scrolling message list keeps its full height. */
+[data-dsh-mobile-layer] [class$="_composerSeat"] {
+  padding-bottom: var(--dsh-mobile-safe-bottom);
+}
+
+/* Landscape phones put the notch on a side edge. The app has no global
+   border-box reset, and the frame is `height: 100%` content-box, so padding
+   there would widen it past the viewport; the inset rides the centre column's
+   inline padding instead, which no fixed height constrains. */
+[data-dsh-mobile-layer] [class$="_centerCol"] {
+  padding-left: var(--dsh-mobile-safe-left);
+  padding-right: var(--dsh-mobile-safe-right);
+}
+
+/* Touch scrolling should not chain to the page behind a pane. */
+[data-dsh-mobile-layer] {
+  overscroll-behavior: none;
+}
+
+/* Suppress the tap highlight rectangle; every control in this UI already has
+   its own pressed state. */
+[data-dsh-mobile-layer] {
+  -webkit-tap-highlight-color: transparent;
+}
