@@ -184,6 +184,10 @@ Options:
                                  grants no trust
   --trusted-host <authority...>  extra authority the /api browser-trust fence
                                  accepts (host or host:port; repeatable)
+  --remote                       expose this server over a public HTTPS tunnel
+                                 and print a phone-pairing QR code
+  --remote-reset                 rotate the remote pairing secret and revoke
+                                 every paired device before opening the tunnel
   --tls-cert <file>              PEM server certificate chain; requires
                                  --tls-key
   --tls-key <file>               unencrypted PEM private key; requires
@@ -194,6 +198,7 @@ Examples:
   dsh --profile web                          serve on the composed host and port
   dsh --profile web --no-open                serve without opening a browser
   dsh --profile web --port 8080              serve on another port
+  dsh --profile web --remote                 expose a phone-pairing public URL + QR code
   dsh --profile web --host 10.0.0.7          bind one local interface address
   dsh --profile web --public-url https://app.example/ui/ --trusted-host app.example
                                              advertise a prefix-stripping HTTPS proxy entry and admit its authority

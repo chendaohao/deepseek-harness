@@ -253,6 +253,14 @@ interface SubagentResult {
    */
   readonly output: readonly ContentBlock[]
   /**
+   * How the epoch's last consumed turn spent its output budget, absent when it
+   * ran no turn. A delegating model cannot read the child's transcript, so a
+   * child that burned its ceiling on a single reasoning block is otherwise
+   * indistinguishable from one that ran out of context — and a re-delegation
+   * based on the wrong diagnosis repeats the same death.
+   */
+  readonly budget?: TurnBudgetReport
+  /**
    * The structured result after a requested `outputSchema` was successfully
    * satisfied. Requesting a schema does not guarantee presence: a provider can
    * end with `stopReason: 'error'` when the child fails or finishes without a

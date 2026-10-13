@@ -514,9 +514,9 @@ flowchart LR
   svc_sandboxPolicy --> pkg_fs_sandbox
   svc_sandboxPolicy --> pkg_terminal_bash
   svc_sessionPersistence --> pkg_agent_loop
-  svc_sessionPersistence --> pkg_notify_hooks
   svc_sessionPersistence --> pkg_hooks_codex
   svc_sessionPersistence --> pkg_message_feedback
+  svc_sessionPersistence --> pkg_notify_hooks
   svc_sessionPersistence --> pkg_session_query
   svc_sessionPersistence --> pkg_session_query_sqlite
   svc_sessionPersistence --> pkg_tool_bash
@@ -536,8 +536,8 @@ flowchart LR
   svc_sessions --> pkg_session_query_sqlite
   svc_sessions --> pkg_subagent
   svc_settings --> pkg_api_settings_controller
-  svc_shell --> pkg_notify_hooks
   svc_shell --> pkg_hooks_codex
+  svc_shell --> pkg_notify_hooks
   svc_shell --> pkg_tool_bash
   svc_shell --> pkg_tool_pwsh
   svc_shellEnv --> pkg_tool_bash
