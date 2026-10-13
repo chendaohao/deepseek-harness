@@ -1,0 +1,23 @@
+/* Remote-control settings page: heading and intro above the reused panel body.
+ * The panel keeps its own row rhythm, so this wrapper only supplies the page
+ * frame the settings content column expects. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 760px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.intro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}

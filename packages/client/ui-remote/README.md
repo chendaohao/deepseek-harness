@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Browser-side remote-control surface for the Web GUI. A phone-glyph trigger beside Settings in the sidebar foot (`sidebar.footer.action`) opens the desktop panel: tunnel status badge, one-time pairing QR, paired-device roster with per-device rename and revocation, and stop-all. Data rides the desktop-only remote-access control plane — `GET /remote/state`, `POST /remote/pair/issue`, `POST /remote/devices/<deviceId>/revoke`, `POST /remote/devices/<deviceId>/rename`, and `POST /remote/stop` — plus the forwarded `remote/devices/change` and `remote-tunnel/state` events while the panel is open.
+Browser-side remote-control surface for the Web GUI. A Remote settings page (`settings.section`) carries the panel: tunnel status badge, one-time pairing QR, paired-device roster with per-device rename and revocation, and stop-all. Data rides the desktop-only remote-access control plane — `GET /remote/state`, `POST /remote/pair/issue`, `POST /remote/devices/<deviceId>/revoke`, `POST /remote/devices/<deviceId>/rename`, and `POST /remote/stop` — plus the forwarded `remote/devices/change` and `remote-tunnel/state` events while the page is mounted.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ None; the panel assembles no model requests.
 
 - **The control plane is loopback-only** — tunnel traffic is refused, so the desktop panel reads empty/error states when the host tunnel is off or the browser is remote.
 - **One QR at a time** — a fresh issuance invalidates the previous token, so the panel shows a single QR, not a rotating set.
-- **A long roster scrolls** — the dialog caps itself against the viewport and scrolls the panel body, so the pairing QR leaves the top of the card once the device list outgrows it; the stop row stays pinned to the scrollport floor.
+- **A long roster scrolls** — the settings column scrolls the panel body, so the pairing QR leaves the top of the page once the device list outgrows it; the stop row stays pinned to the scrollport floor.
 
 <a id="dev-note"></a>
 ### Invariant ownership
@@ -45,6 +45,6 @@ No runtime invariant companion is published because the surface renders logged s
 <details>
 <summary>How the surfaces are wired</summary>
 
-The desktop panel mounts through the `sidebar.footer.action` slot and subscribes to the forwarded remote events only while open. Export discipline follows packages/client/AGENTS.md: no cross-plugin value imports; `ctx.remote`, `ctx.slots`, and `ctx.locale` are injected peers.
+The panel mounts through the `settings.section` slot and subscribes to the forwarded remote events only while the section is mounted. Export discipline follows packages/client/AGENTS.md: no cross-plugin value imports; `ctx.remote`, `ctx.slots`, and `ctx.locale` are injected peers.
 
 </details>

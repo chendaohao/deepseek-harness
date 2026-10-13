@@ -1326,6 +1326,24 @@ export const IconArchiveOutlineMedium = (props: IconProps) => (
   <IconArchiveOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
 )
 
+/** Mobile-phone contour shared by the medium and regular weights. */
+const IconPhoneOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <rect x="4" y="1.5" width="8" height="13" rx="2.5" stroke="currentColor" />
+    <rect x="6.5" y="11.25" width="3" height="1" rx="0.5" fill="currentColor" />
+  </svg>
+)
+
+/** Regular one-pixel IconPhoneOutline artwork. */
+export const IconPhoneOutlineRegular = (props: IconProps) => (
+  <IconPhoneOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconPhoneOutline artwork with a 1.3px stroke. */
+export const IconPhoneOutlineMedium = (props: IconProps) => (
+  <IconPhoneOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
 const IconWrapLinesOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
     <path d="M2.3457 3.19299H13.6541" stroke="currentColor" />

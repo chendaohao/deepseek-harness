@@ -8,7 +8,7 @@ kind: "package-reference"
 
 ## 概述
 
-Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标入口（`sidebar.footer.action`）打开桌面面板：隧道状态徽标、一次性配对二维码、带逐设备改名与吊销的已配对设备列表，以及停止全部操作。数据走仅桌面的 remote-access 控制面——`GET /remote/state`、`POST /remote/pair/issue`、`POST /remote/devices/<deviceId>/revoke`、`POST /remote/devices/<deviceId>/rename` 与 `POST /remote/stop`——以及面板打开期间转发的 `remote/devices/change` 与 `remote-tunnel/state` 事件。
+Web GUI 的浏览器侧远程控制表面。「设置」页里的「远程控制」section（`settings.section`）承载面板：隧道状态徽标、一次性配对二维码、带逐设备改名与吊销的已配对设备列表，以及停止全部操作。数据走仅桌面的 remote-access 控制面——`GET /remote/state`、`POST /remote/pair/issue`、`POST /remote/devices/<deviceId>/revoke`、`POST /remote/devices/<deviceId>/rename` 与 `POST /remote/stop`——以及 section 挂载期间转发的 `remote/devices/change` 与 `remote-tunnel/state` 事件。
 
 ## 目录
 
@@ -33,7 +33,7 @@ Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标
 
 - **控制面仅限 loopback** —— 隧道流量被拒绝，因此 host 隧道关闭或浏览器处于远程时，桌面面板读到的是空/错误状态。
 - **一次只有一个二维码** —— 新签发会使上一个 token 失效，面板展示单个二维码而非轮换集合。
-- **设备多时面板滚动** —— 对话框按视口封顶并滚动面板主体，因此设备列表一旦超出卡片，配对二维码会移出卡片顶部；停止行始终钉在滚动区底部。
+- **设备多时面板滚动** —— 设置列滚动面板主体，因此设备列表一旦超出可视区，配对二维码会移出页面顶部；停止行始终钉在滚动区底部。
 
 <a id="dev-note"></a>
 ### 不变量归属
@@ -45,6 +45,6 @@ Web GUI 的浏览器侧远程控制表面。侧栏底部设置旁的手机图标
 <details>
 <summary>面板如何接线</summary>
 
-桌面面板通过 `sidebar.footer.action` 槽位挂载，并仅在打开期间订阅转发的 remote 事件。导出纪律遵循 packages/client/AGENTS.md：不跨插件值导入；`ctx.remote`、`ctx.slots`、`ctx.locale` 为注入的 peer。
+面板通过 `settings.section` 槽位挂载，并仅在 section 挂载期间订阅转发的 remote 事件。导出纪律遵循 packages/client/AGENTS.md：不跨插件值导入；`ctx.remote`、`ctx.slots`、`ctx.locale` 为注入的 peer。
 
 </details>

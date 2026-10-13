@@ -87,7 +87,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-plan` | no | Plan mode controls, persistent transcript plan cards, and sidebar Markdown previews |
 | `@deepseek-ai/dsh-client-ui-plugin-manager` | yes | Plugin management for the dsh web client: the sidebar Plugins panel installs, enables, disables, retries, and composes installed plugin packages |
 | `@deepseek-ai/dsh-client-ui-reference` | no | Unified Web @file and @session reference source |
-| `@deepseek-ai/dsh-client-ui-remote` | no | Remote-control surface for the Web GUI: desktop panel (sidebar footer trigger, tunnel status badge, pairing QR, device roster, revocation) |
+| `@deepseek-ai/dsh-client-ui-remote` | no | Remote-control surface for the Web GUI: settings page (tunnel status badge, pairing QR, device roster, revocation) |
 | `@deepseek-ai/dsh-client-ui-renderer` | no | Browser UI renderer: React slot bindings, ctx.uiRenderer, and the assembled application root |
 | `@deepseek-ai/dsh-client-ui-schedule` | no | Host task management page and Session reminder catalog |
 | `@deepseek-ai/dsh-client-ui-session` | no | Session Controller adapter for React and session-scoped slots |

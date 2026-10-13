@@ -2,8 +2,7 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'footerAction': '远程控制',
-  'panel.title': '移动端远程控制',
+  'nav': '远程控制',
   'panel.subtitle': '扫码或在手机上打开链接，即可远程控制当前工作区',
   'scan.label': '手机扫码连接',
   'tunnel.open': '隧道已开启',
@@ -33,8 +32,7 @@ export type RemoteKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
-  'footerAction': 'Remote',
-  'panel.title': 'Mobile Remote Control',
+  'nav': 'Remote',
   'panel.subtitle': 'Scan the code or open the link on your phone to control this workspace remotely',
   'scan.label': 'Scan to connect from your phone',
   'tunnel.open': 'Tunnel open',

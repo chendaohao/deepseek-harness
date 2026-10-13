@@ -1,12 +1,12 @@
-/** Remote-panel registration: the footer action seat, dictionaries, and teardown recovery. */
+/** Remote-section registration: the settings section seat, dictionaries, and teardown recovery. */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-remote/client'
 import { apply as hostApply } from '../src/index.ts'
-import { RemoteFooterAction } from '../src/client/RemoteFooterAction.tsx'
-import type { RemoteFooterActionInjected } from '../src/client/RemoteFooterAction.tsx'
+import { RemoteSettingsSection } from '../src/client/RemoteSettingsSection.tsx'
+import type { RemoteSettingsSectionInjected } from '../src/client/RemoteSettingsSection.tsx'
 
 async function bench() {
   const ctx = new Context()
@@ -19,13 +19,13 @@ async function bench() {
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, remote }
 }
 
-/** Declare the footer-action hole the way ui-sidebar's shell entry does. */
+/** Declare the settings-section hole the way the settings shell entry does. */
 function declare(slots: SlotRegistry): () => void {
   return slots.register(
     {
       name: 'root',
       children: {
-        'sidebar.footer.action': { kind: 'list', scope: 'root' },
+        'settings.section': { kind: 'list', scope: 'root' },
       },
     } as never,
     () => null,
@@ -41,22 +41,22 @@ describe('ui-remote apply', () => {
     expect(() => { hostApply() }).not.toThrow()
   })
 
-  it('registers the footer action and dictionaries, and frees them on teardown', async () => {
+  it('registers the settings section and dictionaries, and frees them on teardown', async () => {
     const b = await bench()
     declare(b.slots)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    const entry = b.slots.entries('sidebar.footer.action')[0]!
-    expect(entry.component).toBe(RemoteFooterAction)
-    expect(entry.options).toMatchObject({ id: 'remote', order: 0 })
+    const entry = b.slots.entries('settings.section')[0]!
+    expect(entry.component).toBe(RemoteSettingsSection)
+    expect(entry.options).toMatchObject({ id: 'remote', order: 25 })
     expect(entry.locale).toBe('remote')
-    const injected = (entry.inject as object as () => RemoteFooterActionInjected)()
+    const injected = (entry.inject as object as () => RemoteSettingsSectionInjected)()
     expect(injected.remote).toBe(b.remote)
-    expect(b.locale.bind('remote')('panel.title')).toBe('移动端远程控制')
+    expect(b.locale.bind('remote')('nav')).toBe('远程控制')
     b.locale.setLocale('en')
-    expect(b.locale.bind('remote')('panel.title')).toBe('Mobile Remote Control')
+    expect(b.locale.bind('remote')('nav')).toBe('Remote')
     await fiber.dispose()
-    expect(b.slots.entries('sidebar.footer.action')).toEqual([])
+    expect(b.slots.entries('settings.section')).toEqual([])
     // The (ns, locale) seats are free again — the dictionary disposer ran.
     expect(() => b.locale.register('remote', 'zh', {})).not.toThrow()
     expect(() => b.locale.register('remote', 'en', {})).not.toThrow()
@@ -66,10 +66,10 @@ describe('ui-remote apply', () => {
     const b = await bench()
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(b.slots.entries('sidebar.footer.action')).toEqual([])
+    expect(b.slots.entries('settings.section')).toEqual([])
     declare(b.slots)
     await Promise.resolve()
-    expect(b.slots.entries('sidebar.footer.action')[0]!.component).toBe(RemoteFooterAction)
+    expect(b.slots.entries('settings.section')[0]!.component).toBe(RemoteSettingsSection)
     await fiber.dispose()
   })
 })

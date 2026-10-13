@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
-/** Desktop remote-control panel: trigger → modal, initial state fetch, live events, and the device roster. */
+/** Remote-control settings page: initial state fetch, live events, and the device roster. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { RemoteFooterAction, type RemoteFooterActionProps } from '../src/client/RemoteFooterAction.tsx'
+import { RemoteSettingsSection, type RemoteSettingsSectionProps } from '../src/client/RemoteSettingsSection.tsx'
 import type { RemoteDeviceRecord } from '../src/client/remote-types.ts'
 import { en } from '../src/client/locales.ts'
-import panelCss from '../src/client/RemoteFooterAction.module.css'
 
 afterEach(() => {
   cleanup()
@@ -13,11 +12,12 @@ afterEach(() => {
 })
 
 /** The locale seat's key domain is the remote dict ∪ common; the stub falls back to the key. */
-const t: RemoteFooterActionProps['t'] = key => (en as Record<string, string>)[key] ?? key
+const t: RemoteSettingsSectionProps['t'] = key => (en as Record<string, string>)[key] ?? key
 
 /** Global standard-kit stubs: these components consume none of the hooks. */
 const unusedHook = (() => { throw new Error('unused by remote panel components') }) as never
 const kit = {
+  close: () => {},
   useSessions: unusedHook,
   useSessionStatus: unusedHook,
   useSessionRetainInfo: unusedHook,
@@ -64,8 +64,8 @@ function failed(status: number): Response {
 }
 
 /**
- * A fetch stub whose routes settle only when the test releases them, so a
- * dialog can close while a control-plane call is still in flight. Routes in
+ * A fetch stub whose routes settle only when the test releases them, so the
+ * page can unmount while a control-plane call is still in flight. Routes in
  * `ready` answer immediately; every other URL queues until `settle`.
  */
 function controlledFetch(ready: Record<string, () => Response> = {}) {
@@ -90,47 +90,17 @@ function controlledFetch(ready: Record<string, () => Response> = {}) {
   }
 }
 
-describe('RemoteFooterAction', () => {
-  it('renders the trigger icon with the label in the wide column', () => {
-    const { container } = render(<RemoteFooterAction {...kit} wide remote={{ $on: vi.fn(() => () => {}) } as never} t={t} />)
-    expect(container.querySelector('svg')).toBeTruthy()
-    expect(screen.getByText('Remote')).toBeTruthy()
-  })
-
-  it('renders the rail icon without the label when collapsed', () => {
-    const { container } = render(<RemoteFooterAction {...kit} wide={false} remote={{ $on: vi.fn(() => () => {}) } as never} t={t} />)
-    expect(container.querySelector('svg')).toBeTruthy()
-    expect(screen.queryByText('Remote')).toBeNull()
+describe('RemoteSettingsSection', () => {
+  it('renders the nav heading and the panel subtitle above the controls', () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [] }))
+    render(<RemoteSettingsSection {...kit} remote={{ $on: vi.fn(() => () => {}) } as never} t={t} />)
+    expect(screen.getByRole('heading', { name: 'Remote' })).toBeTruthy()
+    expect(screen.getByText('Scan the code or open the link on your phone to control this workspace remotely')).toBeTruthy()
   })
 })
 
 describe('RemotePanel initial render', () => {
-  it('caps the dialog against the viewport and scrolls the panel body', async () => {
-    // The roster grows without bound, so an uncapped card pushes the stop row
-    // past the viewport, where the fixed modal layer cannot scroll to it.
-    const { remote } = makeRemote()
-    globalThis.fetch = vi.fn(async (input: string) => {
-      const url = input
-      if (url === '/remote/state') {
-        return jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [] })
-      }
-      throw new Error(`unexpected fetch ${url}`)
-    }) as typeof fetch
-
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
-    await screen.findByText('Tunnel closed')
-
-    // Assert the panel's own classes, not Modal's built-in `.content` region,
-    // which every dialog carries.
-    const dialog = screen.getByRole('dialog', { name: 'Mobile Remote Control' })
-    expect(dialog.className).toContain(panelCss.dialog)
-    const panel = dialog.querySelector(`.${panelCss.content}`)
-    expect(panel).toBeTruthy()
-    expect(panel?.textContent).toContain('Tunnel closed')
-  })
-
-  it('opens the modal, pulls /remote/state, issues the pairing QR, and renders the open badge', async () => {
+  it('pulls /remote/state on mount and renders the open badge with its pairing QR', async () => {
     const { remote, emit } = makeRemote()
     const pairUrl = 'https://foo.trycloudflare.com/pair/token'
     globalThis.fetch = vi.fn(async (input: string) => {
@@ -142,20 +112,18 @@ describe('RemotePanel initial render', () => {
       throw new Error(`unexpected fetch ${url}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
 
-    expect(await screen.findByText('Mobile Remote Control')).toBeTruthy()
-    expect(screen.getByText('Scan to connect from your phone')).toBeTruthy()
     expect(await screen.findByText('Tunnel open')).toBeTruthy()
+    expect(screen.getByText('Scan to connect from your phone')).toBeTruthy()
     await waitFor(() => { expect(globalThis.fetch).toHaveBeenCalledWith('/remote/state') })
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/remote/pair/issue', { method: 'POST' })
     })
-    // The pairing QR is in the dialog once the pair URL lands (title carries the URL).
+    // The pairing QR is on the page once the pair URL lands (title carries the URL).
     const qrTitle = await screen.findByTitle(pairUrl)
     expect(qrTitle).toBeTruthy()
-    // The QR renders large enough to scan reliably within the dialog column.
+    // The QR renders large enough to scan reliably within the section column.
     const qrSvg = qrTitle.closest('svg')
     expect(qrSvg?.getAttribute('width')).toBe('200')
     expect(qrSvg?.getAttribute('height')).toBe('200')
@@ -177,8 +145,7 @@ describe('RemotePanel initial render', () => {
       throw new Error(`unexpected fetch ${url}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
 
     expect(await screen.findByText('Tunnel closed')).toBeTruthy()
     expect(screen.getByText('Tunnel is closed; no pairing QR code is available')).toBeTruthy()
@@ -202,8 +169,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${url}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
 
     expect(await screen.findByText('Phone A')).toBeTruthy()
     expect(screen.getByText('Tablet B')).toBeTruthy()
@@ -226,8 +192,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${url}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
 
     expect(await screen.findByText('Old Phone')).toBeTruthy()
     expect(screen.getByText(/Offline/)).toBeTruthy()
@@ -249,8 +214,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${url}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Tunnel closed')
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
@@ -272,8 +236,7 @@ describe('RemotePanel device roster', () => {
       throw new Error('unexpected fetch')
     })
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Phone A')
 
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
@@ -297,8 +260,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Phone A')
 
     // Cancel restores the row without issuing any request.
@@ -331,8 +293,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Phone A')
 
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
@@ -363,8 +324,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByTitle(pairUrl)
 
     // Copying flips the button label to the copied state.
@@ -380,7 +340,7 @@ describe('RemotePanel device roster', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('Failed to load remote status')
   })
 
-  it('reports a failed revoke and a failed refresh without losing the panel', async () => {
+  it('reports a failed revoke and a failed refresh without losing the page', async () => {
     const { remote } = makeRemote()
     const pairUrl = 'https://foo.trycloudflare.com/pair/token'
     let pairFails = false
@@ -402,8 +362,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Phone A')
 
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
@@ -417,12 +376,11 @@ describe('RemotePanel device roster', () => {
     })
   })
 
-  it('surfaces a transport failure while loading the panel state', async () => {
+  it('surfaces a transport failure while loading the page state', async () => {
     const { remote } = makeRemote()
     globalThis.fetch = vi.fn(async () => { throw new Error('network down') })
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     expect((await screen.findByRole('alert')).textContent).toBe('Failed to load remote status')
   })
 
@@ -435,8 +393,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Tunnel closed')
 
     emit('remote-tunnel/state', { status: 'failed', message: 'handshake refused' })
@@ -452,8 +409,7 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Tunnel closed')
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
@@ -465,7 +421,7 @@ describe('RemotePanel device roster', () => {
     expect(globalThis.fetch).not.toHaveBeenCalledWith('/remote/stop', { method: 'POST' })
   })
 
-  it('ignores live events that arrive after the panel unmounts', async () => {
+  it('ignores live events that arrive after the page unmounts', async () => {
     const { remote, emit } = makeRemote()
     globalThis.fetch = vi.fn(async (input: string) => {
       if (input === '/remote/state') {
@@ -474,17 +430,14 @@ describe('RemotePanel device roster', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    const view = render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    const view = render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Tunnel closed')
 
-    // Close the modal: the panel body unmounts and its subscriptions detach, so
-    // a late frame must not update state on the disposed instance.
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => { expect(screen.queryByText('Tunnel closed')).toBeNull() })
+    // Leaving the section unmounts the panel body and detaches its
+    // subscriptions, so a late frame must not update the disposed instance.
+    view.unmount()
     emit('remote/devices/change', [device('d1', 'Phone A')])
     expect(screen.queryByText('Phone A')).toBeNull()
-    view.unmount()
   })
 })
 
@@ -498,8 +451,7 @@ describe('RemotePanel lifecycle edges', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
 
     // An HTTP refusal is a failure, not an empty snapshot: the panel reports it
     // instead of painting the closed-tunnel placeholder.
@@ -509,22 +461,20 @@ describe('RemotePanel lifecycle edges', () => {
     expect(screen.getByText('Tunnel is closed; no pairing QR code is available')).toBeTruthy()
   })
 
-  it('drops a state snapshot that lands after the panel closed', async () => {
+  it('drops a state snapshot that lands after the page unmounted', async () => {
     const { remote } = makeRemote()
     let releaseState: ((value: Response) => void) | undefined
     globalThis.fetch = vi.fn(async (input: string) => {
       if (input === '/remote/state') {
-        // Held open so the dialog can close while the snapshot is still in flight.
+        // Held open so the section can unmount while the snapshot is in flight.
         return new Promise<Response>((resolve) => { releaseState = resolve })
       }
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    const view = render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByRole('button', { name: 'Refresh QR code' })
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    view.unmount()
 
     await act(async () => {
       releaseState!(await jsonResponse({ tunnelUrl: null, tunnelStatus: 'down', devices: [device('d1', 'Phone A')] }))
@@ -534,7 +484,7 @@ describe('RemotePanel lifecycle edges', () => {
     expect(screen.queryByText('Tunnel closed')).toBeNull()
   })
 
-  it('drops a pairing URL and a tunnel frame that land after the panel closed', async () => {
+  it('drops a pairing URL and a tunnel frame that land after the page unmounted', async () => {
     const { remote, emit } = makeRemote()
     const pairUrl = 'https://foo.trycloudflare.com/pair/token'
     let releasePair: ((value: Response) => void) | undefined
@@ -548,12 +498,10 @@ describe('RemotePanel lifecycle edges', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    const view = render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Tunnel open')
     await waitFor(() => { expect(releasePair).toBeDefined() })
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => { expect(screen.queryByText('Tunnel open')).toBeNull() })
+    view.unmount()
 
     // A live frame that arrives after disposal must not resurrect the panel.
     emit('remote-tunnel/state', { status: 'failed', message: 'late frame' })
@@ -575,8 +523,7 @@ describe('RemotePanel lifecycle edges', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Tunnel closed')
 
     // No pairing URL exists yet, so the copy seat stays inert and never writes.
@@ -612,8 +559,7 @@ describe('RemotePanel lifecycle edges', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Phone A')
 
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
@@ -626,38 +572,34 @@ describe('RemotePanel lifecycle edges', () => {
     expect(screen.getByRole('textbox')).toBeTruthy()
   })
 
-  it('drops a refused state snapshot that lands after the panel closed', async () => {
+  it('drops a refused state snapshot that lands after the page unmounted', async () => {
     const { remote } = makeRemote()
     const control = controlledFetch()
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    const view = render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await waitFor(() => { expect(control.count('/remote/state')).toBe(1) })
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    view.unmount()
 
     // A rejected snapshot resolves into the catch; the disposed instance must
-    // not paint its load error onto a panel nobody is showing.
+    // not paint its load error onto a page nobody is showing.
     await control.settle('/remote/state', new Error('network down'))
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('drops a refused pairing call that lands after the panel closed', async () => {
+  it('drops a refused pairing call that lands after the page unmounted', async () => {
     const { remote } = makeRemote()
     const control = controlledFetch({
       '/remote/state': () => ({ ok: true, status: 200, json: async () => ({ tunnelUrl: 'https://foo.trycloudflare.com', tunnelStatus: 'open', devices: [] }) } as Response),
     })
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    const view = render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Tunnel open')
     await waitFor(() => { expect(control.count('/remote/pair/issue')).toBe(1) })
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => { expect(screen.queryByText('Tunnel open')).toBeNull() })
+    view.unmount()
 
     await control.settle('/remote/pair/issue', failed(503))
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('drops a refused revoke, stop, and rename that land after the panel closed', async () => {
+  it('drops a refused revoke, stop, and rename that land after the page unmounted', async () => {
     const { remote } = makeRemote()
     const control = controlledFetch({
       '/remote/state': () => ({
@@ -665,8 +607,7 @@ describe('RemotePanel lifecycle edges', () => {
         json: async () => ({ tunnelUrl: null, tunnelStatus: 'down', devices: [device('d1', 'Phone A')] }),
       } as Response),
     })
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    const view = render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Phone A')
 
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
@@ -680,8 +621,7 @@ describe('RemotePanel lifecycle edges', () => {
       expect(control.count('/remote/stop')).toBe(1)
       expect(control.count('/remote/devices/d1/rename?name=Phone%20Z')).toBe(1)
     })
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    view.unmount()
 
     // Every completion below is refused or applied off-screen; none may set
     // state on the disposed panel or repaint its error line.
@@ -691,7 +631,7 @@ describe('RemotePanel lifecycle edges', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('drops a refused rename that lands after the panel closed', async () => {
+  it('drops a refused rename that lands after the page unmounted', async () => {
     const { remote } = makeRemote()
     const control = controlledFetch({
       '/remote/state': () => ({
@@ -699,23 +639,21 @@ describe('RemotePanel lifecycle edges', () => {
         json: async () => ({ tunnelUrl: null, tunnelStatus: 'down', devices: [device('d1', 'Phone A')] }),
       } as Response),
     })
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    const view = render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByText('Phone A')
 
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Phone Z' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => { expect(control.count('/remote/devices/d1/rename?name=Phone%20Z')).toBe(1) })
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    view.unmount()
 
     await control.settle('/remote/devices/d1/rename?name=Phone%20Z', failed(500))
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('drops frames delivered on a subscription that outlives the panel', async () => {
-    // An event already dispatched when the dialog closes still holds this
+  it('drops frames delivered on a subscription that outlives the page', async () => {
+    // An event already dispatched when the section unmounts still holds this
     // callback even though the panel disposed its subscription.
     const delivered = new Map<string, (payload: unknown) => void>()
     const remote = {
@@ -731,11 +669,9 @@ describe('RemotePanel lifecycle edges', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote as never} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    const view = render(<RemoteSettingsSection {...kit} remote={remote as never} t={t} />)
     await screen.findByText('Tunnel closed')
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    view.unmount()
 
     act(() => {
       delivered.get('remote-tunnel/state')!({ status: 'open', url: 'https://late.trycloudflare.com' })
@@ -758,8 +694,7 @@ describe('RemotePanel lifecycle edges', () => {
       throw new Error(`unexpected fetch ${input}`)
     }) as typeof fetch
 
-    render(<RemoteFooterAction {...kit} wide remote={remote} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    render(<RemoteSettingsSection {...kit} remote={remote} t={t} />)
     await screen.findByTitle(pairUrl)
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy link' }))
