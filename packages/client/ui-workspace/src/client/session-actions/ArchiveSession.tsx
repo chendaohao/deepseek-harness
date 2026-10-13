@@ -7,6 +7,7 @@
  * live in the injected callbacks, not here.
  */
 import { useState } from 'react'
+import clsx from 'clsx'
 import type { SessionActivity } from '@deepseek-ai/dsh-api-workspace-controller/client'
 // Type-only: the family keys each provider merges; a key this program did not compile takes the generic line.
 import type {} from '@deepseek-ai/dsh-agent/types'
@@ -61,7 +62,7 @@ export function ArchiveSessionRowButton({
     <Tooltip label={t(archived ? 'actions.unarchive' : 'actions.archive')} side="bottom" align="end" delayMs={500}>
       <button
         type="button"
-        className={css.iconButton}
+        className={clsx(css.iconButton, css.quickAction)}
         aria-label={t(archived ? 'menu.unarchiveSession' : 'menu.archiveSession')}
         onClick={() => { (archived ? unarchiveSession : archiveSession)(sessionId) }}
       >

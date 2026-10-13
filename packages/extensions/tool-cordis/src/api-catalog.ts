@@ -3933,6 +3933,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'resolution after durability.',
       },
       {
+        signature: 'noteSessionActivity(sessionId: SessionId, phase: \'active\' | \'idle\'): Promise<void>',
+        description: 'Record one observed activity transition from the automatic-pin feed. \'active\' refreshes an existing automatic pin\'s idle clock, or places one on an unpinned, unarchived, unsuppressed session — the feeding Agent guarantees the session is live, so no existence question is asked. \'idle\' restarts an automatic pin\'s clock and lifts the manual-unpin suppression, ending the episode the suppression covered. Manual pins are never touched, and neither phase writes when nothing changed.',
+        parameters: [{ name: 'sessionId', description: 'The visible session the activity belongs to.' }, { name: 'phase', description: 'Whether the session entered or left activity.' }],
+        returns: 'resolution after durability.',
+      },
+      {
+        signature: 'sweepAutoPins(): Promise<void>',
+        description: 'Drop every automatic pin whose idle clock reached the configured timeout. A session the `workspace/session-activity` providers still report active has its clock refreshed instead, so continuous work never outlives its own pin. Entries whose pin or session state already moved on (a manual unpin, an archive) fall away without a question.',
+        parameters: [],
+        returns: 'resolution after durability, when anything changed.',
+      },
+      {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
         description: 'Resolve by canonical directory path without creating or mutating a workspace. A missing path rejects during `realpath`; an existing unowned directory returns `undefined`.',
         parameters: [{ name: 'path', description: 'Existing directory path in a fully qualified spelling.' }],

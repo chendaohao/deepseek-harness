@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
+import z from '@deepseek-ai/schemastery'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -160,6 +161,25 @@ const sameIds = (left: readonly WorkspaceId[], right: readonly WorkspaceId[]): b
 const compareHeaders = (left: SessionHeader, right: SessionHeader): number =>
   right.createdAt - left.createdAt || String(left.id).localeCompare(String(right.id))
 
+/** Configuration for the Workspace registry's automatic session pinning. */
+export interface Config {
+  /**
+   * Milliseconds of inactivity after which an automatically pinned session
+   * unpins; each observed activity transition restarts the clock, and the
+   * sweep refreshes it while the activity providers still report work.
+   * Omission defaults to one hour.
+   */
+  autoPinIdleTimeout?: number
+  /** Milliseconds between automatic-pin idle sweeps; omission defaults to one minute. */
+  autoPinSweepInterval?: number
+}
+
+/** Idle window applied to automatic pins when the deployment states none. */
+const DEFAULT_AUTO_PIN_IDLE_TIMEOUT = 3_600_000
+
+/** Sweep cadence applied when the deployment states none. */
+const DEFAULT_AUTO_PIN_SWEEP_INTERVAL = 60_000
+
 /**
  * Durable workspace registry. Startup waits for `sessionPersistence`, builds
  * one canonical-cwd header index, and completes the one-time history
@@ -170,6 +190,11 @@ const compareHeaders = (left: SessionHeader, right: SessionHeader): number =>
 export class WorkspaceRegistry extends Service {
   static inject = ['storageDomain', 'sessionPersistence']
 
+  static Config: z<Config> = z.object({
+    autoPinIdleTimeout: z.number().step(1).min(60_000).max(604_800_000).default(DEFAULT_AUTO_PIN_IDLE_TIMEOUT),
+    autoPinSweepInterval: z.number().step(1).min(10_000).max(600_000).default(DEFAULT_AUTO_PIN_SWEEP_INTERVAL),
+  })
+
   private table?: KvTable<WorkspaceId, WorkspaceRecord>
   private global?: DomainGlobal<WorkspaceDomainState>
   private state?: WorkspaceDomainState
@@ -178,6 +203,14 @@ export class WorkspaceRegistry extends Service {
   private readonly sessionPaths = new Map<SessionId, string>()
   private readonly invalidSessionPaths = new Map<SessionId, string>()
   private operationTail: Promise<void> = Promise.resolve()
+  private readonly autoPinIdleTimeout: number
+  private readonly autoPinSweepInterval: number
+  /**
+   * Sessions whose automatic pin the user removed manually: the activity
+   * feed does not re-pin them until the session next goes idle. In-memory by
+   * design — a Host restart ends the active episode the suppression covers.
+   */
+  private readonly autoPinSuppressed = new Set<SessionId>()
 
   private readonly host: WorkspaceEntityHost = {
     table: () => this.requireTable(),
@@ -189,8 +222,10 @@ export class WorkspaceRegistry extends Service {
     },
   }
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'workspaceRegistry')
+    this.autoPinIdleTimeout = config.autoPinIdleTimeout ?? DEFAULT_AUTO_PIN_IDLE_TIMEOUT
+    this.autoPinSweepInterval = config.autoPinSweepInterval ?? DEFAULT_AUTO_PIN_SWEEP_INTERVAL
   }
 
   /** Open the domain, finish bootstrap when required, and rebuild the ordered cache. */
@@ -215,6 +250,23 @@ export class WorkspaceRegistry extends Service {
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
     this.reportFilteredCandidates()
+    this.startAutoPinSweep()
+  }
+
+  /** Arm the periodic idle sweep and run one immediately for stale automatic pins a previous run left behind. */
+  private startAutoPinSweep(): void {
+    const sweep = (): void => {
+      // A failing sweep (an activity provider rejecting, a storage fault)
+      // retries on the next tick; it must never take the registry down.
+      void this.sweepAutoPins().catch((reason: unknown) => {
+        this.ctx.logger.warn('workspace: automatic pin sweep failed: ' + String(reason))
+      })
+    }
+    const timer = setInterval(sweep, this.autoPinSweepInterval)
+    // The cadence timer must not hold the process open on its own.
+    timer.unref?.()
+    this.ctx.effect(() => () => { clearInterval(timer) }, 'workspace.autoPinSweep')
+    sweep()
   }
 
   /**
@@ -375,10 +427,12 @@ export class WorkspaceRegistry extends Service {
         if (activity.length > 0) throw new WorkspaceActiveSessionError(sessionId, activity)
       }
       const state = this.requireState()
+      this.autoPinSuppressed.delete(sessionId)
       await this.setState({
         ...state,
         archivedSessionIds: [...state.archivedSessionIds, sessionId],
         pinnedSessionIds: state.pinnedSessionIds.filter(id => id !== sessionId),
+        autoPinnedSessions: state.autoPinnedSessions.filter(entry => entry.sessionId !== sessionId),
       })
       if (options.stopActivity === true) await this.stopSessionActivity(sessionId)
     })
@@ -427,8 +481,20 @@ export class WorkspaceRegistry extends Service {
     return this.enqueueOperation(async () => {
       // The chain slot serializes against every other registry write, so this
       // check-then-write pair cannot interleave with another pin or archive.
-      if (this.requireState().pinnedSessionIds.includes(sessionId)) return
-      if (this.requireState().archivedSessionIds.includes(sessionId)) {
+      this.autoPinSuppressed.delete(sessionId)
+      const current = this.requireState()
+      if (current.pinnedSessionIds.includes(sessionId)) {
+        // An explicit pin of an automatically pinned session promotes it to a
+        // manual pin: the idle sweep never manages it again.
+        if (current.autoPinnedSessions.some(entry => entry.sessionId === sessionId)) {
+          await this.setState({
+            ...current,
+            autoPinnedSessions: current.autoPinnedSessions.filter(entry => entry.sessionId !== sessionId),
+          })
+        }
+        return
+      }
+      if (current.archivedSessionIds.includes(sessionId)) {
         throw new WorkspaceArchivedSessionPinError(sessionId)
       }
       if (!(await this.sessionKnown(sessionId))) {
@@ -456,9 +522,94 @@ export class WorkspaceRegistry extends Service {
       // check-then-write pair cannot interleave with a concurrent pin.
       const state = this.requireState()
       if (!state.pinnedSessionIds.includes(sessionId)) return
+      if (state.autoPinnedSessions.some(entry => entry.sessionId === sessionId)) {
+        // Manual removal of an automatic pin holds until the session next
+        // goes idle, so the activity feed does not re-add the pin the user
+        // just removed.
+        this.autoPinSuppressed.add(sessionId)
+      }
       await this.setState({
         ...state,
         pinnedSessionIds: state.pinnedSessionIds.filter(id => id !== sessionId),
+        autoPinnedSessions: state.autoPinnedSessions.filter(entry => entry.sessionId !== sessionId),
+      })
+    })
+  }
+
+  /**
+   * Record one observed activity transition from the automatic-pin feed.
+   * 'active' refreshes an existing automatic pin's idle clock, or places one
+   * on an unpinned, unarchived, unsuppressed session — the feeding Agent
+   * guarantees the session is live, so no existence question is asked.
+   * 'idle' restarts an automatic pin's clock and lifts the manual-unpin
+   * suppression, ending the episode the suppression covered. Manual pins are
+   * never touched, and neither phase writes when nothing changed.
+   * @param sessionId - The visible session the activity belongs to.
+   * @param phase - Whether the session entered or left activity.
+   * @returns resolution after durability.
+   */
+  noteSessionActivity(sessionId: SessionId, phase: 'active' | 'idle'): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (phase === 'idle') this.autoPinSuppressed.delete(sessionId)
+      const now = new Date().toISOString()
+      if (state.autoPinnedSessions.some(entry => entry.sessionId === sessionId)) {
+        await this.setState({
+          ...state,
+          autoPinnedSessions: state.autoPinnedSessions.map(entry =>
+            entry.sessionId === sessionId ? { ...entry, lastActiveAt: now } : entry),
+        })
+        return
+      }
+      if (phase === 'idle') return
+      if (state.pinnedSessionIds.includes(sessionId)) return
+      if (state.archivedSessionIds.includes(sessionId)) return
+      if (this.autoPinSuppressed.has(sessionId)) return
+      await this.setState({
+        ...state,
+        pinnedSessionIds: [sessionId, ...state.pinnedSessionIds],
+        autoPinnedSessions: [{ sessionId, lastActiveAt: now }, ...state.autoPinnedSessions],
+      })
+    })
+  }
+
+  /**
+   * Drop every automatic pin whose idle clock reached the configured
+   * timeout. A session the `workspace/session-activity` providers still
+   * report active has its clock refreshed instead, so continuous work never
+   * outlives its own pin. Entries whose pin or session state already moved
+   * on (a manual unpin, an archive) fall away without a question.
+   * @returns resolution after durability, when anything changed.
+   */
+  sweepAutoPins(): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const now = Date.now()
+      const state = this.requireState()
+      const pinned = new Set(state.pinnedSessionIds)
+      const archived = new Set(state.archivedSessionIds)
+      const removed = new Set<SessionId>()
+      const kept: WorkspaceDomainState['autoPinnedSessions'] = []
+      for (const entry of state.autoPinnedSessions) {
+        if (!pinned.has(entry.sessionId) || archived.has(entry.sessionId)) continue
+        const activity = await this.ctx.waterfall(
+          'workspace/session-activity', { sessionId: entry.sessionId }, () => Promise.resolve([]),
+        )
+        if (activity.length > 0) {
+          kept.push({ ...entry, lastActiveAt: new Date(now).toISOString() })
+        } else if (now - Date.parse(entry.lastActiveAt) < this.autoPinIdleTimeout) {
+          kept.push(entry)
+        } else {
+          removed.add(entry.sessionId)
+        }
+      }
+      const unchanged = removed.size === 0
+        && kept.length === state.autoPinnedSessions.length
+        && kept.every((entry, index) => entry === state.autoPinnedSessions[index])
+      if (unchanged) return
+      await this.setState({
+        ...state,
+        pinnedSessionIds: state.pinnedSessionIds.filter(id => !removed.has(id)),
+        autoPinnedSessions: kept,
       })
     })
   }
@@ -729,6 +880,7 @@ export class WorkspaceRegistry extends Service {
         workspaceIds,
         archivedSessionIds: state.archivedSessionIds,
         pinnedSessionIds: state.pinnedSessionIds,
+        autoPinnedSessions: state.autoPinnedSessions,
       })
     }
     await this.setState({
@@ -736,6 +888,7 @@ export class WorkspaceRegistry extends Service {
       workspaceIds,
       archivedSessionIds: state.archivedSessionIds,
       pinnedSessionIds: state.pinnedSessionIds,
+      autoPinnedSessions: state.autoPinnedSessions,
     })
   }
 

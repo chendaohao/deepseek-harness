@@ -54,7 +54,7 @@ export interface SessionNode {
   runningSubagentCount: number
   /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
   completed: boolean
-  /** In the registry-global pin set: leads its section, reorderable only among pinned rows. */
+  /** In the registry-global pin set: grouped views gather it into the pinned section; the flat list fronts it. */
   pinned: boolean
   /** In the registry-global archive set: shown grayed in place and not openable. */
   archived: boolean
@@ -307,7 +307,7 @@ function sessionVisible(
 
 /** Registry-global row state consumed by every tree derivation. */
 export interface SessionRowState {
-  /** Registry-global pin ids; pinned rows lead their section in the local order. */
+  /** Registry-global pin ids, most recently pinned first; grouped views gather them into the pinned section, the flat list fronts them. */
   pinnedSessionIds: readonly SessionId[]
   /** Archive set; members keep their slots and show grayed while visible. */
   archivedSessionIds: readonly SessionId[]
@@ -467,11 +467,14 @@ function sessionNode(
 }
 
 /**
- * Derive the workspace browser groups with every session as a top-level row.
+ * Derive the workspace browser groups with every unpinned session as a
+ * top-level row. Pinned sessions leave their groups for the pinned section
+ * (see {@link derivePinned}); pinning never touches account membership, so an
+ * unpinned session returns to its kept group slot.
  *
  * Every group shows, except that the archived-only filter drops groups
- * without visible members; sessions populate under expanded groups with
- * pinned rows leading in the selected local order. Blank sessions are
+ * without visible members; sessions populate under expanded groups in the
+ * selected local order. Blank sessions are
  * excluded except for the selected provisional New Session row; archived
  * sessions keep their slots and appear per the archived filter. Content
  * search lives outside this derivation (see {@link deriveSearchResults}).
@@ -502,22 +505,57 @@ export function deriveGroups(
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, sections, archived, rowState.archivedFilter, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
+    // Effectively pinned members render in the pinned section, not under
+    // their group; an archived pin stays grayed in place (the Host never
+    // pairs the two, but a forged state keeps its visible row).
+    const members = g.sessions.filter(member => archived.has(member.id) || !pinned.has(member.id))
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
       cwd: g.cwd,
       createdAt: g.createdAt,
       label: g.label,
-      sessionCount: g.sessions.length,
+      sessionCount: members.length,
       expanded,
       containsCurrent: g.key === currentGroup,
       sessions: expanded
-        ? sectionMembers(g.sessions, pinned, archived)
+        // No member is in the pin set after the filter, so the pin fronting
+        // is a no-op here and only the blank placeholder leads.
+        ? sectionMembers(members, pinned, archived)
           .map(session => sessionNode(session, list, statuses, pinned, archived))
         : [],
     })
   }
   return groups
+}
+
+/**
+ * Derive the pinned section above the Workspace groups: every visible pinned
+ * Session in registry pin order (most recently pinned first), independent of
+ * group expansion and the selected local order. The section has no manual
+ * reorder — unpin and re-pin to move a row.
+ * @param list - sessions list snapshot.
+ * @param rowState - registry-global pin and archive sets plus the archived filter.
+ * @param statuses - unified UI status by Session.
+ * @returns pinned rows in pin order, empty when no pinned Session is visible.
+ */
+export function derivePinned(
+  list: SessionListState,
+  rowState: SessionRowState,
+  statuses: SessionStatuses,
+): SessionNode[] {
+  const archived = new Set(rowState.archivedSessionIds)
+  const pinned = new Set(rowState.pinnedSessionIds)
+  const current = mainSessionId(list)
+  return rowState.pinnedSessionIds.flatMap((id) => {
+    const session = list.byId[id]
+    // An archived id never leads the pinned section; its grayed row keeps its
+    // group slot (the Host unpins on archive, so this guards a forged state).
+    return session !== undefined && !archived.has(id)
+      && sessionVisible(session, current, archived, rowState.archivedFilter)
+      ? [sessionNode(session, list, statuses, pinned, archived)]
+      : []
+  })
 }
 
 /**

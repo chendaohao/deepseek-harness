@@ -48,6 +48,23 @@
   min-width: 200px;
 }
 
+/* The pinned section leads the browsing region above the section header: a
+   caption label, then one unindented row per pinned Session. */
+.pinnedSection {
+  flex: none;
+  margin-bottom: 4px;
+}
+
+.pinnedLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding-left: 4px;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 /* Section header: title, an inline search control, and the two trailing
    actions. Expanding search collapses the action cluster and takes its room. */
 .sectionHeader {

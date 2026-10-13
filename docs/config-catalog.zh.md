@@ -4747,6 +4747,30 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-working-directory -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-workspace -->
+<a id="deepseek-aidsh-workspace"></a>
+
+## `@deepseek-ai/dsh-workspace`
+
+- `inject`: `storageDomain` · `sessionPersistence`
+- `source`: [`packages/workspace/workspace/src/index.ts:165`](../packages/workspace/workspace/src/index.ts)
+
+```ts config-catalog
+/** Configuration for the Workspace registry's automatic session pinning. */
+export interface Config {
+  /**
+   * Milliseconds of inactivity after which an automatically pinned session
+   * unpins; each observed activity transition restarts the clock, and the
+   * sweep refreshes it while the activity providers still report work.
+   * Omission defaults to one hour.
+   */
+  autoPinIdleTimeout?: number
+  /** Milliseconds between automatic-pin idle sweeps; omission defaults to one minute. */
+  autoPinSweepInterval?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-workspace -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-workspace-changes -->
 <a id="deepseek-aidsh-workspace-changes"></a>
 
@@ -4885,7 +4909,6 @@ export interface Config {
 | `@deepseek-ai/dsh-tool-working-directory` | `tools` · `workingDirectory` | [`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts) |
 | `@deepseek-ai/dsh-user-questions` | — | [`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts) |
 | `@deepseek-ai/dsh-webhook` | `agents` · `agentDefaultModel` · `agentPresets` · `permissionPresets` · `sessionTitle` · `workspaceRegistry` | [`packages/experimental/webhook/src/index.ts`](../packages/experimental/webhook/src/index.ts) |
-| `@deepseek-ai/dsh-workspace` | `storageDomain` · `sessionPersistence` | [`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts) |
 <!-- END GENERATED config-catalog:no-config -->
 
 ## Seam 包（不可直接加载）

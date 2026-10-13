@@ -6,6 +6,7 @@
  * the Host call (fronting the Session in its saved orders, the failure
  * notice) lives in the injected callbacks, not here.
  */
+import clsx from 'clsx'
 import {
   IconPinFillRegular, IconPinOutlineRegular, MenuItemButton, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -58,7 +59,7 @@ export function PinSessionRowButton(props: SessionRowActionProps<PinSessionInjec
     <Tooltip label={t(pinned ? 'actions.unpin' : 'actions.pin')} side="bottom" align="end" delayMs={500}>
       <button
         type="button"
-        className={css.iconButton}
+        className={clsx(css.iconButton, css.quickAction)}
         aria-label={t(pinned ? 'menu.unpinSession' : 'menu.pinSession')}
         onClick={() => { (pinned ? unpinSession : pinSession)(sessionId) }}
       >

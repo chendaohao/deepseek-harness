@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-13-automatic-session-pin.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-13-automatic-session-pin.md
+/agent-note-automatic-session-pins-follow-activity-and-expire-after-one-idle-hour:
+  en: 3c22ff70cbf884fc
+  zh: bde8bc0ee2684764
+/agent-note-automatic-session-pins-follow-activity-and-expire-after-one-idle-hour/problem:
+  en: 2554ec017e415e24
+  zh: 63eae2f07ca63585
+/agent-note-automatic-session-pins-follow-activity-and-expire-after-one-idle-hour/decision:
+  en: 26f2cab9c69e79a0
+  zh: 487f4f580d9a3ef0
+/agent-note-automatic-session-pins-follow-activity-and-expire-after-one-idle-hour/alternatives-considered:
+  en: 40b722fd8ce57912
+  zh: ef3d6059154905a5
+/agent-note-automatic-session-pins-follow-activity-and-expire-after-one-idle-hour/consequences:
+  en: 8c9fdd3453a612b7
+  zh: c5286a1550cf90e9
+/agent-note-automatic-session-pins-follow-activity-and-expire-after-one-idle-hour/testing:
+  en: fb5eb46f5a0ced66
+  zh: 7c294cd1e6e1b3a7

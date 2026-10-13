@@ -43,6 +43,17 @@ const workspacePendingMutation = z.discriminatedUnion('operation', [
 ])
 
 /**
+ * One automatically pinned session. `lastActiveAt` is the ISO instant of the
+ * latest observed activity — refreshed by the idle sweep while the
+ * activity providers still report work — and the idle clock that drops
+ * the pin runs from it. Manual pins have no entry here and never sweep.
+ */
+const autoPinnedSession = z.object({
+  sessionId,
+  lastActiveAt: z.string(),
+})
+
+/**
  * Durable registry state. `initialized` distinguishes a valid empty registry
  * from one that still needs the header-only history bootstrap;
  * `workspaceIds` is the authoritative display order. `archivedSessionIds` is
@@ -51,8 +62,11 @@ const workspacePendingMutation = z.discriminatedUnion('operation', [
  * position), so the set never participates in the one-owner accounting
  * invariant. `pinnedSessionIds` is the registry-global pin set in pin order
  * (most recently pinned first); pinning and archival are mutually
- * exclusive, so archiving drops the session's pin. Both session sets are
- * defaulted so records written before the fields parse unchanged.
+ * exclusive, so archiving drops the session's pin. `autoPinnedSessions`
+ * records which of those pins the activity feed placed, with the stamp
+ * the idle timeout measures from; an explicit pin promotes an entry out
+ * of it. Every session set is defaulted so records written before the
+ * fields parse unchanged.
  */
 export const workspaceDomainState = z.object({
   initialized: z.boolean(),
@@ -61,6 +75,7 @@ export const workspaceDomainState = z.object({
   workspaceIds: z.array(workspaceId),
   archivedSessionIds: z.array(sessionId).default([]),
   pinnedSessionIds: z.array(sessionId).default([]),
+  autoPinnedSessions: z.array(autoPinnedSession).default([]),
   pendingMutation: workspacePendingMutation.optional(),
 })
 
@@ -78,7 +93,7 @@ export const workspaceDomainSpec = defineDomain({
   version: 2,
   global: {
     schema: workspaceDomainState,
-    initial: { initialized: false, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] },
+    initial: { initialized: false, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], autoPinnedSessions: [] },
   },
   tables: { workspaces: domainTable<WorkspaceId, WorkspaceRecord>(workspaceRecord) },
 })

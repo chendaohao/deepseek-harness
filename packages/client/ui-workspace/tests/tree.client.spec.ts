@@ -8,7 +8,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   type ArchivedFilter,
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, orderWorkspacesByRecency,
+  deriveFlat, deriveGroups, derivePinned, deriveSearchResults, orderByRecency, orderWorkspacesByRecency,
   owningGroupKey, owningParentFolder, pinCurrentBlank, reconcileManualOrder, sessionMemberIds,
   visibleSessionIds, workspaceActivityAt, workspaceLabel, UNGROUPED_KEY,
 } from '../src/client/tree.ts'
@@ -83,16 +83,21 @@ describe('Session ordering', () => {
     ), sid('blank'))
     const order = pinCurrentBlank(sessions.ids, sid('blank'))
     const state = rowState({ pinned: ['pin'] })
-    const rows = mode === 'flat'
-      ? deriveFlat(sessions, order, state, noAttention)
-      : deriveGroups(
-        sessions,
-        mode === 'workspace' ? [workspace('alpha', order)] : [],
-        state,
-        noAttention,
-        view([mode === 'workspace' ? 'alpha' : UNGROUPED_KEY], order),
-      )[0]!.sessions
-    expect(rows.map(row => row.id)).toEqual([sid('blank'), sid('pin'), sid('ordinary')])
+    if (mode === 'flat') {
+      expect(deriveFlat(sessions, order, state, noAttention).map(row => row.id))
+        .toEqual([sid('blank'), sid('pin'), sid('ordinary')])
+      return
+    }
+    const groups = deriveGroups(
+      sessions,
+      mode === 'workspace' ? [workspace('alpha', order)] : [],
+      state,
+      noAttention,
+      view([mode === 'workspace' ? 'alpha' : UNGROUPED_KEY], order),
+    )
+    // The pin leaves its group for the pinned section; the blank still leads it.
+    expect(groups[0]!.sessions.map(row => row.id)).toEqual([sid('blank'), sid('ordinary')])
+    expect(derivePinned(sessions, state, noAttention).map(row => row.id)).toEqual([sid('pin')])
   })
 
   it('orders known members by recency with a stable identity tie-break', () => {
@@ -189,13 +194,17 @@ describe('Session ordering', () => {
     )
     const state = rowState({ pinned: ['source', 'other-pin'] })
     const order = reconcileManualOrder(sessions.ids, ['source', 'other-pin', 'ordinary'], sessions.byId, state)
-    const rows = mode === 'flat'
-      ? deriveFlat(sessions, order, state, noAttention)
-      : deriveGroups(
-        sessions, mode === 'workspace' ? [workspace('alpha', order)] : [], state, noAttention,
-        view([mode === 'workspace' ? 'alpha' : UNGROUPED_KEY], order),
-      )[0]!.sessions
-    expect(rows.map(row => row.id)).toEqual(['source', 'other-pin', 'fork', 'ordinary'])
+    if (mode === 'flat') {
+      expect(deriveFlat(sessions, order, state, noAttention).map(row => row.id))
+        .toEqual(['source', 'other-pin', 'fork', 'ordinary'])
+      return
+    }
+    const rows = deriveGroups(
+      sessions, mode === 'workspace' ? [workspace('alpha', order)] : [], state, noAttention,
+      view([mode === 'workspace' ? 'alpha' : UNGROUPED_KEY], order),
+    )[0]!.sessions
+    expect(rows.map(row => row.id)).toEqual(['fork', 'ordinary'])
+    expect(derivePinned(sessions, state, noAttention).map(row => row.id)).toEqual(['source', 'other-pin'])
   })
 
   it('keeps archive filtering out of complete flat membership', () => {
@@ -453,21 +462,30 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessionCount).toBe(1)
   })
 
-  it('leads expanded groups with pinned rows in the supplied order', () => {
+  it('moves pinned rows out of expanded groups into registry pin order', () => {
     const sessions = list(summary('a', 4), summary('b', 3), summary('c', 2), summary('d', 1))
+    const state = rowState({ pinned: ['c', 'b'] })
     const groups = deriveGroups(
       sessions, [workspace('first', ['a', 'c', 'b', 'd'])],
-      rowState({ pinned: ['c', 'b'] }),
+      state,
       noAttention, view(['first']),
     )
-    // c precedes b per the supplied order even though b updated more recently:
-    // the pinned block never re-sorts, so manual pinned-to-pinned drags hold.
     expect(groups[0]!.sessions.map(node => [node.id, node.pinned])).toEqual([
-      [sid('c'), true],
-      [sid('b'), true],
       [sid('a'), false],
       [sid('d'), false],
     ])
+    expect(groups[0]!.sessionCount).toBe(2)
+    // The pinned section follows the registry pin order, not recency or the
+    // supplied group order (b updated more recently yet trails c).
+    expect(derivePinned(sessions, state, noAttention).map(node => [node.id, node.pinned]))
+      .toEqual([[sid('c'), true], [sid('b'), true]])
+  })
+
+  it('skips unknown, archived, and filter-invisible Sessions in the pinned section', () => {
+    const sessions = list(summary('a', 1), summary('b', 2), summary('gone', 3))
+    const state = rowState({ pinned: ['b', 'missing', 'gone', 'a'], archived: ['gone'], archivedFilter: 'show' })
+    expect(derivePinned(sessions, state, noAttention).map(node => node.id)).toEqual([sid('b'), sid('a')])
+    expect(derivePinned(sessions, { ...state, archivedFilter: 'only' }, noAttention)).toEqual([])
   })
 
   it('keeps shown archived rows in place and never sections an archived pin', () => {

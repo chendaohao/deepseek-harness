@@ -129,6 +129,8 @@ The controller's `initializeDefault` takes no request: it owns the fixed `defaul
 
 The controller's [transport types](../../packages/api/workspace-controller/src/types.ts) define `WorkspacePinSessionRequest` and `WorkspaceUnpinSessionRequest`, each carrying one `sessionId`. Both operations return `WorkspacePinValue`: the complete `pinnedSessionIds` array of Session ids, most recently pinned first. Pinning requires a known, unarchived Session; unpinning an id that is not pinned succeeds without changing the set. Archiving removes the Session's pin in the same durable write, and unarchiving does not restore it.
 
+The registry also pins automatically: the Agent registry notes every `agent/status` transition with the visible Session (a subagent's nearest non-subagent ancestor), and the registry auto-pins an unpinned, unarchived Session on activity. Each automatic pin is one `autoPinnedSessions` entry carrying the latest activity stamp; a minute-cadence sweep refreshes the stamp while the activity providers still report work and drops the pin once activity has been over for `autoPinIdleTimeout` (one hour by default). An explicit pin promotes an automatic pin to manual — manual pins never sweep — and manually removing an automatic pin suppresses re-pinning until the Session next goes idle.
+
 ## Archive admission
 
 Archiving is a registry-global durable set, and the registry refuses to hide running work behind it. The rule is a capability seam over two Host events the package declares and dispatches ([events](#workspace-events)): `workspace/session-activity` (waterfall) asks the composed providers what still runs for a Session, and `workspace/session-stop` (parallel) asks them to stop it. Each provider registers on the root like any listener, so the package knows no agent, job, or schedule vocabulary; the families are keys of a merge-extensible map.
@@ -590,6 +592,30 @@ pinSession(sessionId: SessionId): Promise<void>
  * @returns resolution after durability.
  */
 unpinSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Record one observed activity transition from the automatic-pin feed.
+ * 'active' refreshes an existing automatic pin's idle clock, or places one
+ * on an unpinned, unarchived, unsuppressed session — the feeding Agent
+ * guarantees the session is live, so no existence question is asked.
+ * 'idle' restarts an automatic pin's clock and lifts the manual-unpin
+ * suppression, ending the episode the suppression covered. Manual pins are
+ * never touched, and neither phase writes when nothing changed.
+ * @param sessionId - The visible session the activity belongs to.
+ * @param phase - Whether the session entered or left activity.
+ * @returns resolution after durability.
+ */
+noteSessionActivity(sessionId: SessionId, phase: 'active' | 'idle'): Promise<void>
+
+/**
+ * Drop every automatic pin whose idle clock reached the configured
+ * timeout. A session the `workspace/session-activity` providers still
+ * report active has its clock refreshed instead, so continuous work never
+ * outlives its own pin. Entries whose pin or session state already moved
+ * on (a manual unpin, an archive) fall away without a question.
+ * @returns resolution after durability, when anything changed.
+ */
+sweepAutoPins(): Promise<void>
 
 /**
  * Resolve by canonical directory path without creating or mutating a

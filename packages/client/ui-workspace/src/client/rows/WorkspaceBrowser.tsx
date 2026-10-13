@@ -19,7 +19,7 @@ import clsx from 'clsx'
 import {
   Button, IconArchiveCheckOutlineRegular, IconArchiveOffOutlineRegular, IconArchiveOutlineRegular,
   IconChevronsUpDownOutlineRegular, IconClockOutlineRegular, IconCloseFillRegular,
-  IconFlatListOutlineRegular, IconFolderCloseRegular, IconProjectAddOutlineRegular,
+  IconFlatListOutlineRegular, IconFolderCloseRegular, IconPinFillRegular, IconProjectAddOutlineRegular,
   IconQueueOutlineRegular, IconSearchOutlineRegular, IconSlidersTwoOutlineRegular,
   IconWorkspaceTreeOutlineRegular, Menu, Modal, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -35,7 +35,7 @@ import type {
   ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState, WorkspaceOrderBy,
 } from '../tree.ts'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
+  deriveFlat, deriveGroups, derivePinned, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
@@ -325,7 +325,10 @@ function SessionTree({
   const current = panelActive
     ? undefined
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+  // A pinned row lives in the pinned section above the groups, so a search
+  // reveal for it expands nothing here; the section scrolls it into view.
   const revealGroup = revealSessionId === undefined || !workspaceReady
+    || rowState.pinnedSessionIds.includes(revealSessionId)
     ? undefined
     : owningGroupKey(workspaces, revealSessionId)
   const [sessionLimits, setSessionLimits] = useState<Readonly<Record<string, number>>>({})
@@ -336,7 +339,10 @@ function SessionTree({
   const workspaceDropCommitted = useRef(false)
   const nativeDragActive = drag !== null || workspaceDrag !== null
   useNativeDragAcceptance(nativeDragActive)
+  // A pinned current Session renders in the pinned section, so its owning
+  // group has no row to unfold for.
   const currentGroup = current === undefined || !workspaceReady
+    || rowState.pinnedSessionIds.includes(current)
     ? undefined
     : owningGroupKey(workspaces, current)
   useEffect(() => {
@@ -656,6 +662,61 @@ function SessionTree({
         {groupRows}
       </AnimatedRows>
       <span className={css.fade} />
+    </div>
+  )
+}
+
+/**
+ * The pinned section above the Workspaces header: every visible pinned
+ * Session in registry pin order, one unindented row each, independent of
+ * group expansion. Rows wire no drag — the order is the Host's pin sequence
+ * (unpin and re-pin to move a row), so there is no local order to save.
+ * @param props - the tree's session-row shares plus the list snapshot.
+ * @returns the section, or null when no pinned Session is visible.
+ */
+function PinnedSection({
+  list, rowState, useSessionStatus, usePanelInfo, open, onSessionRenameRequest, renderSlot,
+  revealSessionId, onSessionRevealed, t,
+}: Pick<
+  SessionTreeProps,
+  | 'useSessionStatus' | 'open' | 'onSessionRenameRequest' | 'usePanelInfo' | 'renderSlot'
+  | 'rowState' | 'revealSessionId' | 'onSessionRevealed' | 't'
+> & {
+  /** Always-mounted Session list snapshot. */
+  list: SessionListState
+}) {
+  const panelActive = usePanelInfo(info => info.activePanelId !== null)
+  const statuses = useSessionStatus(s => s)
+  const rows = useMemo(
+    () => derivePinned(list, rowState, statuses),
+    [list, rowState, statuses],
+  )
+  const currentId = panelActive
+    ? undefined
+    : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+  const now = Date.now()
+  if (rows.length === 0) return null
+  return (
+    <div className={css.pinnedSection}>
+      <div className={css.pinnedLabel}>
+        <IconPinFillRegular size={12} />
+        {t('section.pinned')}
+      </div>
+      {rows.map(node => (
+        <SessionNodeItem
+          key={node.id}
+          node={node}
+          currentId={currentId}
+          now={now}
+          onOpen={open}
+          onRenameRequest={onSessionRenameRequest}
+          renderSlot={renderSlot}
+          onReveal={node.id === revealSessionId
+            ? () => { onSessionRevealed(node.id) }
+            : undefined}
+          t={t}
+        />
+      ))}
     </div>
   )
 }
@@ -1244,6 +1305,22 @@ export function WorkspaceBrowser({
 
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
+      {/* The pinned section leads the browsing region; search and the flat
+          list surface pinned rows themselves, so it yields to both. */}
+      {wide && normalizedQuery === '' && groupBy !== 'flat' && (
+        <PinnedSection
+          list={list}
+          rowState={rowState}
+          useSessionStatus={useSessionStatus}
+          usePanelInfo={usePanelInfo}
+          open={guardedOpen}
+          onSessionRenameRequest={requestSessionRename}
+          renderSlot={renderSlot}
+          revealSessionId={revealSessionId}
+          onSessionRevealed={acknowledgeSessionReveal}
+          t={t}
+        />
+      )}
       <div className={css.sectionHeader}>
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>

@@ -15,6 +15,7 @@ import type { SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persis
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import WorkspaceRegistry, {
   WorkspaceId,
+  type Config,
   type workspaceDomainState,
   WorkspaceMoveInvalidError,
   WorkspaceOrderInvalidError,
@@ -38,6 +39,9 @@ interface HarnessOptions {
   liveSessions?: SessionHeader[]
   sessionStore?: boolean
   backend?: StorageBackend
+  config?: Config
+  /** Register listeners or overrides before the registry plugin boots. */
+  configure?: (ctx: Context) => void
 }
 
 /** Boot the real storage/domain/registry composition over controllable header-only peers. */
@@ -69,7 +73,8 @@ async function harness(options: HarnessOptions = {}) {
 
   const changes: DomainChanged[] = []
   ctx.on('domain/changed', (change) => { changes.push(change) })
-  const fiber = await ctx.plugin(WorkspaceRegistry)
+  options.configure?.(ctx)
+  const fiber = await ctx.plugin(WorkspaceRegistry, options.config)
   const initChanges = [...changes]
   changes.length = 0
   return {
@@ -203,7 +208,9 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     await fiber.await()
     expect(ctx.workspaceRegistry.list()).toEqual([])
     expect(list).toHaveBeenCalledTimes(1)
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
+    expect(storedState(pool)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], autoPinnedSessions: [],
+    })
   })
 
   it('bootstraps once from list headers only, in workspace/session createdAt order', async () => {
@@ -238,6 +245,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
       workspaceIds: result.registry.list().map(workspace => workspace.id),
       archivedSessionIds: [],
       pinnedSessionIds: [],
+      autoPinnedSessions: [],
     })
   })
 
@@ -266,7 +274,9 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     const second = await harness({ pool, sessions: [header('late', late, 100)] })
     expect(second.list).not.toHaveBeenCalled()
     expect(second.registry.list()).toEqual([])
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
+    expect(storedState(pool)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], autoPinnedSessions: [],
+    })
   })
 
   it('reuses partial records after a bootstrap record write fails', async () => {
@@ -520,7 +530,9 @@ describe('WorkspaceRegistry create and lookup', () => {
     await expect(result.registry.delete(workspace.id)).resolves.toBe(false)
     expect(result.registry.get(workspace.id)).toBeUndefined()
     expect(result.registry.list()).toEqual([])
-    expect(storedState(result.pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
+    expect(storedState(result.pool)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], autoPinnedSessions: [],
+    })
     expect(result.pool.media.get('workspace')!.tables.get('workspaces')!.has(workspace.id)).toBe(false)
     await expect(realpath(dir)).resolves.toBe(dir)
     expect(result.list).toHaveBeenCalledTimes(1)
@@ -565,6 +577,7 @@ describe('WorkspaceRegistry create and lookup', () => {
       workspaceIds: [],
       archivedSessionIds: [],
       pinnedSessionIds: [],
+      autoPinnedSessions: [],
       pendingMutation: { operation: 'delete', workspaceId: workspace.id },
     })
     const reregistered = await first.registry.create(dir)
@@ -574,6 +587,7 @@ describe('WorkspaceRegistry create and lookup', () => {
       workspaceIds: [reregistered.id],
       archivedSessionIds: [],
       pinnedSessionIds: [],
+      autoPinnedSessions: [],
     })
     await first.fiber.dispose()
 
@@ -853,7 +867,9 @@ describe('header-validated membership projection', () => {
     const createRecovery = await harness({ pool: interruptedCreate })
     expect(createRecovery.registry.list()).toEqual([])
     expect(interruptedCreate.media.get('workspace')!.tables.get('workspaces')!.has(createId)).toBe(false)
-    expect(storedState(interruptedCreate)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
+    expect(storedState(interruptedCreate)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], autoPinnedSessions: [],
+    })
 
     const interruptedDelete = storedPool(
       [[deleteId, record(deleteDir, [])]],
@@ -866,7 +882,9 @@ describe('header-validated membership projection', () => {
     const deleteRecovery = await harness({ pool: interruptedDelete })
     expect(deleteRecovery.registry.list()).toEqual([])
     expect(interruptedDelete.media.get('workspace')!.tables.get('workspaces')!.has(deleteId)).toBe(false)
-    expect(storedState(interruptedDelete)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
+    expect(storedState(interruptedDelete)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], autoPinnedSessions: [],
+    })
 
     const corruptPending = storedPool(
       [[deleteId, record(deleteDir, [])]],
@@ -1233,6 +1251,196 @@ describe('registry-global session unpin', () => {
     await expect(result.registry.unpinSession(SessionId('vanished'))).resolves.toBeUndefined()
     expect(result.registry.pinnedSessionIds).toEqual([])
     expect(result.list.mock.calls.length).toBe(listingsBefore)
+  })
+})
+
+describe('registry-global automatic session pin', () => {
+  it('auto-pins on activity, refreshes the stamp on repeat notes, and keeps the pin on idle', async () => {
+    const dir = await makeDir('auto-pin-feed')
+    const result = await harness({ sessions: [header('active', dir, 100), header('other', dir, 200)] })
+
+    await result.registry.noteSessionActivity(SessionId('active'), 'active')
+    expect(result.registry.pinnedSessionIds).toEqual(['active'])
+    const first = storedState(result.pool).autoPinnedSessions
+    expect(first).toHaveLength(1)
+    expect(first[0]!.sessionId).toEqual(SessionId('active'))
+
+    // A repeat note refreshes the stamp without duplicating the pin.
+    await result.registry.noteSessionActivity(SessionId('active'), 'active')
+    expect(result.registry.pinnedSessionIds).toEqual(['active'])
+    expect(Date.parse(storedState(result.pool).autoPinnedSessions[0]!.lastActiveAt))
+      .toBeGreaterThanOrEqual(Date.parse(first[0]!.lastActiveAt))
+
+    // The idle transition restarts the clock but keeps the pin.
+    await result.registry.noteSessionActivity(SessionId('active'), 'idle')
+    expect(result.registry.pinnedSessionIds).toEqual(['active'])
+
+    // A second session's note lands ahead in pin order.
+    await result.registry.noteSessionActivity(SessionId('other'), 'active')
+    expect(result.registry.pinnedSessionIds).toEqual(['other', 'active'])
+
+    // A refresh with several entries rewrites only its own.
+    await result.registry.noteSessionActivity(SessionId('active'), 'active')
+    const entries = storedState(result.pool).autoPinnedSessions
+    expect(entries.map(entry => entry.sessionId)).toEqual([SessionId('other'), SessionId('active')])
+  })
+
+  it('never auto-pins archived, manually pinned, or suppressed sessions', async () => {
+    const dir = await makeDir('auto-pin-guards')
+    const result = await harness({
+      sessions: [header('archived', dir, 100), header('manual', dir, 200), header('shy', dir, 300)],
+    })
+    await result.registry.archiveSession(SessionId('archived'))
+    await result.registry.pinSession(SessionId('manual'))
+
+    await result.registry.noteSessionActivity(SessionId('archived'), 'active')
+    expect(result.registry.pinnedSessionIds).toEqual(['manual'])
+    expect(storedState(result.pool).autoPinnedSessions).toEqual([])
+
+    // A manual pin stays manual: activity notes create no automatic entry.
+    await result.registry.noteSessionActivity(SessionId('manual'), 'active')
+    expect(storedState(result.pool).autoPinnedSessions).toEqual([])
+
+    // Removing an automatic pin by hand suppresses the feed until idle.
+    await result.registry.noteSessionActivity(SessionId('shy'), 'active')
+    expect(result.registry.pinnedSessionIds).toEqual(['shy', 'manual'])
+    await result.registry.unpinSession(SessionId('shy'))
+    expect(result.registry.pinnedSessionIds).toEqual(['manual'])
+    await result.registry.noteSessionActivity(SessionId('shy'), 'active')
+    expect(result.registry.pinnedSessionIds).toEqual(['manual'])
+    // The idle transition ends the episode: the next active note re-pins.
+    await result.registry.noteSessionActivity(SessionId('shy'), 'idle')
+    await result.registry.noteSessionActivity(SessionId('shy'), 'active')
+    expect(result.registry.pinnedSessionIds).toEqual(['shy', 'manual'])
+  })
+
+  it('drops the automatic entry when an auto-pinned session is archived', async () => {
+    const dir = await makeDir('auto-pin-archive')
+    const result = await harness({ sessions: [header('doomed', dir, 100), header('kept', dir, 200)] })
+    await result.registry.noteSessionActivity(SessionId('doomed'), 'active')
+    await result.registry.noteSessionActivity(SessionId('kept'), 'active')
+
+    await result.registry.archiveSession(SessionId('doomed'))
+    expect(result.registry.pinnedSessionIds).toEqual(['kept'])
+    expect(storedState(result.pool).autoPinnedSessions.map(entry => entry.sessionId))
+      .toEqual([SessionId('kept')])
+  })
+
+  it('promotes an automatic pin to a manual one on an explicit pin', async () => {
+    const dir = await makeDir('auto-pin-promote')
+    const result = await harness({ sessions: [header('kept', dir, 100)] })
+    await result.registry.noteSessionActivity(SessionId('kept'), 'active')
+    expect(storedState(result.pool).autoPinnedSessions).toHaveLength(1)
+
+    await result.registry.pinSession(SessionId('kept'))
+    expect(result.registry.pinnedSessionIds).toEqual(['kept'])
+    expect(storedState(result.pool).autoPinnedSessions).toEqual([])
+  })
+
+  it('sweeps expired automatic pins, refreshes reported-active ones, and leaves manual pins', async () => {
+    const dir = await makeDir('auto-pin-sweep')
+    const result = await harness({
+      sessions: [header('stale', dir, 100), header('busy', dir, 200), header('manual', dir, 300)],
+    })
+    const stopBusyReport = result.ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
+      const rest = await next()
+      return sessionId === 'busy' ? [{ kind: 'probe' }, ...rest] : rest
+    })
+    await result.registry.pinSession(SessionId('manual'))
+
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-10-13T00:00:00Z'))
+      await result.registry.noteSessionActivity(SessionId('stale'), 'active')
+      await result.registry.noteSessionActivity(SessionId('busy'), 'active')
+      expect(result.registry.pinnedSessionIds).toEqual(['busy', 'stale', 'manual'])
+
+      vi.setSystemTime(new Date('2026-10-13T02:00:00Z'))
+      await result.registry.sweepAutoPins()
+
+      // The busy session's clock refreshed to the sweep instant; the stale pin is gone.
+      expect(result.registry.pinnedSessionIds).toEqual(['busy', 'manual'])
+      expect(storedState(result.pool).autoPinnedSessions).toEqual([
+        { sessionId: SessionId('busy'), lastActiveAt: '2026-10-13T02:00:00.000Z' },
+      ])
+
+      // A quiet repeat sweep writes nothing: with the busy report gone and
+      // the refreshed stamp still inside the window, nothing changes.
+      stopBusyReport()
+      const changesAfter = result.changes.filter(change => change.table === '').length
+      await result.registry.sweepAutoPins()
+      expect(result.changes.filter(change => change.table === '').length).toBe(changesAfter)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drops leftover entries whose pin or session already moved on, without asking providers', async () => {
+    const dir = await makeDir('auto-pin-leftovers')
+    const pool = storedPool([], {
+      initialized: true,
+      workspaceIds: [],
+      archivedSessionIds: [SessionId('gone-archived')],
+      pinnedSessionIds: [],
+      autoPinnedSessions: [
+        { sessionId: SessionId('gone-pin'), lastActiveAt: new Date().toISOString() },
+        { sessionId: SessionId('gone-archived'), lastActiveAt: new Date().toISOString() },
+      ],
+    } as never)
+    const asked: SessionId[] = []
+    const result = await harness({
+      pool,
+      sessions: [header('plain', dir, 100)],
+      configure: (ctx) => {
+        ctx.on('workspace/session-activity', ({ sessionId }, next) => {
+          asked.push(sessionId)
+          return next()
+        })
+      },
+    })
+    // The boot-time sweep dropped both leftovers without an activity question.
+    await vi.waitFor(() => { expect(storedState(result.pool).autoPinnedSessions).toEqual([]) })
+    expect(asked).toEqual([])
+  })
+
+  it('logs a boot-time sweep failure and keeps serving writes', async () => {
+    const dir = await makeDir('auto-pin-failure')
+    const pool = storedPool([], {
+      initialized: true,
+      workspaceIds: [],
+      archivedSessionIds: [],
+      pinnedSessionIds: [SessionId('doomed')],
+      autoPinnedSessions: [{ sessionId: SessionId('doomed'), lastActiveAt: new Date().toISOString() }],
+    } as never)
+    const warnings: string[] = []
+    const result = await harness({
+      pool,
+      sessions: [header('other', dir, 100)],
+      configure: (ctx) => {
+        ctx.on('workspace/session-activity', () => { throw new Error('provider exploded') })
+        ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as never
+      },
+    })
+    await vi.waitFor(() => {
+      expect(warnings.some(line => line.includes('automatic pin sweep failed'))).toBe(true)
+    })
+    // The rejected sweep neither removed the entry nor poisoned the write chain.
+    await result.registry.pinSession(SessionId('other'))
+    expect(result.registry.pinnedSessionIds).toEqual(['other', 'doomed'])
+  })
+
+  it('restores automatic pins across restarts and keeps fresh entries on the boot sweep', async () => {
+    const dir = await makeDir('auto-pin-restart')
+    const pool = new MemoryMediaPool()
+    const sessions = [header('kept', dir, 100)]
+    const first = await harness({ pool, sessions })
+    await first.registry.noteSessionActivity(SessionId('kept'), 'active')
+    await first.fiber.dispose()
+
+    const second = await harness({ pool, sessions })
+    expect(second.registry.pinnedSessionIds).toEqual(['kept'])
+    await vi.waitFor(() => { expect(storedState(pool).autoPinnedSessions).toHaveLength(1) })
+    expect(storedState(pool).autoPinnedSessions[0]!.sessionId).toEqual(SessionId('kept'))
   })
 })
 

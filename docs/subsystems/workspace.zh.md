@@ -129,6 +129,8 @@ interface Workspace {
 
 控制器的[传输类型](../../packages/api/workspace-controller/src/types.ts)定义了 `WorkspacePinSessionRequest` 和 `WorkspaceUnpinSessionRequest`，两者都携带一个 `sessionId`。两个操作都返回 `WorkspacePinValue`：完整的会话 id 数组 `pinnedSessionIds`，最近置顶的会话排在前面。置顶要求会话已知且未归档；对未置顶的 id 取消置顶会成功，且不改变集合。归档在同一次持久化写入中移除该会话的置顶，取消归档不会恢复置顶。
 
+注册表也会自动置顶：Agent 注册表把每一次 `agent/status` 变迁以可见会话（子代理则取最近的非子代理祖先）记录给注册表，注册表据此为未置顶、未归档的会话自动置顶。每个自动置顶是一条 `autoPinnedSessions` 记录，携带最近一次活动时间戳；分钟级扫掠在活动提供方仍报告工作时刷新该时间戳，活动结束满 `autoPinIdleTimeout`（默认一小时）后移除置顶。显式置顶会把自动置顶升级为手动置顶——手动置顶永不参与扫掠——手动移除自动置顶后，会话下次进入空闲前不再自动置顶。
+
 ## 归档准入
 
 归档是一个注册表全局的持久化集合，注册表拒绝把正在运行的工作藏在它后面。这条规则是本包声明并派发的两个宿主事件之上的能力接缝（[事件](#workspace-events)）：`workspace/session-activity`（waterfall）向已组合的提供方询问某会话还有什么在跑，`workspace/session-stop`（parallel）请它们停止这些工作。每个提供方像任何监听器一样在根上注册，因此本包不认识 agent、job 或 schedule 的词汇；各族是一个可合并扩展的 map 的键。
@@ -590,6 +592,30 @@ pinSession(sessionId: SessionId): Promise<void>
  * @returns resolution after durability.
  */
 unpinSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Record one observed activity transition from the automatic-pin feed.
+ * 'active' refreshes an existing automatic pin's idle clock, or places one
+ * on an unpinned, unarchived, unsuppressed session — the feeding Agent
+ * guarantees the session is live, so no existence question is asked.
+ * 'idle' restarts an automatic pin's clock and lifts the manual-unpin
+ * suppression, ending the episode the suppression covered. Manual pins are
+ * never touched, and neither phase writes when nothing changed.
+ * @param sessionId - The visible session the activity belongs to.
+ * @param phase - Whether the session entered or left activity.
+ * @returns resolution after durability.
+ */
+noteSessionActivity(sessionId: SessionId, phase: 'active' | 'idle'): Promise<void>
+
+/**
+ * Drop every automatic pin whose idle clock reached the configured
+ * timeout. A session the `workspace/session-activity` providers still
+ * report active has its clock refreshed instead, so continuous work never
+ * outlives its own pin. Entries whose pin or session state already moved
+ * on (a manual unpin, an archive) fall away without a question.
+ * @returns resolution after durability, when anything changed.
+ */
+sweepAutoPins(): Promise<void>
 
 /**
  * Resolve by canonical directory path without creating or mutating a

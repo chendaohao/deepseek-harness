@@ -282,10 +282,14 @@
 }
 
 /* Hover swaps the trailing cell to the action buttons, which already carry
-   the pin/archive glyphs — hide the static markers so they do not double. */
-.sessionRow:hover .pinIndicator,
-.sessionRow.menuOpen .pinIndicator {
-  display: none;
+   the pin/archive glyphs — hide the static markers so they do not double.
+   Hover-capable pointers only: on touch the quick actions stay hidden, so the
+   pinned marker remains the row's one pin affordance. */
+@media (hover: hover) {
+  .sessionRow:hover .pinIndicator,
+  .sessionRow.menuOpen .pinIndicator {
+    display: none;
+  }
 }
 
 /* The unclipped hover state drops the ellipsis, which would otherwise cover
@@ -407,6 +411,15 @@
 
 .iconButton:hover {
   color: var(--dsw-alias-label-primary);
+}
+
+/* A touch tap latches :hover on the row, which would hold the quick-action
+   strip open over the title and put Archive one mis-tap away. Touch keeps
+   only the menu trigger; every verb stays reachable inside the menu. */
+@media (hover: none) {
+  .quickAction {
+    display: none;
+  }
 }
 
 /* Chevrons ride the caption grey (#ADB2B8); the folder glyph stays one step
