@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-A provider can stop a step at its output-token ceiling while that step streamed only private reasoning. The turn then ends with no visible text and no tool call, so the agent stops making progress while its transcript still looks healthy — the failure is invisible to anyone reading the conversation. This package notices that step and queues exactly one short recovery prompt for the next turn, telling the model to deliver the smallest concrete change instead of re-planning. It recovers once per run of consecutive ceiling hits, and the `dsh` base bundle enables it with `maxRecoveries: 1`. Delegated child sessions are left to their parents unless `coverSubagentSessions` turns coverage on.
+A provider can stop a step at its output-token ceiling after it streamed only private reasoning, ending the turn with no visible text or tool call. The agent then stops progressing while its transcript looks healthy — a failure invisible to its reader. This package notices that step and queues one recovery prompt for the next turn, telling the model to deliver the smallest concrete change instead of re-planning. It recovers once per run of consecutive ceiling hits; the `dsh` base bundle enables it with `maxRecoveries: 1`, and delegated child sessions stay with their parents unless `coverSubagentSessions` turns coverage on.
 
 ## Table of Contents
 

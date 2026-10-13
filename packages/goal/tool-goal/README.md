@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-tool-goal` lets a model read persisted goals and infer and create a long-running goal from a direct human request. Creating, editing, pausing, or resuming requires that direct request in a top-level agent turn; completing or blocking also works in an autonomous goal round, and completing additionally works in a root-agent turn opened by a delegated subagent reporting back. Updates require the exact goal id and revision returned by a prior read. `resume` rearms active-but-disarmed or blocked goals, while users resume durable paused goals through Web or `/goal resume`. Autonomous blocking requires the same condition for a configurable threshold of three consecutive rounds by default.
+`dsh-tool-goal` lets a model read persisted goals and infer and create a long-running goal from a direct human request. Creating, editing, pausing, or resuming requires that direct request in a top-level agent turn; completing or blocking works in an autonomous goal round, and completing additionally works in a root-agent turn opened by a delegated subagent reporting back. Updates require the exact goal id and revision from a prior read. `resume` rearms active-but-disarmed or blocked goals; users resume durable paused goals through Web or `/goal resume`. Autonomous blocking requires the same condition for a configurable threshold, three consecutive rounds by default.
 
 ## Table of Contents
 
