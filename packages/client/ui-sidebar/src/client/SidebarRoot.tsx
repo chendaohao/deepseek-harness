@@ -214,12 +214,12 @@ export function SidebarRoot({
           traffic lights and keeps the toggle at the sidebar's top-right. */}
       {darwinDesktop && <div className={css.topStrip} data-window-drag>{toggle}</div>}
       <div className={css.logoRow} data-window-drag>
-        {/* Expanded, the brand doubles as a New Session shortcut — except on
-            macOS, where it stays part of the logo row's window-drag surface
-            (a button would subtract itself through the global no-drag rule);
-            the collapsed rail's logo is the expand toggle below instead. */}
-        {wide && (() => {
-          const identity = (
+        {/* The brand row is identity only: the capsule below is the single New
+            Session control at this width. On macOS the row also stays part of
+            the window-drag surface, which a button would subtract itself from
+            through the global no-drag rule. */}
+        {wide && (
+          <span className={clsx(css.brand, css.wide)}>
             <span className={css.brandIdentity} aria-hidden="true">
               <span className={css.brandMark}>
                 {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
@@ -237,21 +237,8 @@ export function SidebarRoot({
                 })}
               </span>
             </span>
-          )
-          return darwinDesktop
-            ? <span className={clsx(css.brand, css.wide)}>{identity}</span>
-            : (
-              <button
-                type="button"
-                className={clsx(css.brand, css.wide)}
-                aria-label={t('session.new.label')}
-                aria-keyshortcuts={newShortcut?.aria}
-                onClick={() => { startSession() }}
-              >
-                {identity}
-              </button>
-            )
-        })()}
+          </span>
+        )}
         {!darwinDesktop && toggle}
       </div>
 
