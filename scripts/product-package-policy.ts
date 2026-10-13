@@ -18,6 +18,8 @@ export interface ProductPackagePolicy {
 export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolicy>> = {
   'packages/browser-use/browser-use': { category: 'optional', reason: 'Service definition used by explicitly selected browser providers.' },
   'packages/computer-use/computer-use': { category: 'optional', reason: 'Service definition used by explicitly selected computer providers.' },
+  'packages/codegraph/codegraph': { category: 'optional', reason: 'Scoped CodeGraph checklist and MCP server, mounted only where the deployment has indexed the workspace.' },
+  'packages/guard/compile-serialization': { category: 'optional', reason: 'Ships disabled in the base bundle; an overlay enables it where concurrent agents share one checkout.' },
   'packages/lsp/lsp': { category: 'optional', reason: 'Service definition for deployment-configured language servers.' },
   'packages/lsp/lsp-stdio': { category: 'optional', reason: 'Requires an explicit server list and language-server executables.' },
   'packages/lsp/tool-lsp': { category: 'optional', reason: 'Model tools selected together with a configured LSP provider.' },

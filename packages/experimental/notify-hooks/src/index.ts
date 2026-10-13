@@ -124,6 +124,7 @@ export const Config: z<Config> = z.object({
   projectDir: z.string(),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
+  // An omitted group must stay undefined rather than become `{}` and then fail the required pair.
   summary: z.object({
     provider: z.string().required(),
     model: z.string().required(),
@@ -131,7 +132,7 @@ export const Config: z<Config> = z.object({
     maxTokens: z.number().default(DEFAULT_SUMMARY_MAX_TOKENS),
     maxInputChars: z.number().default(DEFAULT_SUMMARY_MAX_INPUT_CHARS),
     timeoutMs: z.number().default(DEFAULT_SUMMARY_TIMEOUT_MS),
-  }).default(undefined as unknown as SummaryConfig),
+  }).default(undefined as never),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -140,7 +141,11 @@ function nextHandlerId(point: string): string {
   return `claude-code:${point}:${++handlerCounter}`
 }
 
-/** The `{kind:'hooks-claude-code'}` producer source stamped on every context this bridge injects. The kind is a released session-format producer identity, so it stays stable while the package is renamed. */
+/**
+ * The `{kind:'hooks-claude-code'}` producer source stamped on every context this
+ * bridge injects. The kind is a released session-format producer identity, so it
+ * stays stable while the package is renamed.
+ */
 const CONTEXT_SOURCE: MessageSource = { kind: 'hooks-claude-code' }
 
 /** Exact model-visible request recorded before one turn-summary dispatch. */

@@ -15540,6 +15540,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:*
         version: link:../../packages/session/session-persistence-jsonl
+      '@deepseek-ai/dsh-session-pin':
+        specifier: workspace:*
+        version: link:../../packages/session/session-pin
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:*
         version: link:../../packages/session/session-projection

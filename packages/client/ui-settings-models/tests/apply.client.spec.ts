@@ -166,7 +166,7 @@ describe('ui-settings-models apply', () => {
     const b = await bench()
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const injected = b.slots.entries('settings.section')[0]!.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
+    const injected = b.slots.entries('settings.section')[0]!.inject as object as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
     const workerRoute = injected().workerRoute
     expect(workerRoute.catalog.getSnapshot()).toEqual({ value: null, status: 'idle' })
     // The callback is the page plugin's own catalog loader, not a stub: the
@@ -182,7 +182,7 @@ describe('ui-settings-models apply', () => {
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     b.locale.setLocale('en')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')
-    const injected = b.slots.entries('settings.section')[0]!.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
+    const injected = b.slots.entries('settings.section')[0]!.inject as object as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
     expect(injected().t('deleteTitle')).toBe('Delete {provider}?')
     b.locale.setLocale('zh')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('模型')
