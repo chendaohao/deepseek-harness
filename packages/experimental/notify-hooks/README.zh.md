@@ -50,7 +50,7 @@ kind: "package-reference"
 | `projectDir` | 会话工作区 | 替换 `${CLAUDE_PROJECT_DIR}` 并设置 `CLAUDE_PROJECT_DIR` 环境变量 |
 | `defaultTimeoutMs` | `600,000` | hook 未设置时的每 hook 超时（即 Claude Code 默认值） |
 | `stderrSummaryMaxChars` | `500` | 持久化 `hook/result` stderr 摘要的字符上限 |
-| `summary` | — | 可选的回合总结配置组；见[回合总结](#回合总结可选) |
+| `summary` | — | 可选的回合总结配置组；见[回合总结](#turn-summaries-optional) |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-notify-hooks)是每个受支持字段的穷尽式真源。
 
@@ -75,6 +75,7 @@ kind: "package-reference"
 - 如果配置无法读取或解析，桥接会记录警告且不运行任何钩子——agent 仍会启动。
 - 运行失败的钩子（命令错误或崩溃）会被记录，agent 继续运行。
 
+<a id="turn-summaries-optional"></a>
 ### 回合总结（可选）
 
 在配置中加入 `summary` 组，桥接会把每个完成回合的模型生成摘要写进 `Stop` 钩子载荷的 `summary` 字段，通知类钩子直接发送它，无需自己解析会话日志：

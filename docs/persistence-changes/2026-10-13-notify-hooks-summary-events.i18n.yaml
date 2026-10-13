@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-13-notify-hooks-summary-events.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-13-notify-hooks-summary-events.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-13-notify-hooks-summary-events:
+  en: 31d11878ce8ba1ae
+  zh: e79de419a9a154da
+/2026-10-13-notify-hooks-summary-events/summary:
+  en: e3805148c0b0bb86
+  zh: 1c4acdcba8d74b67
+/2026-10-13-notify-hooks-summary-events/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-13-notify-hooks-summary-events/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-13-notify-hooks-summary-events/compatibility:
+  en: 7eca0ad2724d22a7
+  zh: 063399434c6aa84d
+/2026-10-13-notify-hooks-summary-events/verification:
+  en: 3346d20d8b17fcc8
+  zh: 146411df74f7aca5
+/2026-10-13-notify-hooks-summary-events/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269
