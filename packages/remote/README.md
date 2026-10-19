@@ -23,7 +23,7 @@ The `remote/` group exposes the local Web GUI over a public HTTPS tunnel with ph
 | Package | Role | ctx key |
 |---|---|---|
 | [`remote-tunnel/`](remote-tunnel/README.md) | Tunnel capability: Service + cloudflared quick-tunnel provider | `ctx.remoteTunnel` |
-| [`remote-access/`](remote-access/README.md) | Pairing gate, revocable device registry, loopback reverse proxy, and the URL/QR + `/remote/*` control-plane consumer | `ctx.remoteAccess` |
+| [`remote-access/`](remote-access/README.md) | Pairing gate, revocable device registry, loopback reverse proxy, and the URL/QR + `/remote/*` control-plane consumer | `ctx.remotePairing` |
 
 `remote-access` consumes the `remoteTunnel` Service and the host webserver port.
 

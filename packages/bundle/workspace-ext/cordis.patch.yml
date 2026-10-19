@@ -22,7 +22,11 @@
       config:
         enabled: !!js ctx.webStartup.remote ?? false
 
-    - id: remote-access
+    # `remote-pairing`, not `remote-access`: dsh-base inserts its own
+    # `remote-access` row (the Gateway's method-level access policies), and the
+    # Loader keys entries by id, so a shared id would silently replace that row
+    # and leave every `remoteAccess` Client consumer pending.
+    - id: remote-pairing
       name: '@deepseek-ai/dsh-remote-access'
       inject: [webStartup]
       config:

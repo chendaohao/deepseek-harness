@@ -48,8 +48,10 @@ describe('dsh-workspace-ext bundle', () => {
       inject: ['webStartup'],
       config: { enabled: { __jsExpr: 'ctx.webStartup.remote ?? false' } },
     })
-    expect(rows.find(row => row.id === 'remote-access')).toEqual({
-      id: 'remote-access',
+    // `remote-pairing` rather than `remote-access`: dsh-base owns that id for
+    // the Gateway's access policies, and Loader entries are keyed by id.
+    expect(rows.find(row => row.id === 'remote-pairing')).toEqual({
+      id: 'remote-pairing',
       name: '@deepseek-ai/dsh-remote-access',
       inject: ['webStartup'],
       config: {

@@ -23,7 +23,7 @@ kind: "package-group"
 | 包 | 角色 | ctx key |
 |---|---|---|
 | [`remote-tunnel/`](remote-tunnel/README.zh.md) | 隧道能力：Service + cloudflared 快速隧道 provider | `ctx.remoteTunnel` |
-| [`remote-access/`](remote-access/README.zh.md) | 配对闸门、可吊销设备注册表、loopback 反向代理与 URL/二维码 + `/remote/*` 控制面消费者 | `ctx.remoteAccess` |
+| [`remote-access/`](remote-access/README.zh.md) | 配对闸门、可吊销设备注册表、loopback 反向代理与 URL/二维码 + `/remote/*` 控制面消费者 | `ctx.remotePairing` |
 
 `remote-access` 消费 `remoteTunnel` Service 与宿主 Web 服务器端口。
 

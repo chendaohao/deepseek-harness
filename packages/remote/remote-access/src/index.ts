@@ -67,9 +67,10 @@ interface IndexLoginConnection {
 }
 
 /**
- * The remote-access Service (ctx key remoteAccess): pairing gate, device
+ * The remote-pairing Service (ctx key `remotePairing`): pairing gate, device
  * registry, reverse proxy, tunnel lifecycle, and the URL/QR + control-plane
- * presentation of the capability.
+ * presentation of the capability. `remoteAccess` belongs to
+ * `dsh-api-remote-access`, the Gateway's method-level access policies.
  */
 export class RemoteAccess extends Service {
   static inject = ['remoteTunnel', 'webServer', 'shellEnv', 'connection']
@@ -87,7 +88,7 @@ export class RemoteAccess extends Service {
    * @param config - validated {@link Config}.
    */
   constructor(ctx: Context, private readonly config: Config) {
-    super(ctx, 'remoteAccess')
+    super(ctx, 'remotePairing')
   }
 
   async [Service.init](): Promise<void> {
@@ -136,7 +137,7 @@ export class RemoteAccess extends Service {
       if (this.devices !== undefined) this.devices.onChange = undefined
       await this.session?.close()
       await this.proxy?.close()
-    }, 'remoteAccess.dispose')
+    }, 'remotePairing.dispose')
     this.registerShellEnv()
     this.ctx.on('remote-tunnel/state', (state) => {
       /* v8 ignore next -- the listener unloads with the fiber, so disposal cannot race an ended event */
