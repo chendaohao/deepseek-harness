@@ -28,6 +28,9 @@
     },
     {
       "path": "../../util/timeout"
+    },
+    {
+      "path": "../../subagent/subagent"
     }
   ]
 }

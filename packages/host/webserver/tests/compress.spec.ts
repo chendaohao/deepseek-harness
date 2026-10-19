@@ -164,6 +164,12 @@ interface RawResult {
  * bytes and headers. The fetch client auto-decodes compressed bodies, so the
  * assertions read the transport itself.
  */
+/** The bound port, failing the test when the composition did not listen. */
+function listenPort(server: { readonly port: number | undefined }): number {
+  if (server.port === undefined) throw new Error('webserver composition did not bind a port')
+  return server.port
+}
+
 async function raw(port: number, path: string, headers: Record<string, string> = {}): Promise<RawResult> {
   const socket = connect(port, '127.0.0.1')
   await once(socket, 'connect')
@@ -228,7 +234,7 @@ async function raw(port: number, path: string, headers: Record<string, string> =
 describe('compression negotiation and gating', () => {
   it('serves brotli to an accepting client, dropping content-length and adding Vary', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/big', { 'accept-encoding': 'gzip, deflate, br' })
+    const got = await raw(listenPort(loaded.webServer), '/big', { 'accept-encoding': 'gzip, deflate, br' })
     expect(got.status).toBe(200)
     expect(got.headers['content-encoding']).toBe('br')
     expect(got.headers.vary).toContain('accept-encoding')
@@ -240,7 +246,7 @@ describe('compression negotiation and gating', () => {
 
   it('falls back to gzip when the client does not accept brotli', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/big', { 'accept-encoding': 'gzip' })
+    const got = await raw(listenPort(loaded.webServer), '/big', { 'accept-encoding': 'gzip' })
     expect(got.headers['content-encoding']).toBe('gzip')
     const decoded = gunzipSync(got.bytes)
     expect(decoded.toString()).toBe(BODY)
@@ -248,7 +254,7 @@ describe('compression negotiation and gating', () => {
 
   it('serves identity when the client explicitly accepts identity only', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/big', { 'accept-encoding': 'identity' })
+    const got = await raw(listenPort(loaded.webServer), '/big', { 'accept-encoding': 'identity' })
     expect(got.headers['content-encoding']).toBeUndefined()
     expect(got.bytes.toString()).toBe(BODY)
     expect(got.headers['content-length']).toBe(String(Buffer.byteLength(BODY)))
@@ -256,28 +262,28 @@ describe('compression negotiation and gating', () => {
 
   it('serves identity when compression is disabled by config', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('none')
-    const got = await raw(loaded.webServer.port, '/big', { 'accept-encoding': 'br' })
+    const got = await raw(listenPort(loaded.webServer), '/big', { 'accept-encoding': 'br' })
     expect(got.headers['content-encoding']).toBeUndefined()
     expect(got.bytes.toString()).toBe(BODY)
   })
 
   it('skips small bodies under the threshold', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/small', { 'accept-encoding': 'br' })
+    const got = await raw(listenPort(loaded.webServer), '/small', { 'accept-encoding': 'br' })
     expect(got.headers['content-encoding']).toBeUndefined()
     expect(got.bytes.toString()).toBe('hello world!')
   })
 
   it('skips non-compressible MIME types', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/binary', { 'accept-encoding': 'br' })
+    const got = await raw(listenPort(loaded.webServer), '/binary', { 'accept-encoding': 'br' })
     expect(got.headers['content-encoding']).toBeUndefined()
     expect([...got.bytes]).toEqual([0, 1, 2, 3, 4, 5])
   })
 
   it('passes SSE bodies through uncompressed', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/sse', { 'accept-encoding': 'br' })
+    const got = await raw(listenPort(loaded.webServer), '/sse', { 'accept-encoding': 'br' })
     expect(got.headers['content-encoding']).toBeUndefined()
     expect(got.headers['content-type']).toBe('text/event-stream')
     expect(got.bytes.toString()).toBe('data: one\n\ndata: two\n\n')
@@ -285,7 +291,7 @@ describe('compression negotiation and gating', () => {
 
   it('streams a large compressed body to completion under drain-wait backpressure', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/stream', { 'accept-encoding': 'br' })
+    const got = await raw(listenPort(loaded.webServer), '/stream', { 'accept-encoding': 'br' })
     expect(got.status).toBe(200)
     expect(got.headers['content-encoding']).toBe('br')
     const decoded = brotliDecompressSync(got.bytes)
@@ -295,7 +301,7 @@ describe('compression negotiation and gating', () => {
 
   it('serves identity when the client refuses every encoding', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/big', { 'accept-encoding': 'identity;q=0, *;q=0' })
+    const got = await raw(listenPort(loaded.webServer), '/big', { 'accept-encoding': 'identity;q=0, *;q=0' })
     // Every encoding including identity is refused (q=0): nothing may be
     // applied, so the body ships as-is.
     expect(got.headers['content-encoding']).toBeUndefined()
@@ -304,7 +310,7 @@ describe('compression negotiation and gating', () => {
 
   it('carries every handler Set-Cookie append on a compressed response', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/refresh', { 'accept-encoding': 'br' })
+    const got = await raw(listenPort(loaded.webServer), '/refresh', { 'accept-encoding': 'br' })
     expect(got.status).toBe(200)
     expect(got.headerList.filter(([name]) => name === 'set-cookie').map(([, value]) => value))
       .toEqual(['dsh=one; Path=/', 'dsh=two; Path=/'])
@@ -314,7 +320,7 @@ describe('compression negotiation and gating', () => {
 
   it('serves the status a handler assigned through statusCode', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition('auto')
-    const got = await raw(loaded.webServer.port, '/refuse', { 'accept-encoding': 'br' })
+    const got = await raw(listenPort(loaded.webServer), '/refuse', { 'accept-encoding': 'br' })
     expect(got.status).toBe(404)
     // The decision sees the assigned status too: a 404 body is compressible.
     expect(got.headers['content-encoding']).toBe('br')

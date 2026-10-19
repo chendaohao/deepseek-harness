@@ -5,8 +5,8 @@
  * the roster (selection, the new-task default, a read-only view of each
  * declared composition, and the way into Creator mode).
  *
- * A running session keeps the composition it began with (the host refuses to
- * adopt an existing session under a different preset). That is what splits
+ * A running session keeps the composition it began with (the host switches a
+ * session's preset only before its first turn). That is what splits
  * the choice from the display: the hero chip is before-the-fact, while the
  * header only reports what a session already runs. The default preset is
  * edited where the roster is visible — the settings section's "make default"
@@ -212,10 +212,10 @@ export function apply(ctx: ClientContext): void {
     })
 
     const startCreatorDraft = () => {
+      // The Host composes the reused draft or new Session; the stage only drives the chip's display and introduction.
       const seat = mainBlankSeat() ?? unboundSeat
       seat.stage('cordis', true)
-      scope.uiWorkspace.startSession(undefined, { clearPreviousDraft: false })
-      void seat.apply()
+      scope.uiWorkspace.startSession(undefined, { clearPreviousDraft: false, agentPreset: 'cordis' })
     }
 
     scope.effect(() => {

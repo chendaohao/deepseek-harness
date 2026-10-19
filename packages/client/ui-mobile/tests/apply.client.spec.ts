@@ -47,7 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals()
   document.documentElement.removeAttribute(LAYER_ATTRIBUTE)
-  document.head.querySelectorAll(`style[data-plugin="${PLUGIN_ID}"]`).forEach(node => { node.remove() })
+  document.head.querySelectorAll(`style[data-plugin="${PLUGIN_ID}"]`).forEach((node) => { node.remove() })
   globalThis.sessionStorage.clear()
 })
 

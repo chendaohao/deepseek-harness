@@ -124,7 +124,11 @@ export class RemoteAccess extends Service {
     // The webserver binds either the loopback address or the all-interfaces
     // wildcard; only the wildcard needs mapping to a connectable destination.
     const targetHost = this.ctx.webServer.host === '0.0.0.0' ? '127.0.0.1' : this.ctx.webServer.host
-    this.proxy = await createRemoteProxy({ targetPort: this.ctx.webServer.port, targetHost, policy })
+    const targetPort = this.ctx.webServer.port
+    if (targetPort === undefined) {
+      throw new Error('remote-access: the Web server has not bound a port; activate it before the tunnel proxy')
+    }
+    this.proxy = await createRemoteProxy({ targetPort, targetHost, policy })
     this.registerControlPlane()
     this.ctx.effect(() => async () => {
       this.disposed = true

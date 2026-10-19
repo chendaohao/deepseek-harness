@@ -21,7 +21,7 @@ afterEach(() => { vi.unstubAllGlobals() })
 // so browser-language detection never runs and a fresh LocaleRuntime opens on
 // FALLBACK_LOCALE (en); bench stages zh explicitly on the locale instead.
 
-async function bench(isLoopback = true, mock = RemoteMock.create().load(remoteDefaultResponses), services: object = {}) {
+async function bench(mock = RemoteMock.create().load(remoteDefaultResponses), services: object = {}) {
   onTestFinished(() => { mock.assertNoUnmatched() })
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -49,8 +49,6 @@ async function bench(isLoopback = true, mock = RemoteMock.create().load(remoteDe
     },
     settings: mock.remote.settings,
   })
-  // The fixed Host facts the settings provider reads its persistence from.
-  remote.$host = { home: undefined, isLoopback }
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, remote }
 }
@@ -303,7 +301,7 @@ describe('ui-settings-models apply', () => {
     const describe = mock.remote.settings.describe
     describe.mockResolvedValue(ok(document))
     const listProviders = vi.fn(() => Promise.resolve({ ok: true as const, value: [] }))
-    const b = await bench(true, mock, { listProviders })
+    const b = await bench(mock, { listProviders })
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const entry = b.slots.entries('settings.section')

@@ -86,7 +86,7 @@ async function decodeOutcome(headers: Record<string, string>, raw: Buffer): Prom
       headers,
       body: new Uint8Array(raw),
     })
-    const response = await shared.fetch(request)
+    const response = await shared.fetch(request, connection.browserPeer)
     await withdraw()
     return { status: response.status, body: await response.text(), payload: received, logs: logs() }
   } finally {

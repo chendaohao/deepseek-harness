@@ -63,7 +63,7 @@ export class ConfigFormController<T> implements ConfigForm<T> {
   private tail: Promise<void> = Promise.resolve()
   private writeGeneration = 0
   private disposed = false
-  private readonly unsubscribe: (() => void) | undefined
+  private readonly unsubscribe: () => void
   /**
    * Revision answered by a superseded write still ahead of the mirror: the
    * mirror only folds the LATEST settlement in, so a queued successor takes
@@ -178,7 +178,7 @@ export class ConfigFormController<T> implements ConfigForm<T> {
   async dispose(): Promise<void> {
     this.disposed = true
     this.writeGeneration += 1
-    this.unsubscribe?.()
+    this.unsubscribe()
     await this.tail
   }
 

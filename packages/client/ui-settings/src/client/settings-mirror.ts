@@ -53,8 +53,8 @@ export interface SettingsDescribeFace {
    */
   subscribe(listener: () => void): () => void
   /**
-   * Resolve once an answer is held (or the mirror is terminally unavailable),
-   * reading only from `idle`.
+   * Resolve once an answer is held, reading only from `idle`. A settled mirror
+   * holds either a view or the read's error.
    * @returns settlement of the current or newly started read, if any.
    */
   ensure(): Promise<void>
@@ -120,7 +120,7 @@ export class SettingsDescribeMirror implements SettingsDescribeFace {
   }
 
   /**
-   * Resolve once an answer is held (or the latest read failed without one),
+   * Resolve once an answer is held (or the mirror is terminally unavailable),
    * reading only from `idle`. The cheap idempotent entry for surfaces that
    * render on first use.
    * @returns settlement of the current or newly started read, if any.

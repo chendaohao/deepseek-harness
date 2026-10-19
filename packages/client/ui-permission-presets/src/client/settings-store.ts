@@ -95,9 +95,7 @@ export class PermissionPresetSettingsController {
       state.error = null
     })
     await this.describeFace.ensure()
-    if (this.describeFace.getSnapshot().status !== 'unavailable') {
-      try { await this.catalog.load() } catch (error) { this.fail(error); return }
-    }
+    try { await this.catalog.load() } catch (error) { this.fail(error); return }
     this.derive()
   }
 

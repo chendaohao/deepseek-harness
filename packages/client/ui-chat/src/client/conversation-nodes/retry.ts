@@ -90,7 +90,6 @@ export const retryDefinition: ConversationNodeDefinition<RetryState> = {
         : attempt)
     const current = attempts.at(-1)
     if (current === undefined) return null
-    const anchorSeq = attempts[0]?.seq ?? current.seq
     const data: RetryChatData = { attempts, current }
     // The notice is transient: once the retried step settles, drop the row
     // while keeping the chain materialized for timeline stability.
@@ -98,9 +97,9 @@ export const retryDefinition: ConversationNodeDefinition<RetryState> = {
       const previous = context.current.get('chat')
       return previous === undefined || previous === null
         ? null
-        : chatNode(context, 'model-retry', anchorSeq, data, { visibility: 'hidden' })
+        : chatNode(context, 'model-retry', attempts[0]?.seq ?? current.seq, data, { visibility: 'hidden', groupTree: 'process' })
     }
-    return chatNode(context, 'model-retry', anchorSeq, data)
+    return chatNode(context, 'model-retry', attempts[0]?.seq ?? current.seq, data, { groupTree: 'process' })
   },
 }
 

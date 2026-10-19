@@ -54,7 +54,7 @@ it('uses the shared unavailable and read-only states and supplies both dictionar
       t: ((key: keyof typeof en) => en[key]) } as TranslationSettingsProps
     const view = render(<TranslationSettings {...props} />)
     expect(view.getByText(en.unavailable)).toBeTruthy()
-    scope.publish({ status: 'ready', value: { provider: 'bing', targetLanguage: 'auto' } })
+    scope.publish({ status: 'ready', value: { provider: 'bing', targetLanguage: 'auto' }, writable: false })
     view.rerender(<TranslationSettings {...props} />)
     expect(view.getByText(en.readOnly)).toBeTruthy()
     expect(view.getByLabelText(en.provider)).toHaveProperty('disabled', true)

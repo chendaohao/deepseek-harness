@@ -107,7 +107,7 @@ One monotonic guard reads the call's `command` argument when the tool name is in
 Read these pages when the package-level contract is not enough.
 
 - [Tools subsystem reference](../../../docs/subsystems/tools.md) — the guarded execution pipeline, the `ToolGuard` type, and the `tools/result` event this plugin releases on.
-- [Defensive patterns](../../../docs/defensive-patterns.md) — the lifecycle and concurrency rules the release paths follow.
+- [Defensive patterns](../../../docs/defensive-patterns/general.md) — the lifecycle and concurrency rules the release paths follow.
 - [guard group map](../README.md) — the sibling guard packages and the loop-hygiene family.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-compile-serialization) — every accepted field of this plugin.
 

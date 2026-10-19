@@ -18,6 +18,10 @@ const t: RemoteSettingsSectionProps['t'] = key => (en as Record<string, string>)
 const unusedHook = (() => { throw new Error('unused by remote panel components') }) as never
 const kit = {
   close: () => {},
+  useRemoteAccess: () => true,
+  useAccess: () => true,
+  useSessionAccess: () => true,
+  useWorkspaceAccess: () => true,
   useSessions: unusedHook,
   useSessionStatus: unusedHook,
   useSessionRetainInfo: unusedHook,

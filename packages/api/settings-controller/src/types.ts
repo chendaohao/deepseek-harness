@@ -30,6 +30,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
      * The provider refused a valid credential write, for example because a
      * read-only source shadows the reference. The details name only the
      * reference, never the value.
+     * The provider refused a valid credential write, for example because the
+     * stored document no longer parses. The details name only the reference,
+     * never the value.
      */
     'credential/rejected': { readonly ref: string }
   }

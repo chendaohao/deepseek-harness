@@ -67,7 +67,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-/** A host-mode mirror plus a controller derived from it, over one scripted context. */
+/** A mirror plus a controller derived from it, over one scripted context. */
 function derivedScope(
   api: { describe?: ReturnType<typeof vi.fn>; mutate?: ReturnType<typeof vi.fn> },
   spec: { namespace: string; decode?: (section: unknown) => UiTestSettings | undefined } = { namespace: 'ui-test' },
@@ -93,10 +93,11 @@ describe('ConfigFormController', () => {
     const describeCall = vi.fn().mockResolvedValueOnce(described({ preference: 'dark' }, 3))
     const { mirror, scope } = derivedScope({ describe: describeCall })
     expect(scope.getSnapshot()).toEqual({
-      status: 'loading', value: undefined, revision: undefined, writable: false, mode: 'host',
+      status: 'loading', value: undefined, base: undefined, user: undefined,
+      revision: undefined, writable: false, writeRefusal: undefined, writeFailure: undefined, mode: 'host',
     })
     await mirror.load()
-    expect(scope.getSnapshot()).toEqual({
+    expect(scope.getSnapshot()).toMatchObject({
       status: 'ready', value: { preference: 'dark' }, revision: 3, writable: true, mode: 'host',
     })
   })

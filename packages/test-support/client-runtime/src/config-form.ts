@@ -25,8 +25,8 @@ export interface StubConfigForm<T> {
 }
 
 /**
- * Build an in-memory settings scope for service specs: starts in the host
- * loading state, records writes, and lets the test publish Host acceptances.
+ * Build an in-memory settings scope for service specs: starts in the loading
+ * state, records writes, and lets the test publish Host acceptances.
  * @returns the stub handle.
  */
 export function stubConfigForm<T>(): StubConfigForm<T> {

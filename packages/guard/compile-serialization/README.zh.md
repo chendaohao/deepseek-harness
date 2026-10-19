@@ -107,7 +107,7 @@ kind: "package-reference"
 当包级契约不够用时，阅读以下页面。
 
 - [工具子系统参考](../../../docs/subsystems/tools.zh.md) —— guard 执行管线、`ToolGuard` 类型，以及本插件用于释放的 `tools/result` 事件。
-- [防御性模式](../../../docs/defensive-patterns.zh.md) —— 各释放路径遵循的生命周期与并发规则。
+- [防御性模式](../../../docs/defensive-patterns/general.zh.md) —— 各释放路径遵循的生命周期与并发规则。
 - [guard 组映射](../README.zh.md) —— 同级 guard 包与循环卫生家族。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-compile-serialization) —— 本插件的全部可接受字段。
 

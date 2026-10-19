@@ -146,7 +146,7 @@ it('loads the browser entry through its generated optional Remote contribution',
 })
 
 
-it('uses Host Google preferences while the settings form is still loading', async () => {
+it('uses Host Google preferences while the settings form is loading', async () => {
   const preferences: CotTranslationPreferences = { provider: 'google', targetLanguage: 'ja' }
   const b = await fixture(false, preferences)
   try {

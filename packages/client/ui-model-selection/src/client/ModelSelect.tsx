@@ -46,8 +46,8 @@ import {
   IconCloseFillRegular, IconDataOutlineRegular, IconWarningOutlineRegular, Input, rankByName, readProviderOrder,
   StateDot, Toast, useRecentModels,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ModelSelectInjected } from './slots.ts'
+import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ModelLabelOwner, ModelSelectInjected } from './slots.ts'
 import { orderModelProviders } from './provider-order.ts'
 import css from './ModelSelect.module.css'
 
@@ -77,8 +77,9 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, available, directory, load, select, t }:
-  ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
+  { locked, available, directory, load, select, t, renderSlot }:
+  ModelSelectInjected & Pick<PropsRuntime<'conversation.input.model'>, 'locked'> & PropsLocale<'model'>
+    & Omit<PropsRenderSlots<'conversation.input.model.label'>, 'SessionProvider'>,
 ) {
   const state = useSyncExternalStore(
     fn => directory.subscribe(fn),
@@ -114,16 +115,20 @@ export function ModelSelect(
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([])
   const id = useId()
 
+  const accountProviderName = t('provider.account')
   // The account route leads and the official one follows until the Models
   // settings page records a manual order, which then wins for the providers
   // it names.
   const groups = useMemo(
-    () => applyProviderOrder(orderModelProviders(state.groups), providerOrder, group => group.id),
-    [state.groups, providerOrder],
+    () => applyProviderOrder(orderModelProviders(state.groups), providerOrder, group => group.id).map(group => ({
+      ...group,
+      provider: {
+        id: group.id,
+        name: group.id === 'deepseek-account' ? accountProviderName : group.name,
+      },
+    })),
+    [state.groups, providerOrder, accountProviderName],
   )
-  // A model pick names the route alone: the host restores the user's
-  // remembered effort for it when one exists, or falls back to the model
-  // default — naming the default here would overwrite the memory every switch.
   const choices = useMemo(() => groups.flatMap(group =>
     group.models.map(model => ({
       group,
@@ -262,15 +267,10 @@ export function ModelSelect(
     }
   }, [open, pane, activeModelIndex, visibleModels])
 
-  // Portaled placement (the Menu primitive's portal rules: fixed from the
-  // anchor rect, measured before paint, clamped inside the viewport): above
-  // the trigger, right edges aligned. Depends on pane and directory state
-  // because pane switches and async catalog loads resize the card.
-  /* jscpd:ignore-start -- deliberate mirror of ui-primitives useAnchoredPosition:
-     that hook only places from the anchor's LEFT edge, while this card aligns
-     right edges (x = rect.right - width), so the measure-and-clamp plumbing repeats. */
+  // The portal needs viewport coordinates from the trigger and the menu's
+  // measured size before paint. Slot content can resize without parent renders.
   useLayoutEffect(() => {
-    if (!open) { setMenuPos(null); return }
+    if (!available || !open) { setMenuPos(null); return }
     const place = (): void => {
       /* v8 ignore next 2 -- the trigger ref is attached whenever the menu is open. */
       const rect = triggerRef.current?.getBoundingClientRect()
@@ -284,17 +284,20 @@ export function ModelSelect(
       if (lh > 0) y = Math.min(Math.max(y, MARGIN), window.innerHeight - lh - MARGIN)
       setMenuPos({ left: x, top: y })
     }
-    // First run measures the hidden pre-render (same commit as `open`), so
-    // the card lands placed before anything paints.
     place()
     window.addEventListener('scroll', place, true)
     window.addEventListener('resize', place)
+    const menu = menuRef.current
+    const observer = typeof ResizeObserver !== 'undefined' && menu !== null
+      ? new ResizeObserver(place)
+      : null
+    if (menu !== null) observer?.observe(menu)
     return () => {
+      observer?.disconnect()
       window.removeEventListener('scroll', place, true)
       window.removeEventListener('resize', place)
     }
-  }, [open, pane, state, query])
-  /* jscpd:ignore-end */
+  }, [available, open, pane, state, query])
 
   if (!available) return null
 
@@ -510,6 +513,25 @@ export function ModelSelect(
         : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
   itemRefs.current = []
   rowRefs.current = []
+  /**
+   * One model name, routed through the shared label slot so extensions can
+   * decorate it without owning the row.
+   * @param provider - the owning provider group.
+   * @param model - the model the row offers.
+   * @param placement - where the name renders.
+   * @param selected - whether this row carries the current selection.
+   * @returns the labelled name.
+   */
+  const renderModelLabel = (
+    provider: ModelLabelOwner['provider'], model: ModelLabelOwner['model'],
+    placement: ModelLabelOwner['placement'], selected: boolean,
+  ) => (
+    <span data-provider-id={provider.id} data-model-id={model.id}>
+      {renderSlot('conversation.input.model.label', {
+        provider, model, placement, selected,
+      }, { fallback: model.name })}
+    </span>
+  )
   let itemIndex = 0
   const itemRef = () => {
     const at = itemIndex++
@@ -545,7 +567,7 @@ export function ModelSelect(
   const renderModelRow = (
     index: number,
     group: ProviderRef,
-    model: { id: string; name: string },
+    model: ModelLabelOwner['model'],
     secondary?: string,
   ) => {
     const selected = state.current?.provider === group.id && state.current.model === model.id
@@ -572,7 +594,7 @@ export function ModelSelect(
         onClick={() => { choose({ provider: group.id, model: model.id }) }}
       >
         <span className={css.optionCopy}>
-          <span className={css.modelName}>{model.name}</span>
+          <span className={css.modelName}>{renderModelLabel(group, model, 'option', selected)}</span>
           {secondary !== undefined && <span className={css.description}>{secondary}</span>}
         </span>
         <span className={css.check}>
@@ -617,7 +639,9 @@ export function ModelSelect(
         }}
       >
         <IconDataOutlineRegular className={css.triggerIcon} size={16} />
-        <span className={css.triggerLabel}>{modelLabel}</span>
+        <span className={css.triggerLabel}>
+          {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'trigger', true)}
+        </span>
         {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
         {busy
           ? <StateDot state="ongoing" />
@@ -641,7 +665,9 @@ export function ModelSelect(
             <>
               <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('model') }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
-                <span className={css.cellValue}>{modelLabel}</span>
+                <span className={css.cellValue}>
+                  {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'menu', true)}
+                </span>
                 <IconChevronRightOutlineRegular className={css.cellChevron} />
               </button>
               {reasoning !== undefined && (
