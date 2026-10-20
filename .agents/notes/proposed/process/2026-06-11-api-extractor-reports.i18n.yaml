@@ -3,23 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/process/2026-06-11-api-extractor-reports.md
 /agent-note-api-extractor-reports:
-  en: 5bf55ca547e54ed9
-  zh: 62bc2de82f342803
+  en: 8675e3bf37332ea7
+  zh: a3a8320efd9e3b76
 /agent-note-api-extractor-reports/problem:
-  en: 1155ed0bd1964b95
-  zh: 4d00955e7602b8b4
+  en: d8d55b511978e739
+  zh: cbede472acc298f8
 /agent-note-api-extractor-reports/proposal:
-  en: bdf121c8a35a7cf6
-  zh: 106d7be6dba363cf
+  en: 08e76ea6a016e5d5
+  zh: b431c517ff2666b0
 /agent-note-api-extractor-reports/alternatives-considered:
-  en: 36a7bef28b50f0a1
-  zh: 1051720fd8c30f7a
+  en: 490b7a30034bfe33
+  zh: 7d0745e8e12f35df
 /agent-note-api-extractor-reports/acceptance-criteria:
-  en: b3dd74eab1781311
-  zh: 63fd46fd11656832
+  en: 159c084f8707070c
+  zh: c74da5b634ca70e1
 /agent-note-api-extractor-reports/risks:
-  en: 21838e31d29b87fb
-  zh: c72c81ef53b090e0
-/agent-note-api-extractor-reports/why-deferred:
-  en: e2a8a7c13f4db704
-  zh: aeae101a9a77d677
+  en: 486399d5d90442b6
+  zh: 893d5b713a0d99ce
+/agent-note-api-extractor-reports/reopen-condition:
+  en: e16327466f073ba1
+  zh: dd66ea28863ef72d
