@@ -88,10 +88,15 @@ class FeedService extends TypertRemoteService {
     yield `${label}:two`
   }
 
-  /** Reports the request facts the stream open observed, for the ALS propagation test. */
+  /**
+   * Reports the request facts the stream open observed, for the ALS
+   * propagation test. Returns a ready iterable rather than yielding: the facts
+   * scope covers the open, so the reading must happen synchronously there
+   * instead of at the first `next()`.
+   */
   @Remote({ mode: 'stream' })
-  *proxied(): Iterable<string> {
-    yield String(currentRequestFacts()?.headers['x-dsh-proxied'] === '1')
+  proxied(): Iterable<string> {
+    return [String(currentRequestFacts()?.headers['x-dsh-proxied'] === '1')]
   }
 
   @Remote({ mode: 'stream' })
@@ -1094,6 +1099,51 @@ describe('Typert Remote streams', () => {
     })
     socket.close()
     await once(socket, 'close')
+  })
+
+  it('keeps each mux socket under its own upgrade request facts', async () => {
+    const { ctx } = await setup(true)
+    const origin = `ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`
+    const connectMux = async (proxied: boolean): Promise<{ socket: WebSocket; frames: Record<string, unknown>[] }> => {
+      const socket = new WebSocket(origin, {
+        headers: { cookie: browserCookie(ctx), ...proxied ? { 'x-dsh-proxied': '1' } : {} },
+      })
+      const frames: Record<string, unknown>[] = []
+      socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
+      await once(socket, 'open')
+      return { socket, frames }
+    }
+    /** Open one stream and report whether the Host method saw the proxy marker. */
+    const observed = async (socket: WebSocket, frames: Record<string, unknown>[], streamId: string): Promise<string> => {
+      const before = frames.length
+      sendOpen(socket, streamId, 'feed/proxied', {})
+      await vi.waitFor(() => {
+        expect(frames.slice(before)).toEqual([
+          { type: 'item', streamId, value: expect.any(String) },
+          { type: 'end', streamId },
+        ])
+      })
+      return String(frames[before]!.value)
+    }
+
+    // A stream opened after a later upgrade keeps the facts of the request that
+    // opened its own socket, not the most recent upgrade on the route.
+    const proxiedFirst = await connectMux(true)
+    const directSecond = await connectMux(false)
+    expect(await observed(proxiedFirst.socket, proxiedFirst.frames, 'first')).toBe('true')
+    expect(await observed(directSecond.socket, directSecond.frames, 'second')).toBe('false')
+
+    // The same holds in the other order: a direct socket is not reclassified
+    // because a proxied socket upgraded after it.
+    const directFirst = await connectMux(false)
+    const proxiedSecond = await connectMux(true)
+    expect(await observed(directFirst.socket, directFirst.frames, 'third')).toBe('false')
+    expect(await observed(proxiedSecond.socket, proxiedSecond.frames, 'fourth')).toBe('true')
+
+    for (const { socket } of [proxiedFirst, directSecond, directFirst, proxiedSecond]) {
+      socket.close()
+      await once(socket, 'close')
+    }
   })
 
   it('carries the registered Remote event source and withdraws its active stream', async () => {

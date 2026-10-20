@@ -1,7 +1,11 @@
-/** Host WebSocket owner for multiplexed Typert Remote streams. */
+/**
+ * Host WebSocket owner for multiplexed Typert Remote streams. Each socket's
+ * streams open under that socket's own upgrade request facts.
+ */
 
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
+import { factsFrom, runWithRequestFacts } from '@deepseek-ai/dsh-client-connection'
 import { Deque } from '@deepseek-ai/dsh-deque'
 import { RemoteError, remoteErrorOf, type PeerScope, type RemoteUplinkWindow } from '@deepseek-ai/dsh-typert-protocol'
 import WebSocket, { WebSocketServer, type RawData } from 'ws'
@@ -86,13 +90,17 @@ export class RemoteStreamMuxServer {
   /**
    * Upgrade one admitted request and begin serving its logical streams. Every
    * stream the socket opens speaks for the Peer admitted at upgrade, and the
-   * socket closes when that Peer's scope is disposed.
+   * socket closes when that Peer's scope is disposed. A stream outlives its
+   * upgrade request's async context, so each open re-installs this request's
+   * per-request facts; the facts are captured per socket and never shared with
+   * another socket on the route.
    * @param req - authenticated HTTP upgrade request.
    * @param socket - carrier socket transferred to the WebSocket server.
    * @param head - bytes already read after the HTTP upgrade headers.
    * @param peer - Peer the upgrade was admitted as.
    */
   handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer, peer: PeerScope): void {
+    const facts = factsFrom(req)
     this.server.handleUpgrade(req, socket, head, (websocket) => {
       const release = bindPeer(websocket, peer)
       if (release === undefined) return
@@ -100,7 +108,7 @@ export class RemoteStreamMuxServer {
       alive()
       this.startHeartbeat()
       const bound: BoundStreamOpener = (endpoint, payload, uplink, control, window) =>
-        this.open(endpoint, payload, uplink, peer, control, window)
+        runWithRequestFacts(facts, () => this.open(endpoint, payload, uplink, peer, control, window))
       const connection = new RemoteStreamMuxConnection(websocket, bound, this.failure, this.streamInboxBytes, alive)
       const done = connection.run().catch((error: unknown) => {
         console.error('[api-gateway] Remote stream connection failed:', error)

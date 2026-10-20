@@ -1,6 +1,8 @@
 import { once } from 'node:events'
 import { createServer, type Server } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
+import { currentRequestFacts } from '@deepseek-ai/dsh-client-connection'
+import { PROXIED_HEADER } from '@deepseek-ai/dsh-host-webserver'
 import { remoteErrorOf, type PeerId, type PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
@@ -423,6 +425,27 @@ describe('Remote stream mux server Peer binding', () => {
     expect(closeEvent[0]).toBe(1001)
     expect(String(closeEvent[1])).toBe('peer left')
   })
+
+  it('runs each socket opener under that socket upgrade request facts', async () => {
+    const seen: (string | undefined)[] = []
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => {
+      seen.push(currentRequestFacts()?.headers[PROXIED_HEADER])
+      return waitForAbort(control.signal)
+    })
+    const direct = await connect(entry.url)
+    const proxied = await connect(entry.url, true, true, { [PROXIED_HEADER]: '1' })
+    // A later upgrade must not reclassify a stream opened on an earlier socket.
+    for (const [socket, streamId] of [[proxied, 'proxied'], [direct, 'direct']] as const) {
+      const before = seen.length
+      socket.send(openFrame(streamId))
+      await vi.waitFor(() => { expect(seen).toHaveLength(before + 1) })
+    }
+    expect(seen).toEqual(['1', undefined])
+    for (const socket of [direct, proxied]) {
+      socket.close()
+      await once(socket, 'close')
+    }
+  })
 })
 
 describe('Remote stream mux server uplink', () => {
@@ -667,8 +690,13 @@ async function fixturePeer(): Promise<PeerScope> {
   }
 }
 
-async function connect(url: string, autoPong = true, perMessageDeflate = true): Promise<WebSocket> {
-  const socket = new WebSocket(url, { autoPong, perMessageDeflate })
+async function connect(
+  url: string,
+  autoPong = true,
+  perMessageDeflate = true,
+  headers: Readonly<Record<string, string>> = {},
+): Promise<WebSocket> {
+  const socket = new WebSocket(url, { autoPong, perMessageDeflate, headers })
   await once(socket, 'open')
   return socket
 }
