@@ -36,7 +36,8 @@ jobs:
   # Blacksmith's hosted runners sized per workload (see
   # .agents/notes/implemented/process/2026-09-09-blacksmith-failover-leg.md). The
   # in-house pool's readiness is re-proven on every master push by the
-  # serial-linux-selfhosted standby lane in ci-master.yml. The Windows failover
+  # serial-linux-selfhosted standby lane in ci-master.yml, which this fork parks
+  # behind `if: false` until a runner registers for that pool. The Windows failover
   # switch is the separate DSH_CI_FAILOVER_WINDOWS variable on the windows-native
   # job below.
   node-24:
