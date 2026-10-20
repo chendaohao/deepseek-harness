@@ -67,6 +67,7 @@
     "@deepseek-ai/dsh-typert-protocol": "workspace:*"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-client-connection": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
