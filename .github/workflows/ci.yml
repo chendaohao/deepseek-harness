@@ -40,6 +40,13 @@ jobs:
   # behind `if: false` until a runner registers for that pool. The Windows failover
   # switch is the separate DSH_CI_FAILOVER_WINDOWS variable on the windows-native
   # job below.
+  #
+  # FALLBACK: the `dsh-*` enterprise labels name organization-scoped runner
+  # pools, which exist only under the owning organization. A fork or a mirror
+  # resolves them to nothing and would queue every pull-request job until the
+  # job limit, so the final branch selects standard hosted capacity outside
+  # those organizations. In-repository behaviour is unchanged: owner
+  # `deepseek-ai` / `deepseek-harness` still lands on the enterprise pools.
   node-24:
     if: github.event_name == 'pull_request'
     runs-on: >-
@@ -47,7 +54,9 @@ jobs:
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || (github.repository_owner == 'deepseek-ai' || github.repository_owner == 'deepseek-harness')
+          && 'dsh-ubuntu-24-04-16core'
+          || 'ubuntu-latest' }}
     name: node 24 / static
     env:
       # Shared hosts expose host CPUs, not an isolated allocation.
@@ -114,7 +123,9 @@ jobs:
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || (github.repository_owner == 'deepseek-ai' || github.repository_owner == 'deepseek-harness')
+          && 'dsh-ubuntu-24-04-16core'
+          || 'ubuntu-latest' }}
     name: node 24 / coverage
     env:
       # Shared hosts expose host CPUs, not an isolated allocation.
@@ -271,7 +282,9 @@ jobs:
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || (github.repository_owner == 'deepseek-ai' || github.repository_owner == 'deepseek-harness')
+          && 'dsh-ubuntu-24-04-16core'
+          || 'ubuntu-latest' }}
     name: node 24 / snapshots and artifacts
     env:
       # Shared hosts expose host CPUs, not an isolated allocation.
@@ -536,7 +549,9 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
-          || 'dsh-windows-2025-16core' }}
+          || (github.repository_owner == 'deepseek-ai' || github.repository_owner == 'deepseek-harness')
+          && 'dsh-windows-2025-16core'
+          || 'windows-2025' }}
     name: windows node 24 / build & observational
     timeout-minutes: 60
     env:
@@ -607,7 +622,9 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
-          || 'dsh-windows-2025-16core' }}
+          || (github.repository_owner == 'deepseek-ai' || github.repository_owner == 'deepseek-harness')
+          && 'dsh-windows-2025-16core'
+          || 'windows-2025' }}
     name: windows node 24 / coverage
     timeout-minutes: 120
     env:
@@ -685,7 +702,9 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
-          || 'dsh-windows-2025-16core' }}
+          || (github.repository_owner == 'deepseek-ai' || github.repository_owner == 'deepseek-harness')
+          && 'dsh-windows-2025-16core'
+          || 'windows-2025' }}
     name: windows node 24 / native tests
     timeout-minutes: 60
     steps:

@@ -514,31 +514,57 @@ describe('CI workflow', () => {
 
     // Evaluating the full selector, not just substring containment, proves the
     // blacksmith branch is standalone: it must not fall through to the
-    // self-hosted pool when the two values are mutually exclusive.
+    // self-hosted pool when the two values are mutually exclusive. The owner
+    // names the organizations that own the enterprise runner pools; any other
+    // owner (a fork, a mirror) resolves to standard hosted capacity instead of
+    // queueing forever on a label it cannot match.
     const selectors = {
       linux: node24['runs-on'] as string,
       linuxAggregate: aggregate['runs-on'] as string,
       windows: windowsBuild['runs-on'] as string,
     }
-    const evaluate = (expression: string, vars: Record<string, string>, login = 'maintainer'): unknown => {
+    const evaluate = (
+      expression: string,
+      vars: Record<string, string>,
+      login = 'maintainer',
+      owner = 'deepseek-harness',
+    ): unknown => {
       return evaluateRunsOn(expression, {
         vars,
         fromJSON: JSON.parse,
-        github: { event: { pull_request: { user: { login } } } },
+        github: {
+          repository_owner: owner,
+          event: { pull_request: { user: { login } } },
+        },
       })
     }
-    for (const [name, selector, variable, pool, hosted] of [
-      ['linux gates', selectors.linux, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'dsh-ubuntu-24-04-16core'],
-      ['linux aggregate', selectors.linuxAggregate, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'ubuntu-latest'],
-      ['windows lanes', selectors.windows, 'DSH_CI_FAILOVER_WINDOWS', ['self-hosted', 'dsh-win-ci', 'windows'], 'dsh-windows-2025-16core'],
+    for (const [name, selector, variable, pool, enterprise, fork] of [
+      ['linux gates', selectors.linux, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'dsh-ubuntu-24-04-16core', 'ubuntu-latest'],
+      ['linux aggregate', selectors.linuxAggregate, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'ubuntu-latest', 'ubuntu-latest'],
+      ['windows lanes', selectors.windows, 'DSH_CI_FAILOVER_WINDOWS', ['self-hosted', 'dsh-win-ci', 'windows'], 'dsh-windows-2025-16core', 'windows-2025'],
     ] as const) {
       expect(evaluate(selector, { [variable]: 'blacksmith' }), `${name} blacksmith value`).toMatch(/^blacksmith-/)
       expect(evaluate(selector, { [variable]: 'selfhosted' }), `${name} selfhosted value`).toEqual(pool)
       // The blacksmith branch must not capture the selfhosted pool, and the
       // dependabot exclusion applies to the pool, not to the blacksmith tier.
-      expect(evaluate(selector, { [variable]: 'selfhosted' }, 'dependabot[bot]'), `${name} dependabot on selfhosted`).toBe(hosted)
+      expect(evaluate(selector, { [variable]: 'selfhosted' }, 'dependabot[bot]'), `${name} dependabot on selfhosted`).toBe(enterprise)
       for (const mode of ['', 'hosted', 'unexpected']) {
-        expect(evaluate(selector, { [variable]: mode }), `${name} default on ${mode}`).toBe(hosted)
+        expect(evaluate(selector, { [variable]: mode }), `${name} default on ${mode}`).toBe(enterprise)
+      }
+      // Outside the pool-owning organizations the enterprise label matches no
+      // runner, so the default must be standard hosted capacity.
+      for (const owner of ['chendaohao', 'some-fork-owner']) {
+        for (const mode of ['', 'hosted', 'unexpected']) {
+          expect(evaluate(selector, { [variable]: mode }, 'maintainer', owner), `${name} default on ${mode} under ${owner}`)
+            .toBe(fork)
+        }
+        expect(evaluate(selector, { [variable]: 'selfhosted' }, 'dependabot[bot]', owner), `${name} dependabot under ${owner}`)
+          .toBe(fork)
+        // The explicit failover values stay opt-ins the owner can still throw.
+        expect(evaluate(selector, { [variable]: 'blacksmith' }, 'maintainer', owner), `${name} blacksmith under ${owner}`)
+          .toMatch(/^blacksmith-/)
+        expect(evaluate(selector, { [variable]: 'selfhosted' }, 'maintainer', owner), `${name} selfhosted under ${owner}`)
+          .toEqual(pool)
       }
     }
 
