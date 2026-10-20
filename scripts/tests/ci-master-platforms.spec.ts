@@ -1,4 +1,4 @@
-/** Scheduling policy for post-merge native runtime carriers and Wine. */
+/** Scheduling policy for post-merge native runtime carriers, the hosted Node gate, and Wine. */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
@@ -16,9 +16,17 @@ interface Job {
   needs?: string[]
   with?: Record<string, unknown>
   secrets?: Record<string, string>
-  steps?: Array<{ name?: string; run?: string; if?: string; uses?: string; with?: Record<string, unknown> }>
+  steps?: Array<{
+    name?: string
+    run?: string
+    if?: string
+    uses?: string
+    env?: Record<string, string>
+    with?: Record<string, unknown>
+  }>
   'runs-on'?: string | string[]
   'continue-on-error'?: boolean
+  'timeout-minutes'?: number
 }
 
 interface Workflow {
@@ -116,6 +124,46 @@ describe('master-only platform scheduling', () => {
     expect(preflight.if).toContain('github.event.pull_request.head.repo.fork')
     expect(preflight.if).toContain("github.event.pull_request.user.login == 'dependabot[bot]'")
     expect(preflight.run).toContain('exit 1')
+  })
+
+  it('runs no self-hosted standby on a master push and keeps one hosted Node gate', () => {
+    const master = workflow('ci-master.yml')
+    const hostedMinimal = master.jobs['hosted-minimal']!
+    expect(hostedMinimal).toMatchObject({
+      if: masterPush,
+      name: 'hosted-minimal / linux',
+      'runs-on': 'ubuntu-latest',
+    })
+    expect(hostedMinimal.needs).toBeUndefined()
+    expect(hostedMinimal['continue-on-error']).toBeUndefined()
+    // The unsharded aggregates never fit a standard hosted runner: they stay in
+    // the standby definitions, so this gate names type and lint commands only.
+    expect(commands(hostedMinimal)).toEqual(['pnpm install --frozen-lockfile', 'pnpm run typecheck', 'pnpm run lint'])
+    expect(hostedMinimal.steps).toContainEqual({
+      uses: 'actions/setup-node@v7.0.0',
+      with: { 'node-version': '${{ env.PRIMARY_NODE_VERSION }}' },
+    })
+    // A standard hosted runner has four cores and no swap headroom for the
+    // Host compiler's 4 GiB heap plus a second program-building worker.
+    for (const step of hostedMinimal.steps!) {
+      if (step.run?.startsWith('pnpm run')) expect(step.env, `${step.run} must bound its worker count`).toBeDefined()
+    }
+
+    // A self-hosted label this fork never registers queues until the job limit
+    // cancels the whole run, leaving master without any Node verdict. Reusable
+    // `uses:` jobs and the dispatch-only benchmarks declare no runs-on here, so
+    // only a job that really selects a runner can reach the self-hosted labels.
+    for (const [name, job] of Object.entries(master.jobs)) {
+      if (name === 'hosted-minimal' || job.if === false) continue
+      expect(JSON.stringify(job['runs-on'] ?? ''), `${name} must not select a self-hosted label`).not.toContain('self-hosted')
+    }
+    // Disabled lanes keep their definitions so a registered runner restores them.
+    for (const name of ['serial-linux-selfhosted', 'serial-windows'] as const) {
+      const standby = master.jobs[name]!
+      expect(standby.if).toBe(false)
+      expect(standby['runs-on']).toEqual(expect.arrayContaining(['self-hosted']))
+      expect(standby.steps!.length).toBeGreaterThan(1)
+    }
   })
 
   it('runs Wine once on hosted master CI and seeds its own apt cache', () => {

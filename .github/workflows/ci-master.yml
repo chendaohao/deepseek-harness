@@ -128,6 +128,48 @@ jobs:
         if: always()
         run: wineserver -k 2>/dev/null || true
 
+  # The fork's only Node verdict: a bounded hosted gate that keeps master's
+  # type and lint signal alive while the self-hosted standby lanes below wait
+  # for runners this repository does not register. Deliberately minimal — the
+  # unsharded aggregates stay in those standby definitions, so this job carries
+  # no cache, coverage, or build steps that would need their budgets re-derived.
+  hosted-minimal:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    name: hosted-minimal / linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5.0.0
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      # A hosted runner shares four cores among five gates, and the Host
+      # compiler already carries the 4 GiB heap budget: two workers keep the
+      # stage-level overlap without stacking those heaps.
+      - name: Typecheck
+        env:
+          DSH_GATE_CONCURRENCY: '2'
+        run: pnpm run typecheck
+
+      # Runs after typecheck, which already emitted the Host project references
+      # `lint` re-checks, so its host-contracts compile is an incremental no-op.
+      # The thread bound keeps Oxlint from claiming every core of the runner.
+      - name: Lint
+        env:
+          DSH_OXLINT_THREADS: '2'
+        run: pnpm run lint
+
   # Hot-standby drill for the in-house self-hosted pool: every master move
   # re-runs the complete unsharded aggregate on the persistent 64-core VM,
   # continuously proving that environment can take over a required lane if
@@ -139,7 +181,10 @@ jobs:
   # persistent pnpm store and tool caches make them redundant (and saving here
   # would poison the hosted cache namespace with self-hosted paths).
   serial-linux-selfhosted:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Disabled for this fork: no runner is registered for the self-hosted
+    # `vm-backup` pool, so the job queued until the 24h limit cancelled every
+    # master run. Restore the push condition once such a runner exists.
+    if: false  # was: github.event_name == 'push' && github.ref == 'refs/heads/master'
     name: serial / linux (self-hosted standby)
     runs-on: [self-hosted, linux, x64, vm-backup]
     steps:
@@ -233,7 +278,10 @@ jobs:
   # (and saving here would poison the hosted cache namespace with self-hosted
   # paths).
   serial-windows:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Disabled for this fork: no runner is registered for the self-hosted
+    # `dsh-win-ci` pool, so the job queued until the 24h limit cancelled every
+    # master run. Restore the push condition once such a runner exists.
+    if: false  # was: github.event_name == 'push' && github.ref == 'refs/heads/master'
     name: serial / windows (self-hosted standby)
     runs-on: [self-hosted, dsh-win-ci, windows]
     timeout-minutes: 120

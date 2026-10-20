@@ -301,7 +301,7 @@ describe('CI workflow', () => {
     }
   })
 
-  it('keeps split native Windows PR jobs with failover, plus a master-only standby', () => {
+  it('keeps split native Windows PR jobs with failover, plus a disabled master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const masterWorkflow = loadWorkflow('.github/workflows/ci-master.yml')
     if (!isRecord(workflow.jobs)
@@ -436,8 +436,10 @@ describe('CI workflow', () => {
     expect(report?.run).toContain('::warning::')
     expect(report?.run).toContain('Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append')
 
-    // serial-windows: master-only standby, self-hosted, non-blocking, lives in ci-master.
-    expect(serialWindows.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
+    // serial-windows: master-only standby, self-hosted, non-blocking, lives in
+    // ci-master. This fork registers no runner for that pool, so the definition
+    // stays parked behind `if: false` instead of queueing a whole master run.
+    expect(serialWindows.if).toBe(false)
     expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
     expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
     // Its store must share the ReFS workspace volume for clone; the install
@@ -702,16 +704,20 @@ describe('CI workflow', () => {
     expect(Object.keys(workflow.on).sort()).toEqual(['push', 'workflow_dispatch'])
     expect(Object.keys(prWorkflow.on)).toEqual(['pull_request'])
 
-    // Drills share the parent run’s supersession policy.
+    // Drills share the parent run’s supersession policy. They are parked behind
+    // `if: false` on this fork, which registers no runner for either pool: an
+    // enabled drill queues until the 24h job limit and cancels every master run.
     for (const name of ['serial-linux-selfhosted', 'serial-windows']) {
       const job = workflow.jobs[name]
       if (!isRecord(job)) throw new TypeError(`${name} must be defined`)
       expect(job.concurrency).toBeUndefined()
-      // Standby drills remain post-merge work, but share run cancellation.
-      expect(job.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
+      expect(job.if).toBe(false)
+      // The disabled definition keeps its runner selection so registering that
+      // runner is the only change re-enabling it.
+      expect(JSON.stringify(job['runs-on'])).toContain('self-hosted')
     }
 
-    // Pin the post-merge runtime, Wine, and standby inventory.
+    // Pin the post-merge runtime, Wine, hosted Node gate, and standby inventory.
     const NOT_PUSH_REACHABLE = new Set([
       "github.event_name == 'workflow_dispatch' && inputs.suite == 'larger-runner-benchmark'",
       "github.event_name == 'workflow_dispatch' && inputs.suite == 'consolidated-runner-benchmark'",
@@ -727,7 +733,7 @@ describe('CI workflow', () => {
       })
       .map(([name]) => name)
       .sort()
-    expect(pushReachable).toEqual(['python-runtime', 'serial-linux-selfhosted', 'serial-windows', 'windows'])
+    expect(pushReachable).toEqual(['hosted-minimal', 'python-runtime', 'windows'])
 
     // Manual benchmarks retain their bounded fan-out.
     for (const name of ['larger-runner-benchmark', 'consolidated-runner-benchmark']) {
