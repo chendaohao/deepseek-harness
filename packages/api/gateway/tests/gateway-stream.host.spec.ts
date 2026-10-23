@@ -6,6 +6,7 @@ import WebSocket, { type RawData } from 'ws'
 import { Context, symbols } from '@deepseek-ai/cordis'
 import { apply as applyConnection, inject as connectionInject } from '@deepseek-ai/dsh-client-connection'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
+import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { AppReady } from '@deepseek-ai/dsh-cmdline'
 import {
@@ -428,21 +429,47 @@ describe('Typert Remote streams', () => {
     expect(() => { startup.commit() }).not.toThrow()
   })
 
-  it('validates the WebSocket heartbeat timer range, the stream inbox bound, and defaults mux compression on', () => {
-    expect(TypertGatewayService.Config({}))
-      .toEqual({ websocketHeartbeatIntervalMs: 2_000, streamInboxBytes: 262_144, websocketCompression: true })
+  it('validates the WebSocket heartbeat timer range, the stream inbox bound, the liveness deadline, and defaults mux compression on', () => {
+    const DEFAULTS = {
+      websocketHeartbeatIntervalMs: 2_000,
+      streamInboxBytes: 262_144,
+      websocketCompression: true,
+      muxLivenessTimeoutMs: 45_000,
+    }
+    expect(TypertGatewayService.Config({})).toEqual(DEFAULTS)
     expect(TypertGatewayService.Config({ websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS }))
-      .toEqual({ websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS, streamInboxBytes: 262_144, websocketCompression: true })
+      .toEqual({ ...DEFAULTS, websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS })
     expect(TypertGatewayService.Config({ websocketCompression: false }))
-      .toEqual({ websocketHeartbeatIntervalMs: 2_000, streamInboxBytes: 262_144, websocketCompression: false })
+      .toEqual({ ...DEFAULTS, websocketCompression: false })
     expect(TypertGatewayService.Config({ websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS, streamInboxBytes: 1 }))
-      .toEqual({ websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS, streamInboxBytes: 1, websocketCompression: true })
+      .toEqual({ ...DEFAULTS, websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS, streamInboxBytes: 1 })
+    // Zero is a meaningful value here: it disables the page-side deadline.
+    expect(TypertGatewayService.Config({ muxLivenessTimeoutMs: 0 }))
+      .toEqual({ ...DEFAULTS, muxLivenessTimeoutMs: 0 })
     for (const websocketHeartbeatIntervalMs of [0, 1.5, MAX_TIMER_DELAY_MS + 1]) {
       expect(() => TypertGatewayService.Config({ websocketHeartbeatIntervalMs })).toThrow()
     }
     for (const streamInboxBytes of [0, 1.5]) {
       expect(() => TypertGatewayService.Config({ streamInboxBytes })).toThrow()
     }
+    for (const muxLivenessTimeoutMs of [-1, 1.5, MAX_TIMER_DELAY_MS + 1]) {
+      expect(() => TypertGatewayService.Config({ muxLivenessTimeoutMs })).toThrow()
+    }
+  })
+
+  it('injects the mux liveness deadline into every served page and withdraws it on disposal', async () => {
+    const { ctx } = await setup(true, { muxLivenessTimeoutMs: 7_000 })
+    const rows: IndexInjection[] = []
+    ctx.emit('webserver/index-inject', rows)
+    expect(rows).toContainEqual({
+      kind: 'global',
+      name: '__DSH_MUX_LIVENESS__',
+      value: { timeoutMs: 7_000 },
+    })
+    await ctx.fiber.dispose()
+    const after: IndexInjection[] = []
+    ctx.emit('webserver/index-inject', after)
+    expect(after.filter(row => row.kind === 'global' && row.name === '__DSH_MUX_LIVENESS__')).toEqual([])
   })
 
   it('opens decoded carrier payloads through the in-process wire adapter', async () => {

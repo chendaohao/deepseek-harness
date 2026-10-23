@@ -147,6 +147,8 @@ type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['
 const NEVER_ABORTED_SIGNAL = new AbortController().signal
 const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000
 const DEFAULT_STREAM_INBOX_BYTES = 262_144
+/** Downlink silence a page tolerates before redialing: several heartbeat ticks. */
+const DEFAULT_MUX_LIVENESS_TIMEOUT_MS = 45_000
 const EMPTY_ASYNC_ITERABLE: AsyncIterable<never> = {
   [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true }) }),
 }
@@ -165,12 +167,22 @@ export interface Config {
   readonly websocketCompression?: boolean
   /** Buffered uplink frame bytes one logical stream may hold before it fails with `gateway/uplink-overflow`. @default 262144 */
   readonly streamInboxBytes?: number
+  /**
+   * Downlink silence, in milliseconds, after which a page treats its mux socket
+   * as dead and redials. The Host sends a text liveness frame every
+   * {@link Config.websocketHeartbeatIntervalMs}, so this bounds how long a leg
+   * that died without a close event can keep every logical stream failing behind
+   * one socket. 0 disables the deadline; the page falls back to its own default
+   * when this Host does not inject a value. @default 45000
+   */
+  readonly muxLivenessTimeoutMs?: number
 }
 
 interface ResolvedConfig extends Config {
   readonly websocketHeartbeatIntervalMs: number
   readonly websocketCompression: boolean
   readonly streamInboxBytes: number
+  readonly muxLivenessTimeoutMs: number
 }
 
 /**
@@ -221,6 +233,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
       .default(DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS),
     websocketCompression: z.boolean().default(true),
     streamInboxBytes: z.number().step(1).min(1).default(DEFAULT_STREAM_INBOX_BYTES),
+    muxLivenessTimeoutMs: z.number().step(1).min(0).max(MAX_TIMER_DELAY_MS)
+      .default(DEFAULT_MUX_LIVENESS_TIMEOUT_MS),
   })
 
   /** Carrier adapter shared by the WebSocket mux and local Host transports. */
@@ -256,6 +270,16 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     })
     ctx.inject(['connection', 'webServer'], (webCtx) => {
+      // The page owns the socket deadline, so the deployment knob has to reach it:
+      // one value drives both the Host's liveness frame cadence and the page's
+      // silence budget instead of two ends drifting apart.
+      webCtx.on('webserver/index-inject', (table) => {
+        table.push({
+          kind: 'global',
+          name: '__DSH_MUX_LIVENESS__',
+          value: { timeoutMs: resolved.muxLivenessTimeoutMs },
+        })
+      })
       const listen = (): void => {
         /**
          * Hand one mux stream to Wire dispatch. The mux server installs the

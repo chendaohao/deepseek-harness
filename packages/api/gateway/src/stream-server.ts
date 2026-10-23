@@ -46,6 +46,13 @@ export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
 const MAX_MISSED_HEARTBEATS = 2
 
 /**
+ * Text frame announcing that the socket still reaches this Host. Sent with every
+ * heartbeat tick: WebSocket Ping is invisible to page JavaScript, so this is the
+ * only downlink evidence an idle page has.
+ */
+const LIVENESS_FRAME = JSON.stringify({ type: 'liveness' } satisfies RemoteStreamServerMessage)
+
+/**
  * Per-message deflate window for the mux. Every logical stream shares one
  * physical socket, and a history-bearing opening frame runs to hundreds of
  * kilobytes of repetitive JSON (a 1,395 KB Session snapshot measured 255 KB
@@ -151,6 +158,11 @@ export class RemoteStreamMuxServer {
         }
         this.missedHeartbeats.set(socket, missed + 1)
         socket.ping()
+        // A browser never sees the Ping control frame, so the mux also carries a
+        // text liveness frame on the same tick: a page whose leg died without a
+        // close event otherwise cannot tell a healthy quiet socket from a dead
+        // one. Reusing this tick keeps the two cadences from drifting apart.
+        socket.send(LIVENESS_FRAME)
       }
     }, this.heartbeatIntervalMs)
     this.heartbeatTimer.unref()

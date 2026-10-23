@@ -191,7 +191,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-gateway`
 
 - `inject`: `typert` · `remoteAccess`
-- `source`: [`packages/api/gateway/src/index.ts:158`](../packages/api/gateway/src/index.ts)
+- `source`: [`packages/api/gateway/src/index.ts:159`](../packages/api/gateway/src/index.ts)
 
 ```ts config-catalog
 /** Gateway transport configuration. */
@@ -206,6 +206,15 @@ export interface Config {
   readonly websocketCompression?: boolean
   /** Buffered uplink frame bytes one logical stream may hold before it fails with `gateway/uplink-overflow`. @default 262144 */
   readonly streamInboxBytes?: number
+  /**
+   * Downlink silence, in milliseconds, after which a page treats its mux socket
+   * as dead and redials. The Host sends a text liveness frame every
+   * {@link Config.websocketHeartbeatIntervalMs}, so this bounds how long a leg
+   * that died without a close event can keep every logical stream failing behind
+   * one socket. 0 disables the deadline; the page falls back to its own default
+   * when this Host does not inject a value. @default 45000
+   */
+  readonly muxLivenessTimeoutMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-gateway -->

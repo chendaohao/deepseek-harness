@@ -42,6 +42,8 @@ class HistoryDeliveryGate {
       })
       server.onMessage((message) => {
         const frame = parseRemoteStreamServerMessage(String(message))
+        // A liveness frame belongs to no stream: pass it through untouched.
+        if (frame.type === 'liveness') { socket.send(message); return }
         const endpoint = this.streams.get(frame.streamId)
         if (!this.holding || (endpoint !== 'session/control' && endpoint !== 'session/follow')) {
           socket.send(message)

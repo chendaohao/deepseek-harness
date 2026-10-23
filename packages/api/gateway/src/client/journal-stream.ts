@@ -8,6 +8,14 @@ import type {
   RemoteStreamOptions,
 } from './remote-stream.ts'
 
+/**
+ * Per-attempt deadline for one history page (ms). A page scales with session
+ * content, so a slow tunnel can stretch one request far past any generic unary
+ * budget; without a deadline a dropped request leaves `open()` pending forever
+ * and the consumer stuck at its loading state.
+ */
+export const DEFAULT_PAGE_READ_DEADLINE_MS = 60_000
+
 /** Host-side stream protocol violation, marked so consumers surface it as an error state. */
 function protocolViolation(message: string): RemoteError<'gateway/internal'> {
   return new RemoteError('gateway/internal', message, {})
@@ -85,6 +93,14 @@ export interface RemoteJournalStreamOptions<Page, Entry, Cursor, Notification = 
   readonly carrierFailed?: (error: RemoteStreamCarrierError) => void
   /** Publish a terminal stream, page, or protocol failure after opening. */
   readonly failed: (error: unknown) => void
+  /**
+   * Per-attempt deadline for one history page in milliseconds. A page scales
+   * with session content, so a slow link can stretch one request past every
+   * generic budget; without a bound a dropped request leaves the read pending
+   * forever and its consumer at a loading state with nothing to report.
+   * Defaults to {@link DEFAULT_PAGE_READ_DEADLINE_MS}.
+   */
+  readonly pageDeadlineMs?: number
 }
 
 /**
@@ -205,7 +221,7 @@ export abstract class RemoteJournalStream<
    */
   async prepend(request: PageRequest): Promise<void> {
     if (!this.opened || this.disposed) throw new Error(`${this.options.name} is not open`)
-    const page = await this.readPage(request, this.currentCursor(), this.stream.signal)
+    const page = await this.readPageWithDeadline(request, this.currentCursor(), this.stream.signal)
     this.stream.signal.throwIfAborted()
     const entries = this.options.entries(page)
     this.assertPage(entries)
@@ -419,6 +435,34 @@ export abstract class RemoteJournalStream<
     return undefined
   }
 
+  /**
+   * Read one history page under a bounded deadline. One page read feeds
+   * pagination and gap repair alike, so both inherit the deadline here instead
+   * of each caller restating it.
+   *
+   * The deadline exists because a page scales with session content: on a slow
+   * tunnel one request can outlive every generic budget, and without a bound a
+   * dropped request leaves the read pending forever, so the consumer stays at
+   * its loading state with nothing to report. Retrying is not this layer's job —
+   * a fail here reaches the generation machinery, which already reopens the
+   * stream with fresh state.
+   * @param request - domain page request.
+   * @param through - cursor the page must reach.
+   * @param signal - generation cancellation, which ends the read immediately.
+   * @returns the page read by that attempt.
+   */
+  private readPageWithDeadline(
+    request: PageRequest,
+    through: Cursor,
+    signal: AbortSignal,
+  ): Promise<Page> {
+    // Deliberately not async: the repair path races this promise against the
+    // generation's next frame, and an extra microtask hop would let a frame that
+    // arrives at the same instant win a race the page was already running.
+    const deadlineMs = this.options.pageDeadlineMs ?? DEFAULT_PAGE_READ_DEADLINE_MS
+    return this.readPage(request, through, AbortSignal.any([signal, AbortSignal.timeout(deadlineMs)]))
+  }
+
   private async readPageWhileFollowing(
     request: PageRequest,
     through: Cursor,
@@ -431,7 +475,7 @@ export abstract class RemoteJournalStream<
     | { readonly type: 'page'; readonly page: Page }
     | { readonly type: 'superseded'; readonly item: JournalStreamItem<Page, Entry, Cursor, Notification> }
   > {
-    const page = this.readPage(request, through, signal).then(
+    const page = this.readPageWithDeadline(request, through, signal).then(
       value => ({ type: 'page' as const, value }),
       (error: unknown) => ({ type: 'page-error' as const, error }),
     )

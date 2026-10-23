@@ -30,6 +30,7 @@ import type { ClientRemote } from '../src/client/index.ts'
 import { apply, inject, isRemoteFailure, RemoteStream } from '../src/client/index.ts'
 import {
   installForegroundResync,
+  resolveMuxLiveness,
   ClientUplinkQueue,
   RemoteStreamCarrierError,
   RemoteStreamMuxClient,
@@ -690,10 +691,14 @@ describe('Client Remote transport readiness', () => {
         expect(connection.state.getSnapshot()).toBe('connected')
         expect(connection.generation.getSnapshot()?.host.home).toBe('/recovered')
         expect(reset).toHaveBeenCalledOnce()
+        // The loop settled with nothing pending: this Host injects no liveness
+        // timing, so the page leaves that deadline disarmed rather than watching
+        // for frames the Host would never send.
         expect(vi.getTimerCount()).toBe(0)
       } finally {
         await ctx.fiber.dispose()
         await vi.advanceTimersByTimeAsync(0)
+        expect(vi.getTimerCount()).toBe(0)
         warnSpy.mockRestore()
         vi.unstubAllGlobals()
         vi.useRealTimers()
@@ -3370,6 +3375,125 @@ describe('Remote stream client carrier lifecycle', () => {
       await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(2) })
       await client.close()
     })
+  })
+
+  it('recycles a socket that hears nothing for the liveness deadline and redials', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      vi.useFakeTimers()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const client = new RemoteStreamMuxClient(undefined, false, { timeoutMs: 1_000 })
+        client.start()
+        const stream = client.open('feed/follow', {}, new AbortController().signal)[Symbol.asyncIterator]()
+        const pending = stream.next()
+        await vi.advanceTimersByTimeAsync(0)
+        const socket = FakeWebSocket.sockets[0]!
+        expect(socket.readyState).toBe(FakeWebSocket.OPEN)
+
+        await vi.advanceTimersByTimeAsync(999)
+        expect(socket.closedWith).toEqual([])
+
+        // Silence past the deadline: the leg died without a close event (the
+        // phone switched networks). The socket is recycled and its streams fail.
+        // The rejection is claimed before the timer fires so the failure is never
+        // briefly unhandled.
+        const failed = expect(pending).rejects.toThrow('heard nothing for 1000 ms')
+        await vi.advanceTimersByTimeAsync(1)
+        expect(socket.closedWith).toContainEqual({ code: 4001, reason: 'socket recycled' })
+        await failed
+        await vi.advanceTimersByTimeAsync(0)
+        expect(FakeWebSocket.sockets).toHaveLength(2)
+        await client.close()
+      } finally {
+        warn.mockRestore()
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  it('keeps a socket alive for as long as liveness frames keep arriving', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      vi.useFakeTimers()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const client = new RemoteStreamMuxClient(undefined, false, { timeoutMs: 1_000 })
+        client.start()
+        await vi.advanceTimersByTimeAsync(0)
+        const socket = FakeWebSocket.sockets[0]!
+        // Ten liveness frames over ten deadlines: the deadline never expires.
+        for (let i = 0; i < 10; i++) {
+          await vi.advanceTimersByTimeAsync(900)
+          socket.receive({ type: 'liveness' })
+        }
+        expect(socket.closedWith).toEqual([])
+        expect(FakeWebSocket.sockets).toHaveLength(1)
+        await client.close()
+      } finally {
+        warn.mockRestore()
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  it('re-arms instead of recycling the socket of a frozen page, and the foreground return still recycles it', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      vi.useFakeTimers()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const hidden = { value: true }
+        const client = new RemoteStreamMuxClient(undefined, false, {
+          timeoutMs: 1_000,
+          isHidden: () => hidden.value,
+        })
+        client.start()
+        await vi.advanceTimersByTimeAsync(0)
+        const socket = FakeWebSocket.sockets[0]!
+        // A frozen page's timers do not run, so an expiry after a thaw is the
+        // thaw itself; recycling here would churn on every app switch.
+        await vi.advanceTimersByTimeAsync(5_000)
+        expect(socket.closedWith).toEqual([])
+        hidden.value = false
+        client.resume()
+        expect(socket.closedWith).toContainEqual({ code: 4001, reason: 'foreground resync' })
+        await client.close()
+      } finally {
+        warn.mockRestore()
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  it('arms the liveness deadline only when the serving Host injected one', async () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, '__DSH_MUX_LIVENESS__')
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+    try {
+      vi.stubGlobal('__DSH_MUX_LIVENESS__', { timeoutMs: 7_000 })
+      expect(resolveMuxLiveness().timeoutMs).toBe(7_000)
+      // A deployment that disables the deadline disables it, rather than falling
+      // back to the default the operator just turned off.
+      vi.stubGlobal('__DSH_MUX_LIVENESS__', { timeoutMs: 0 })
+      expect(resolveMuxLiveness().timeoutMs).toBe(0)
+      // A Host that injects nothing is a Host that sends no liveness frames, so
+      // the deadline must stay disarmed: watching for frames that never come
+      // would recycle a healthy idle socket.
+      vi.stubGlobal('__DSH_MUX_LIVENESS__', { timeoutMs: 'soon' })
+      expect(resolveMuxLiveness().timeoutMs).toBe(0)
+      vi.stubGlobal('__DSH_MUX_LIVENESS__', undefined)
+      expect(resolveMuxLiveness().timeoutMs).toBe(0)
+      // The hidden-page seam reads the live document rather than a value captured
+      // at construction, because a page reports its own visibility as it changes.
+      const page = { visibilityState: 'hidden' }
+      vi.stubGlobal('document', page)
+      const resolved = resolveMuxLiveness()
+      expect(resolved.isHidden?.()).toBe(true)
+      page.visibilityState = 'visible'
+      expect(resolved.isHidden?.()).toBe(false)
+    } finally {
+      if (previous === undefined) Reflect.deleteProperty(globalThis, '__DSH_MUX_LIVENESS__')
+      else Object.defineProperty(globalThis, '__DSH_MUX_LIVENESS__', previous)
+      if (previousDocument === undefined) Reflect.deleteProperty(globalThis, 'document')
+      else Object.defineProperty(globalThis, 'document', previousDocument)
+    }
   })
 
   it('resume() cuts a hung dial so the reconnect loop redials', async () => {

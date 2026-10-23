@@ -112,6 +112,8 @@ export function desktopAccountBackend(origin: string, invoke: AccountInvoke, coo
             try {
               const bytes = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data)
               const frame = parseRemoteStreamServerMessage(bytes.toString('utf8'))
+              // The mux carries unsolicited liveness text frames that belong to no stream.
+              if (frame.type === 'liveness') return
               if (frame.streamId === analyticsPolicyStreamId) {
                 if (frame.type === 'item' && typeof frame.value === 'boolean') onAnalyticsEnabledChanged?.(frame.value)
                 else onAnalyticsEnabledChanged?.(false)

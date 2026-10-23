@@ -26,12 +26,46 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+class BrowserPageProbe extends EventTarget {
+  visibilityState = 'visible'
+
+  becomeVisible(): void {
+    this.visibilityState = 'visible'
+    this.dispatchEvent(new Event('visibilitychange'))
+  }
+}
+
+/** Stand-in for the Network Information API's `navigator.connection`. */
+type NetworkInformationProbe = EventTarget & {
+  addEventListener: EventTarget['addEventListener']
+  removeEventListener: EventTarget['removeEventListener']
+}
+
 class BrowserNetworkProbe extends EventTarget {
-  readonly navigator = { onLine: true }
+  readonly navigator: { onLine: boolean; connection?: NetworkInformationProbe } = {
+    onLine: true,
+  }
+  readonly document = new BrowserPageProbe()
+
+  /** Install a Network Information probe, as a Chrome-family browser does. */
+  installNetworkInformation(): NetworkInformationProbe {
+    const info: NetworkInformationProbe = new EventTarget()
+    this.navigator.connection = info
+    return info
+  }
 
   setOnline(online: boolean): void {
     this.navigator.onLine = online
     this.dispatchEvent(new Event(online ? 'online' : 'offline'))
+  }
+
+  /**
+   * Flip the browser's verdict without delivering its event: what a phone leaves
+   * behind when it freezes the page across the radio's transitions.
+   * @param online - verdict the browser now reports.
+   */
+  setOnlineSilently(online: boolean): void {
+    this.navigator.onLine = online
   }
 }
 
@@ -62,6 +96,33 @@ function installGeneration(handle: ConnectionHandle): GenerationProbe {
   const probe = new GenerationProbe()
   handle.registerGenerationSource(probe.source)
   return probe
+}
+
+/**
+ * Start one loop whose generation source counts attempts, so a test can tell a
+ * resumed retry from a parked loop.
+ * @param handle - installed Connection handle owning the loop.
+ * @returns the loop controls and the current attempt count.
+ */
+function startCountingLoop(handle: ConnectionHandle): {
+  loop: ReturnType<ConnectionHandle['start']>
+  calls: () => number
+} {
+  const counter = { count: 0 }
+  handle.registerGenerationSource((signal, ready) => {
+    counter.count++
+    ready({ home: '/h' })
+    return new Promise<void>((resolve) => {
+      signal.addEventListener('abort', () => { resolve() }, { once: true })
+    })
+  })
+  const loop = handle.start({}, {
+    backoffBaseMs: 100,
+    backoffFactor: 2,
+    backoffMaxMs: 1_000,
+    generationReadyTimeoutMs: 500,
+  })
+  return { loop, calls: () => counter.count }
 }
 
 async function mount(): Promise<ConnectionHandle> {
@@ -306,6 +367,121 @@ describe('connection client apply', () => {
       expect(states).toEqual(['connected', 'disconnected', 'connecting', 'connected'])
     } finally {
       unsubscribe()
+      loop.stop()
+      randomSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('re-reads the browser verdict on foreground return and resumes retries after a missed online event', async () => {
+    vi.useFakeTimers()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const browser = new BrowserNetworkProbe()
+    vi.stubGlobal('window', browser)
+    ;(globalThis as Win).location = { hostname: 'localhost' }
+    const handle = await mount()
+    const { loop, calls } = startCountingLoop(handle)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls()).toBe(1)
+
+      // The page is backgrounded while the radio drops: Chrome delivers offline,
+      // then the OS freezes the page. The radio returns during the freeze, so the
+      // matching online event is never delivered to this page.
+      browser.setOnline(false)
+      expect(handle.state.getSnapshot()).toBe('disconnected')
+      browser.setOnlineSilently(true)
+
+      // A visibilitychange while the page is still hidden must not resume work.
+      browser.document.visibilityState = 'hidden'
+      browser.document.dispatchEvent(new Event('visibilitychange'))
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(calls()).toBe(1)
+      expect(handle.state.getSnapshot()).toBe('disconnected')
+
+      // The foreground return re-reads the live verdict and restarts the sequence.
+      browser.document.becomeVisible()
+      expect(handle.state.getSnapshot()).toBe('connecting')
+      await vi.advanceTimersByTimeAsync(49)
+      expect(calls()).toBe(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(calls()).toBe(2)
+      expect(handle.state.getSnapshot()).toBe('connected')
+
+      // A foreground return while the verdict is still offline stays parked, and
+      // the browser's own online event still recovers the loop.
+      browser.setOnline(false)
+      browser.document.becomeVisible()
+      expect(handle.state.getSnapshot()).toBe('disconnected')
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(calls()).toBe(2)
+      browser.setOnline(true)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(calls()).toBe(3)
+      expect(handle.state.getSnapshot()).toBe('connected')
+    } finally {
+      loop.stop()
+      randomSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('resumes retries when a restored page reports visible through pageshow', async () => {
+    vi.useFakeTimers()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const browser = new BrowserNetworkProbe()
+    vi.stubGlobal('window', browser)
+    ;(globalThis as Win).location = { hostname: 'localhost' }
+    const handle = await mount()
+    const { loop, calls } = startCountingLoop(handle)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls()).toBe(1)
+
+      // A bfcache restore delivers pageshow instead of a visibilitychange on the
+      // live document, and the radio returned while the page was in the cache.
+      browser.setOnline(false)
+      browser.setOnlineSilently(true)
+      expect(handle.state.getSnapshot()).toBe('disconnected')
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(calls()).toBe(1)
+
+      browser.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }))
+      expect(handle.state.getSnapshot()).toBe('connecting')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(calls()).toBe(2)
+      expect(handle.state.getSnapshot()).toBe('connected')
+    } finally {
+      loop.stop()
+      randomSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('reconnects when the browser reports an effective-connection change without an offline gap', async () => {
+    vi.useFakeTimers()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const browser = new BrowserNetworkProbe()
+    const info = browser.installNetworkInformation()
+    vi.stubGlobal('window', browser)
+    ;(globalThis as Win).location = { hostname: 'localhost' }
+    const handle = await mount()
+    const { loop, calls } = startCountingLoop(handle)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls()).toBe(1)
+
+      // The phone moved between cellular and Wi-Fi: the browser never went
+      // offline, but every socket on the old leg is now dead.
+      info.dispatchEvent(new Event('change'))
+      expect(handle.state.getSnapshot()).toBe('connecting')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(calls()).toBe(2)
+      expect(handle.state.getSnapshot()).toBe('connected')
+    } finally {
       loop.stop()
       randomSpy.mockRestore()
       warnSpy.mockRestore()

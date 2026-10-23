@@ -304,9 +304,13 @@ function open(client: SocketClient, streamId: string, endpoint: string, args: ob
   client.socket.send(JSON.stringify({ type: 'open', streamId, endpoint, payload: { args } }))
 }
 
+function streamIdOf(frame: RemoteStreamServerMessage): string | undefined {
+  return frame.type === 'liveness' ? undefined : frame.streamId
+}
+
 async function frame(client: SocketClient, streamId: string, type: RemoteStreamServerMessage['type']): Promise<RemoteStreamServerMessage> {
-  await vi.waitFor(() => { expect(client.frames.some(frame => frame.streamId === streamId && frame.type === type)).toBe(true) })
-  return client.frames.find(frame => frame.streamId === streamId && frame.type === type)!
+  await vi.waitFor(() => { expect(client.frames.some(frame => streamIdOf(frame) === streamId && frame.type === type)).toBe(true) })
+  return client.frames.find(frame => streamIdOf(frame) === streamId && frame.type === type)!
 }
 
 async function events(client: SocketClient): Promise<z.infer<typeof readySchema>> {

@@ -193,24 +193,65 @@ interface ConnectionOwner {
   readonly stopNetworkWatch: () => void
 }
 
+/** Network Information API surface: fires on an effective-connection change, not only on an offline gap. */
+interface NetworkInformationTarget {
+  addEventListener(type: 'change', listener: () => void): void
+  removeEventListener(type: 'change', listener: () => void): void
+}
+
 interface BrowserNetworkTarget {
-  readonly navigator?: { readonly onLine?: boolean }
-  addEventListener(type: 'online' | 'offline', listener: () => void): void
-  removeEventListener(type: 'online' | 'offline', listener: () => void): void
+  readonly navigator?: {
+    readonly onLine?: boolean
+    readonly connection?: NetworkInformationTarget
+  }
+  readonly document?: BrowserLifecycleTarget
+  addEventListener(type: 'online' | 'offline' | 'pageshow', listener: () => void): void
+  removeEventListener(type: 'online' | 'offline' | 'pageshow', listener: () => void): void
+}
+
+/** Page-lifecycle surface whose foreground transition re-reads the browser's network verdict. */
+interface BrowserLifecycleTarget {
+  readonly visibilityState?: string
+  addEventListener(type: 'visibilitychange', listener: () => void): void
+  removeEventListener(type: 'visibilitychange', listener: () => void): void
 }
 
 function watchBrowserNetwork(controller: ConnectionController): () => void {
   const browser = (globalThis as { readonly window?: BrowserNetworkTarget }).window
-  const initiallyAvailable = browser?.navigator?.onLine
-  if (browser === undefined || initiallyAvailable === undefined) return () => {}
+  const network = browser?.navigator
+  const initiallyAvailable = network?.onLine
+  if (browser === undefined || network === undefined || initiallyAvailable === undefined) return () => {}
+  const page = browser.document
   const online = (): void => { controller.setNetworkAvailable(true) }
   const offline = (): void => { controller.setNetworkAvailable(false) }
+  // Ask the browser again instead of trusting the cached verdict. A phone freezes
+  // a backgrounded page across the radio's transitions and never replays the
+  // 'online' event it missed, so a stale false would park every automatic retry
+  // until a transition that may never arrive. A desktop tab switch reaches here
+  // with an unchanged verdict, which the controller deduplicates.
+  const reread = (): void => { controller.setNetworkAvailable(network.onLine !== false) }
+  const foreground = (): void => {
+    if (page?.visibilityState === 'visible') reread()
+  }
   controller.setNetworkAvailable(initiallyAvailable)
+  // Network Information is a Chrome-family API whose change event fires on an
+  // effective-connection change — the phone moving between cellular and Wi-Fi —
+  // even when no offline gap was observed at all. Safari implements neither it
+  // nor a switch signal, which is what the liveness deadline and the foreground
+  // re-read cover.
+  const networkInfo = network.connection
+  const switched = (): void => { controller.reconnect() }
   browser.addEventListener('online', online)
   browser.addEventListener('offline', offline)
+  browser.addEventListener('pageshow', reread)
+  page?.addEventListener('visibilitychange', foreground)
+  networkInfo?.addEventListener('change', switched)
   return () => {
     browser.removeEventListener('online', online)
     browser.removeEventListener('offline', offline)
+    browser.removeEventListener('pageshow', reread)
+    page?.removeEventListener('visibilitychange', foreground)
+    networkInfo?.removeEventListener('change', switched)
   }
 }
 

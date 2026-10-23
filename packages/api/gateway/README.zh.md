@@ -90,7 +90,8 @@ Client waterfall 的 Context 解析保持同步。解析器可以返回借用的
 - `$stream()` 监督载体替换，但不推断回放语义；各领域自行拥有恢复 cursor 或替换 baseline 的校验，以及正常结束的分类。Connection generation 会重开内部 `$events` 流；单向通知不会重放，仍处于 pending 的 scoped waterfall 则沿用同一个 event id 重放。
 - lookup 解析器按 key 配置；当前无法让单个 Remote 参数或 endpoint 在同一 `agent`/`session` key 下选择 live-only 策略。
 - 被转发的事件到达 `$on` 时不做业务载荷投影或脱敏。普通通知在重连后不重放；Agent-scoped waterfall 只投影选择 Client Context 所需的顶层 Agent 身份，并自行携带 pending 生命周期。
-- `websocketHeartbeatIntervalMs` 同时是 Ping 周期和活动截止时间。对端连续两个周期没有活动时，Host 会终止连接；如果部署的事件循环或网络可能停顿超过该间隔，必须调大此配置。
+- `websocketHeartbeatIntervalMs` 同时是 Ping 周期和活动截止时间。对端连续两个周期没有活动时，Host 会终止连接；如果部署的事件循环或网络可能停顿超过该间隔，必须调大此配置。每个周期还发送一个文本 `{ "type": "liveness" }` 帧：浏览器观察不到 Ping 控制帧，缺少它时空闲页面没有任何下行证据能表明其链路仍通向本 Host。
+- `muxLivenessTimeoutMs` 是页面侧的对应项：下行静默超过该截止时间，说明链路在没有 close 事件的情况下已死（手机切换网络、系统撕掉挂起页面的 socket），页面会回收该 socket，其逻辑流带着新状态重开。Host 将该项注入到每个服务的页面；`0` 关闭该截止时间。
 - 排队写入完成只说明 TCP 对端确认了数据。经过带缓冲的反向代理时，该对端是代理，因此持续下行期间 Client 消失，要等代理不再接收数据后才会被检测到。
 - Gateway 通过 `invocation.uplinkWindow` 提供每条 WebSocket 流的 inbox 容量与 JSON 封装开销；没有编码帧 inbox 限额的载体省略该字段。领域协议可以公布该窗口并通过确认约束在途字节数。Gateway 本身不发放额度：Client 发送快于方法读取，或发给从未取用 uplink 的方法时，其流以 `gateway/uplink-overflow` 失败；上行项不会跨载体代际重放，需要恢复上行的领域在重开的请求里自带确认游标。
 

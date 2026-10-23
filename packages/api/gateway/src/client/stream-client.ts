@@ -44,6 +44,49 @@ interface LogicalStream {
 
 const UPLINK_DONE: IteratorReturnResult<undefined> = { value: undefined, done: true }
 
+/** Quiet-socket deadline and the page-lifecycle seams it reads. */
+export interface MuxLivenessOptions {
+  /**
+   * Milliseconds of complete downlink silence after which the socket is treated
+   * as dead. The Host sends a text liveness frame every heartbeat tick (2 s by
+   * default), so this bounds how long a leg that died without a close event can
+   * keep failing every logical stream behind one dead socket. 0 disables.
+   */
+  readonly timeoutMs: number
+  /** Whether the page is currently hidden; a thawed frozen page must not count its own freeze as silence. */
+  readonly isHidden?: () => boolean
+}
+
+/** Host-injected liveness timing, present when the serving Host sends liveness frames. */
+interface MuxLivenessGlobal {
+  __DSH_MUX_LIVENESS__?: { readonly timeoutMs?: unknown }
+}
+
+/**
+ * Resolve the mux liveness timing for this page.
+ *
+ * The deadline stays disarmed unless the Host injected one, because the Host is
+ * also what sends the liveness frames the deadline watches. A page served by a
+ * Host that predates those frames would otherwise count healthy quiet time as
+ * silence and recycle a working socket on every idle stretch — a regression
+ * worse than the stale leg the deadline exists to catch. The two halves
+ * therefore ship as one deployment: a Host that injects the value is a Host that
+ * emits the frames.
+ * @returns the deadline and the live visibility reader.
+ */
+export function resolveMuxLiveness(): MuxLivenessOptions {
+  const injected = (globalThis as MuxLivenessGlobal).__DSH_MUX_LIVENESS__?.timeoutMs
+  // Disarmed when absent: an unknown value is never treated as the default.
+  const timeoutMs = typeof injected === 'number' && Number.isFinite(injected) && injected >= 0
+    ? injected
+    : 0
+  const documentRef = (globalThis as { readonly document?: { readonly visibilityState?: string } }).document
+  return {
+    timeoutMs,
+    ...documentRef === undefined ? {} : { isHidden: () => documentRef.visibilityState === 'hidden' },
+  }
+}
+
 /**
  * Keep one physical WebSocket and share it among independently cancellable
  * Remote streams. A carrier that supplies an in-process stream opener never
@@ -53,6 +96,7 @@ export class RemoteStreamMuxClient {
   private socket: ConnectionWebSocket | undefined
   private cancelCandidate: ((error: Error) => void) | undefined
   private keepAlive: Promise<void> | undefined
+  private livenessTimer: ReturnType<typeof setTimeout> | undefined
   private revision = 0
   private readonly streams = new Map<string, LogicalStream>()
   private readonly waiters = new Set<SocketWaiter>()
@@ -64,10 +108,12 @@ export class RemoteStreamMuxClient {
   /**
    * @param openSocket - selected authenticated carrier; omission uses the browser socket.
    * @param waitForReconnect - answering Clients wait for Connection to replace a lost socket; passive Clients fail later opens immediately.
+   * @param liveness - quiet-socket deadline and the page-lifecycle seams it reads; omission resolves the served page's own timing.
    */
   constructor(
     private readonly openSocket: (path: string) => ConnectionWebSocket = () => new WebSocket(remoteStreamUrl()),
     private readonly waitForReconnect = false,
+    private readonly liveness: MuxLivenessOptions = resolveMuxLiveness(),
   ) {}
 
   /** Ensure a physical attempt exists, following the current attempt once if needed. */
@@ -227,6 +273,7 @@ export class RemoteStreamMuxClient {
       this.disposed = true
       this.running = false
       const error = new Error('api gateway: Remote stream client disposed')
+      this.disarmLiveness()
       this.failAll(error)
       for (const waiter of [...this.waiters]) waiter.reject(error)
       this.cancelCandidate?.(error)
@@ -236,6 +283,58 @@ export class RemoteStreamMuxClient {
     }
     await this.keepAlive
     await Promise.all(this.socketClosures)
+  }
+
+  /**
+   * Arm the quiet-socket deadline for one live socket. The Host sends a text
+   * liveness frame on every heartbeat tick precisely because a browser cannot
+   * observe Ping control frames; silence past this deadline therefore means the
+   * leg died without a close event — the phone switching networks or the OS
+   * tearing a suspended page's socket.
+   * @param socket - the socket whose silence this deadline watches.
+   */
+  private armLiveness(socket: ConnectionWebSocket): void {
+    this.disarmLiveness()
+    const timeoutMs = this.liveness.timeoutMs
+    if (timeoutMs <= 0) return
+    this.livenessTimer = setTimeout(() => {
+      this.livenessTimer = undefined
+      // A frozen page's timers do not run, so an expiry can be the thaw itself
+      // rather than evidence of a dead leg: re-arm instead of recycling while
+      // hidden. The foreground return owns that recycle.
+      if (this.liveness.isHidden?.() === true) {
+        this.armLiveness(socket)
+        return
+      }
+      this.recycle(socket, new RemoteStreamCarrierError(
+        `api gateway: Remote stream socket heard nothing for ${String(timeoutMs)} ms`,
+      ))
+    }, timeoutMs)
+    // A pending deadline must not keep a Node test or CLI process alive; a
+    // browser timer id is a number and has nothing to unref.
+    const timer = this.livenessTimer as { unref?: () => void }
+    timer.unref?.()
+  }
+
+  private disarmLiveness(): void {
+    if (this.livenessTimer === undefined) return
+    clearTimeout(this.livenessTimer)
+    this.livenessTimer = undefined
+  }
+
+  /**
+   * Replace the dead socket with a fresh dial, failing its logical streams with
+   * a carrier error their domain supervisors reopen with fresh snapshots.
+   * @param socket - the live socket whose silence or foreground return ended it.
+   * @param error - carrier failure reported to every open logical stream.
+   */
+  private recycle(socket: ConnectionWebSocket, error: RemoteStreamCarrierError): void {
+    this.socket = undefined
+    this.disarmLiveness()
+    this.failAll(error)
+    socket.close(4001, 'socket recycled')
+    this.keepAlive = undefined
+    this.maintain()
   }
 
   /**
@@ -255,6 +354,7 @@ export class RemoteStreamMuxClient {
     )
     if (socket !== undefined) {
       this.socket = undefined
+      this.disarmLiveness()
       this.failAll(error)
       socket.close(4001, 'foreground resync')
     } else {
@@ -290,6 +390,7 @@ export class RemoteStreamMuxClient {
         settled = true
         this.cancelCandidate = undefined
         this.socket = socket
+        this.armLiveness(socket)
         for (const waiter of [...this.waiters]) waiter.resolve(socket)
         resolve(socket)
       }
@@ -361,6 +462,11 @@ export class RemoteStreamMuxClient {
     try {
       if (typeof data !== 'string') throw new Error('api gateway: Remote stream WebSocket requires text messages')
       const frame = parseRemoteStreamServerMessage(data)
+      // Any frame proves the leg is alive, and the Host's liveness frame is the
+      // one an idle socket receives: it re-arms the deadline, then ends here
+      // because it belongs to no stream.
+      this.armLiveness(socket)
+      if (frame.type === 'liveness') return
       const stream = this.streams.get(frame.streamId)
       if (stream === undefined) return
       stream.inbox.push(frame)
@@ -382,6 +488,7 @@ export class RemoteStreamMuxClient {
   ): void {
     if (this.socket !== socket) return
     this.socket = undefined
+    this.disarmLiveness()
     if (!this.waitForReconnect) this.failure = error
     this.failAll(error)
     if (!this.waitForReconnect) {

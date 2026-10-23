@@ -250,8 +250,15 @@ export interface RemoteStreamFailure {
   readonly details: object
 }
 
-/** One logical stream frame sent from the Host. */
+/**
+ * One logical stream frame sent from the Host. `liveness` is not a stream frame:
+ * it carries no stream id and exists only so the page can observe that the
+ * physical socket still reaches this Host. A browser never sees WebSocket Ping
+ * control frames, so without a text frame an idle page cannot distinguish a
+ * healthy quiet socket from one whose leg died without a close event.
+ */
 export type RemoteStreamServerMessage =
+  | { readonly type: 'liveness' }
   | { readonly type: 'item'; readonly streamId: string; readonly value?: unknown }
   | { readonly type: 'error'; readonly streamId: string; readonly error: RemoteStreamFailure }
   | { readonly type: 'end'; readonly streamId: string }
@@ -292,6 +299,9 @@ export function parseRemoteStreamClientMessage(text: string): RemoteStreamClient
  */
 export function parseRemoteStreamServerMessage(text: string): RemoteStreamServerMessage {
   return parseMessage(text, (value) => {
+    if (value.type === 'liveness' && exactKeys(value, ['type'])) {
+      return { type: 'liveness' }
+    }
     if (value.type === 'item'
       && (exactKeys(value, ['type', 'streamId']) || exactKeys(value, ['type', 'streamId', 'value']))
       && validId(value.streamId)) {

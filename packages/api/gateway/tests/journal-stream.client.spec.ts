@@ -84,6 +84,7 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
     failed: (error: unknown) => void,
     factory: RemoteStreamFactory = STREAM_FACTORY,
     carrierFailed?: (error: RemoteStreamCarrierError) => void,
+    pageDeadlineMs?: number,
   ) {
     super(factory, {
       name: 'fixture journal',
@@ -98,6 +99,7 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
       publish: (change) => { changes.push(change) },
       failed,
       ...(carrierFailed === undefined ? {} : { carrierFailed }),
+      ...(pageDeadlineMs === undefined ? {} : { pageDeadlineMs }),
     })
   }
 
@@ -152,6 +154,7 @@ function journalFixture(
   generations: Generation[],
   pages: PageSource[],
   factory: RemoteStreamFactory = STREAM_FACTORY,
+  pageDeadlineMs?: number,
 ): {
   readonly journal: FixtureJournal
   readonly changes: RemoteJournalChange<Page, Entry, string>[]
@@ -177,6 +180,8 @@ function journalFixture(
     changes,
     failed,
     factory,
+    undefined,
+    pageDeadlineMs,
   )
   return { journal, changes, failed, calls, pageRequests, pageCursors, followRequests }
 }
@@ -1060,6 +1065,33 @@ describe('RemoteJournalStream', () => {
       'ended before its opening cursor',
     )
   })
+
+  it('bounds a history page whose request never answers, so the consumer is never stuck loading', async () => {
+    const seen: string[] = []
+    // The page request is issued and then never answers — a dropped HTTP leg —
+    // so only the read's own deadline ends it. A real request rejects when its
+    // signal aborts, which is what this source models.
+    const fixture = journalFixture(
+      [{ frames: [opened(4, page('initial', [3, 4], true))], hold: true }],
+      [signal => new Promise<Page>((_resolve, reject) => {
+        signal.addEventListener('abort', () => { seen.push('aborted'); reject(new Error('page aborted')) }, { once: true })
+      })],
+      STREAM_FACTORY,
+      40,
+    )
+    try {
+      await fixture.journal.open({})
+      const outcome = await fixture.journal.prepend({ before: 3 }).then(
+        () => new Error('the page resolved without an answer'),
+        (error: unknown) => error,
+      )
+      expect(seen).toEqual(['aborted'])
+      expect(outcome).toBeInstanceOf(Error)
+      expect((outcome as Error).message).toBe('page aborted')
+    } finally {
+      await fixture.journal.dispose()
+    }
+  }, 2_000)
 
   it('suppresses a consumer failure after disposal begins', async () => {
     const generation = new AbortController()
