@@ -49,9 +49,20 @@
 }
 
 /* The pinned section leads the browsing region above the section header: a
-   caption label, then one unindented row per pinned Session. */
+   caption label, then one unindented row per pinned Session.
+
+   It caps its own height and scrolls internally. The section sits outside the
+   list's scroll box, so an uncapped pin list grows until the section header and
+   the Workspace list below it have no height left to scroll in — pinning a few
+   Sessions then made the Workspace list look frozen. 30vh is a phone's worth of
+   pins (six rows, more scroll inside the section) while still leaving the
+   Workspace list most of the column; a taller column simply shows more. */
 .pinnedSection {
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin-bottom: 4px;
 }
 

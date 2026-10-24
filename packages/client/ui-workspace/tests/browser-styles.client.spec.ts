@@ -96,6 +96,19 @@ describe('WorkspaceBrowser.module.css list', () => {
     }
   })
 
+  it('caps the pinned section and scrolls it on its own', () => {
+    const pinned = declarations('.pinnedSection')
+    // The pinned section sits outside the list's scroll box. Without its own cap
+    // it grows until the Workspace list has no height to scroll in, which reads
+    // as a frozen list once a few Sessions are pinned.
+    expect(pinned?.get('max-height')).toBe('30vh')
+    expect(pinned?.get('overflow-y')).toBe('auto')
+    expect(pinned?.get('flex')).toBe('0 1 auto')
+    // The list below keeps the rest of the column: the section is the one item
+    // that gives room back when the column is short.
+    expect(pinned?.get('min-height')).toBe('0')
+  })
+
   it('keeps the compact fade, overflow control, search field, and row heights', () => {
     expect(declarations('.fade')?.get('height')).toBe('24px')
     expect(declarations('.sessionOverflowButton')?.get('height')).toBe('28px')
