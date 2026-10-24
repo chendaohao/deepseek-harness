@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-remote",
   "description": "Remote-control surface for the Web GUI: settings page (tunnel status badge, pairing QR, device roster, revocation)",
-  "version": "0.2.1-alpha.2",
+  "version": "0.2.1-rc.3",
   "publishConfig": {
     "access": "public"
   },

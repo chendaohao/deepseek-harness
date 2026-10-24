@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-mobile",
   "description": "Phone adaptation layer for the Web GUI: touch sizing, safe-area insets, and swipe-to-toggle sidebar, applied only to phone-class devices",
-  "version": "0.2.1-alpha.2",
+  "version": "0.2.1-rc.3",
   "publishConfig": {
     "access": "public"
   },
