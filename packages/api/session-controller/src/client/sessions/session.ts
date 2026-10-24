@@ -31,7 +31,7 @@ import type {
   SessionEventLike, SessionEventLikeEntry, SessionLiveEventEntry,
 } from '../contract/events.ts'
 import { Notifier } from './notifier.ts'
-import { isRemoteFailure } from '@deepseek-ai/dsh-api-gateway/client'
+import { isRemoteFailure, streamRetryDelay } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionRemotes } from './remotes.ts'
@@ -63,6 +63,21 @@ const JUMP_PAGE_OPTIONS = {
   turnWindow: { ...HISTORY_PAGE_OPTIONS.turnWindow, minMessages: JUMP_PAGE_MESSAGES },
 }
 
+/**
+ * Terminal stream failures this client layer absorbs by rebuilding its window.
+ *
+ * These name a transport or journal condition — retries that outlived the
+ * carrier, a journal whose cursor chain broke, a follow buffer that overflowed —
+ * so a fresh opening is exactly the repair. A Host-named business verdict (a
+ * missing, archived, or refused Session) is absent here on purpose: reopening
+ * would only repeat it.
+ */
+const RETRYABLE_STREAM_CODES: ReadonlySet<string> = new Set([
+  'gateway/internal',
+  'gateway/cancelled',
+  'session/stream-overflow',
+])
+
 interface PendingHistory {
   beforeSeq: SessionLogOffset
   hasMore: boolean
@@ -87,6 +102,13 @@ export interface SessionOptions {
    * private store (bare object-layer construction).
    */
   projections?: ProjectionValueStore
+  /**
+   * Override the wait before one automatic reopen after a terminal stream
+   * failure. Receives the computed backoff and returns the delay actually
+   * scheduled; a bare construction that must not start a real timer passes
+   * `() => 0` after the failures are settled.
+   */
+  recoveryDelayMs?(computed: number): number
 }
 
 /**
@@ -105,6 +127,10 @@ export class Session implements SessionFace {
   /** Bumped by stream replacement to invalidate an in-flight doOpen. Stale
    *  passes drop all writes once the generation moves on. */
   private openGeneration = 0
+  /** Pending automatic reopen after a terminal stream failure; null when none is scheduled. */
+  private openRecoveryTimer: ReturnType<typeof setTimeout> | null = null
+  /** Reopen attempts since the last successful opening; drives the recovery cadence. */
+  private openRecoveryAttempt = 0
   private loadingOlder = false
   /** Shared low-water target of the running jump loop; null when no jump is paging. */
   private jumpTargetSeq: SessionSeq | null = null
@@ -509,6 +535,8 @@ export class Session implements SessionFace {
   async resync(): Promise<void> {
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
+    this.cancelOpenRecovery()
+    this.openRecoveryAttempt = 0
     const events = this.events
     this.events = undefined
     await events?.dispose()
@@ -621,6 +649,7 @@ export class Session implements SessionFace {
    */
   async dispose(): Promise<void> {
     this.stopObservingInbox()
+    this.cancelOpenRecovery()
     // Unsettled echoes retire as failed so their owners can restore or
     // release browser resources; admitted echoes keep their observed outcome.
     for (const [requestId, settlement] of [...this.submissionSettlements]) {
@@ -654,12 +683,18 @@ export class Session implements SessionFace {
       await events.open(HISTORY_PAGE_OPTIONS)
       if (generation !== this.openGeneration || this.events !== events) return
       this.openState = 'open'
+      this.openError = null
+      this.openRecoveryAttempt = 0
     } catch (error) {
       if (generation !== this.openGeneration || this.events !== events) return
       if (!isRemoteFailure(error)) throw error
       this.events = undefined
       this.openState = 'error'
       this.openError = error
+      void events.dispose()
+      // An opening attempt that fails terminally retries like a mid-stream
+      // failure does: the page has no other path back to a live window.
+      this.scheduleOpenRecovery(error)
     } finally {
       if (generation === this.openGeneration) this.notifier.markDirty()
     }
@@ -955,7 +990,19 @@ export class Session implements SessionFace {
     settlement.onRetire?.(retirement)
   }
 
-  /** Publish a terminal background failure only while this stream still owns the Session. */
+  /**
+   * Publish a terminal background failure and schedule one automatic reopen.
+   *
+   * A terminal failure means the stream cannot be repaired in place, not that
+   * the Session is gone: a phone that dropped every carrier generation for a
+   * while still holds a durable Session the Host answers for. Leaving
+   * `openState` at `'error'` with nothing scheduled is what made a stale page
+   * need a manual reload, so the failure stays visible in the snapshot while a
+   * reopen is pending and clears when one succeeds.
+   * @param events - the stream reporting the failure.
+   * @param generation - openGeneration at launch; stale reports are ignored.
+   * @param error - the reported failure.
+   */
   private failEventStream(events: SessionEventStream, generation: number, error: unknown): void {
     if (generation !== this.openGeneration || this.events !== events) return
     if (!isRemoteFailure(error)) throw error
@@ -965,7 +1012,51 @@ export class Session implements SessionFace {
     this.openState = 'error'
     this.openError = error
     void events.dispose()
+    this.scheduleOpenRecovery(error)
     this.notifier.markDirty()
+  }
+
+  /**
+   * Reopen the event window after a terminal stream failure, backing off while
+   * attempts keep failing.
+   *
+   * Only a failure this client layer owns is retried: a carrier loss that
+   * outlived its retries, a journal protocol violation, or a follow buffer that
+   * overflowed all describe a window this page can rebuild from a fresh
+   * opening. A failure the Host named — a missing, archived, or refused
+   * Session — is its verdict on the Session itself, and reopening would only
+   * repeat it, so that state stays as it is.
+   *
+   * The first reopen waits one backoff tier rather than firing immediately, so
+   * a persistently failing window cannot become a request loop, and the delay
+   * stays at its ceiling afterwards. Disposing the Session cancels the pending
+   * reopen, so an unattended Session never retries.
+   * @param error - the reported failure, already accepted as a Remote failure.
+   */
+  private scheduleOpenRecovery(error: RemoteFailure): void {
+    if (this.openRecoveryTimer !== null) return
+    if (!RETRYABLE_STREAM_CODES.has(error.code)) return
+    const attempt = ++this.openRecoveryAttempt
+    // attempt 1 is the first retry, and `streamRetryDelay` reserves 0 for the
+    // reopen a live carrier implies; a terminal failure has no such evidence.
+    const delayMs = this.options.recoveryDelayMs?.(streamRetryDelay(attempt + 1))
+      ?? streamRetryDelay(attempt + 1)
+    const timer = setTimeout(() => {
+      if (this.openRecoveryTimer === timer) this.openRecoveryTimer = null
+      void this.open().catch(() => undefined)
+    }, delayMs)
+    // A pending reopen must not keep a Node process alive; a browser timer id
+    // is a number and has nothing to unref.
+    const handle = timer as { unref?: () => void }
+    handle.unref?.()
+    this.openRecoveryTimer = timer
+  }
+
+  /** Cancel a pending automatic reopen; the Session will not reopen on its own. */
+  private cancelOpenRecovery(): void {
+    if (this.openRecoveryTimer === null) return
+    clearTimeout(this.openRecoveryTimer)
+    this.openRecoveryTimer = null
   }
 
   private buildSnapshot(): SessionSnapshot {

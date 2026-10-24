@@ -102,8 +102,10 @@ describe('Session open', () => {
 
   it('lands exhausted carrier retries in openState=error as gateway/internal', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
-    // Two consecutive carrier losses before any opening is accepted exhaust the
-    // Gateway's retry budget; the escaping failure crosses the stream boundary marked.
+    // One reopen before any opening is accepted exhausts the pre-open budget: a
+    // pending first open has no window to keep, so it settles as a failure
+    // instead of retrying forever. The escaping failure crosses the stream
+    // boundary marked.
     mock.stream(FOLLOW, followScript(() => Promise.reject(new RemoteStreamCarrierError('history carrier down'))))
     await session.open()
     expect(session.getSnapshot().openState).toBe('error')
@@ -111,6 +113,44 @@ describe('Session open', () => {
       code: 'gateway/internal', message: 'history carrier down',
     })
     expect(mock.log.requests(FOLLOW)).toHaveLength(2)
+  })
+
+  it('reopens on its own after a retryable terminal failure instead of needing a reload', async ({ mock, start }) => {
+    // The automatic reopen still waits one backoff tier in production; the spec
+    // only shortens the timer so the test does not sleep through it.
+    const session = await sessionBench(mock, start, SID, { recoveryDelayMs: () => 40 })
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(0), 0, 'a', 'b'))))
+    await session.open()
+    expect(session.getSnapshot().openState).toBe('open')
+    const before = mock.log.requests(FOLLOW).length
+    // The error state is transient here, so its appearance is observed rather
+    // than polled.
+    const states: string[] = []
+    session.subscribe(() => { states.push(session.getSnapshot().openState) })
+
+    // A journal protocol violation after the caller already holds a window: the
+    // Gateway stream ends terminally, yet the durable Session is still there.
+    mock.streams.fail(FOLLOW, new RemoteError('gateway/internal', 'journal cursor chain broke', {}))
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(0), 0, 'a', 'b'))))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW).length).toBeGreaterThan(before) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+    expect(states).toContain('error')
+    expect(session.getSnapshot().openError).toBeNull()
+  })
+
+  it('does not reopen after a failure the Host named for the Session itself', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID, { recoveryDelayMs: () => 0 })
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(0), 0, 'a', 'b'))))
+    await session.open()
+    const before = mock.log.requests(FOLLOW).length
+
+    // The Host refused this Session: reopening would only repeat the verdict,
+    // so the error state stands.
+    mock.streams.fail(FOLLOW, new RemoteError('session/not-found', 'session disappeared', { sessionId: SID }))
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('error') })
+    await new Promise<void>((resolve) => { setTimeout(resolve, 50) })
+    expect(mock.log.requests(FOLLOW)).toHaveLength(before)
+    expect(session.getSnapshot().openError).toMatchObject({ code: 'session/not-found' })
   })
 
   it('lands a Gateway-marked stream failure in openState=error', async ({ mock, start }) => {
