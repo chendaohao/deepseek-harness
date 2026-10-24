@@ -3,6 +3,14 @@
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { RemoteStreamCarrierError } from './stream-client.ts'
+import {
+  DEFAULT_PREOPEN_RETRIES,
+  DEFAULT_STREAM_RETRY,
+  defaultStreamRetryTimer,
+  streamRetryDelay,
+  type StreamRetryConfig,
+  type StreamRetryTimer,
+} from './stream-retry.ts'
 
 /** One item annotated with the physical Remote-stream generation that delivered it. */
 export interface RemoteStreamItem<Item> {
@@ -26,6 +34,24 @@ export interface RemoteStreamOptions<Item> {
   readonly ended: (accepted: boolean) => Error
   /** Observe a retryable carrier loss before the supervisor waits or reopens. */
   readonly carrierFailed?: (error: RemoteStreamCarrierError) => void
+  /**
+   * Reopen cadence while the Host generation is still available. Omitted fields
+   * keep {@link DEFAULT_STREAM_RETRY}.
+   */
+  readonly retry?: Partial<StreamRetryConfig>
+  /**
+   * Delay implementation, injectable so tests need no real timers. Defaults to
+   * {@link defaultStreamRetryTimer}.
+   */
+  readonly retryTimer?: StreamRetryTimer
+  /**
+   * Carrier failures tolerated before the stream's first opening settles as a
+   * failure, so a consumer whose call is still pending learns the carrier is
+   * unusable instead of waiting forever. Once an opening has been accepted the
+   * budget no longer applies: the caller holds a window, and only a lost Host
+   * generation ends it. Default: {@link DEFAULT_PREOPEN_RETRIES}.
+   */
+  readonly preopenRetries?: number
 }
 
 /**
@@ -35,14 +61,24 @@ export interface RemoteStreamOptions<Item> {
  * replacement. The domain consumer owns its opening item and every later
  * item, and calls {@link RemoteStreamItem.accept} only after validating the
  * opening baseline or cursor.
+ *
+ * A carrier failure while the Connection generation is current is retried
+ * here, indefinitely: only the mux socket died, so a foreground resume, a radio
+ * transition, or the silence deadline must never end a stream a caller is
+ * reading. Once the generation is gone the stream instead waits for the next
+ * generation, which Connection publishes after its own backoff.
  */
 export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>> {
   private readonly lifetime = new AbortController()
+  private readonly retry: StreamRetryConfig
+  private readonly retryTimer: StreamRetryTimer
   private generationAbort: AbortController | undefined
   private iterator: AsyncGenerator<RemoteStreamItem<Item>> | undefined
   private closing: Promise<void> | undefined
   private revision = 0
   private taken = false
+  /** Whether any generation has accepted an opening item, so a window exists. */
+  private opened = false
 
   /**
    * @param connection - observable Host generation source used to pace retries.
@@ -51,7 +87,10 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
   constructor(
     private readonly connection: Pick<ConnectionHandle, 'generation'>,
     private readonly options: RemoteStreamOptions<Item>,
-  ) {}
+  ) {
+    this.retry = { ...DEFAULT_STREAM_RETRY, ...options.retry }
+    this.retryTimer = options.retryTimer ?? defaultStreamRetryTimer
+  }
 
   /** Cancellation lifetime shared by the stream and sibling page requests. */
   get signal(): AbortSignal {
@@ -119,6 +158,7 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
               accept: () => {
                 if (this.generationAbort !== generationAbort || revision !== this.revision) return
                 accepted = true
+                this.opened = true
                 attempt = 0
               },
             }
@@ -132,14 +172,27 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
           if (!(error instanceof RemoteStreamCarrierError)) throw terminalStreamFailure(error)
           this.options.carrierFailed?.(error)
           if (revision !== this.revision) continue
+          // Before the first opening there is no window for a caller to keep,
+          // so the retry budget stays finite and the opening settles with a
+          // failure the consumer can report. Afterwards the caller is reading
+          // the window, and only a lost Host generation may end it.
+          if (!this.opened && attempt >= (this.options.preopenRetries ?? DEFAULT_PREOPEN_RETRIES)) {
+            throw terminalStreamFailure(error)
+          }
           attempt++
           try {
-            await waitForRemoteStreamRetry(this.connection, error, attempt, signal)
-          } catch (retryError) {
+            await this.awaitRetry(attempt, signal)
+          } catch {
+            // The wait only fails by cancellation: the consumer disposed the
+            // stream or the generation was replaced under this iteration.
+            // Neither is a stream failure, so both leave through the loop's
+            // own guards rather than the terminal boundary.
             if (isAborted(this.lifetime.signal)) return
             if (revision !== this.revision) continue
-            throw terminalStreamFailure(retryError)
+            return
           }
+          if (isAborted(this.lifetime.signal)) return
+          if (revision !== this.revision) continue
         } finally {
           this.generationAbort = undefined
           if (!generationAbort.signal.aborted) {
@@ -155,19 +208,46 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
       this.generationAbort = undefined
     }
   }
+
+  /**
+   * Wait out the cadence for one reopen after a carrier failure.
+   *
+   * The generation decides which wait applies. While it is current the Host is
+   * reachable and only the socket died, so the stream reopens under its own
+   * bounded backoff, for as long as the consumer keeps reading — a page must
+   * recover from a recycled socket without the user reloading. When the
+   * generation is gone, Connection rebuilds the carrier under its own backoff
+   * and this waits for the next generation it publishes, because reopening
+   * earlier would only dial a Host the page cannot reach.
+   *
+   * Cancellation and a consumer-driven restart both escape as a rejection the
+   * caller suppresses; neither is a terminal stream failure.
+   * @param attempt - 1 for the first reopen after a carrier failure.
+   * @param signal - cancellation lifetime of the attempt.
+   */
+  private async awaitRetry(attempt: number, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted()
+    if (this.connection.generation.getSnapshot() === undefined) {
+      await waitForHostGeneration(this.connection, signal)
+      return
+    }
+    await this.retryTimer(streamRetryDelay(attempt, this.retry), signal)
+  }
 }
 
-async function waitForRemoteStreamRetry(
+/**
+ * Wait until Connection publishes a generation.
+ *
+ * The caller has already established that no generation is current. Resolves
+ * at once if one arrives during subscription setup — a publication between the
+ * two checks must not be missed — and rejects on cancellation.
+ * @param connection - the generation source to observe.
+ * @param signal - cancellation lifetime of the attempt.
+ */
+async function waitForHostGeneration(
   connection: Pick<ConnectionHandle, 'generation'>,
-  error: RemoteStreamCarrierError,
-  attempt: number,
   signal: AbortSignal,
 ): Promise<void> {
-  signal.throwIfAborted()
-  if (connection.generation.getSnapshot() !== undefined) {
-    if (attempt === 1) return
-    throw error
-  }
   await new Promise<void>((resolve, reject) => {
     const subscription: {
       dispose?: () => void

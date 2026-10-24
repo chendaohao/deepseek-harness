@@ -45,6 +45,16 @@ export type {
 } from './journal-stream.ts'
 export { RemoteStream } from './remote-stream.ts'
 export type { RemoteStreamItem, RemoteStreamOptions } from './remote-stream.ts'
+export {
+  DEFAULT_PREOPEN_RETRIES,
+  DEFAULT_STREAM_RETRY,
+  defaultStreamRetryTimer,
+  streamRetryDelay,
+} from './stream-retry.ts'
+export type {
+  StreamRetryConfig,
+  StreamRetryTimer,
+} from './stream-retry.ts'
 export { RemoteSnapshotStream } from './snapshot-stream.ts'
 export type { RemoteSnapshotStreamOptions } from './snapshot-stream.ts'
 

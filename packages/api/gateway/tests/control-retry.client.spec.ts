@@ -4,6 +4,8 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   RemoteStreamCarrierError,
   RemoteStream,
+  DEFAULT_STREAM_RETRY,
+  type StreamRetryTimer,
 } from '../src/client/index.ts'
 
 const GENERATION = { id: 1, host: { home: '/home/fixture' } }
@@ -65,6 +67,7 @@ function supervisor<Item>(
   connection: Pick<ConnectionHandle, 'generation'>,
   generations: Generation<Item>[],
   carrierFailed?: (error: RemoteStreamCarrierError) => void,
+  retryTimer?: StreamRetryTimer,
 ): RemoteStream<Item> {
   return new RemoteStream(connection, {
     name: 'fixture stream',
@@ -73,6 +76,7 @@ function supervisor<Item>(
       ? new RemoteStreamCarrierError('accepted generation ended')
       : new Error('generation ended before acceptance'),
     ...(carrierFailed === undefined ? {} : { carrierFailed }),
+    ...(retryTimer === undefined ? {} : { retryTimer }),
   })
 }
 
@@ -97,25 +101,81 @@ describe('RemoteStream', () => {
     await stream.dispose()
   })
 
-  it('permits one isolated retry while the Host remains available', async () => {
+  it('keeps reopening while the Host remains available, however many times the carrier fails', async () => {
     const source = hostSource(true)
-    const first = new RemoteStreamCarrierError('first carrier failure')
-    const repeated = new RemoteStreamCarrierError('isolated retry failed')
+    const failures = [
+      new RemoteStreamCarrierError('foreground resume recycled the socket'),
+      new RemoteStreamCarrierError('network information change recycled the socket'),
+      new RemoteStreamCarrierError('silence deadline expired'),
+    ] as const
     const carrierFailed = vi.fn<(error: RemoteStreamCarrierError) => void>()
+    // Three carrier failures after the caller already holds a window is the
+    // ordinary phone case, not an exceptional one: a foreground return and a
+    // radio transition each recycle the shared socket. The fourth generation is
+    // the one that lands, so the caller never sees a terminal result.
+    const stream = supervisor(source.connection, [
+      { values: ['first'], terminal: failures[0] },
+      { terminal: failures[1] },
+      { terminal: failures[2] },
+      { values: ['recovered'], hold: true },
+    ], carrierFailed, () => Promise.resolve())
+    const iterator = stream[Symbol.asyncIterator]()
+
+    const opening = await iterator.next()
+    if (opening.done) throw new Error('fixture opening ended early')
+    opening.value.accept()
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { generation: 4, value: 'recovered' },
+    })
+    expect(carrierFailed.mock.calls.map(([error]) => error)).toEqual(failures)
+    await stream.dispose()
+  })
+
+  it('gives up a pending first opening after one reopen instead of waiting forever', async () => {
+    const source = hostSource(true)
+    const first = new RemoteStreamCarrierError('first dial failed')
+    const second = new RemoteStreamCarrierError('second dial failed')
     const stream = supervisor(source.connection, [
       { terminal: first },
-      { terminal: repeated },
-    ], carrierFailed)
+      { terminal: second },
+    ], undefined, () => Promise.resolve())
 
+    // No window exists to keep yet, so the budget stays finite and the caller
+    // learns the carrier is unusable instead of waiting on a promise that
+    // never settles.
     await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({
       isDSHRemoteError: true,
       code: 'gateway/internal',
-      message: 'isolated retry failed',
-      details: {},
-      cause: repeated,
+      message: 'second dial failed',
     })
-    expect(carrierFailed).toHaveBeenNthCalledWith(1, first)
-    expect(carrierFailed).toHaveBeenNthCalledWith(2, repeated)
+    await stream.dispose()
+  })
+
+  it('waits a growing delay between reopens while the Host remains available', async () => {
+    const source = hostSource(true)
+    const delays: number[] = []
+    const stream = supervisor(source.connection, [
+      { values: ['first'], terminal: new RemoteStreamCarrierError('first') },
+      { terminal: new RemoteStreamCarrierError('second') },
+      { terminal: new RemoteStreamCarrierError('third') },
+      { values: ['recovered'], hold: true },
+    ], undefined, (delayMs) => {
+      delays.push(delayMs)
+      return Promise.resolve()
+    })
+    const iterator = stream[Symbol.asyncIterator]()
+
+    const opening = await iterator.next()
+    if (opening.done) throw new Error('fixture opening ended early')
+    opening.value.accept()
+    await expect(iterator.next()).resolves.toMatchObject({ value: { value: 'recovered' } })
+    // The first reopen is immediate; later ones grow toward the ceiling and
+    // never reach zero, so a page cannot spin.
+    expect(delays).toHaveLength(3)
+    expect(delays[0]).toBe(0)
+    expect(delays[1]).toBeGreaterThanOrEqual(DEFAULT_STREAM_RETRY.minMs)
+    expect(delays[2]).toBeGreaterThan(delays[1] ?? 0)
+    await stream.dispose()
   })
 
   it('folds a non-Error terminal escape into a marked gateway/internal failure', async () => {

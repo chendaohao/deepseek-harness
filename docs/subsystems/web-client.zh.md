@@ -76,7 +76,7 @@ Web 和桌面端共享[代码工作工具偏好](../../packages/client/ui-settin
 
 ## 重连
 
-物理恢复与逻辑恢复彼此独立。Gateway mux 恢复物理 WebSocket；Connection 发布可用 generation 后，每个 `RemoteStream` 分别重开自己的 logical source。Carrier failure 可以重试；business error、非法 opening item 或 protocol violation 会令所属 logical stream 终止。
+物理恢复与逻辑恢复彼此独立。Gateway mux 恢复物理 WebSocket；每个 `RemoteStream` 分别重开自己的 logical source。只要 Connection generation 仍是当前代次，carrier failure 就按该流自己的抖动退避重开，永不终态结算，因为被回收的 mux socket（前台恢复、射频转换、静默期限）并不影响 Host 的可达性，而调用方可能正在读窗口。只有丢失 generation、business error、非法 opening item 或 protocol violation 才会令所属 logical stream 终止；尚未接受首次 opening 的流则会在有限次 carrier failure 后结算，使挂起的调用报告载体不可用，而不是永远等待。
 
 恢复方式由数据语义决定：
 

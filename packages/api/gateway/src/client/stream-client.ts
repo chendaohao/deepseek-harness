@@ -99,6 +99,15 @@ export class RemoteStreamMuxClient {
   private livenessTimer: ReturnType<typeof setTimeout> | undefined
   private revision = 0
   private readonly streams = new Map<string, LogicalStream>()
+  /**
+   * Whether the last thing this client did was deliberately recycle its socket.
+   *
+   * A recycle replaces the physical socket before Connection learns that its
+   * generation died, so the one replacement request that consequence produces
+   * is already satisfied. A later request is a different story — that socket
+   * really is stale — so the marker is consumed, never latched.
+   */
+  private recycleSuperseded = false
   private readonly waiters = new Set<SocketWaiter>()
   private readonly socketClosures = new Set<Promise<void>>()
   private running = false
@@ -129,6 +138,20 @@ export class RemoteStreamMuxClient {
   /** Cancel the current socket or retry wait and start a fresh attempt immediately. */
   reconnect(): void {
     if (!this.running || this.disposed) return
+    // Connection asks for a replacement because the generation it published is
+    // gone, and a lost generation is usually this client's own deliberate
+    // recycle: a foreground resume, a silence expiry, or a failed dial. That
+    // recycle already dialed a replacement, so replacing again cancels a
+    // working socket — the observed cost was two dials per foreground return
+    // and two rounds of stream failures for one event. The marker is consumed
+    // here, so any later request replaces normally.
+    if (this.recycleSuperseded && this.socket !== undefined) {
+      this.recycleSuperseded = false
+      this.failure = undefined
+      if (this.keepAlive === undefined) this.maintain()
+      return
+    }
+    this.recycleSuperseded = false
     const failure = new RemoteStreamCarrierError('api gateway: Remote stream reconnect requested')
     const pending = this.keepAlive
     this.revision++
@@ -330,6 +353,7 @@ export class RemoteStreamMuxClient {
    */
   private recycle(socket: ConnectionWebSocket, error: RemoteStreamCarrierError): void {
     this.socket = undefined
+    this.recycleSuperseded = true
     this.disarmLiveness()
     this.failAll(error)
     socket.close(4001, 'socket recycled')
@@ -354,6 +378,7 @@ export class RemoteStreamMuxClient {
     )
     if (socket !== undefined) {
       this.socket = undefined
+      this.recycleSuperseded = true
       this.disarmLiveness()
       this.failAll(error)
       socket.close(4001, 'foreground resync')
