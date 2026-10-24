@@ -231,7 +231,15 @@ function watchBrowserNetwork(controller: ConnectionController): () => void {
   // with an unchanged verdict, which the controller deduplicates.
   const reread = (): void => { controller.setNetworkAvailable(network.onLine !== false) }
   const foreground = (): void => {
-    if (page?.visibilityState === 'visible') reread()
+    if (page?.visibilityState !== 'visible') return
+    reread()
+    // The re-read alone cannot repair a stale verdict: `setNetworkAvailable`
+    // deduplicates an unchanged value, so a phone that returns while the radio is
+    // still re-associating stays parked on a 'false' the browser will never
+    // correct — the 'online' event it would have fired went to a frozen page.
+    // A visible page is itself evidence that its carrier may be usable, so a
+    // still-unavailable verdict earns exactly one forced attempt.
+    if (network.onLine === false) controller.reconnect()
   }
   controller.setNetworkAvailable(initiallyAvailable)
   // Network Information is a Chrome-family API whose change event fires on an
@@ -303,10 +311,11 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
     publishGeneration(undefined)
     publishState(undefined)
   }
+  const isLoopback = transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname)
   const handle: ConnectionHandle = {
     interactions,
     openWebSocket: path => openConnectionWebSocket(path, transport?.createWebSocket, transport?.streamBaseUrl),
-    isLoopback: transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback,
     generation: {
       getSnapshot: () => generation,
       subscribe: (listener) => {
@@ -360,7 +369,17 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
           sinks.onStateChange?.(state)
         },
       }, { ...recovery, ...config })
-      const current = { token, source, controller, stopNetworkWatch: watchBrowserNetwork(controller) }
+      // A loopback Host answers over the machine's own loopback interface, not a
+      // radio or LAN leg, so an offline verdict and an effective-connection change
+      // describe a path this page does not use: watching them would recycle a
+      // healthy socket and park automatic retries behind a verdict the Host
+      // contradicts. Remote pages keep the full browser network watch.
+      const current = {
+        token,
+        source,
+        controller,
+        stopNetworkWatch: isLoopback ? () => {} : watchBrowserNetwork(controller),
+      }
       owner = current
       controller.start()
       return {

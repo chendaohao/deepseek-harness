@@ -330,7 +330,7 @@ describe('connection client apply', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const browser = new BrowserNetworkProbe()
     vi.stubGlobal('window', browser)
-    ;(globalThis as Win).location = { hostname: 'localhost' }
+    ;(globalThis as Win).location = { hostname: '192.0.2.20' }
     const handle = await mount()
     let calls = 0
     const source: ConnectionGenerationSource = (signal, ready) => new Promise<void>((resolve) => {
@@ -379,7 +379,7 @@ describe('connection client apply', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const browser = new BrowserNetworkProbe()
     vi.stubGlobal('window', browser)
-    ;(globalThis as Win).location = { hostname: 'localhost' }
+    ;(globalThis as Win).location = { hostname: '192.0.2.20' }
     const handle = await mount()
     const { loop, calls } = startCountingLoop(handle)
     try {
@@ -409,16 +409,22 @@ describe('connection client apply', () => {
       expect(calls()).toBe(2)
       expect(handle.state.getSnapshot()).toBe('connected')
 
-      // A foreground return while the verdict is still offline stays parked, and
-      // the browser's own online event still recovers the loop.
+      // A foreground return while the verdict is still offline earns exactly one
+      // forced attempt: a 'false' the page never saw change is as likely to be a
+      // verdict frozen across the suspension as a real outage, and waiting for an
+      // online event that was delivered to a frozen page never ends the stall.
       browser.setOnline(false)
       browser.document.becomeVisible()
-      expect(handle.state.getSnapshot()).toBe('disconnected')
-      await vi.advanceTimersByTimeAsync(5_000)
-      expect(calls()).toBe(2)
-      browser.setOnline(true)
+      expect(handle.state.getSnapshot()).toBe('connecting')
       await vi.advanceTimersByTimeAsync(100)
       expect(calls()).toBe(3)
+      // The probe source always becomes ready, so this attempt lands; a real
+      // offline radio fails it and the loop parks until the online transition.
+      expect(handle.state.getSnapshot()).toBe('connected')
+      // The browser's own online event still recovers the loop.
+      browser.setOnline(true)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(calls()).toBe(4)
       expect(handle.state.getSnapshot()).toBe('connected')
     } finally {
       loop.stop()
@@ -433,7 +439,7 @@ describe('connection client apply', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const browser = new BrowserNetworkProbe()
     vi.stubGlobal('window', browser)
-    ;(globalThis as Win).location = { hostname: 'localhost' }
+    ;(globalThis as Win).location = { hostname: '192.0.2.20' }
     const handle = await mount()
     const { loop, calls } = startCountingLoop(handle)
     try {
@@ -467,7 +473,7 @@ describe('connection client apply', () => {
     const browser = new BrowserNetworkProbe()
     const info = browser.installNetworkInformation()
     vi.stubGlobal('window', browser)
-    ;(globalThis as Win).location = { hostname: 'localhost' }
+    ;(globalThis as Win).location = { hostname: '192.0.2.20' }
     const handle = await mount()
     const { loop, calls } = startCountingLoop(handle)
     try {
@@ -480,6 +486,139 @@ describe('connection client apply', () => {
       expect(handle.state.getSnapshot()).toBe('connecting')
       await vi.advanceTimersByTimeAsync(1)
       expect(calls()).toBe(2)
+      expect(handle.state.getSnapshot()).toBe('connected')
+    } finally {
+      loop.stop()
+      randomSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('forces one attempt when a returning page still reports offline, then waits for the radio', async () => {
+    vi.useFakeTimers()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const browser = new BrowserNetworkProbe()
+    vi.stubGlobal('window', browser)
+    ;(globalThis as Win).location = { hostname: '192.0.2.20' }
+    const handle = await mount()
+    const { loop, calls } = startCountingLoop(handle)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls()).toBe(1)
+
+      // The phone suspends and the radio drops; the page never sees the event.
+      browser.document.visibilityState = 'hidden'
+      browser.document.dispatchEvent(new Event('visibilitychange'))
+      browser.setOnlineSilently(false)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(calls()).toBe(1)
+
+      // It returns while the radio is still re-associating. The re-read finds the
+      // same 'false' the controller already holds, so only the forced attempt can
+      // end the stall — without it this page never connects again.
+      browser.document.visibilityState = 'visible'
+      browser.document.dispatchEvent(new Event('visibilitychange'))
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(calls()).toBe(2)
+
+      // The verdict is still false, so the loop parks again instead of burning
+      // attempts against a radio the browser says is gone.
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(calls()).toBe(2)
+
+      // The real transition resumes normal retry from the 500ms tier.
+      browser.setOnline(true)
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(calls()).toBeGreaterThan(2)
+    } finally {
+      loop.stop()
+      randomSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('ignores radio transitions on a loopback page, whose Host the browser network path does not carry', async () => {
+    vi.useFakeTimers()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const browser = new BrowserNetworkProbe()
+    const info = browser.installNetworkInformation()
+    vi.stubGlobal('window', browser)
+    ;(globalThis as Win).location = { hostname: 'localhost' }
+    const handle = await mount()
+    const { loop, calls } = startCountingLoop(handle)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls()).toBe(1)
+      expect(handle.state.getSnapshot()).toBe('connected')
+
+      // The laptop moves between Wi-Fi and Ethernet, or the estimator revises the
+      // effective connection type: the loopback leg stayed up throughout.
+      info.dispatchEvent(new Event('change'))
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(calls()).toBe(1)
+      expect(handle.state.getSnapshot()).toBe('connected')
+
+      // A radio drop is equally unrelated to a Host reached over loopback.
+      browser.setOnline(false)
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(handle.state.getSnapshot()).toBe('connected')
+      browser.setOnline(true)
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(calls()).toBe(1)
+      expect(handle.state.getSnapshot()).toBe('connected')
+    } finally {
+      loop.stop()
+      randomSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('ignores radio transitions on a shell-owned Host page whose authority is not loopback', async () => {
+    vi.useFakeTimers()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const browser = new BrowserNetworkProbe()
+    const info = browser.installNetworkInformation()
+    vi.stubGlobal('window', browser)
+    ;(globalThis as Win).location = { hostname: 'app' }
+    // The desktop shell serves its page from dsh-app://app and dials the Host it
+    // spawned on loopback, so the authority is not loopback but the leg is.
+    ;(globalThis as Win).__DSH_TRANSPORT__ = { ownsHost: true, streamBaseUrl: 'http://127.0.0.1:3080' }
+    const handle = await mount()
+    expect(handle.isLoopback).toBe(true)
+    const { loop, calls } = startCountingLoop(handle)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls()).toBe(1)
+      info.dispatchEvent(new Event('change'))
+      browser.setOnline(false)
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(calls()).toBe(1)
+      expect(handle.state.getSnapshot()).toBe('connected')
+    } finally {
+      loop.stop()
+      randomSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('starts a loopback page whose browser reports no network at load time', async () => {
+    vi.useFakeTimers()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const browser = new BrowserNetworkProbe()
+    // The API is already unreachable from a plain browser context, so the
+    // loopback Host answers regardless of what the radio reports.
+    browser.navigator.onLine = false
+    vi.stubGlobal('window', browser)
+    ;(globalThis as Win).location = { hostname: 'localhost' }
+    const handle = await mount()
+    const { loop, calls } = startCountingLoop(handle)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls()).toBe(1)
       expect(handle.state.getSnapshot()).toBe('connected')
     } finally {
       loop.stop()
