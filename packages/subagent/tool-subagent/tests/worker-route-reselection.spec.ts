@@ -92,7 +92,7 @@ async function installTool(ctx: Context, parent?: Agent, withModelSelection = fa
   }
   if (parent === undefined) throw new Error('model-selection installation requires its parent Agent')
   const fiber = parent.ctx.inject(tool.inject, (runtimeCtx) => {
-    tool.apply(runtimeCtx, { provider: 'spawn', workerRouteSettings: true, modelSelection: true }, parent.session)
+    tool.apply(runtimeCtx, { provider: 'spawn', workerRouteSettings: true, modelSelection: true })
   })
   await fiber.await()
 }

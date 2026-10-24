@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId, SESSION_FORMAT_VERSION, type UserMessage } from '@deepseek-ai/dsh-session'
-import { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent, type ModelSelection, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -58,6 +58,9 @@ beforeEach(() => {
 
 const testToolSignal = new AbortController().signal
 
+/** The selection every driven pre-step reports; codegraph does not read it. */
+const testModelSelection: ModelSelection = { provider: 'test', model: 'test' }
+
 async function tempWorkspace(withIndex: boolean): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-codegraph-'))
   if (withIndex) await mkdir(join(dir, '.codegraph'), { recursive: true })
@@ -78,6 +81,9 @@ function stubAgent(cwd: string | undefined): Agent {
     id: SessionId('a1'),
     options: {},
     session,
+    // The pre-step payload carries the step's selection; codegraph reads only
+    // the session, so the stub reports no selection and records none.
+    model: { current: () => undefined, select: () => {} },
     inbox: {
       nextTurn: [], nextStep: [], clear: () => {}, append: () => {},
       prepend: () => {}, replace: () => false, remove: () => false, splice: () => [],
@@ -116,7 +122,7 @@ async function driveDecision(
 ): Promise<PreStepDecision> {
   return await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    { messages: claimed, turn: 1, step: 1, signal: testToolSignal },
+    { messages: claimed, turn: 1, step: 1, signal: testToolSignal, modelSelection: testModelSelection },
     async () => proposed,
   )
 }
@@ -300,7 +306,7 @@ describe('dsh-codegraph', () => {
 
     await expect(agentEvents(ctx, agent).waterfall(
       'agent/pre-step',
-      { messages: [], turn: 1, step: 1, signal: controller.signal },
+      { messages: [], turn: 1, step: 1, signal: controller.signal, modelSelection: testModelSelection },
       async () => ({ kind: 'enter' as const, messages: [] }),
     )).rejects.toThrow()
     await ctx.fiber.dispose()
@@ -360,7 +366,7 @@ describe('dsh-codegraph', () => {
     const signal = { aborted: false, throwIfAborted(): void {} }
     const decision = agentEvents(ctx, agent).waterfall(
       'agent/pre-step',
-      { messages: [], turn: 1, step: 1, signal: signal as AbortSignal },
+      { messages: [], turn: 1, step: 1, signal: signal as AbortSignal, modelSelection: testModelSelection },
       async () => { signal.aborted = true; return { kind: 'enter' as const, messages: [] } },
     )
 

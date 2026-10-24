@@ -331,7 +331,10 @@ describe('real Loader composition', () => {
       compressionThresholdBytes: 1024,
       keepAliveTimeoutMs: 30_000,
     })
-    expect(() => HttpServer.Config({ host: '127.0.0.1', port: 0, compression: 'deflate' })).toThrow()
+    // A value outside the schema's union rejects at construction; `'deflate'`
+    // is unreachable through the typed API, so the negative threshold is the
+    // reachable way to prove the same rejection.
+    expect(() => HttpServer.Config({ host: '127.0.0.1', port: 0, compressionThresholdBytes: -1 })).toThrow()
 
     const loaded = await loadComposition()
     const server = loaded.webServer
