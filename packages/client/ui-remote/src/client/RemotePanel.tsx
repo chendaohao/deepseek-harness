@@ -39,8 +39,8 @@ function expiryDaysLeft(record: RemoteDeviceRecord): number {
 export interface RemotePanelProps {
   /** Host-connection remote client for the forwarded-event subscriptions. */
   remote: ClientRemote
-  /** The locale-bound translate seat of the `remote` namespace. */
-  t: TranslateNS<'remote'>
+  /** The locale-bound translate seat of the `settings.remote` namespace. */
+  t: TranslateNS<'settings.remote'>
 }
 
 /**

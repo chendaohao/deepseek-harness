@@ -45,6 +45,6 @@ No runtime invariant companion is published because the surface renders logged s
 <details>
 <summary>How the surfaces are wired</summary>
 
-The panel mounts through the `settings.section` slot and subscribes to the forwarded remote events only while the section is mounted. Export discipline follows packages/client/AGENTS.md: no cross-plugin value imports; `ctx.remote`, `ctx.slots`, and `ctx.locale` are injected peers.
+The panel mounts through the `settings.section` slot and subscribes to the forwarded remote events only while the section is mounted. Its copy lives in the `settings.remote` locale namespace: the bare `remote` namespace belongs to third-party remote-control plugins, and the registry admits one owner per (namespace, locale), so sharing the id fails this entry at boot. Export discipline follows packages/client/AGENTS.md: no cross-plugin value imports; `ctx.remote`, `ctx.slots`, and `ctx.locale` are injected peers.
 
 </details>

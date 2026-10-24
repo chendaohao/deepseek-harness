@@ -42,12 +42,17 @@ declare module '@deepseek-ai/cordis' {
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Desktop remote-control panel copy. */
-    remote: RemoteKey
+    'settings.remote': RemoteKey
   }
 }
 
-/** Dictionary namespace owned by this plugin. */
-const NS = 'remote'
+/**
+ * Dictionary namespace owned by this plugin. The bare `remote` namespace
+ * belongs to third-party remote-control plugins (language packs register
+ * their own dictionaries there), and `register()` admits one owner per
+ * (namespace, locale), so sharing the id aborts this entry at boot.
+ */
+const NS = 'settings.remote'
 
 export type {
   RemoteDeviceRecord, RemotePairResponse, RemoteStateResponse, RemoteTunnelState,

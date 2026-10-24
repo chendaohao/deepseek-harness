@@ -49,17 +49,29 @@ describe('ui-remote apply', () => {
     const entry = b.slots.entries('settings.section')[0]!
     expect(entry.component).toBe(RemoteSettingsSection)
     expect(entry.options).toMatchObject({ id: 'remote', order: 25 })
-    expect(entry.locale).toBe('remote')
+    expect(entry.locale).toBe('settings.remote')
     const injected = (entry.inject as object as () => RemoteSettingsSectionInjected)()
     expect(injected.remote).toBe(b.remote)
-    expect(b.locale.bind('remote')('nav')).toBe('远程控制')
+    expect(b.locale.bind('settings.remote')('nav')).toBe('远程控制')
     b.locale.setLocale('en')
-    expect(b.locale.bind('remote')('nav')).toBe('Remote')
+    expect(b.locale.bind('settings.remote')('nav')).toBe('Remote')
     await fiber.dispose()
     expect(b.slots.entries('settings.section')).toEqual([])
     // The (ns, locale) seats are free again — the dictionary disposer ran.
-    expect(() => b.locale.register('remote', 'zh', {})).not.toThrow()
-    expect(() => b.locale.register('remote', 'en', {})).not.toThrow()
+    expect(() => b.locale.register('settings.remote', 'zh', {})).not.toThrow()
+    expect(() => b.locale.register('settings.remote', 'en', {})).not.toThrow()
+  })
+
+  it('leaves a third-party dictionary in the bare `remote` namespace untouched', async () => {
+    const b = await bench()
+    // A language pack owns `remote` independently of this plugin; registering
+    // both used to abort this entry with "already has locale".
+    b.locale.register('remote', 'ru', { nav: 'Пульт' })
+    declare(b.slots)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    expect(b.slots.entries('settings.section')[0]!.component).toBe(RemoteSettingsSection)
+    await fiber.dispose()
   })
 
   it('leaves the hole untouched before the declaration exists', async () => {

@@ -20,7 +20,7 @@ export interface RemoteSettingsSectionInjected {
 export type RemoteSettingsSectionProps =
   PropsRuntime<'settings.section'>
   & InjectFace<RemoteSettingsSectionInjected>
-  & PropsLocale<'remote'>
+  & PropsLocale<'settings.remote'>
 
 /**
  * Render the remote-control settings page.

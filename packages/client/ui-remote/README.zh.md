@@ -45,6 +45,6 @@ Web GUI 的浏览器侧远程控制表面。「设置」页里的「远程控制
 <details>
 <summary>面板如何接线</summary>
 
-面板通过 `settings.section` 槽位挂载，并仅在 section 挂载期间订阅转发的 remote 事件。导出纪律遵循 packages/client/AGENTS.md：不跨插件值导入；`ctx.remote`、`ctx.slots`、`ctx.locale` 为注入的 peer。
+面板通过 `settings.section` 槽位挂载，并仅在 section 挂载期间订阅转发的 remote 事件。文案放在 `settings.remote` locale namespace：裸 `remote` namespace 属于第三方远程控制插件，而注册表对每个 (namespace, locale) 只允许一个占用者，共用该 id 会让本条目在启动时失败。导出纪律遵循 packages/client/AGENTS.md：不跨插件值导入；`ctx.remote`、`ctx.slots`、`ctx.locale` 为注入的 peer。
 
 </details>
