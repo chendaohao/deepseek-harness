@@ -222,6 +222,19 @@ interface BrowserLifecycleTarget {
   removeEventListener(type: 'visibilitychange', listener: () => void): void
 }
 
+/**
+ * Quiet period an effective-connection change waits out before it interrupts
+ * active work (ms).
+ *
+ * A radio transition is a burst, not an edge: Android reports several
+ * `change` events as it re-associates, and each one would otherwise abort a
+ * generation that had already started recovering. Only the last transition in
+ * a burst describes the carrier the page will actually use, so the interrupt
+ * waits for the burst to end and a single event still reaches it after one
+ * window.
+ */
+const NETWORK_SWITCH_DEBOUNCE_MS = 1_500
+
 function watchBrowserNetwork(controller: ConnectionController): () => void {
   const browser = (globalThis as { readonly window?: BrowserNetworkTarget }).window
   const network = browser?.navigator
@@ -254,13 +267,24 @@ function watchBrowserNetwork(controller: ConnectionController): () => void {
   // nor a switch signal, which is what the liveness deadline and the foreground
   // re-read cover.
   const networkInfo = network.connection
-  const switched = (): void => { controller.reconnect() }
+  let switchTimer: ReturnType<typeof setTimeout> | undefined
+  const switched = (): void => {
+    if (switchTimer !== undefined) clearTimeout(switchTimer)
+    switchTimer = setTimeout(() => {
+      switchTimer = undefined
+      controller.reconnect()
+    }, NETWORK_SWITCH_DEBOUNCE_MS)
+    const handle = switchTimer as { unref?: () => void }
+    handle.unref?.()
+  }
   browser.addEventListener('online', online)
   browser.addEventListener('offline', offline)
   browser.addEventListener('pageshow', reread)
   page?.addEventListener('visibilitychange', foreground)
   networkInfo?.addEventListener('change', switched)
   return () => {
+    if (switchTimer !== undefined) clearTimeout(switchTimer)
+    switchTimer = undefined
     browser.removeEventListener('online', online)
     browser.removeEventListener('offline', offline)
     browser.removeEventListener('pageshow', reread)

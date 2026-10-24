@@ -481,10 +481,47 @@ describe('connection client apply', () => {
       expect(calls()).toBe(1)
 
       // The phone moved between cellular and Wi-Fi: the browser never went
-      // offline, but every socket on the old leg is now dead.
+      // offline, but every socket on the old leg is now dead. The interrupt
+      // waits out the burst a radio transition produces, so nothing has
+      // happened yet.
       info.dispatchEvent(new Event('change'))
-      expect(handle.state.getSnapshot()).toBe('connecting')
-      await vi.advanceTimersByTimeAsync(1)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(handle.state.getSnapshot()).toBe('connected')
+      expect(calls()).toBe(1)
+      // Past the debounce window: the last transition of the burst is current.
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(calls()).toBe(2)
+      expect(handle.state.getSnapshot()).toBe('connected')
+    } finally {
+      loop.stop()
+      randomSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('interrupts once for a burst of effective-connection changes', async () => {
+    vi.useFakeTimers()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const browser = new BrowserNetworkProbe()
+    const info = browser.installNetworkInformation()
+    vi.stubGlobal('window', browser)
+    ;(globalThis as Win).location = { hostname: '192.0.2.20' }
+    const handle = await mount()
+    const { loop, calls } = startCountingLoop(handle)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls()).toBe(1)
+
+      // Android reports several transitions while it re-associates. Each one
+      // used to abort a generation that had already started recovering, so a
+      // single background trip could churn the carrier indefinitely.
+      for (let index = 0; index < 12; index += 1) {
+        info.dispatchEvent(new Event('change'))
+        await vi.advanceTimersByTimeAsync(250)
+      }
+      expect(calls()).toBe(1)
+      await vi.advanceTimersByTimeAsync(5_000)
       expect(calls()).toBe(2)
       expect(handle.state.getSnapshot()).toBe('connected')
     } finally {
