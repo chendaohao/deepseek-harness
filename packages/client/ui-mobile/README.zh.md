@@ -1,5 +1,5 @@
 ---
-description: "Web GUI 的手机适配层：触摸尺寸、安全区内边距、侧栏滑动开关，仅对手机类设备生效。"
+description: "Web GUI 的手机适配层：触摸尺寸、安全区内边距、侧栏滑动开关，以及把外壳钉在手机可视区顶部的文档滚动复位，仅对手机类设备生效。"
 kind: "package-reference"
 ---
 # @deepseek-ai/dsh-client-ui-mobile
@@ -8,7 +8,7 @@ kind: "package-reference"
 
 ## 概述
 
-出厂的 Web GUI 是桌面布局，没有竖屏、粗指针或安全区规则。本包补上这层缺失：一张触摸样式表把控件目标抬到 44px 下限、把输入框字号锁在 16px 以免 iOS 聚焦缩放、为输入框补 home 指示条内边距，外加侧栏滑动开关。它不贡献插槽、控件或文案；侧栏开关与窄屏浮层几何在 `ui-sidebar` 和 `ui-layout` 里已有。每条规则都限定在打上的 `data-dsh-mobile-layer` 属性内，并经由 `ctx.effect` 安装；关掉这一行即随插件 fiber 移除整层。
+出厂的 Web GUI 是桌面布局，没有竖屏、粗指针或安全区规则。本包补上这层缺失：一张触摸样式表把控件目标抬到 44px 下限、把输入框字号锁在 16px 以免 iOS 聚焦缩放、为输入框补 home 指示条内边距，外加侧栏滑动开关，以及把文档滚动偏移钉回零位的复位。它不贡献插槽、控件或文案；侧栏开关与窄屏浮层几何在 `ui-sidebar` 和 `ui-layout` 里已有。每条规则都限定在打上的 `data-dsh-mobile-layer` 属性内，并经由 `ctx.effect` 安装；关掉这一行即随插件 fiber 移除整层。
 
 ## 目录
 
@@ -37,6 +37,7 @@ kind: "package-reference"
 | `[class$="_iconButton"]` | `ui-sidebar` | rail 控件渲染 24px 字形，手指需要 44px |
 | `[class$="_composerSeat"]` | `ui-conversation` | 输入框字号（iOS 缩放）与 home 指示条内边距 |
 | `[class$="_centerCol"]` | `ui-layout` | 横屏时两侧刘海避让 |
+| `html` / `body` / `#root` 上的 `[data-dsh-mobile-layer]` | `ui-web`（`base.css`） | 外壳高度跟随动态视口，而不是布局视口 |
 
 重命名这些局部类是有意为之的行为，会在其所属包里体现为 diff；上表就是届时要复查的清单。
 
@@ -56,6 +57,7 @@ kind: "package-reference"
 - **后缀选择器是约定，不是类型检查过的契约。** 重命名一个 CSS Modules 局部类会静默丢掉对应规则。上表是人工复查清单；构建不会因此失败。
 - **本层只改样式，不改布局。** 窄屏几何、浮层侧栏、点击空白关闭，`ui-layout` 里都已经有了；本包不重复声明，所以手机布局的改动属于那个包，不属于这里。
 - **软键盘上 Enter 仍然是发送。** 输入框的键位映射是 `ui-conversation` 拥有的冻结管线（普通 Enter 发送、Shift+Enter 换行），而手机键盘没有 Shift。改它是改框架，不是改插件；发送保持走发送按钮。
+- **滚动复位是事后纠正，不是阻止浏览器滚动。** `visibilitychange` 后的一帧复位意味着回前台的首帧仍可能画在恢复出来的偏移上，随后才吸回顶部。
 - **设备判据是传输层 `isPhoneWeb`（`api-gateway`）的有意副本。** 两者为何不共享，见 `src/client/device.ts` 的模块注释。
 
 <a id="dev-note"></a>

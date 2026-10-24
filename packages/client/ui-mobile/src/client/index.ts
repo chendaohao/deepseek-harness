@@ -13,6 +13,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import { FORCE_DESKTOP_KEY, isPhoneDevice } from './device.ts'
 import { installSidebarGestures } from './gestures.ts'
+import { installViewportReset } from './viewport.ts'
 import touchCss from './touch.css?inline'
 
 /**
@@ -85,4 +86,6 @@ export function apply(ctx: ClientContext): void {
     }),
     'ui-mobile: sidebar gestures',
   )
+
+  ctx.effect(() => installViewportReset(), 'ui-mobile: viewport reset')
 }

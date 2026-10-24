@@ -4,13 +4,13 @@
 #   pnpm run verify-translation-pairing --write packages/client/ui-mobile/README.md
 /:
   en: d1b6473e86a0fb6e
-  zh: 1254c37363b64387
+  zh: d276d2cc496c2e51
 /deepseek-ai-dsh-client-ui-mobile:
   en: f074fe0e137c88f2
   zh: 9e902ed844836e49
 /deepseek-ai-dsh-client-ui-mobile/summary:
-  en: f537898d436c7c45
-  zh: b8fe9224494edfb1
+  en: fc8c94b897a74f27
+  zh: e87c9d622f93d408
 /deepseek-ai-dsh-client-ui-mobile/table-of-contents:
   en: c81cc7596a990de8
   zh: 3c11b2774bb4d4ef
@@ -18,8 +18,8 @@
   en: 26813ebdd049555b
   zh: f5b38a4b55ee7f97
 /deepseek-ai-dsh-client-ui-mobile/selector-contract:
-  en: 0588572a7eed35ef
-  zh: 29b4e8a5d1d3dd0e
+  en: 125283879221a264
+  zh: ca854c06f184c9fa
 /deepseek-ai-dsh-client-ui-mobile/model-experience:
   en: 0a40b6fd190d5f12
   zh: 3c8595e31eccb313
@@ -27,8 +27,8 @@
   en: ba64930e86301829
   zh: c260ef7eac69b0ec
 /deepseek-ai-dsh-client-ui-mobile/known-limitations-and-deferred-work:
-  en: 88cbc65c80af1aa1
-  zh: a8f053de81e12b2a
+  en: 9560fef0fb32ac45
+  zh: 80f06e64d0cd30e0
 /deepseek-ai-dsh-client-ui-mobile/known-limitations-and-deferred-work/invariant-ownership:
   en: 537fd30c5343dd5a
   zh: 06a7090f972cb36f

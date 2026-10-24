@@ -24,6 +24,20 @@
   --dsh-mobile-safe-right: env(safe-area-inset-right, 0px);
 }
 
+/* Height half of the document-scroll defect (the reset half is
+   viewport.ts). base.css sizes html/body/#root to 100% of the LAYOUT viewport,
+   which on a phone is taller than the band the address bar leaves visible, so
+   the document has that much overflow to scroll into — and the browser then
+   scrolls it while hiding the toolbar or restoring a saved offset. dvh is the
+   dynamic viewport: it equals the visible band and follows the toolbar. The
+   100% declaration stays first as the fallback for engines without dvh. */
+[data-dsh-mobile-layer],
+[data-dsh-mobile-layer] body,
+[data-dsh-mobile-layer] #root {
+  height: 100%;
+  height: 100dvh;
+}
+
 /* Touch targets on the collapsed rail. 56px wide but a 24px glyph, so the
    tappable box has to be grown to the 44px minimum. */
 [data-dsh-mobile-layer] [class$="_iconButton"] {

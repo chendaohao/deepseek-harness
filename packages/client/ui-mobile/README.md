@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The shipped Web GUI is a desktop layout with no portrait, coarse-pointer, or safe-area rule. This package supplies that missing layer: a touch stylesheet raising control targets to the 44px minimum, holding composer inputs at 16px so iOS does not zoom on focus, and padding the composer for the home indicator, plus swipe-to-toggle for the sidebar. It contributes no slot, control, or copy; the sidebar trigger and narrow floating geometry exist in `ui-sidebar` and `ui-layout`. Every rule is scoped to a stamped `data-dsh-mobile-layer` attribute and installed through `ctx.effect`; disabling the row removes the layer with the plugin fiber.
+The shipped Web GUI is a desktop layout with no portrait, coarse-pointer, or safe-area rule. This package supplies that missing layer: a touch stylesheet raising control targets to the 44px minimum, holding composer inputs at 16px so iOS does not zoom on focus, and padding the composer for the home indicator, plus swipe-to-toggle for the sidebar and a document-scroll reset that keeps the shell pinned to the top of the phone viewport. It contributes no slot, control, or copy; the sidebar trigger and narrow floating geometry exist in `ui-sidebar` and `ui-layout`. The same layer also pins the document's scroll offset to zero: on a phone the browser scrolls the shell itself while its address bar moves or as the page returns from the background, which shifts the whole frame up by that offset. Every rule is scoped to a stamped `data-dsh-mobile-layer` attribute and installed through `ctx.effect`; disabling the row removes the layer with the plugin fiber.
 
 ## Table of Contents
 
@@ -37,6 +37,7 @@ The touch stylesheet is document-wide but reaches components through CSS Modules
 | `[class$="_iconButton"]` | `ui-sidebar` | The rail's controls render a 24px glyph; a finger needs 44px |
 | `[class$="_composerSeat"]` | `ui-conversation` | Input font size (iOS zoom) and the home-indicator inset |
 | `[class$="_centerCol"]` | `ui-layout` | Landscape notch clearance on both side edges |
+| `[data-dsh-mobile-layer]` on `html`, `body`, `#root` | `ui-web` (`base.css`) | Shell height follows the dynamic viewport, not the layout viewport |
 
 Renaming one of those local classes is a deliberate act that shows up as a diff in its owning package; this table is the list to re-check when it happens.
 
@@ -55,6 +56,7 @@ None; the layer never assembles a model request.
 - **Suffix selectors are a convention, not a type-checked contract.** A renamed CSS Modules local class silently drops its rule. The table above is the manual re-check list; nothing in the build fails.
 - **The layer styles, it does not re-lay-out.** Narrow geometry, the floating sidebar, and the tap-away backdrop already exist in `ui-layout`; this package does not restate them, so a phone layout change belongs in that package, not here.
 - **Enter still submits on a soft keyboard.** The composer's keymap is a frozen pipeline owned by `ui-conversation` (plain Enter submits, Shift+Enter breaks the line), and a phone keyboard has no Shift. Changing that is a framework change, not a plugin one; send stays on the send button.
+- **The scroll reset corrects the offset, it does not prevent the browser from setting it.** A scripted reset after `visibilitychange` runs one frame late, so a returning page can paint one frame at the restored offset before it snaps to the top.
 - **The device predicate is a deliberate second copy** of the transport's `isPhoneWeb` (`api-gateway`). See the module note in `src/client/device.ts` for why the two are not shared.
 
 <a id="dev-note"></a>
