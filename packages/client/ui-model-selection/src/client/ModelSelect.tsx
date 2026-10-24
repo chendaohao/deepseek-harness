@@ -11,7 +11,9 @@
  * catalogs, root panes, and effort panes move focus between rows. Escape and
  * Shift+Tab leave a drilled pane first and otherwise close back to the
  * trigger, and Escape clears a non-empty query before that. A drilled pane
- * focuses the current effort or model search field. Provider headings paint
+ * focuses the current effort or model search field. Mobile devices restore
+ * button focus when opening or drilling; model search takes focus only after
+ * explicit user input. Provider headings paint
  * their background only while pinned by scrolling, and each collapses under
  * its own header. Clearing a query restores the full list and search focus.
  * Selecting restores trigger focus without a ring until the trigger loses
@@ -43,8 +45,8 @@ import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   applyProviderOrder, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular,
-  IconCloseFillRegular, IconDataOutlineRegular, IconWarningOutlineRegular, Input, rankByName, readProviderOrder,
-  StateDot, Toast, useRecentModels,
+  IconCloseFillRegular, IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, rankByName,
+  readProviderOrder, StateDot, Toast, useRecentModels,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelLabelOwner, ModelSelectInjected } from './slots.ts'
@@ -237,7 +239,7 @@ export function ModelSelect(
     paneFocus.current = null
     if (!open || intent === null) return
     if (intent === 'drill') {
-      if (pane === 'model' && showSearch) {
+      if (pane === 'model' && showSearch && !isMobileDevice()) {
         searchRef.current?.focus()
         return
       }
@@ -511,8 +513,10 @@ export function ModelSelect(
       : effortLabel === undefined
         ? t('trigger.aria', { model: modelLabel })
         : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
-  itemRefs.current = []
-  rowRefs.current = []
+  // The ref containers are only ever written by index from the ref callbacks
+  // (React detaches and re-attaches them on every commit), and truncated at the
+  // end of a commit. Clearing them here would drop the nodes a render that never
+  // commits (a state bailout) had already registered.
   /**
    * One model name, routed through the shared label slot so extensions can
    * decorate it without owning the row.
@@ -550,6 +554,16 @@ export function ModelSelect(
       rowRefs.current[at] = node
     }
   }
+  /**
+   * Publish this render's index spaces. The ref callbacks have already written
+   * the nodes React attached; truncating here drops the positions a previous
+   * pane left behind without ever clearing the array mid-render, which would
+   * lose nodes a render that never commits had registered.
+   */
+  useLayoutEffect(() => {
+    itemRefs.current.length = itemIndex
+    rowRefs.current.length = visibleModels.length
+  })
 
   /** The localized provider name one group heading or secondary row line shows. */
   const providerLabel = (group: ProviderRef): string =>

@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 type Note = [SessionId, 'active' | 'idle']
 
@@ -15,6 +16,7 @@ async function composition() {
     return Promise.resolve()
   })
   ctx.provide('workspaceRegistry', { noteSessionActivity } as never)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   return { ctx, notes, noteSessionActivity }
 }
@@ -72,6 +74,7 @@ describe('Activity automatic-pin feed', () => {
 
     // Without a Workspace registry the listener is inert.
     const bare = new Context()
+    await bare.plugin(SessionProjectionRegistry)
     await bare.plugin(AgentRegistry)
     emitStatus(bare, stubAgent('any', Session.create(SessionId('any'))), 'running')
     expect(noteSessionActivity).not.toHaveBeenCalled()
@@ -84,7 +87,8 @@ describe('Activity automatic-pin feed', () => {
     } as never)
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as never
-    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
 
     emitStatus(ctx, stubAgent('doomed', Session.create(SessionId('doomed'))), 'running')
     await vi.waitFor(() => {

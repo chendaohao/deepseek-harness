@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/web-server.md
 /http-server:
-  en: c9b2f67d3248c496
-  zh: 5fa36d2837ff4f63
+  en: a4861c68f3eb0b03
+  zh: a3da9f0467fdee02
 /http-server/routes:
-  en: e949c3738a35b58f
-  zh: 138e3aaeb319ddc4
+  en: 57adf92882ff0f77
+  zh: d17992cca18cc790
 /http-server/config:
   en: 52a364309102b3b3
   zh: 2d7d5609a9ed3cc3
 /http-server/the-service:
-  en: 802abc58d5a32b2c
-  zh: c129044935d44769
+  en: 09a4683996816796
+  zh: ced37b4c9740d1b4

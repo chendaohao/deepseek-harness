@@ -13,6 +13,7 @@ import { ToolCallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -91,7 +92,7 @@ async function installTool(ctx: Context, parent?: Agent, withModelSelection = fa
   }
   if (parent === undefined) throw new Error('model-selection installation requires its parent Agent')
   const fiber = parent.ctx.inject(tool.inject, (runtimeCtx) => {
-    tool.apply(runtimeCtx, { provider: 'spawn', workerRouteSettings: true, modelSelectionSettings: true }, parent.session)
+    tool.apply(runtimeCtx, { provider: 'spawn', workerRouteSettings: true, modelSelection: true }, parent.session)
   })
   await fiber.await()
 }
@@ -111,14 +112,14 @@ async function delegate(
   parent: Agent,
   args: Record<string, unknown> = {},
 ): Promise<SessionId> {
-  const result = await ctx.tools.execute({
+  const result = await executeModelToolFixture(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('call-worker-route-reselection'),
     name: 'subagent',
     arguments: { description: 'run the task', prompt: 'do the thing', ...args },
     agent: parent,
   })
-  if (result.isError) throw new Error(`delegation failed: ${JSON.stringify(result.value)}`)
+  if (result.isError) throw new Error(`delegation failed: ${JSON.stringify(result.error)} ${JSON.stringify(result.content)}`)
   return (result.value as { subagentId: SessionId }).subagentId
 }
 

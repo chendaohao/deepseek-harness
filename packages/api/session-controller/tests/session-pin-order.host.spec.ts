@@ -79,7 +79,7 @@ describe('session list pin ordering', () => {
         return undefined
       },
     } as never)
-    const remote = createSessionTestRemote(ctx, {
+    const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/tmp',
     })
@@ -133,7 +133,7 @@ describe('session list pin ordering', () => {
         return { asOfSeq: 1, values: { sessionListMetadata: metadata, pinned: { pinned: true, pinAt: 300 } } }
       },
     } as never)
-    const remote = createSessionTestRemote(ctx, {
+    const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/tmp',
     })

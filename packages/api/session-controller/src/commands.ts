@@ -7,9 +7,9 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type {
-  AttachmentAdmissionPart, FileAttachmentRef, ImageAttachmentRef,
+  AttachmentAdmissionPart, ImageAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
-import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/types'
+import type { FileUploadReceiptId, StagedAttachment } from '@deepseek-ai/dsh-client-file-upload/types'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
 import {
   ReasoningEffortId, assistantStreamChunks, createUserMessage, freezeMessage,
@@ -31,7 +31,6 @@ import {
   ApiSessionSubagentOwnership,
   apiSessionSubagentOwnershipError,
   hasApiSessionSubagentOwner,
-  inspectApiSession,
   type ApiSessionCreated,
 } from './agent.ts'
 import type {
@@ -55,12 +54,6 @@ import type {
   SessionUpdateQueueValue,
   SessionRequestId,
 } from './types.ts'
-
-interface SessionReadState {
-  readonly id: SessionId
-  readonly header: SessionHeader
-  readonly events: readonly SessionEvent[]
-}
 
 type PromptContentCandidate =
   | SessionPromptRequest['content'][number]
@@ -95,7 +88,7 @@ function latestCompletedPrefixBoundary(events: readonly SessionEvent[]): Session
 export class SessionCommandController {
   /**
    * @param ctx - Host context carrying Agent, model, attachment, title, and Workspace services.
-   * @param agents - sole owner of create, resume, and Session-local model selection.
+   * @param agents - sole owner of create, resume, and Agent composition.
    * @param defaultCwd - project directory used when create names neither a Workspace nor a cwd.
    */
   constructor(
@@ -152,14 +145,14 @@ export class SessionCommandController {
   }
 
   /**
-   * Validate and install one Session-local model selection, saving the default
-   * in the background. A plain model switch (no effort) resolves the adapter
+   * Validate and record one Session model selection, saving the default in
+   * the background. A plain model switch (no effort) resolves the adapter
    * default first, then the route's remembered effort when one exists; an
    * explicit effort is honored as sent and remembered for the resolved route;
    * an explicit provider-default pick clears the memory. Memory writes are
    * best-effort like the default save.
    * @param request - Session identity, requested selection, and effort explicitness.
-   * @returns the normalized selection installed for the Session, without waiting for default persistence.
+   * @returns the normalized selection recorded for the Session, without waiting for default persistence.
    */
   async selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     const agent = await this.resolveAgent(request.sessionId)
@@ -221,7 +214,8 @@ export class SessionCommandController {
             ? {}
             : { reasoningEffort: resolved.reasoningEffort }),
         }
-        this.agents.selectForNextRequest(agent, selected)
+        await this.ctx.llm.resolveCallConfig(selected)
+        agent.model.select(selected)
         void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
           this.ctx.logger.warn(
             `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
@@ -352,7 +346,6 @@ export class SessionCommandController {
         inheritedEventCount: SessionLogOffset(boundary + 1),
         meta: {
           ...(source.header.cwd === undefined ? {} : { cwd: source.header.cwd }),
-          parentSession: source.header.id,
           isSeeded: true,
           ...(composition.agentPreset === undefined
             ? {}
@@ -392,24 +385,27 @@ export class SessionCommandController {
   async prompt(request: SessionPromptRequest, source: MessageSource): Promise<SessionPromptValue> {
     const agent = await this.resolveAgent(request.sessionId)
     if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
-    const hasImage = request.content.some(part => part.type === 'image')
+    const admission = resolvePromptFileReceipts(
+      request.content,
+      receiptId => this.ctx.fileUploads.resolve(agent, receiptId),
+    )
+    // Encoded images and image upload receipts both make an image prompt.
+    const hasImage = admission.content.some(part => part.type === 'image')
     const admit = async (): Promise<SessionPromptValue> => {
       try {
         if (hasImage) {
-          const current = this.agents.selectionFor(agent).current
-          const model = await this.ctx.llm.resolveModelInfo(current.provider, current.model)
-          if (model.inputModalities !== undefined && !model.inputModalities.includes('image')) {
-            throw new RemoteError(
-              'session/attachment-invalid',
-              `Model "${current.model}" does not support image input.`,
-              { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
-            )
+          const current = agent.model.current()
+          if (current !== undefined) {
+            const model = await this.ctx.llm.resolveModelInfo(current.provider, current.model)
+            if (model.inputModalities !== undefined && !model.inputModalities.includes('image')) {
+              throw new RemoteError(
+                'session/attachment-invalid',
+                `Model "${current.model}" does not support image input.`,
+                { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
+              )
+            }
           }
         }
-        const admission = resolvePromptFileReceipts(
-          request.content,
-          receiptId => this.ctx.fileUploads.resolve(agent, receiptId),
-        )
         const content = await this.ctx.attachments.admitPromptContent(admission.content)
         const message: UserMessage = createUserMessage({ content, source })
         if (this.ctx.agents.get(agent.id) !== agent) {
@@ -448,11 +444,16 @@ export class SessionCommandController {
    * @returns the durable attachment reference and base64-encoded bytes.
    */
   async attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue> {
-    let source: SessionReadState
+    let ref: ImageAttachmentRef | undefined
     try {
-      source = await this.readSessionState(request.sessionId)
+      using observation = await this.ctx.sessionQuery.observeSession(request.sessionId, { projectionMode: 'none' })
+      if (observation.source === 'prepared' && observation.header.cwd === undefined) {
+        throw new ApiSessionNotFound(`session "${request.sessionId}" not found`)
+      }
+      ref = referencedImage(observation.events, String(request.attachmentId))
     } catch (error) {
-      if (error instanceof ApiSessionNotFound) {
+      if (error instanceof ApiSessionNotFound
+        || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND')) {
         throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId })
       }
       throw new RemoteError(
@@ -461,7 +462,6 @@ export class SessionCommandController {
         {},
       )
     }
-    const ref = referencedImage(source.events, String(request.attachmentId))
     if (ref === undefined) {
       throw new RemoteError(
         'session/attachment-invalid',
@@ -610,16 +610,6 @@ export class SessionCommandController {
     throw new RemoteError('gateway/internal', `failed to create session: ${String(error)}`, {})
   }
 
-  private async readSessionState(sessionId: SessionId): Promise<SessionReadState> {
-    const attached = this.ctx.sessions.get(sessionId)
-    if (attached !== undefined) {
-      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-      return { id: attached.id, header: attached.header, events: attached.snapshotEvents() }
-    }
-    const inspected = await inspectApiSession(this.ctx, sessionId)
-    return { id: inspected.meta.id, header: inspected.meta, events: inspected.events }
-  }
-
   private async forkWorkspace(source: SessionHeader): Promise<Workspace | undefined> {
     const workspaces = this.ctx.workspaceRegistry.list()
     const direct = workspaces.find(workspace => workspace.sessionIds.includes(source.id))
@@ -633,14 +623,15 @@ export class SessionCommandController {
   }
 }
 
+/** Replace each file part with the file or image its staged receipt names. */
 function resolvePromptFileReceipts(
   content: SessionPromptRequest['content'],
-  stagedFile: (receiptId: FileUploadReceiptId) => FileAttachmentRef | undefined,
+  staged: (receiptId: FileUploadReceiptId) => StagedAttachment | undefined,
 ): { readonly content: AttachmentAdmissionPart[]; readonly receiptIds: readonly FileUploadReceiptId[] } {
   const receiptIds = new Set<FileUploadReceiptId>()
   const resolved = content.map((part): AttachmentAdmissionPart => {
     if (part.type !== 'file') return part
-    const attachment = stagedFile(part.receiptId)
+    const attachment = staged(part.receiptId)
     if (attachment === undefined) {
       throw new RemoteError(
         'session/attachment-invalid',
@@ -649,7 +640,7 @@ function resolvePromptFileReceipts(
       )
     }
     receiptIds.add(part.receiptId)
-    return { type: 'file', attachment }
+    return attachment
   })
   return { content: resolved, receiptIds: [...receiptIds] }
 }

@@ -97,19 +97,29 @@ describe('first-party Session format catalog', () => {
     // Exemptions, each named here so any other addition must extend the newest
     // released inventory instead of landing on this list: `developer/message`,
     // `working-directory/change`, and `subagent/worker-route` are introduced
-    // by the current format, and `session/pin` is the abandoned type the
-    // v3-to-v4 edge drops.
+    // by the current format, `session/pin` is the abandoned type the
+    // v3-to-v4 edge drops, and the fork-owned job and notify-hooks events are
+    // appended by plugins the released inventory predates.
     const currentFormatIntroduced = new Set([
       'developer/message',
       'working-directory/change',
       'subagent/worker-route',
     ])
     const abandoned = new Set(['session/pin'])
+    // Fork-owned plugins that append their own Session events; the released V3
+    // inventory predates them and they carry no cross-format references.
+    const forkOwned = new Set([
+      'job/registered',
+      'job/settled',
+      'notify-hooks/summary-request',
+      'notify-hooks/summary-result',
+    ])
     expect(
       [...KNOWN_SESSION_EVENT_TYPES].filter(type => (
         !RELEASED_V3_EVENT_TYPES.has(type)
         && !currentFormatIntroduced.has(type)
         && !abandoned.has(type)
+        && !forkOwned.has(type)
       )),
       'a SessionEventMap member is missing from the newest released inventory; acknowledge it here or extend that inventory',
     ).toEqual([])

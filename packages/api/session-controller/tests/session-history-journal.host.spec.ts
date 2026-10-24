@@ -3,7 +3,8 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent, type AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SessionStore, { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { LlmAttemptId, ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
@@ -50,6 +51,7 @@ function appendExtension(session: Session, type: string, data: unknown): Session
 async function harness(): Promise<{ ctx: Context }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   installSessionReadTestServices(ctx)
   return { ctx }
@@ -719,7 +721,7 @@ describe('Session history raw journal', () => {
 
   it('serves raw call and result entries without parsing tool arguments', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const start = session.append('turn/start', { turn: 1 })
     const call = session.append('tool/call', {
@@ -760,7 +762,7 @@ describe('Session history raw journal', () => {
   ])('paginates $name in one contiguous Turn window', async ({ replies, beforeMessage, firstTurn, steering, minMessages = 50 }) => {
     const { ctx } = await harness()
     onTestFinished(() => ctx.fiber.dispose())
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const starts: SessionEvent[] = []
     const messages: SessionEvent[][] = []
@@ -818,7 +820,7 @@ describe('Session history raw journal', () => {
 
   it('counts only append-origin messages toward maxMessages and keeps each compaction summary with its replacement', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
     const first = appendUserText(session, 'first prompt')
@@ -872,7 +874,7 @@ describe('Session history raw journal', () => {
 
   it('paginates a message with a large embedded stream without expanding physical records', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
@@ -910,7 +912,7 @@ describe('Session history raw journal', () => {
 
   it('keeps an earlier declared source on the same message-aligned page', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const source = session.append('request/context', { provider: 'p', model: 'm' })
     const laterSource = session.append('request/context', { provider: 'p', model: 'm' })
@@ -931,7 +933,7 @@ describe('Session history raw journal', () => {
 
   it('keeps compact reasoning and tool-call runs nested in one attempt event', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const callId = ToolCallId('packed-call')
     const attempt = session.append('assistant/attempt', {
@@ -1120,50 +1122,40 @@ describe('Session history raw journal', () => {
     await ctx.fiber.dispose()
   })
 
-  it('flags overflow for a creation snapshot larger than the follow buffer', async () => {
+  it('keeps a creation seed out of the follow buffer, so a large seed does not overflow', async () => {
     const { ctx } = await harness()
     const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
     const sessionId = SessionId('journal-created-overflow')
-    // Build the target out of the store first: `session/created` can only fire
-    // for an id the store does not already hold, and the seed must exceed the
-    // buffer so the creation-path bound (not the live-append bound) trips.
-    const prepared = ctx.sessions.prepare(sessionId, { meta: { cwd: '/workspace' } })
-    for (let turn = 0; turn < 10_100; turn++) prepared.append('turn/start', { turn })
-    const observationStarted = Promise.withResolvers<undefined>()
-    const releaseObservation = Promise.withResolvers<undefined>()
-    const originalObserve = ctx.sessionQuery.observeSession.bind(ctx.sessionQuery)
-    // Hold the source observation open so `snapshotCursor` is still undefined
-    // when the creation lands; that replay folds the entire seed in one step.
-    const observe = vi.spyOn(ctx.sessionQuery, 'observeSession').mockImplementation(async (id, options) => {
-      observationStarted.resolve(undefined)
-      await releaseObservation.promise
-      return await originalObserve(id, options)
-    })
+    // A prepared session refuses appends until the store announces it, so its
+    // history arrives as the constructor seed. The creation replay starts at
+    // `firstLiveSeq`, which is past that seed: the seed is served by the
+    // opening snapshot and never queued, so its size cannot trip the bound.
+    const seed: SessionEvent[] = []
+    for (let turn = 0; turn < 10_100; turn++) {
+      seed.push({ type: 'turn/start', seq: SessionSeq(turn), time: Date.now(), data: { turn } })
+    }
+    const prepared = ctx.sessions.prepare(sessionId, { seed, meta: { cwd: '/workspace' } })
     const abort = new AbortController()
     const iterator = history.follow({
       address: { kind: 'session', sessionId },
     }, abort.signal)[Symbol.asyncIterator]()
 
     try {
-      const opening = iterator.next()
-      await observationStarted.promise
       const detach = ctx.sessions.enter(prepared)
       ctx.effect(() => detach, 'journal.created-overflow')
       ctx.sessions.announce(prepared)
-      releaseObservation.resolve(undefined)
-      await expect(opening).resolves.toMatchObject({
+      await expect(iterator.next()).resolves.toMatchObject({
         done: false,
         value: { type: 'snapshot' },
       })
-      // The opening reports the seed it already carried; the pump then fails
-      // loud on the overflow the creation replay flagged.
-      await expect(iterator.next()).rejects.toMatchObject({
-        code: 'session/stream-overflow',
-        message: 'session follow buffer exceeded',
+      // The pump stays open on an empty buffer rather than reporting overflow;
+      // a later live append is what it delivers next.
+      prepared.append('turn/end', { turn: 10_099, reason: { kind: 'completed' } })
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: 'event' },
       })
     } finally {
-      releaseObservation.resolve(undefined)
-      observe.mockRestore()
       abort.abort()
       await ctx.fiber.dispose()
     }

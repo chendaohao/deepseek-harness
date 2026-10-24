@@ -16,6 +16,7 @@ import { ToolCallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -87,14 +88,14 @@ async function delegate(
   callId: string,
   toolName = 'subagent',
 ): Promise<SessionId> {
-  const result = await ctx.tools.execute({
+  const result = await executeModelToolFixture(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId(callId),
     name: toolName,
     arguments: { description: 'run the task', prompt: 'do the thing', run_in_background: true },
     agent: parent,
   })
-  if (result.isError) throw new Error(`delegation failed: ${JSON.stringify(result.content)}`)
+  if (result.isError) throw new Error(`delegation failed: ${JSON.stringify(result.error)} ${JSON.stringify(result.content)}`)
   return (result.value as { subagentId: SessionId }).subagentId
 }
 

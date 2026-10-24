@@ -103,8 +103,10 @@
   cursor: pointer;
 }
 
-.actionButton:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
+@media (hover: hover) {
+  .actionButton:hover:not(:disabled) {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .actionButton:disabled {
@@ -173,8 +175,10 @@
   cursor: pointer;
 }
 
-.renameButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+@media (hover: hover) {
+  .renameButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .deviceStatus {
@@ -196,8 +200,10 @@
   cursor: pointer;
 }
 
-.revokeButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover-danger);
+@media (hover: hover) {
+  .revokeButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover-danger);
+  }
 }
 
 /* The roster grows without bound, so the stop action pins to the scrollport
@@ -235,6 +241,8 @@
   cursor: pointer;
 }
 
-.stopButton:hover {
-  filter: brightness(1.08);
+@media (hover: hover) {
+  .stopButton:hover {
+    filter: brightness(1.08);
+  }
 }

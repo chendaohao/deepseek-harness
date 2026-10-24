@@ -18,7 +18,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the `slots` service merge into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { en, zh, type RemoteKey } from './locales.ts'
+import { de, en, es, fr, ja, pt, ru, zh, type RemoteKey } from './locales.ts'
 import { RemoteSettingsSection } from './RemoteSettingsSection.tsx'
 import type { RemoteDeviceRecord, RemoteTunnelState } from './remote-types.ts'
 
@@ -64,7 +64,7 @@ export const inject = ['slots', 'locale', 'remote']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-remote: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-remote: dictionaries')
   const remote = ctx.remote
   // Registration-time nav text shares one bound translate with the inject face;
   // copy freshness rides the locale revision, which re-registers the section.

@@ -12,9 +12,10 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import type { ToolDefinition, ToolExecutionInput } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as compileSerialization from '@deepseek-ai/dsh-compile-serialization'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 
 const testSignal = new AbortController().signal
 
@@ -33,6 +34,7 @@ async function setup(config: Parameters<typeof compileSerialization.apply>[1] = 
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(compileSerialization, config)
   return ctx
 }
@@ -90,13 +92,18 @@ function instantTool(name = 'bash'): ToolDefinition {
 
 /** Run one call and return its first text block. */
 async function run(ctx: Context, name: string, command: unknown, agent?: Agent, signal = testSignal): Promise<string> {
-  const result = await ctx.tools.execute({
-    callId: ToolCallId('c1'),
-    name,
-    arguments: { command },
+  const batch = await ctx.tools.execute({
+    calls: [{
+      type: 'tool-call',
+      id: ToolCallId('c1'),
+      name,
+      arguments: JSON.stringify({ command }),
+    }],
     signal,
     ...agent !== undefined ? { agent } : {},
   })
+  const result = batch.results[0]?.result
+  if (result === undefined) throw new Error('guard fixture produced no result')
   const first = result.content[0]
   return first?.type === 'text' ? first.text : JSON.stringify(result.content)
 }
@@ -108,12 +115,12 @@ function agentOf(id: string): Agent {
 
 /** Run one call with raw arguments (not wrapped in a `command` property). */
 async function runRaw(ctx: Context, name: string, args: unknown): Promise<string> {
-  const result = await ctx.tools.execute({
-    callId: ToolCallId('c1'),
-    name,
-    arguments: args,
+  const batch = await ctx.tools.execute({
+    calls: [{ type: 'tool-call', id: ToolCallId('c1'), name, arguments: JSON.stringify(args) }],
     signal: testSignal,
   })
+  const result = batch.results[0]?.result
+  if (result === undefined) throw new Error('guard fixture produced no result')
   const first = result.content[0]
   return first?.type === 'text' ? first.text : JSON.stringify(result.content)
 }
@@ -291,6 +298,7 @@ describe('compile-serialization denial and release', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     const holder = commandTool(text => text === 'pnpm install')
     ctx.tools.register(holder.definition)
     const fiber = await ctx.plugin(compileSerialization, {})
@@ -383,6 +391,7 @@ describe('dsh-compile-serialization real-load-path guard', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     const holder = commandTool(text => text === 'pnpm install')
     ctx.tools.register(holder.definition)
     const loader = Object.create(Loader.prototype) as Loader
@@ -401,12 +410,15 @@ describe('compile-serialization call shape', () => {
   it('accepts a caller-owned execution input without an agent', async () => {
     const ctx = await setup()
     ctx.tools.register(instantTool())
-    const input: ToolExecutionInput = {
-      callId: ToolCallId('c1'),
-      name: 'bash',
-      arguments: { command: 'pnpm install' },
+    const batch = await ctx.tools.execute({
+      calls: [{
+        type: 'tool-call',
+        id: ToolCallId('c1'),
+        name: 'bash',
+        arguments: JSON.stringify({ command: 'pnpm install' }),
+      }],
       signal: testSignal,
-    }
-    expect((await ctx.tools.execute(input)).isError).toBe(false)
+    })
+    expect(batch.results[0]?.result.isError).toBe(false)
   })
 })

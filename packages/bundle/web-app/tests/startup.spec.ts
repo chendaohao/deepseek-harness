@@ -178,6 +178,8 @@ describe('web command-line provider', () => {
       openBrowser: true,
       publicUrl: 'https://web.example/ui',
       trustedHosts: ['lab.internal'],
+      remote: false,
+      remoteReset: false,
     })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
@@ -185,6 +187,9 @@ describe('web command-line provider', () => {
       port: 3080,
       publicUrl: 'https://web.example/ui',
       trustedHosts: ['lab.internal'],
+      remote: false,
+      remoteReset: false,
+      tls: undefined,
     })
     expect(observed.exits).toEqual([])
   })

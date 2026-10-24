@@ -7,6 +7,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
@@ -59,7 +60,7 @@ async function createAgent(ctx: Context, id: string) {
 
 /** Run one delegation through the real ToolRuntime pipeline. */
 async function delegate(ctx: Context, agent: Awaited<ReturnType<typeof createAgent>>) {
-  return await ctx.tools.execute({
+  return await executeModelToolFixture(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('call-worker-route'),
     name: 'subagent',

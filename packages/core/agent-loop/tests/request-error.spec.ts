@@ -1,3 +1,4 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -17,6 +18,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -154,13 +156,9 @@ describe('agent/request-error', () => {
       provider: 'mock',
       model: 'mock',
     })
-    // The selection's explicit effort reaches every request unless the
-    // built-in degradation dropped it.
-    ctx.on('agent/request', async (payload, next) => {
-      const config = await next()
-      if (payload.degradedEffort === true) return config
-      return { ...config, reasoningEffort: ReasoningEffortId('high') }
-    })
+    // The step's selection carries the explicit effort, so the degradation is
+    // what has to drop it from the retry.
+    agent.model.select({ provider: 'mock', model: 'mock', reasoningEffort: ReasoningEffortId('high') })
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await agent.whenIdle()
@@ -183,11 +181,7 @@ describe('agent/request-error', () => {
       provider: 'mock',
       model: 'mock',
     })
-    ctx.on('agent/request', async (payload, next) => {
-      const config = await next()
-      if (payload.degradedEffort === true) return config
-      return { ...config, reasoningEffort: ReasoningEffortId('high') }
-    })
+    agent.model.select({ provider: 'mock', model: 'mock', reasoningEffort: ReasoningEffortId('high') })
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await agent.whenIdle()
@@ -211,11 +205,7 @@ describe('agent/request-error', () => {
       provider: 'mock',
       model: 'mock',
     })
-    ctx.on('agent/request', async (payload, next) => {
-      const config = await next()
-      if (payload.degradedEffort === true) return config
-      return { ...config, reasoningEffort: ReasoningEffortId('high') }
-    })
+    agent.model.select({ provider: 'mock', model: 'mock', reasoningEffort: ReasoningEffortId('high') })
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await agent.whenIdle()

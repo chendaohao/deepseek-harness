@@ -240,12 +240,16 @@ export function maybeCompressResponse(
     },
     flushHeaders(): void {
       if (committed) { res.flushHeaders(); return }
-      // Headers leave before any body byte: compression cannot be decided
-      // afterwards (the header bytes are already on the wire), so the rest of
-      // this response is identity.
-      committed = true
-      decided = undefined
-      res.writeHead(pendingStatus ?? 200, pendingHeaders)
+      // A streaming caller flushes the status and headers before its first
+      // body byte. The decision is available now — it reads only the pending
+      // status, content-type, and known length — so commit with it: deciding
+      // after the headers are on the wire would force identity.
+      const status = pendingStatus ?? 200
+      const contentType = String(pendingHeaders['content-type'] ?? '')
+      const lengthHeader = pendingHeaders['content-length']
+      const contentLength = typeof lengthHeader === 'string' ? Number(lengthHeader) : undefined
+      decided = decideCompression({ status, contentType, contentLength, encoding }, thresholdBytes)
+      commit(status, pendingHeaders)
       res.flushHeaders()
     },
     write(chunk: string | Buffer, cb?: (error?: Error | null) => void): boolean {

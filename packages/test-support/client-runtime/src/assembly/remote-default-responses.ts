@@ -24,6 +24,9 @@ export const remoteDefaultResponses: RemoteTable = {
       groups: [],
       failures: [],
     }),
+    // ui-settings-models directory store joins both provider listings on first read.
+    'llm/listProviders': ok([]),
+    'llm/listConfigurableProviders': ok([]),
     // ui-agent-preset hero chip and header label on first mount.
     'agentPresets/list': ok({ presets: [] }),
     // cordis-client-runner `ClientCordisInspectRegistry.sync` at apply and on `connection/reset`.

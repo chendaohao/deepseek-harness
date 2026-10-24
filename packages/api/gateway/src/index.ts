@@ -159,12 +159,6 @@ const SRC_JSON_CODEC: TypertCodec = { mode: 'src-json' }
 export interface Config {
   /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 2000 */
   readonly websocketHeartbeatIntervalMs?: number
-  /**
-   * Negotiate per-message deflate on the mux WebSocket. A history-bearing
-   * opening frame is large repetitive JSON, so compression pays for itself on
-   * every Session open and reconnect. @default true
-   */
-  readonly websocketCompression?: boolean
   /** Buffered uplink frame bytes one logical stream may hold before it fails with `gateway/uplink-overflow`. @default 262144 */
   readonly streamInboxBytes?: number
   /**
@@ -176,13 +170,15 @@ export interface Config {
    * when this Host does not inject a value. @default 45000
    */
   readonly muxLivenessTimeoutMs?: number
+  /** Per-message compression for the Remote stream WebSocket; `'none'` disables the extension. @default 'deflate' */
+  readonly websocketCompression?: 'none' | 'deflate'
 }
 
 interface ResolvedConfig extends Config {
   readonly websocketHeartbeatIntervalMs: number
-  readonly websocketCompression: boolean
   readonly streamInboxBytes: number
   readonly muxLivenessTimeoutMs: number
+  readonly websocketCompression: 'none' | 'deflate'
 }
 
 /**
@@ -231,10 +227,10 @@ export class TypertGatewayService extends Service implements TypertGateway {
   static Config: z<Config> = z.object({
     websocketHeartbeatIntervalMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS)
       .default(DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS),
-    websocketCompression: z.boolean().default(true),
     streamInboxBytes: z.number().step(1).min(1).default(DEFAULT_STREAM_INBOX_BYTES),
     muxLivenessTimeoutMs: z.number().step(1).min(0).max(MAX_TIMER_DELAY_MS)
       .default(DEFAULT_MUX_LIVENESS_TIMEOUT_MS),
+    websocketCompression: z.union([z.const('none'), z.const('deflate')]).default('deflate'),
   })
 
   /** Carrier adapter shared by the WebSocket mux and local Host transports. */
@@ -291,9 +287,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
         const mux = new RemoteStreamMuxServer(
           openMuxStream,
           this.wireStream.failure,
-          resolved.websocketHeartbeatIntervalMs,
-          resolved.streamInboxBytes,
-          resolved.websocketCompression,
+          {
+            heartbeatIntervalMs: resolved.websocketHeartbeatIntervalMs,
+            streamInboxBytes: resolved.streamInboxBytes,
+            compression: resolved.websocketCompression === 'deflate',
+          },
         )
         const releases = new Set<Promise<void>>()
         webCtx.effect(function* () {

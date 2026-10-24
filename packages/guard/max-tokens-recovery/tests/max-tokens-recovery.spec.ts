@@ -9,7 +9,7 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as MaxTokensRecovery from '@deepseek-ai/dsh-max-tokens-recovery'
 import type { Config } from '@deepseek-ai/dsh-max-tokens-recovery'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
 /** A step that streams only reasoning and stops at the provider's token ceiling. */
 function reasoningCeiling(reasoningChars: number, visibleText = ''): StreamChunk[] {

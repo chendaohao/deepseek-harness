@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import SessionPinService from '@deepseek-ai/dsh-session-pin'
@@ -24,6 +25,7 @@ function request<P>(payload: P): P {
 async function composed(withPin = true): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   if (withPin) await ctx.plugin(SessionPinService)
   ctx.agents.setFactory({
@@ -54,7 +56,7 @@ describe('sessions.setPin', () => {
     const ctx = await composed()
     const source = liveAgent(ctx, 'session-pin-ok')
 
-    const pinned = await remote(ctx).setPin(request({ sessionId: source.id, pinned: true }))
+    const pinned = await (await remote(ctx)).setPin(request({ sessionId: source.id, pinned: true }))
     expect(pinned.ok).toBe(true)
     if (!pinned.ok) return
     expect(pinned.value).toEqual({ pinned: true, seq: 0 })
@@ -63,7 +65,7 @@ describe('sessions.setPin', () => {
     expect(event?.data).toEqual({ pinned: true })
     expect(ctx.sessionPin.get(source)?.pinned).toBe(true)
 
-    const unpinned = await remote(ctx).setPin(request({ sessionId: source.id, pinned: false }))
+    const unpinned = await (await remote(ctx)).setPin(request({ sessionId: source.id, pinned: false }))
     expect(unpinned.ok).toBe(true)
     if (!unpinned.ok) return
     expect(ctx.sessionPin.get(source)?.pinned).toBe(false)
@@ -73,7 +75,7 @@ describe('sessions.setPin', () => {
     const ctx = await composed(false)
     const source = liveAgent(ctx, 'session-pin-no-service')
 
-    const response = await remote(ctx).setPin(request({ sessionId: source.id, pinned: true }))
+    const response = await (await remote(ctx)).setPin(request({ sessionId: source.id, pinned: true }))
     expect(response.ok).toBe(false)
     if (!response.ok) {
       expect(response.error).toMatchObject({
@@ -89,7 +91,7 @@ describe('sessions.setPin', () => {
     const stale = liveAgent(foreign, 'session-pin-stale')
     ctx.agents.register({ id: stale.id, session: stale, status: 'idle', ctx } as Agent)
 
-    const response = await remote(ctx).setPin(request({ sessionId: stale.id, pinned: true }))
+    const response = await (await remote(ctx)).setPin(request({ sessionId: stale.id, pinned: true }))
     expect(response.ok).toBe(false)
     if (!response.ok) expect(response.error.code).toBe('internal')
   })

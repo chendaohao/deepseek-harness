@@ -1,3 +1,4 @@
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { provideWorkingDirectoryFixture, mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +8,7 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -112,7 +113,7 @@ describe('unmatched hooks and directory recovery', () => {
         async execute(args) { return [{ type: 'text', text: args.cd }] },
       }))
       const agent = await ctx.agentLoop.create(SessionId('recovery'), { provider: 'mock', model: 'mock' })
-      const result = await ctx.tools.execute({
+      const result = await executeToolFixture(ctx, {
         name: 'working_directory', callId: ToolCallId('recover'), arguments: { cd: dir },
         agent, signal: new AbortController().signal,
       })
@@ -473,12 +474,12 @@ describe('notify-hooks bridge — load resilience', () => {
     // "cannot get property … without inject". Guard the shape directly.
     expect('default' in NotifyHooks).toBe(false)
     expect(NotifyHooks.name).toBe('notify-hooks')
-    expect(NotifyHooks.inject).toEqual(['shell', 'sessionProjections', 'workingDirectory'])
+    expect(NotifyHooks.inject).toEqual(['shell', 'agents', 'workingDirectory'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(NotifyHooks) as Record<string, unknown>
     expect(unwrapped).toBe(NotifyHooks)
     expect(unwrapped.name).toBe('notify-hooks')
-    expect(unwrapped.inject).toEqual(['shell', 'sessionProjections', 'workingDirectory'])
+    expect(unwrapped.inject).toEqual(['shell', 'agents', 'workingDirectory'])
     expect(typeof unwrapped.apply).toBe('function')
   })
 })
@@ -502,8 +503,18 @@ describe('notify-hooks bridge — Stop turn summary', () => {
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'please do the thing' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
-    // The Stop hook runs detached, so poll for its observable effect.
-    await waitFor(() => existsSync(payloadPath))
+    // The Stop hook runs detached, so poll for its observable effect. The
+    // redirect creates the file before `cat` finishes copying, so existence
+    // alone can observe an empty file: wait for content that parses.
+    await waitFor(() => {
+      if (!existsSync(payloadPath)) return false
+      try {
+        JSON.parse(readFileSync(payloadPath, 'utf8'))
+        return true
+      } catch {
+        return false
+      }
+    })
 
     const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
     expect(payload.hook_event_name).toBe('Stop')

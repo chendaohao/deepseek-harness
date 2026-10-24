@@ -56,7 +56,10 @@ export function subagentWorkerRouteMark(
   projections: Pick<SessionProjectionRegistry, 'stateOf'>,
   session: Session,
 ): string | undefined {
-  return projections.stateOf(session, 'subagentWorkerRoute') ?? undefined
+  // The registry's keyed read is the deprecated `unknown` overload; this unit's
+  // state type is fixed by the definition above.
+  const marked = projections.stateOf(session, 'subagentWorkerRoute')
+  return typeof marked === 'string' ? marked : undefined
 }
 
 /**
