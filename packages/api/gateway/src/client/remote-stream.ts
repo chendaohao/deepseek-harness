@@ -137,9 +137,14 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
     let observedRevision = this.revision
     try {
       while (!isAborted(this.lifetime.signal)) {
+        // A revision change means another generation started, not that the
+        // carrier recovered, so it must not reset the backoff: a stream whose
+        // peer fails as fast as it reopens would otherwise never leave attempt
+        // 1, and the two together spin in the microtask queue with no delay at
+        // all. Only an accepted opening proves recovery, and that reset lives
+        // in accept() below.
         if (observedRevision !== this.revision) {
           observedRevision = this.revision
-          attempt = 0
         }
         const revision = this.revision
         const generationAbort = new AbortController()
@@ -168,10 +173,22 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
           throw this.options.ended(accepted)
         } catch (error) {
           if (isAborted(this.lifetime.signal)) return
-          if (revision !== this.revision) continue
+          if (revision !== this.revision) {
+            await this.awaitSupersede(attempt)
+            continue
+          }
           if (!(error instanceof RemoteStreamCarrierError)) throw terminalStreamFailure(error)
           this.options.carrierFailed?.(error)
-          if (revision !== this.revision) continue
+          // The carrier callback may restart this very stream (a control
+          // baseline does), so the revision check below has to yield before it
+          // loops. Without a wait here a superseded generation re-enters the
+          // loop in the same task, and a callback that restarts on every failure
+          // keeps it there: the page never returns to the macrotask queue.
+          if (revision !== this.revision) {
+            attempt++
+            await this.awaitSupersede(attempt)
+            continue
+          }
           // Before the first opening there is no window for a caller to keep,
           // so the retry budget stays finite and the opening settles with a
           // failure the consumer can report. Afterwards the caller is reading
@@ -207,6 +224,25 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
       this.generationAbort?.abort(this.lifetime.signal.reason)
       this.generationAbort = undefined
     }
+  }
+
+  /**
+   * Wait out one cadence step before re-entering the loop after a superseded
+   * generation.
+   *
+   * A superseded generation is a restart, not an escape: the loop must go round
+   * again to serve the replacement. Re-entering it synchronously is what turns
+   * a restart-on-failure callback into an unbounded loop that never yields to
+   * the macrotask queue, so this wait is the yield. It shares the reopen cadence
+   * so a caller cannot tell a supersede from a carrier reopen.
+   * @param attempt - reopen attempts completed by this consumer.
+   */
+  private async awaitSupersede(attempt: number): Promise<void> {
+    // The supersede path must not read the generation signal: that signal is the
+    // one the restart aborted, and its abort is what brought the loop here. Only
+    // the consumer's own lifetime cancels this wait.
+    if (isAborted(this.lifetime.signal)) return
+    await this.retryTimer(streamRetryDelay(attempt, this.retry), this.lifetime.signal)
   }
 
   /**

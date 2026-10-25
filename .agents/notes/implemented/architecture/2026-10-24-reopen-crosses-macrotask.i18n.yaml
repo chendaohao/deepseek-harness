@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-24-reopen-crosses-macrotask.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-24-reopen-crosses-macrotask.md
+/agent-note-a-reopen-must-cross-a-macrotask-boundary:
+  en: 40726186ac427eea
+  zh: cd4c6e619f84c54c
+/agent-note-a-reopen-must-cross-a-macrotask-boundary/problem:
+  en: 8ed6c489e5e556d9
+  zh: 8f9c41d0b1653702
+/agent-note-a-reopen-must-cross-a-macrotask-boundary/decision:
+  en: 91696ed5e13770f1
+  zh: 90dab10d9afcdc68
+/agent-note-a-reopen-must-cross-a-macrotask-boundary/verification:
+  en: fa26395015190b4c
+  zh: 7663c88bc6dfdacd
+/agent-note-a-reopen-must-cross-a-macrotask-boundary/consequences:
+  en: 13be79f3dac8c7f2
+  zh: 64f18d3fff8f8583

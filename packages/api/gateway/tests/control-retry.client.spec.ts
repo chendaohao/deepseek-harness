@@ -5,6 +5,7 @@ import {
   RemoteStreamCarrierError,
   RemoteStream,
   DEFAULT_STREAM_RETRY,
+  streamRetryDelay,
   type StreamRetryTimer,
 } from '../src/client/index.ts'
 
@@ -169,10 +170,12 @@ describe('RemoteStream', () => {
     if (opening.done) throw new Error('fixture opening ended early')
     opening.value.accept()
     await expect(iterator.next()).resolves.toMatchObject({ value: { value: 'recovered' } })
-    // The first reopen is immediate; later ones grow toward the ceiling and
-    // never reach zero, so a page cannot spin.
+    // Every reopen crosses a macrotask boundary, the first one included: a
+    // reopen that resolved on the next microtask would keep the stream inside
+    // the microtask queue, and a peer that fails as fast as it reopens would
+    // starve every timer on the page.
     expect(delays).toHaveLength(3)
-    expect(delays[0]).toBe(0)
+    expect(delays[0]).toBeGreaterThanOrEqual(DEFAULT_STREAM_RETRY.minMs)
     expect(delays[1]).toBeGreaterThanOrEqual(DEFAULT_STREAM_RETRY.minMs)
     expect(delays[2]).toBeGreaterThan(delays[1] ?? 0)
     await stream.dispose()
@@ -430,4 +433,167 @@ describe('RemoteStream', () => {
     await expect(pending).resolves.toEqual({ done: true, value: undefined })
     await disposing
   })
+
+  it('never reopens without a delay, so a failing peer cannot starve the timers', () => {
+    // A reopen that resolves on the next microtask keeps the stream inside the
+    // microtask queue. Against a peer that fails as fast as it reopens, that is
+    // an unbounded synchronous cycle: the page stops running timers and every
+    // other stream with it. The floor is what forces each reopen across a
+    // macrotask boundary.
+    for (const attempt of [0, 1, 2, 3, 8]) {
+      expect(streamRetryDelay(attempt)).toBeGreaterThanOrEqual(DEFAULT_STREAM_RETRY.minMs)
+    }
+    expect(streamRetryDelay(1)).toBe(DEFAULT_STREAM_RETRY.minMs)
+    expect(streamRetryDelay(1)).toBeLessThan(streamRetryDelay(4))
+  })
+
+  it('waits before serving a generation that a carrier callback restarted', async () => {
+    // A control baseline restarts its own stream from `carrierFailed`. Looping
+    // straight back to the replacement kept that cycle inside one task, so the
+    // page never returned to the macrotask queue and its timers stopped — the
+    // frozen phone. The timer is the observable: a restart that reopens without
+    // asking it for a delay leaves the reopen order visible and no wait at all.
+    const source = hostSource(true)
+    const trace: string[] = []
+    let opens = 0
+    let restarts = 0
+    const stream = new RemoteStream<string>(source.connection, {
+      name: 'self-restarting stream',
+      open: () => ({
+        async * [Symbol.asyncIterator](): AsyncIterator<string> {
+          opens += 1
+          trace.push(`open#${String(opens)}`)
+          throw new RemoteStreamCarrierError(`generation ${String(opens)} lost`)
+        },
+      }),
+      ended: () => new Error('unreachable: every generation fails on the carrier'),
+      preopenRetries: 8,
+      carrierFailed: () => {
+        // Exactly what createSessionControlStream does: the callback restarts
+        // the stream it was just told died.
+        if (restarts < 3) {
+          restarts += 1
+          stream.restart()
+          trace.push('restart')
+        }
+      },
+      retryTimer: (delayMs) => {
+        trace.push(`timer=${String(delayMs)}`)
+        return Promise.resolve()
+      },
+    })
+    const iterator = stream[Symbol.asyncIterator]()
+    await iterator.next().catch(() => undefined)
+    await stream.dispose()
+
+    expect(restarts).toBe(3)
+    // Every callback-driven restart is followed by a timer before the next open.
+    // Without the wait the restarts reopen back to back — open#1, restart,
+    // open#2, restart, open#3, restart, open#4 — with no timer between them.
+    const firstOpen = trace.indexOf('open#1')
+    const fourthOpen = trace.indexOf('open#4')
+    const waitsBetween = trace.slice(firstOpen, fourthOpen).filter(step => step.startsWith('timer='))
+    expect(waitsBetween).toHaveLength(3)
+    expect(waitsBetween.every(delay => Number(delay.slice('timer='.length)) >= DEFAULT_STREAM_RETRY.minMs)).toBe(true)
+  })
+
+  it('leaves the retry wait when the consumer disposes the stream', async () => {
+    // A pending reopen wait is the one place the loop is suspended on something
+    // other than the carrier, so disposal has to reach it through the lifetime
+    // signal rather than through a rejected open.
+    const source = hostSource(true)
+    const reached = Promise.withResolvers<undefined>()
+    const stream = supervisor(source.connection, [
+      { terminal: new RemoteStreamCarrierError('first') },
+      { terminal: new RemoteStreamCarrierError('second') },
+      { values: ['never'], hold: true },
+    ], undefined, (delayMs, signal) => {
+      reached.resolve()
+      return new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+    })
+    const iterator = stream[Symbol.asyncIterator]()
+    const pending = iterator.next()
+    await reached.promise
+    await stream.dispose()
+    await expect(pending).resolves.toEqual({ done: true, value: undefined })
+  })
+
+
+  it('stops reopening when the stream is disposed during a carrier failure', async () => {
+    // The abort can land between the failure and the reopen, which both guards
+    // on the way out of the catch have to observe: the catch return and the
+    // supersede wait.
+    const source = hostSource(true)
+    let opens = 0
+    const stream = new RemoteStream<string>(source.connection, {
+      name: 'disposed mid-failure stream',
+      open: () => ({
+        async * [Symbol.asyncIterator](): AsyncIterator<string> {
+          opens += 1
+          throw new RemoteStreamCarrierError(`generation ${String(opens)} lost`)
+        },
+      }),
+      ended: () => new Error('unreachable: every generation fails on the carrier'),
+      preopenRetries: 8,
+      carrierFailed: () => {
+        // Dispose from inside the failure callback: the loop must notice on the
+        // very next guard instead of starting another generation.
+        void stream.dispose()
+      },
+      retryTimer: () => Promise.resolve(),
+    })
+    const iterator = stream[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+    expect(opens).toBe(1)
+  })
+
+  it('does not reset the backoff when a restart replaces the generation', async () => {
+    // A restart is the Session layer opening a new generation, not evidence that
+    // the carrier recovered. Resetting the attempt count there made the reopen
+    // cadence fall back to the floor on every restart, and against a peer that
+    // failed just as fast the sequence never climbed at all.
+    const source = hostSource(true)
+    const delays: number[] = []
+    let opens = 0
+    const stream = new RemoteStream<string>(source.connection, {
+      name: 'restarted stream',
+      open: () => ({
+        async * [Symbol.asyncIterator](): AsyncIterator<string> {
+          opens += 1
+          if (opens === 1) yield 'first'
+          throw new RemoteStreamCarrierError(`generation ${String(opens)} lost`)
+        },
+      }),
+      ended: accepted => accepted
+        ? new RemoteStreamCarrierError('accepted generation ended')
+        : new Error('generation ended before acceptance'),
+      preopenRetries: 32,
+      retryTimer: (delayMs) => {
+        delays.push(delayMs)
+        // The stream is inside awaitRetry here, so the restart lands between two
+        // reopen attempts exactly as a foreground return would.
+        return new Promise<void>((resolve) => {
+          if (delays.length === 2) stream.restart()
+          setTimeout(resolve, 0)
+        })
+      },
+    })
+    const iterator = stream[Symbol.asyncIterator]()
+    const opening = await iterator.next()
+    if (opening.done) throw new Error('fixture opening ended early')
+    opening.value.accept()
+    const draining = (async () => { for (;;) { const next = await iterator.next(); if (next.done) return } })()
+    for (let i = 0; i < 200 && delays.length < 4; i += 1) await new Promise<void>((resolve) => { setTimeout(resolve, 10) })
+    const observed = delays.slice(0, 4)
+    await stream.dispose()
+    await draining.catch(() => undefined)
+
+    expect(observed).toHaveLength(4)
+    // The two reopens before the restart climb; the one after it must continue
+    // from there rather than dropping back to the floor.
+    expect(observed[1] ?? 0).toBeGreaterThan(observed[0] ?? 0)
+    expect(observed[3] ?? 0).toBeGreaterThanOrEqual(observed[1] ?? 0)
+  }, 15_000)
 })

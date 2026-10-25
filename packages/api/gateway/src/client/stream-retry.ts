@@ -62,20 +62,25 @@ export const DEFAULT_PREOPEN_RETRIES = 1
 /**
  * Delay before one reopen of a stream whose generation is still available.
  *
- * The first attempt reopens immediately. Later attempts grow from `baseMs`
- * toward `maxMs`, each subtracting a random half so two streams that failed
- * together do not reopen together.
+ * The first reopen waits {@link StreamRetryConfig.minMs} rather than reopening
+ * on the next turn: a reopen that resolves immediately keeps the stream inside
+ * the microtask queue, and a stream whose peer fails just as fast never yields
+ * to the macrotask queue at all. A page in that state stops running its timers,
+ * so one stuck stream takes every other stream and the whole interface with it.
+ * The floor is what guarantees the reopen crosses a macrotask boundary.
+ * Later attempts grow from `baseMs` toward `maxMs`, each subtracting a random
+ * half so two streams that failed together do not reopen together.
  * @param attempt - 1 for the first reopen after a carrier failure.
  * @param config - retry timing.
  * @param random - jitter source in [0, 1).
- * @returns milliseconds to wait; 0 reopens on the next turn.
+ * @returns milliseconds to wait; never 0.
  */
 export function streamRetryDelay(
   attempt: number,
   config: StreamRetryConfig = DEFAULT_STREAM_RETRY,
   random: () => number = Math.random,
 ): number {
-  if (attempt <= 1) return 0
+  if (attempt <= 1) return Math.max(config.minMs, 1)
   const tier = Math.min(config.maxMs, config.baseMs * config.factor ** (attempt - 2))
   const delay = config.jitter ? tier / 2 + random() * (tier / 2) : tier
   return Math.max(config.minMs, Math.round(delay))
