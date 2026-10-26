@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-26-reconnect-stops-rebuilding-published-state.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-26-reconnect-stops-rebuilding-published-state.md
+/agent-note-a-reconnect-stops-rebuilding-what-the-page-already-shows:
+  en: ac03a4c6f17e1ba6
+  zh: a0c710d490020faa
+/agent-note-a-reconnect-stops-rebuilding-what-the-page-already-shows/problem:
+  en: c9f7cb423ff5a4a3
+  zh: b334b1b875cdeacc
+/agent-note-a-reconnect-stops-rebuilding-what-the-page-already-shows/decision:
+  en: 00d22d09bf7a7d07
+  zh: b67e24de37efa2ef
+/agent-note-a-reconnect-stops-rebuilding-what-the-page-already-shows/alternatives-considered:
+  en: bfd667fcd6b0e593
+  zh: f0bd6efccb27147f
+/agent-note-a-reconnect-stops-rebuilding-what-the-page-already-shows/consequences:
+  en: 59df5e076282b584
+  zh: c3c9bf3d4cc9b84c
+/agent-note-a-reconnect-stops-rebuilding-what-the-page-already-shows/testing:
+  en: c924ae5bbb4ccfc1
+  zh: 103a1d766d22b9aa

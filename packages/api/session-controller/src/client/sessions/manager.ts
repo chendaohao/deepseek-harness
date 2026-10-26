@@ -758,12 +758,14 @@ export class SessionManager {
 
   /**
    * Repair one re-established Host-event generation with queryable baselines.
-   * Discard old projection cuts before new queries, including cold Sessions
-   * absent from the process-local control baseline.
+   * Retire the previous generation's projection sequences before new queries,
+   * including cold Sessions absent from the process-local control baseline,
+   * while their values stay published until this generation answers for the
+   * same key — a Session row must not blank and restore across one reconnect.
    * Opened Session follow streams resume independently through API Gateway.
    */
   handleConnected(): void {
-    for (const store of this.projectionStores.values()) store.clear()
+    for (const store of this.projectionStores.values()) store.beginGeneration()
     this.listMutations = null
     this.listInflight = null
     void this.refreshList()

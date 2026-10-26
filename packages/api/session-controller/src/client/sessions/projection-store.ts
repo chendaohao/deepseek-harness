@@ -3,14 +3,15 @@
  * session-projection subsystem page, docs/subsystems/session-projection.md):
  * the host is the only computation site; the client holds finished whole
  * values per key in one of two row kinds. A `sequenced` row
- * (`{ value, seq }`) comes from the connected Host — a follow opening
- * baseline, a Session Controller `projection` frame, a list block the Host
- * computed for an attached Session — and merges under **higher seq wins**
- * against other sequenced rows. A `cached` row (`{ value }`) comes from
- * a Host view of the persisted checkpoint, carries no comparable
- * seq, and yields to every sequenced write. No client-side domain folding
- * exists: a domain ships projection support with zero client code. Per-key
- * bare observable faces feed `useProjection` (ui-renderer binds them).
+ * (`{ value, seq, generation }`) comes from the connected Host — a follow
+ * opening baseline, a Session Controller `projection` frame, a list block the
+ * Host computed for an attached Session — and merges under **higher seq wins**
+ * against other sequenced rows of the same Connection generation. A `cached`
+ * row (`{ value }`) comes from a Host view of the persisted checkpoint,
+ * carries no comparable seq, and yields to every sequenced write. No
+ * client-side domain folding exists: a domain ships projection support with
+ * zero client code. Per-key bare observable faces feed `useProjection`
+ * (ui-renderer binds them).
  */
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
@@ -58,16 +59,16 @@ export interface ProjectionsBaseline {
 
 /**
  * One key's row. A `sequenced` row was computed by the Host for this Session
- * within the current connection generation and carries the seq it is
- * consistent with; seqs of sequenced rows are comparable with each other. A
- * `cached` row was viewed from the persisted projection checkpoint by a
- * header-only listing without a Session: its origin cannot vouch that its
- * stored seq is comparable with the log the client later opens, so it carries
- * none and yields to every sequenced write.
+ * within the connection generation named by its `generation` field and carries
+ * the seq it is consistent with; seqs are comparable only between sequenced
+ * rows of the same generation. A `cached` row was viewed from the persisted
+ * projection checkpoint by a header-only listing without a Session: its origin
+ * cannot vouch that its stored seq is comparable with the log the client later
+ * opens, so it carries neither and yields to every sequenced write.
  */
 type Row =
-  | { kind: 'cached'; value: unknown }
-  | { kind: 'sequenced'; value: unknown; seq: SessionSeqCursor }
+  | { kind: 'cached'; value: unknown; generation: number }
+  | { kind: 'sequenced'; value: unknown; seq: SessionSeqCursor; generation: number }
 
 /** Per-key notification channel: the bare face plus its batching notifier. */
 interface Channel {
@@ -77,22 +78,37 @@ interface Channel {
 
 /**
  * One session's projection values. Framework semantics, uniform across every
- * key. Sequenced writes (a baseline seeds rows at its cut, a push frame
- * updates one row) compare seqs among themselves: a lower-or-equal seq within
- * the Host generation loses, so a replayed frame cannot regress a value and a
- * stale baseline cannot overwrite a newer frame. Cached writes (the session
- * list's zero-I/O block) only fill keys no sequenced row holds, and a baseline
- * discards every cached row before it seeds, regardless of seq: the connected
- * Session is the truth and a cached value never outranks it. A key the store
- * has never seen reads `undefined` (capability absent). Faces are identity-stable
- * per key (create-on-demand, cached) so the React side binds each exactly
- * once; the store-level channel (`subscribeAny`) serves coarse consumers (the
- * manager's list projection reads the `title` key).
+ * key. A Connection generation defines the seq space: `beginGeneration`
+ * retires every row the previous generation wrote, and from then on only
+ * rows of the current generation compare — a higher-or-equal seq wins within
+ * one, and a row carried over from an earlier generation always yields
+ * because its seq describes a different log. That covers both a replayed
+ * frame (a lower-or-equal seq loses, so a value cannot regress) and a stale
+ * baseline (it can neither overwrite nor clear a newer frame). Cached writes
+ * (the session list's zero-I/O block) only fill keys no sequenced row holds,
+ * and a baseline discards every cached row before it seeds, regardless of
+ * seq: the connected Session is the truth and a cached value never outranks
+ * it.
+ *
+ * Retirement is by generation marker, never by deletion: a superseded value
+ * stays readable until the new generation writes that key, so a reconnect
+ * never blanks what the page is showing and then restores the same value one
+ * round-trip later. `clear` remains for the one caller that means "the Host
+ * reports this Session holds nothing" — an absence, not a generation change.
+ * A key the store has never seen reads `undefined` (capability absent). Faces
+ * are identity-stable per key (create-on-demand, cached) so the React side
+ * binds each exactly once; the store-level channel (`subscribeAny`) serves
+ * coarse consumers (the manager's list projection reads the `title` key).
  */
 export class ProjectionValueStore {
   private readonly rows = new Map<string, Row>()
   private readonly channels = new Map<string, Channel>()
   private valuesCache: Readonly<Partial<SessionProjectionMap>> | undefined
+  /**
+   * Connection generation every new sequenced row belongs to; advanced by
+   * {@link beginGeneration}. Seqs are comparable only within one value.
+   */
+  private generation = 0
   /** Coarse any-key channel (no snapshot cache to rebuild: reads hit rows directly). */
   private readonly anyNotifier = new Notifier(() => {})
 
@@ -119,12 +135,15 @@ export class ProjectionValueStore {
 
   /**
    * Read the accepted Host watermark without subscribing or copying a value.
+   * A superseded row's seq belongs to the previous generation's log, so it
+   * answers as absent rather than as a watermark a caller could compare
+   * against a current-generation seq.
    * @param key - projection key.
-   * @returns the current sequence, or undefined for absent and cached values.
+   * @returns the current sequence, or undefined for absent, cached, and superseded values.
    */
   seqOf(key: string): SessionSeqCursor | undefined {
     const row = this.rows.get(key)
-    return row?.kind === 'sequenced' ? row.seq : undefined
+    return row?.kind === 'sequenced' && row.generation === this.generation ? row.seq : undefined
   }
 
   /**
@@ -158,25 +177,37 @@ export class ProjectionValueStore {
    */
   apply(key: string, value: unknown, seq: SessionSeqCursor): void {
     const row = this.rows.get(key)
-    // higher seq wins among sequenced rows; replays and stale frames drop. A
-    // cached row has no comparable seq and always yields.
-    if (row?.kind === 'sequenced' && seq <= row.seq) return
-    this.rows.set(key, { kind: 'sequenced', value, seq })
+    // A higher-or-equal seq wins within one generation: replays and stale
+    // frames drop. A row from an earlier generation holds a seq from another
+    // log, so it never blocks this write. A cached row has no comparable seq
+    // and always yields.
+    if (row?.kind === 'sequenced' && row.generation === this.generation && seq <= row.seq) return
+    this.rows.set(key, { kind: 'sequenced', value, seq, generation: this.generation })
     this.changed(key)
   }
 
   /**
    * Fill keys from a Host block labeled `cached`: a zero-I/O
    * view of the persisted checkpoint. A cached value lands only where no
-   * sequenced row exists: a connected Session has already answered for such
-   * a key, and the list's view of the persisted checkpoint cannot be newer
-   * than it.
+   * current sequenced row exists: a connected Session has already answered for
+   * such a key, and the list's view of the persisted checkpoint cannot be newer
+   * than it. A row left over from an earlier generation does not block the
+   * fill — the cached view is the only answer this generation has for that key,
+   * and a block covers every key its source holds, so a key this generation's
+   * block omits is one the source no longer reports.
    * @param values - whole values by key viewed from the persisted checkpoint.
    */
   applyCached(values: Readonly<Record<string, unknown>>): void {
+    for (const [key, row] of this.rows) {
+      if (row.kind !== 'cached' || row.generation === this.generation) continue
+      if (Object.hasOwn(values, key)) continue
+      this.rows.delete(key)
+      this.changed(key)
+    }
     for (const key of Object.keys(values)) {
-      if (this.rows.get(key)?.kind === 'sequenced') continue
-      this.rows.set(key, { kind: 'cached', value: values[key] })
+      const row = this.rows.get(key)
+      if (row?.kind === 'sequenced' && row.generation === this.generation) continue
+      this.rows.set(key, { kind: 'cached', value: values[key], generation: this.generation })
       this.changed(key)
     }
   }
@@ -187,8 +218,8 @@ export class ProjectionValueStore {
    * Session, and a value viewed from the persisted checkpoint never outranks
    * it. Then every carried key lands under the same seq rule as frames, and a
    * key the block omits is capability-absent as of the cut — its row clears
-   * unless a newer frame already superseded the cut (a stale baseline can
-   * neither overwrite nor clear newer sequenced values).
+   * unless a newer frame of this generation already superseded the cut (a
+   * stale baseline can neither overwrite nor clear newer values).
    * @param baseline - the response's projections block.
    */
   seed(baseline: ProjectionsBaseline): void {
@@ -204,14 +235,37 @@ export class ProjectionValueStore {
     for (const [key, row] of this.rows) {
       if (Object.hasOwn(values, key)) continue
       // Every cached row was deleted above; the kind test only narrows the
-      // type so `row.seq` is readable.
-      if (row.kind === 'sequenced' && row.seq > baseline.asOfSeq) continue
+      // type so the remaining fields are readable. A row from an earlier
+      // generation is absent as of this cut too: nothing of that log survives.
+      if (row.kind === 'sequenced' && row.generation === this.generation
+        && row.seq > baseline.asOfSeq) continue
       this.rows.delete(key)
       this.changed(key)
     }
   }
 
-  /** Discard one Host generation's values and watermarks while preserving subscribed faces. */
+  /**
+   * Retire every row an earlier Connection generation wrote, keeping it
+   * readable until this generation answers for that key.
+   *
+   * Seqs from a previous generation describe a log this client no longer
+   * holds, so they must not survive as comparable watermarks; the values
+   * themselves stay published, because deleting them makes every reader flash
+   * to its absent state and back once the new generation's baseline arrives.
+   * Publishing is deferred to the first write, which is what makes the
+   * reconnect invisible.
+   */
+  beginGeneration(): void {
+    this.generation += 1
+  }
+
+  /**
+   * Discard every value while preserving subscribed faces.
+   *
+   * The caller asserts the Host holds nothing for this Session — an absence,
+   * not a generation change, which {@link beginGeneration} expresses without
+   * a visible gap.
+   */
   clear(): void {
     for (const key of this.rows.keys()) {
       this.rows.delete(key)

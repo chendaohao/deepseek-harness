@@ -118,8 +118,12 @@ describe('Inbox projection intake', () => {
 
       try {
         manager.handleConnected()
+        // A generation change retires the old watermark without blanking the
+        // value: the page keeps rendering the previous Inbox until the new
+        // generation answers for the same key.
+        const previous = face.getSnapshot()
         refreshed = manager.refreshList()
-        expect(face.getSnapshot()).toBeUndefined()
+        expect(face.getSnapshot()).toBe(previous)
         if (order === 'control-first') manager.handleControlFrame(baseline)
         list.resolve(result)
         await refreshed

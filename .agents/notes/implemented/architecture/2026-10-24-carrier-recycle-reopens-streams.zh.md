@@ -30,7 +30,7 @@ Status: implemented
 
 **`Session` 吸收仍然会落到它身上的可重试失败。** `failEventStream` 和终态失败的 `doOpen` 按同一节奏安排一次自动重开，并在 `dispose()` 与 `resync()` 时取消。只吸收本客户端层自己拥有的码——`gateway/internal`、`gateway/cancelled` 与 `session/stream-overflow` 命名的是传输或 journal 条件，其修复方式就是一次新的 opening。Host 点名的判决（`session/not-found` 及其同类）不重试，因为重开只会重复它。
 
-**触发侧移除了两处冗余中断。** Network Information 的 `change` 处理器防抖 1.5 秒：射频转换会报告一串事件，只有其中最后一个描述了页面实际会使用的载体。`RemoteStreamMuxClient.reconnect()` 消费一个由自身回收设置的一次性标记，因此一次有意回收所引发的替换请求被视为已满足；更晚的请求照常替换。
+**触发侧移除了两处冗余中断。** Network Information 的 `change` 处理器防抖 1.5 秒：射频转换会报告一串事件，只有其中最后一个描述了页面实际会使用的载体。`RemoteStreamMuxClient.reconnect()` 消费一个由自身回收设置的一次性标记，因此一次有意回收所引发的替换请求被视为已满足；更晚的请求照常替换。该标记把仍在拨号中的替代也算作已满足，而不只是已经打开的——为什么"只认已打开"的判断在手机上从未成立，见[重连不再重建页面已经显示的内容](2026-10-26-reconnect-stops-rebuilding-published-state.zh.md)。
 
 ## 考虑过的替代方案
 
@@ -50,7 +50,7 @@ Status: implemented
 
 Session 层的重开使浏览器的错误态变成瞬态。想观察 `openState === 'error'` 的测试必须订阅监听，因为紧接着成功的重开会在轮询看到之前就清掉它。`session.client.spec.ts` 里两个恢复测试为此通过 `SessionOptions.recoveryDelayMs` 缩短了延迟。
 
-一次性的 `recycleSuperseded` 标记按意图耦合了两层：`RemoteStreamMuxClient` 必须知道「来自 Connection 的请求通常是它自己那次回收的后果」。这个耦合是不拨两次号的代价，并且它被刻意做成一次性的，好让真正过时的 socket 替换仍然发生。
+一次性的 `recycleSuperseded` 标记按意图耦合了两层：`RemoteStreamMuxClient` 必须知道「来自 Connection 的请求通常是它自己那次回收的后果」。这个耦合是不拨两次号的代价，并且它被刻意做成一次性的，好让真正过时的 socket 替换仍然发生。它必须把尚未打开的拨号也算进去，因为 Connection 是在握手期间就发现 generation 丢失的——[后续修复](2026-10-26-reconnect-stops-rebuilding-published-state.zh.md)实测到了绕过这个修复第一版的那两次拨号与两轮重建。
 
 ## 测试
 

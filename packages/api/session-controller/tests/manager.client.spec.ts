@@ -707,14 +707,18 @@ describe('list lifecycle', () => {
       manager.handleControlFrame({ type: 'projection', sessionId: S1, key: 'title', value: 'Unflushed', seq: 4 })
 
       manager.handleConnected()
+      // The retired title stays on screen: its seq belongs to the previous log
+      // but its value is all the page has until the new generation answers.
+      expect(manager.getListSnapshot().items[0]?.title).toBe('Unflushed')
       await manager.refreshList()
-      expect(manager.getListSnapshot().items[0]?.title).toBeUndefined()
       manager.handleControlFrame({
         type: 'baseline',
         value: {
           projections: { [S1]: { asOfSeq: 2, values: { title: 'Durable' } } },
         },
       })
+      // The replay carries a LOWER seq than the retired row; generation scoping
+      // is what lets it land.
       expect(manager.getListSnapshot().items[0]?.title).toBe('Durable')
     } finally {
       await manager.dispose()

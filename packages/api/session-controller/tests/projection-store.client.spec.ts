@@ -130,7 +130,7 @@ describe('Session projection value semantics', () => {
     expect(observed).toEqual(['Cached title', undefined])
   })
 
-  it('clears all generation watermarks without replacing subscribed faces', async () => {
+  it('clear discards every value without replacing subscribed faces', async () => {
     const store = new ProjectionValueStore()
     const face = store.faceOf('test/marks')
     const observed: unknown[] = []
@@ -154,6 +154,57 @@ describe('Session projection value semantics', () => {
     } finally {
       unsubscribe()
     }
+  })
+
+  it('beginGeneration retires watermarks but keeps values published until the new generation answers', async () => {
+    const store = new ProjectionValueStore()
+    const face = store.faceOf('test/marks')
+    const observed: unknown[] = []
+    const unsubscribe = face.subscribe(() => { observed.push(face.getSnapshot()) })
+    try {
+      store.apply('test/marks', { marks: ['generation-one'] }, SessionSeq(20))
+      await Promise.resolve()
+      store.beginGeneration()
+      // Nothing is archived and nothing is republished: the page keeps showing
+      // what it showed before the reconnect.
+      expect(face.getSnapshot()).toEqual({ marks: ['generation-one'] })
+      expect(store.values()).toEqual({ 'test/marks': { marks: ['generation-one'] } })
+      // The seq described the previous log, so it is no watermark a caller may
+      // compare against a current-generation seq.
+      expect(store.seqOf('test/marks')).toBeUndefined()
+      await Promise.resolve()
+      expect(observed).toEqual([{ marks: ['generation-one'] }])
+
+      // A stale value from the retired generation cannot block the new one,
+      // even though its seq is far higher than the new cut.
+      store.seed({ asOfSeq: SessionSeq(1), values: { 'test/marks': { marks: ['generation-two'] } } })
+      expect(store.get('test/marks')).toEqual({ marks: ['generation-two'] })
+      expect(store.seqOf('test/marks')).toBe(1)
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('a retired-generation row is absent as of a cut that omits its key', () => {
+    const store = new ProjectionValueStore()
+    store.apply('test/marks', { marks: ['generation-one'] }, SessionSeq(50))
+    store.beginGeneration()
+    // The new generation's baseline does not carry the key. The old seq cannot
+    // claim the key is still live at a newer cut, so the row retires.
+    store.seed({ asOfSeq: SessionSeq(1), values: {} })
+    expect(store.get('test/marks')).toBeUndefined()
+  })
+
+  it('keeps a current-generation baseline from clearing a newer frame of the same generation', () => {
+    const store = new ProjectionValueStore()
+    store.beginGeneration()
+    store.apply('test/marks', { marks: ['frame-20'] }, SessionSeq(20))
+    // Same generation: the stale cut still loses to the newer frame.
+    store.seed({ asOfSeq: SessionSeq(10), values: {} })
+    expect(store.get('test/marks')).toEqual({ marks: ['frame-20'] })
+    // A fresh cut of the same generation does clear it.
+    store.seed({ asOfSeq: SessionSeq(30), values: {} })
+    expect(store.get('test/marks')).toBeUndefined()
   })
 
   it('notifies the key face on change (batched) and not on dropped applications', async () => {

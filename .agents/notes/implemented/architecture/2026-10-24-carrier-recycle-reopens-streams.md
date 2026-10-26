@@ -30,7 +30,7 @@ Carrier recovery is split by what the failure means, not by how many times it ha
 
 **`Session` absorbs the retryable failures that still reach it.** `failEventStream` and a terminally failing `doOpen` schedule one automatic reopen on the same cadence, cancelling it on `dispose()` and on `resync()`. Only codes this client layer owns are absorbed — `gateway/internal`, `gateway/cancelled`, and `session/stream-overflow` name a transport or journal condition whose repair is a fresh opening. A Host-named verdict (`session/not-found` and its peers) is not retried, because reopening would only repeat it.
 
-**Two redundant interrupts were removed from the trigger side.** The Network Information `change` handler debounces 1.5 s: a radio transition reports a burst, and only its last event describes the carrier the page will use. `RemoteStreamMuxClient.reconnect()` consumes a one-shot marker set by its own recycle, so the replacement request that a deliberate recycle provokes is treated as already satisfied; a later request replaces normally.
+**Two redundant interrupts were removed from the trigger side.** The Network Information `change` handler debounces 1.5 s: a radio transition reports a burst, and only its last event describes the carrier the page will use. `RemoteStreamMuxClient.reconnect()` consumes a one-shot marker set by its own recycle, so the replacement request that a deliberate recycle provokes is treated as already satisfied; a later request replaces normally. The marker counts a replacement that is still dialing as well as one that has opened — see [a reconnect stops rebuilding what the page already shows](2026-10-26-reconnect-stops-rebuilding-published-state.md) for why the opened-only test never held on a phone.
 
 ## Alternatives considered
 
@@ -50,7 +50,7 @@ The trade-off is that a stream can now retry without bound while the generation 
 
 The Session-level reopen makes the browser's error state transient. A test that wants to observe `openState === 'error'` must watch the subscription, because an immediately succeeding reopen clears it before a poll would see it. The two recovery tests in `session.client.spec.ts` shortened the delay through `SessionOptions.recoveryDelayMs` for that reason.
 
-The one-shot `recycleSuperseded` marker couples two layers by intent: `RemoteStreamMuxClient` must know that a request from Connection is usually its own recycle's consequence. That coupling is the cost of not dialing twice, and it is deliberately one-shot so a genuine stale-socket replacement still happens.
+The one-shot `recycleSuperseded` marker couples two layers by intent: `RemoteStreamMuxClient` must know that a request from Connection is usually its own recycle's consequence. That coupling is the cost of not dialing twice, and it is deliberately one-shot so a genuine stale-socket replacement still happens. It must count a dial that has not opened yet, because Connection notices the lost generation during the handshake — the [follow-up](2026-10-26-reconnect-stops-rebuilding-published-state.md) measured the two dials and two rebuilding passes that survived the first version of this fix.
 
 ## Testing
 
