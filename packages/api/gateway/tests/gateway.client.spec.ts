@@ -3354,6 +3354,48 @@ describe('Remote stream client carrier lifecycle', () => {
     })
   })
 
+  it('treats the replacement a recycle dialed as already satisfying a reconnect request', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const client = new RemoteStreamMuxClient()
+      client.start()
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.readyState).toBe(FakeWebSocket.OPEN) })
+      // A phone foreground return recycles the socket and dials its replacement.
+      // Connection learns of the lost generation while that dial is still in
+      // handshake, so its replacement request must not cancel it: one recycle,
+      // one dial.
+      FakeWebSocket.autoOpen = false
+      client.resume()
+      expect(FakeWebSocket.sockets).toHaveLength(2)
+      expect(FakeWebSocket.sockets[1]!.readyState).toBe(FakeWebSocket.CONNECTING)
+      client.reconnect()
+      expect(FakeWebSocket.sockets).toHaveLength(2)
+      expect(FakeWebSocket.sockets[1]!.closedWith).toEqual([])
+      FakeWebSocket.sockets[1]!.open()
+      expect(FakeWebSocket.sockets[1]!.readyState).toBe(FakeWebSocket.OPEN)
+      await client.close()
+    })
+  })
+
+  it('consumes the marker once, so a later request replaces the socket normally', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const client = new RemoteStreamMuxClient()
+      client.start()
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.readyState).toBe(FakeWebSocket.OPEN) })
+      client.resume()
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[1]?.readyState).toBe(FakeWebSocket.OPEN) })
+      // The first request after a recycle is the consequence of that recycle,
+      // whether or not the replacement has opened yet: it consumes the marker.
+      client.reconnect()
+      expect(FakeWebSocket.sockets[1]!.closedWith).toEqual([])
+      // The marker is consumed, never latched: the next request is a genuinely
+      // stale socket and replaces it.
+      client.reconnect()
+      expect(FakeWebSocket.sockets[1]!.closedWith).toContainEqual({ code: 4000, reason: 'reconnect requested' })
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(3) })
+      await client.close()
+    })
+  })
+
   it('resume() recycles a healthy socket, fails its streams, and dials immediately', async () => {
     await withFakeWebSocket('https://harness.example', async () => {
       const client = new RemoteStreamMuxClient()

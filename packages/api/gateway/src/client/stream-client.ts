@@ -145,7 +145,12 @@ export class RemoteStreamMuxClient {
     // working socket — the observed cost was two dials per foreground return
     // and two rounds of stream failures for one event. The marker is consumed
     // here, so any later request replaces normally.
-    if (this.recycleSuperseded && this.socket !== undefined) {
+    //
+    // A replacement counts as dialed whether or not it has opened: a foreground
+    // resume assigns `socket` only when the handshake completes, and Connection
+    // learns of the lost generation long before that, so testing the socket
+    // alone let every real resume fall through and cancel its own dial.
+    if (this.recycleSuperseded && (this.socket !== undefined || this.keepAlive !== undefined)) {
       this.recycleSuperseded = false
       this.failure = undefined
       if (this.keepAlive === undefined) this.maintain()
