@@ -2255,6 +2255,62 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('three').closest('[role="treeitem"]')?.getAttribute('draggable')).toBe('true')
   })
 
+  it('shows the base pinned watermark and unfolds the rest from its overflow row', () => {
+    const ids = ['p1', 'p2', 'p3', 'p4', 'p5']
+    mount({
+      useSessions: hook(sessionState(ids.map((id, index) => summary(id, 100 - index)))),
+      // Registry pin order, so the section renders p1 through p5 in that order.
+      useWorkspaces: hook(workspaceState([], [], ids.map(sid))),
+    })
+    const pinnedRows = () => screen.getAllByRole('treeitem')
+      .filter(row => ids.some(id => (row.textContent ?? '').startsWith(id)))
+    expect(pinnedRows()).toHaveLength(3)
+    fireEvent.click(screen.getByRole('button', { name: '展开其余 2 个会话' }))
+    expect(pinnedRows()).toHaveLength(5)
+    // The overflow row stays while the section still holds folded rows.
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
+    expect(pinnedRows()).toHaveLength(3)
+  })
+
+  it('folds the pinned section from its caption and keeps it folded across remounts', () => {
+    const sessions = hook(sessionState([summary('one', 2), summary('two', 1)]))
+    const workspaces = hook(workspaceState([], [], [sid('one'), sid('two')]))
+    const b = mount({ useSessions: sessions, useWorkspaces: workspaces })
+    expect(screen.getByText('one')).toBeTruthy()
+    const caption = () => screen.getByRole('button', { name: '置顶' })
+    expect(caption().getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(caption())
+    // The caption outlives the fold; only the rows go away.
+    expect(caption().getAttribute('aria-expanded')).toBe('false')
+    expect(b.store.getSnapshot().pinnedExpanded).toBe(false)
+    expect(screen.queryByText('one')).toBeNull()
+    b.view.unmount()
+    mount({ useSessions: sessions, useWorkspaces: workspaces })
+    // The fold is a persisted view preference, not per-mount state.
+    expect(screen.queryByText('one')).toBeNull()
+    fireEvent.click(caption())
+    expect(screen.getByText('one')).toBeTruthy()
+  })
+
+  it('unfolds a folded pinned section to reveal a pinned search result', () => {
+    const sessions = sessionState([
+      summary('target', 2, { displayTitle: 'Needle session' }),
+      summary('other', 1),
+    ])
+    const b = mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([], [], [sid('target')])),
+    })
+    act(() => { b.store.actions.setPinnedExpanded(false) })
+    expect(screen.queryByText('Needle session')).toBeNull()
+    fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'needle' } })
+    fireEvent.click(screen.getByRole('treeitem'))
+    expect(b.props.open).toHaveBeenCalledWith(sid('target'))
+    // The reveal reopens the section instead of hiding the row it just chose.
+    expect(b.store.getSnapshot().pinnedExpanded).toBe(true)
+    expect(screen.getByText('Needle session').closest('[role="treeitem"]')).toBeTruthy()
+  })
+
   it('hides the pinned section in the flat list and during search', () => {
     const sessions = sessionState([summary('one', 2), summary('two', 1)])
     mount({

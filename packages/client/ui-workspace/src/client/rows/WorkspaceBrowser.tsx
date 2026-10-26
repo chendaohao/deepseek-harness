@@ -18,6 +18,7 @@ import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useStat
 import clsx from 'clsx'
 import {
   AnimatedRows, Button, HoverCardGroup, IconArchiveCheckOutlineRegular, IconArchiveOffOutlineRegular, IconArchiveOutlineRegular,
+  IconChevronDownOutlineRegular, IconChevronRightOutlineRegular,
   IconChevronsUpDownOutlineRegular, IconClockOutlineRegular, IconCloseFillRegular,
   IconFlatListOutlineRegular, IconFolderCloseRegular, IconPinFillRegular, IconProjectAddOutlineRegular,
   IconQueueOutlineRegular, IconSearchOutlineRegular, IconSlidersTwoOutlineRegular,
@@ -56,6 +57,8 @@ const SEARCH_QUERY_MAX_CODE_UNITS = 500
 const SESSION_WATERMARK_BASE = 5
 /** Highest watermark that attention-bearing Sessions raise automatically; Show more and search reveals may exceed it. */
 const SESSION_WATERMARK_AUTO_MAX = 50
+/** Pinned rows shown before the section folds the rest behind its overflow row. */
+const PINNED_WATERMARK_BASE = 3
 
 /** Show the blank row plus the first `watermark` non-blank rows, in list order. */
 function watermarkRows(sessions: readonly SessionNode[], watermark: number): {
@@ -733,16 +736,21 @@ function SessionTree({
 }
 
 /**
- * The pinned section above the Workspaces header: every visible pinned
- * Session in registry pin order, one unindented row each, independent of
- * group expansion. Rows wire no drag — the order is the Host's pin sequence
- * (unpin and re-pin to move a row), so there is no local order to save.
- * @param props - the tree's session-row shares plus the list snapshot.
+ * The pinned section above the Workspaces header: visible pinned Sessions in
+ * registry pin order, one unindented row each, independent of group expansion.
+ * Pins accumulate, and an uncapped section leaves the Workspace list below it
+ * no room to scroll in, so the section shows {@link PINNED_WATERMARK_BASE} rows
+ * with an overflow row for the rest, and its caption folds the whole section
+ * (persisted, so a folded column stays folded across reloads). Attention-bearing
+ * and revealed rows raise the watermark exactly as group rows do. Rows wire no
+ * drag — the order is the Host's pin sequence (unpin and re-pin to move a row),
+ * so there is no local order to save.
+ * @param props - the tree's session-row shares, the fold state, and the list snapshot.
  * @returns the section, or null when no pinned Session is visible.
  */
 function PinnedSection({
   list, rowState, useSessionStatus, useSessionAccess, usePanelInfo, open, onSessionRenameRequest, renderSlot,
-  revealSessionId, onSessionRevealed, t,
+  revealSessionId, onSessionRevealed, pinnedExpanded, setPinnedExpanded, t,
 }: Pick<
   SessionTreeProps,
   | 'useSessionStatus' | 'useSessionAccess' | 'open' | 'onSessionRenameRequest' | 'usePanelInfo' | 'renderSlot'
@@ -750,6 +758,10 @@ function PinnedSection({
 > & {
   /** Always-mounted Session list snapshot. */
   list: SessionListState
+  /** Whether the section renders its rows or only its caption. */
+  pinnedExpanded: boolean
+  /** Persist one pinned-section fold choice. */
+  setPinnedExpanded: (expanded: boolean) => void
 }) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -757,18 +769,46 @@ function PinnedSection({
     () => derivePinned(list, rowState, statuses),
     [list, rowState, statuses],
   )
+  // Rows the user unfolded beyond the base watermark; folding clears them.
+  const [raised, setRaised] = useState(0)
+  const revealed = revealSessionId !== undefined && rows.some(row => row.id === revealSessionId)
+  // A search reveal must land on a visible row, so it overrides a folded section.
+  useEffect(() => {
+    if (revealed && !pinnedExpanded) setPinnedExpanded(true)
+  }, [pinnedExpanded, revealed, setPinnedExpanded])
   const currentId = panelActive
     ? undefined
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+  const baseline = Math.max(
+    PINNED_WATERMARK_BASE,
+    requiredWatermark(rows, currentId, revealSessionId),
+  )
+  const watermark = Math.max(baseline, raised)
+  const visible = watermarkRows(rows, watermark)
+  const rowsExpanded = visible.hiddenCount === 0
+  // Attention rows may already raise the baseline past a short pin list, and a
+  // short list then has nothing left to unfold.
+  const foldable = watermarkRows(rows, baseline).hiddenCount > 0
   const now = Date.now()
   if (rows.length === 0) return null
   return (
     <div className={css.pinnedSection}>
-      <div className={css.pinnedLabel}>
+      <button
+        type="button"
+        className={css.pinnedLabel}
+        aria-expanded={pinnedExpanded}
+        onClick={() => {
+          if (pinnedExpanded) setRaised(0)
+          setPinnedExpanded(!pinnedExpanded)
+        }}
+      >
+        {pinnedExpanded
+          ? <IconChevronDownOutlineRegular size={12} />
+          : <IconChevronRightOutlineRegular size={12} />}
         <IconPinFillRegular size={12} />
         {t('section.pinned')}
-      </div>
-      {rows.map(node => (
+      </button>
+      {pinnedExpanded && visible.rows.map(node => (
         <SessionNodeItem
           key={node.id}
           node={node}
@@ -784,6 +824,24 @@ function PinnedSection({
           t={t}
         />
       ))}
+      {pinnedExpanded && foldable && (
+        <button
+          type="button"
+          className={clsx(css.sessionOverflowButton, css.pinnedOverflow)}
+          aria-expanded={rowsExpanded}
+          onClick={() => {
+            setRaised(rowsExpanded
+              ? 0
+              : visible.hiddenCount <= PINNED_WATERMARK_BASE
+                ? Infinity
+                : watermark + PINNED_WATERMARK_BASE)
+          }}
+        >
+          {rowsExpanded
+            ? t('sessions.collapse')
+            : t('sessions.expand', { n: visible.hiddenCount })}
+        </button>
+      )}
     </div>
   )
 }
@@ -1071,6 +1129,9 @@ export function WorkspaceBrowser({
   // without the field; they read as the default hide-archived view.
   const archivedFilter = useStore(s => s.archivedFilter ?? 'default')
   const groupExpansion = useStore(s => s.groupExpansion)
+  // Persisted blobs written before the pinned-section fold existed rehydrate
+  // without the field; they read as expanded, the state that section always showed.
+  const pinnedExpanded = useStore(s => s.pinnedExpanded ?? true)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   // Archived sessions are not openable: the row stays visible under the
   // filter but a click explains instead of navigating.
@@ -1395,6 +1456,8 @@ export function WorkspaceBrowser({
           renderSlot={renderSlot}
           revealSessionId={revealSessionId}
           onSessionRevealed={acknowledgeSessionReveal}
+          pinnedExpanded={pinnedExpanded}
+          setPinnedExpanded={actions.setPinnedExpanded}
           t={t}
         />
       )}
