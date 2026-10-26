@@ -873,7 +873,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RemoteStreamOptions',
-    declaration: 'export interface RemoteStreamOptions<Item> {\n    readonly name: string;\n    readonly open: (signal: AbortSignal) => AsyncIterable<Item>;\n    readonly ended: (accepted: boolean) => Error;\n    readonly carrierFailed?: (error: RemoteStreamCarrierError) => void;\n}',
+    declaration: 'export interface RemoteStreamOptions<Item> {\n    readonly name: string;\n    readonly open: (signal: AbortSignal) => AsyncIterable<Item>;\n    readonly ended: (accepted: boolean) => Error;\n    readonly carrierFailed?: (error: RemoteStreamCarrierError) => void;\n    readonly retry?: Partial<StreamRetryConfig>;\n    readonly retryTimer?: StreamRetryTimer;\n    readonly preopenRetries?: number;\n}',
   },
   {
     name: 'RenderFactorySlot',
@@ -1066,6 +1066,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StoreSpec',
     declaration: 'export interface StoreSpec<T, A extends ActionsDecl<T>> {\n    init: () => T;\n    persist?: string;\n    actions: A;\n}',
+  },
+  {
+    name: 'StreamRetryConfig',
+    declaration: 'export interface StreamRetryConfig {\n    readonly baseMs: number;\n    readonly minMs: number;\n    readonly factor: number;\n    readonly maxMs: number;\n    readonly jitter: boolean;\n}',
+  },
+  {
+    name: 'StreamRetryTimer',
+    declaration: 'export type StreamRetryTimer = (delayMs: number, signal: AbortSignal) => Promise<void>;',
   },
   {
     name: 'SubmissionHandle',
