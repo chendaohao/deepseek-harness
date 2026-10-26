@@ -10,7 +10,9 @@ kind: "package-reference"
 
 使用本包可通过标准 Slot 钩子公开 Session catalog、retain 信息与统一 UI 状态。它按 `SessionBinding` 物化钩子和 prop，而 `SessionProvider` 可以继承外围 binding 或绑定显式 `SessionReference`。它拥有进程本地的 pending-interaction 与完成提醒策略，但不拥有 Controller transport、历史或 reference。
 
-运行状态来自 Host 列表基线或状态事件。Subagent 目录行和已保留子会话的 fallback 行不会建立运行状态；主视图引用仍会确认完成提醒。
+运行状态来自 Host 列表基线或状态事件；subagent 目录行不会建立运行状态。
+
+本包还拥有完成通知器：一项通用设置偏好（`completionNotifications`，默认关闭）会为每个在页面隐藏期间停止运行的 Session 发布一条系统通知。
 
 ## 目录
 
@@ -40,6 +42,7 @@ kind: "package-reference"
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Pending interaction 是进程本地投影**——浏览器重连后，所属 Remote waterfall（瀑布式事件）必须重放仍未完成的请求。
+- **完成通知依赖加载中的页面**——通知器在页面（或已安装的 PWA）后台保持加载时从活跃标签页发出；它不是服务端推送通道，被操作系统丢弃的页面不会发出任何通知。Web Push 仍属暂缓事项。
 
 
 <a id="dev-note"></a>

@@ -16,6 +16,7 @@ import type { AccessEffect, RemoteEndpoint } from '@deepseek-ai/dsh-api-remote-a
 import { notifySubscribers } from '@deepseek-ai/dsh-client-store'
 import { WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
 import { standardHookPropName } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type {
   HostObservable,
   KeyedStandardSource,
@@ -28,7 +29,14 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only service merge for ctx.slots.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+// Type-only merges: the settings slot map and configForms Context, and ctx.locale.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { renderSessionArea } from './session-provider.tsx'
+import { NOTIFY_SETTINGS_NAMESPACE, type NotifySettings } from '../notify-settings.ts'
+import { browserNotifyEnvironment, installCompletionNotifier } from './notify.ts'
+import { NotifyRow, type NotifyRowInjected } from './NotifyRow.tsx'
+import { zh, en, ja, es, fr, de, ru, pt, type SessionNotifyKey } from './locales.ts'
 
 /** Selector hook over the Session Controller list and current selection. */
 export type UseSessions = SnapshotSelectorHook<SessionListState>
@@ -688,12 +696,30 @@ function claimStandardProp(kind: StandardMemberKind, name: string, finalProps: S
 /** Required Controller, renderer, Remote, and access services. */
 export const inject = ['sessions', 'slots', 'remote', 'remoteAccess']
 
+/** Dictionary namespace owned by this plugin. */
+const NS = 'sessionNotify'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Session completion-notification copy. */
+    sessionNotify: SessionNotifyKey
+  }
+}
+
 /**
- * Install the Session root source and scoped adapter.
+ * Install the Session root source, scoped adapter, and completion notifier.
  * @param ctx - Client Cordis context.
  */
 export function apply(ctx: Context): void {
   const service = new UiSession(ctx, ctx.sessions)
+  // The completion notifier rides an optional child: minimal rosters without
+  // the locale and settings services still boot this plugin.
+  ctx.inject(['locale', 'configForms'], (child) => {
+    child.effect(() => child.locale.register(NS, {
+      zh, en, ja, es, fr, de, ru, pt,
+    }), 'ui-session: dictionaries')
+    installNotifier(child, service)
+  })
   ctx.slots.provideRoot({
     hooks: {
       sessions: ctx.sessions.list,
@@ -713,6 +739,45 @@ export function apply(ctx: Context): void {
       keyedHooks: { access: action => ctx.remoteAccess.source('session', binding.sessionId, action) },
     }),
   })
+}
+
+/**
+ * Register the completion-notification settings row and the hidden-document
+ * notifier behind it.
+ * @param ctx - Client Cordis context.
+ * @param service - the Session UI status service the notifier observes.
+ */
+function installNotifier(ctx: Context, service: UiSession): void {
+  const t = ctx.locale.bind(NS)
+  const settings = ctx.configForms.get<NotifySettings>(NOTIFY_SETTINGS_NAMESPACE)
+  const enabled = (): boolean => settings.getSnapshot().value?.completionNotifications === true
+  const openSession = (sessionId: SessionId): void => {
+    const navigation = ctx.get('uiWorkspace') as { openSession(target: { sessionId: SessionId }): void } | undefined
+    navigation?.openSession({ sessionId })
+  }
+  const environment = browserNotifyEnvironment()
+  const notificationSource: ObservableSnapshot<boolean> = {
+    getSnapshot: () => settings.getSnapshot().value?.completionNotifications === true,
+    subscribe: listener => settings.subscribe(listener),
+  }
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item', id: 'completion-notifications', order: 16, locale: NS,
+    inject: (): NotifyRowInjected => ({
+      hooks: { completionNotifications: notificationSource },
+      setCompletionNotifications: async (next) => {
+        await settings.set('completionNotifications', next)
+      },
+      permission: () => environment?.permission(),
+      requestPermission: () => environment?.requestPermission() ?? Promise.resolve(undefined),
+    }),
+  }, NotifyRow))
+  ctx.effect(() => installCompletionNotifier({
+    status: service.sessionStatus,
+    displayTitle: id => ctx.sessions.list.getSnapshot().byId[id]?.displayTitle ?? id,
+    openSession,
+    title: t('notify.title'),
+    body: t('notify.body'),
+  }, environment, enabled), 'ui-session: completion notifier')
 }
 
 function sameSessionStatus(left: SessionStatusSnapshot, right: SessionStatusSnapshot): boolean {

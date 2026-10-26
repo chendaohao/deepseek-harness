@@ -130,7 +130,7 @@ describe('target-neutral Conversation apply wiring', () => {
     expect(b.runtime.slots.spec('conversation.composer'))
       .toEqual({ kind: 'chain', scope: 'session' })
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
-      .toEqual(['composer-enter'])
+      .toEqual(['completion-notifications', 'composer-enter'])
     await b.runtime.dispose()
   })
 

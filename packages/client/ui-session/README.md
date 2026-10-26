@@ -10,7 +10,9 @@ English | [中文](README.zh.md)
 
 Use this package to expose Session catalog, retain information, and unified UI status through standard Slot hooks. It materializes per-`SessionBinding` hooks and props, while `SessionProvider` can inherit an outer binding or bind an explicit `SessionReference`. It owns process-local pending-interaction and completion-reminder policy without owning Controller transport, history, or references.
 
-Running status comes from Host list baselines or status events. Subagent catalog rows and retained subagent fallback rows do not establish running status; main view references still acknowledge completions.
+Running status comes from Host list baselines or status events; subagent catalog rows do not establish it.
+
+The package also owns the completion notifier: a General-settings preference (`completionNotifications`, default off) gates one system notification per Session that stops running while the document is hidden.
 
 ## Table of Contents
 
@@ -40,6 +42,7 @@ None; Session selectors and Slot scopes do not assemble model requests.
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Pending interactions are process-local projections** — the owning Remote waterfall must replay an outstanding request after a browser reconnect.
+- **Completion notifications ride a loaded page** — the notifier fires from the live tab (or installed PWA) while it stays loaded in the background; it is not a server push channel, so a page the OS discarded notifies nothing. Web Push remains deferred work.
 
 
 <a id="dev-note"></a>
