@@ -11,7 +11,7 @@
     { "path": "../../client/ui-chat/tsconfig.client.json" },
     { "path": "../../client/ui-primitives" },
     { "path": "../../client/ui-sidebar-right" },
-    { "path": "../../client/ui-session" },
+    { "path": "../../client/ui-session/tsconfig.client.json" },
     { "path": "../../core/session" },
     { "path": "../../llm/llm" },
     { "path": "../../../vendor/cordis" },

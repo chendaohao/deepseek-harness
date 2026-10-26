@@ -42,7 +42,7 @@
       "path": "../ui-sidebar-right"
     },
     {
-      "path": "../ui-session"
+      "path": "../ui-session/tsconfig.client.json"
     },
     {
       "path": "../ui-workspace"

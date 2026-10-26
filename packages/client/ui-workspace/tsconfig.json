@@ -69,7 +69,7 @@
       "path": "../ui-renderer"
     },
     {
-      "path": "../ui-session"
+      "path": "../ui-session/tsconfig.client.json"
     },
     {
       "path": "../../util/values"

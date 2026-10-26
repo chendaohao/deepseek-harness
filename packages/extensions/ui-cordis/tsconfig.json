@@ -33,7 +33,7 @@
       "path": "../../client/ui-renderer"
     },
     {
-      "path": "../../client/ui-session"
+      "path": "../../client/ui-session/tsconfig.client.json"
     },
     {
       "path": "../../client/ui-slots"

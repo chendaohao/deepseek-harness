@@ -26,7 +26,7 @@
     { "path": "../../client/ui-message-feedback" },
     { "path": "../../client/ui-primitives" },
     { "path": "../../client/ui-renderer" },
-    { "path": "../../client/ui-session" },
+    { "path": "../../client/ui-session/tsconfig.client.json" },
     { "path": "../../client/ui-slots" },
     { "path": "../../core/session" }
   ]

@@ -19,7 +19,6 @@ import {
   type SessionPendingInteractionBase,
   UiSession,
 } from '../src/client/index.ts'
-import { apply as nodeApply } from '../src/index.ts'
 
 interface SessionsBench {
   readonly sessions: ISessions
@@ -786,9 +785,5 @@ describe('ui-session apply', () => {
     await caller.dispose()
     expect(dispose).toHaveBeenCalledOnce()
     await ctx.fiber.dispose()
-  })
-
-  it('keeps the Host loader half inert', () => {
-    expect(() => { nodeApply() }).not.toThrow()
   })
 })

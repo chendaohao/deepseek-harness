@@ -91,7 +91,7 @@
       "path": "../ui-renderer"
     },
     {
-      "path": "../ui-session"
+      "path": "../ui-session/tsconfig.client.json"
     },
     {
       "path": "../ui-sidebar-browser/tsconfig.client.json"

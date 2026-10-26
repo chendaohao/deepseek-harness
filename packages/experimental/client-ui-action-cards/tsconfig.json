@@ -14,7 +14,7 @@
     { "path": "../../client/locale/tsconfig.client.json" },
     { "path": "../../client/ui-conversation/tsconfig.client.json" },
     { "path": "../../client/ui-chat/tsconfig.client.json" },
-    { "path": "../../client/ui-session" },
+    { "path": "../../client/ui-session/tsconfig.client.json" },
     { "path": "../../client/ui-slots" },
     { "path": "../../client/ui-primitives" },
     { "path": "../../client/ui-tool" },
