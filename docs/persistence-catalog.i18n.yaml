@@ -21,8 +21,8 @@
   en: 9188862058c6986b
   zh: 9188862058c6986b
 /session-persistence-event-catalog/events/agent/agent-inbox-spliced-log-only:
-  en: 481727894895b43b
-  zh: 098bc9788bf88968
+  en: 465fd65e5d975342
+  zh: 274083bbe9717cf5
 /session-persistence-event-catalog/events/agent-preset:
   en: 49891ca9be5ac123
   zh: 49891ca9be5ac123
@@ -141,8 +141,8 @@
   en: 9edf4ef31e60e880
   zh: 9edf4ef31e60e880
 /session-persistence-event-catalog/events/model/model-selection-log-only:
-  en: c2a60ec7d297ed79
-  zh: a2f6b2d3c733ce96
+  en: d4eae166f9df3027
+  zh: 9d4a02df380c702a
 /session-persistence-event-catalog/events/notify-hooks:
   en: 3f16c1d65060992c
   zh: 3f16c1d65060992c
@@ -1185,8 +1185,8 @@
   en: 5f9154ca34235ab9
   zh: a833105910ebfa82
 /session-persistence-event-catalog/resolved-persistence-types/modelselection:
-  en: 97f7cf69a4b51623
-  zh: 9e8cae6345b271d2
+  en: b63d4bcaa0210af0
+  zh: 1d214a89fb09af48
 /session-persistence-event-catalog/resolved-persistence-types/notifyhookssummaryrequesteventdata:
   en: 26aed160782fdfe0
   zh: ad447cf490cd0cb2
@@ -1575,8 +1575,8 @@
   en: b94f8c32cd7ee361
   zh: feb42c665b73331b
 /session-persistence-event-catalog/resolved-persistence-types/inserted-outcome-removedcount-start:
-  en: 060c937444ef3ba6
-  zh: a73c5d59b9e53a07
+  en: c76c8afb8a4a7c57
+  zh: 52632e2164cc2749
 /session-persistence-event-catalog/resolved-persistence-types/interrupted-message-step-stream:
   en: 8e86cd838e3e4a49
   zh: f5fec2a8adf1f3cc

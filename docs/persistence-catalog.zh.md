@@ -191,7 +191,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/core/agent/src/types.ts:110`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:112`](../packages/core/agent/src/types.ts)
 
 ### `agent-preset/*`
 
@@ -706,7 +706,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'model/selection': ModelSelection
 ```
 
-来源：[`packages/core/agent/src/types.ts:121`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:123`](../packages/core/agent/src/types.ts)
 
 ### `notify-hooks/*`
 
@@ -4492,7 +4492,7 @@ SHA-256: `719c51f67074f97034a6c94297fe1f4b5d3c8d392c57586dab732aa5398c7a91`
 
 SHA-256: `f09e5e7acf5ff5ccd193ff2eeec015fa2ff7c29d98bc465f8c3302058d47e29b`
 
-来源：[`packages/core/agent/src/types.ts:79`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:81`](../packages/core/agent/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -6602,7 +6602,7 @@ SHA-256: `17d1afb770d9941936130996da00dc86782cfef731d8d6526162c301256a4ac3`
 
 SHA-256: `a5e0e7d5aa478b45dd549d910cda2bc1e579a09b167ea102790194667482243b`
 
-来源：[`packages/core/agent/src/types.ts:110`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:112`](../packages/core/agent/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
