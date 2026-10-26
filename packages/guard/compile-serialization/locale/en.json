@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Compile serialization",
+    "description": "Hold install, build, and typecheck commands to one at a time."
+  }
+}

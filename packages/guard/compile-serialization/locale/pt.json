@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Serialização de compilação",
+    "description": "Permite apenas um comando de instalação, compilação ou verificação de tipos por vez."
+  }
+}

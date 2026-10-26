@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Récupération du plafond de jetons",
+    "description": "Accorde un tour de récupération borné lorsqu'un tour épuise tout son plafond de sortie en raisonnement."
+  }
+}

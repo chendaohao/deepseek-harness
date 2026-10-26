@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Acesso remoto",
+    "description": "Emite tokens de pareamento de uso único, controla os dispositivos pareados e serve a URL e o código QR de pareamento."
+  }
+}

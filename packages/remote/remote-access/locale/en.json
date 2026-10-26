@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Remote access",
+    "description": "Issue one-time pairing tokens, gate paired devices, and serve the pairing URL and QR code."
+  }
+}

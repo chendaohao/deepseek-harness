@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CodeGraph",
+    "description": "Gibt indizierten Arbeitsbereichen eine eigene Checkliste und einen bei Bedarf gestarteten CodeGraph-Werkzeugserver."
+  }
+}

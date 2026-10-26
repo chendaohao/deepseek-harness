@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CodeGraph",
+    "description": "为已建索引的工作区提供专属检查清单，并按需启动 CodeGraph 工具服务。"
+  }
+}

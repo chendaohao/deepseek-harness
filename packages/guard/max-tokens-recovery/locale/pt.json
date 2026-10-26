@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Recuperação do limite de tokens",
+    "description": "Concede um turno de recuperação limitado quando um turno esgota todo o limite de saída em raciocínio."
+  }
+}

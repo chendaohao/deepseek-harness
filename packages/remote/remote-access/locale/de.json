@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Fernzugriff",
+    "description": "Stellt einmalige Kopplungs-Token aus, prüft gekoppelte Geräte und liefert die Kopplungs-URL samt QR-Code."
+  }
+}

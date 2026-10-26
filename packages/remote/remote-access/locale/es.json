@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Acceso remoto",
+    "description": "Emite tokens de emparejamiento de un solo uso, controla los dispositivos emparejados y sirve la URL y el código QR de emparejamiento."
+  }
+}

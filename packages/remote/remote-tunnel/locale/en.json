@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Remote tunnel",
+    "description": "Publish this Host through a tunnel so a paired phone can reach it."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CodeGraph",
+    "description": "Fournit aux espaces de travail indexés une liste de vérification dédiée et un serveur d'outils CodeGraph démarré à la demande."
+  }
+}

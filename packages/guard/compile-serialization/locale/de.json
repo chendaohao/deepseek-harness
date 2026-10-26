@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Kompilierung serialisieren",
+    "description": "Lässt jeweils nur einen Installations-, Build- oder Typisierungsbefehl gleichzeitig zu."
+  }
+}

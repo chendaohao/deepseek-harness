@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Accès distant",
+    "description": "Émet des jetons d'association à usage unique, contrôle les appareils associés et fournit l'URL et le code QR d'association."
+  }
+}

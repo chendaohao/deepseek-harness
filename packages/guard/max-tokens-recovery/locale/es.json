@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Recuperación de límite de tokens",
+    "description": "Concede un turno de recuperación acotado cuando un turno agota todo su límite de salida razonando."
+  }
+}

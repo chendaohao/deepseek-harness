@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Max tokens recovery",
+    "description": "Give a turn one bounded recovery turn after it spends its whole output ceiling on reasoning."
+  }
+}

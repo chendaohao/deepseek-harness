@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Sérialisation de compilation",
+    "description": "N'autorise qu'une seule commande d'installation, de compilation ou de vérification de types à la fois."
+  }
+}

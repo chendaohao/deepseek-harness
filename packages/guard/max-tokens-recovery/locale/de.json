@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Erholung nach Tokenlimit",
+    "description": "Gewährt einen begrenzten Wiederherstellungsschritt, wenn ein Schritt sein gesamtes Ausgabelimit im Nachdenken verbraucht."
+  }
+}

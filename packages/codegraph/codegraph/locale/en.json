@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CodeGraph",
+    "description": "Give indexed workspaces a scoped checklist and a lazily started CodeGraph tool server."
+  }
+}

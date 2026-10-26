@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CodeGraph",
+    "description": "索引済みのワークスペースに専用のチェックリストを提供し、必要に応じて CodeGraph ツールサーバーを起動します。"
+  }
+}
