@@ -28,7 +28,10 @@ export interface NotifyEnvironment {
   focus(): void
 }
 
-/** The browser environment, absent on platforms without Notification. */
+/**
+ * The browser environment, absent on platforms without Notification.
+ * @returns the environment, or undefined when the globals are unavailable.
+ */
 export function browserNotifyEnvironment(): NotifyEnvironment | undefined {
   const globals = globalThis as { document?: Document; Notification?: typeof Notification }
   if (globals.document === undefined || globals.Notification === undefined) return undefined

@@ -42,6 +42,16 @@ The third test asserts on the timer call order rather than on wall-clock starvat
 
 End-to-end confirmation came from a phone against the tunnel, not from the suite: the `revision` count for the self-restarting control stream fell from 114 to 4 across a background/foreground cycle, `attempt` reached 2, and `delay=200` appeared for the first time.
 
+## Alternatives considered
+
+**Let the revision change reset the attempt count and rely on the delay floor.** Rejected: the floor alone removes starvation for one reopen, but a revision reset still pins the sequence at `attempt = 1`, so every reopen on a flapping link pays only the first tier. Exhausting that tier without repeating it is what lets the delay climb.
+
+**Yield with an explicit `setTimeout(0)` in the loop instead of a delay floor.** Rejected: it puts the scheduling guarantee in a second place that a future edit can undo, and it leaves `streamRetryDelay` free to return a zero delay that the timer implementation resolves without consulting the timer queue at all. The floor keeps the guarantee in the single function every reopen already calls.
+
+**Have `awaitSupersede` wait a fixed constant rather than the retry sequence.** Rejected: a caller can then distinguish a supersede from a carrier reopen, and the two paths would drift as the retry configuration changes. Reusing the sequence keeps the supersede wait a rename of the same cadence.
+
+**Reset the attempt count on a foreground resync or any observed Host progress.** Rejected: neither is evidence the carrier recovered, which is what `accept()` records and the only event that resets the count.
+
 ## Consequences
 
 Recovery after a foreground return now takes at least 200 ms longer than it did. That is the price of the guarantee; on the phone path it is invisible beside the socket handshake.

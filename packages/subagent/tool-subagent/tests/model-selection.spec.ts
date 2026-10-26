@@ -595,10 +595,10 @@ describe('dsh-tool-subagent model selection', () => {
     expect(denied.isError).toBe(true)
     expect(text(denied)).toContain('is not allowed for this Session')
 
-    // The fork's LLM runtime normalizes an undeclared effort onto the model's
-    // adapter-owned default instead of rejecting it ("normalize unsupported
-    // reasoning efforts", 87e95da357), so this call is admitted with the
-    // declared default rather than failing.
+    // The fork's LLM service normalizes an undeclared effort onto the model's
+    // adapter-owned default instead of rejecting it: the reasoning resolution
+    // in `LlmService` falls back when the requested effort is not declared, so
+    // this call is admitted with the declared default rather than failing.
     const normalizedEffort = await callSubagent(ctx, {
       description: 'unsupported effort', prompt: 'do it', provider: 'alpha', model: 'fast-model', reasoning_effort: 'invalid',
     })

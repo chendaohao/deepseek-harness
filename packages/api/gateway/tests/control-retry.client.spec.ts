@@ -477,7 +477,7 @@ describe('RemoteStream', () => {
           trace.push('restart')
         }
       },
-      retryTimer: (delayMs) => {
+      retryTimer: (delayMs, _signal) => {
         trace.push(`timer=${String(delayMs)}`)
         return Promise.resolve()
       },
@@ -507,8 +507,8 @@ describe('RemoteStream', () => {
       { terminal: new RemoteStreamCarrierError('first') },
       { terminal: new RemoteStreamCarrierError('second') },
       { values: ['never'], hold: true },
-    ], undefined, (delayMs, signal) => {
-      reached.resolve()
+    ], undefined, (_delayMs, signal) => {
+      reached.resolve(undefined)
       return new Promise<void>((resolve) => {
         signal.addEventListener('abort', () => { resolve() }, { once: true })
       })
@@ -570,7 +570,7 @@ describe('RemoteStream', () => {
         ? new RemoteStreamCarrierError('accepted generation ended')
         : new Error('generation ended before acceptance'),
       preopenRetries: 32,
-      retryTimer: (delayMs) => {
+      retryTimer: (delayMs, _signal) => {
         delays.push(delayMs)
         // The stream is inside awaitRetry here, so the restart lands between two
         // reopen attempts exactly as a foreground return would.

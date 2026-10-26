@@ -14,6 +14,9 @@
 /agent-note-a-reopen-must-cross-a-macrotask-boundary/verification:
   en: fa26395015190b4c
   zh: 7663c88bc6dfdacd
+/agent-note-a-reopen-must-cross-a-macrotask-boundary/alternatives-considered:
+  en: 7cae6617f1bd528b
+  zh: 8724c7c0a2776e94
 /agent-note-a-reopen-must-cross-a-macrotask-boundary/consequences:
   en: 13be79f3dac8c7f2
   zh: 64f18d3fff8f8583

@@ -69,14 +69,6 @@ export interface ViewportResetSeams {
   readonly document?: ViewportDocument | undefined
 }
 
-/**
- * Reset the document's scroll offset whenever the browser may have moved it.
- *
- * The listeners only observe: they never capture a gesture and never scroll an
- * inner region, so a phone that is mid-swipe keeps its pan.
- * @param seams - window and document sources; defaults to the browser globals.
- * @returns a function removing every listener; idempotent.
- */
 /** Share of the keyboard-closed height the viewport must still show to count as closed. */
 const KEYBOARD_CLOSED_RATIO = 0.9
 
@@ -87,6 +79,14 @@ const KEYBOARD_CLOSED_RATIO = 0.9
  */
 const RESUME_SETTLE_MS = 1200
 
+/**
+ * Reset the document's scroll offset whenever the browser may have moved it.
+ *
+ * The listeners only observe: they never capture a gesture and never scroll an
+ * inner region, so a phone that is mid-swipe keeps its pan.
+ * @param seams - window and document sources; defaults to the browser globals.
+ * @returns a function removing every listener; idempotent.
+ */
 export function installViewportReset(seams: ViewportResetSeams = {}): () => void {
   const win = seams.window ?? globalThis.window
   const doc = seams.document ?? win.document

@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The shipped Web GUI is a desktop layout with no portrait, coarse-pointer, or safe-area rule. This package supplies that missing layer: a touch stylesheet raising control targets to the 44px minimum, holding composer inputs at 16px so iOS does not zoom on focus, and padding the composer for the home indicator, plus swipe-to-toggle for the sidebar and a document-scroll reset that keeps the shell pinned to the top of the phone viewport. It contributes no slot, control, or copy; the sidebar trigger and narrow floating geometry exist in `ui-sidebar` and `ui-layout`. The same layer also pins the document's scroll offset to zero: on a phone the browser scrolls the shell itself while its address bar moves or as the page returns from the background, which shifts the whole frame up by that offset. Every rule is scoped to a stamped `data-dsh-mobile-layer` attribute and installed through `ctx.effect`; disabling the row removes the layer with the plugin fiber.
+On a phone, the Web GUI keeps its desktop layout and its desktop touch targets: no 44px control minimum, no safe-area padding, no 16px composer font for iOS, and no swipe to open the sidebar. This package adds that layer, scoped to a stamped `data-dsh-mobile-layer` attribute and installed through `ctx.effect`, so disabling the row removes it with the plugin fiber. It also pins the document scroll offset to zero, since a phone scrolls the shell itself as the address bar moves. It contributes no slot, control, or copy; the sidebar trigger and narrow floating geometry live in `ui-sidebar` and `ui-layout`.
 
 ## Table of Contents
 
