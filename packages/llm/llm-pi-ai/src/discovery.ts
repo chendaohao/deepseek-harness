@@ -2,11 +2,15 @@
  * Answering "which models can this provider serve?" for the configuration
  * surface's "fetch available models" action.
  *
- * A route the installed pi-ai catalog ships is answered **from that catalog**,
- * with no network call at all: pi-ai's registry is the authoritative list for
- * its own providers, and it carries the capacities a listing endpoint would
- * not disclose. Only a route the catalog does not describe — a gateway, a
- * self-hosted server — is interrogated over the wire.
+ * A draft that names no endpoint on a route the installed pi-ai catalog ships
+ * is answered **from that catalog**, with no network call at all: pi-ai's
+ * registry carries the capacities a listing endpoint would not disclose. A
+ * draft that does name an endpoint — every route the catalog does not describe,
+ * plus any catalog route whose form shows one — is interrogated over the wire,
+ * and the catalog entry of each listed id fills the capacities and modalities
+ * that reply left out. Membership comes from the endpoint because the installed
+ * catalog lags a provider's releases, and answering from the catalog alone
+ * would withhold every model newer than the installed pi-ai data.
  *
  * Neither path is a catalog refresh. Nothing here is stored: the request
  * carries a draft the user is still editing, and the reply is candidate
@@ -14,10 +18,12 @@
  * thing that decides what a route serves.
  *
  * OpenAI-compatible and Anthropic Messages protocols are interrogated through
- * their native model-listing endpoints. The parser accepts the standard
- * `data` array and the enriched `models` map some compatible gateways expose.
- * Every other protocol reports that it cannot be interrogated so the surface
- * falls back to hand-entry rather than guessing its response fields.
+ * their native model-listing endpoints. A draft that names no protocol is asked
+ * in the one its route's shipped models share, so an Anthropic catalog is not
+ * queried at the OpenAI listing path. The parser accepts the standard `data`
+ * array and the enriched `models` map some compatible gateways expose. Every
+ * other protocol reports that it cannot be interrogated so the surface falls
+ * back to hand-entry rather than guessing its response fields.
  *
  * @module dsh-llm-pi-ai/discovery
  */
@@ -25,7 +31,7 @@
 import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type { LlmDiscoveredModel, LlmModelDiscoveryOperation } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
-import { catalogModels } from './catalog.ts'
+import { catalogModels, sharedCatalogApi } from './catalog.ts'
 
 /**
  * Protocols whose model listing this module can read. OpenAI protocols use
@@ -73,6 +79,11 @@ interface ListingArchitecture {
   input_modalities?: unknown
 }
 
+/** Modality spellings an entry may nest under a `modalities` object. */
+interface ListingModalities {
+  input?: unknown
+}
+
 /** One entry of a supported `GET /models` reply. */
 interface ListingEntry {
   id?: unknown
@@ -88,7 +99,7 @@ interface ListingEntry {
   max_tokens?: unknown
   max_output_tokens?: unknown
   maxTokens?: unknown
-  /** OpenAI-style top-level modality list. */
+  /** OpenAI-style top-level modality list, or the `{input}` object a gateway nests instead. */
   modalities?: unknown
   /** OpenRouter nests its modality list under this object. */
   architecture?: ListingArchitecture | null
@@ -115,12 +126,21 @@ function capacity(...candidates: readonly unknown[]): number | undefined {
  * @returns the recognized modalities, or `undefined`.
  */
 function declaredModalities(entry: ListingEntry): ('text' | 'image')[] | undefined {
-  const candidates = [entry.modalities, entry.architecture?.input_modalities]
+  const modalities = entry.modalities as ListingModalities | null | undefined
+  const candidates = [
+    entry.modalities,
+    // A gateway nests the same list under `modalities.input` instead of listing
+    // it directly; both spellings describe the same fact.
+    modalities !== null && typeof modalities === 'object' && !Array.isArray(modalities)
+      ? modalities.input
+      : undefined,
+    entry.architecture?.input_modalities,
+  ]
   for (const candidate of candidates) {
     if (!Array.isArray(candidate)) continue
-    const modalities = [...new Set(candidate.filter((modality): modality is 'text' | 'image' =>
+    const known = [...new Set(candidate.filter((modality): modality is 'text' | 'image' =>
       modality === 'text' || modality === 'image'))]
-    if (modalities.length > 0) return modalities
+    if (known.length > 0) return known
   }
   return undefined
 }
@@ -208,7 +228,7 @@ async function readBounded(response: Response, url: string): Promise<string> {
  * a working endpoint's catalog. Missing names fall back to the adopted id so
  * the Web form receives a complete human-readable row.
  */
-function readListing(body: unknown): LlmDiscoveredModel[] {
+function readListing(body: unknown): (LlmDiscoveredModel & { name: string })[] {
   const listing = body as { data?: unknown; models?: unknown } | null
   const data = listing?.data
   let listed: { readonly key?: string; readonly raw: unknown }[]
@@ -228,7 +248,7 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
       .filter(([, raw]) => raw !== null && typeof raw === 'object' && !Array.isArray(raw))
       .map(([key, raw]) => ({ key, raw }))
   }
-  const models: LlmDiscoveredModel[] = []
+  const models: (LlmDiscoveredModel & { name: string })[] = []
   for (const { key, raw } of listed) {
     const entry = raw as ListingEntry | null
     const id = label(key, entry?.id)
@@ -289,8 +309,62 @@ export interface StoredModelDiscoveryProfile {
   readonly resolveApiKey: () => Promise<string | undefined>
 }
 
+/** The catalog's own answer for one route, carrying what no listing discloses. */
+function catalogAnswers(installed: ReadonlyMap<string, { id: string; name: string; contextWindow: number; maxTokens: number; input: readonly ('text' | 'image')[] }>): LlmDiscoveredModel[] {
+  return [...installed.values()].map(model => ({
+    id: model.id,
+    name: model.name,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    /* v8 ignore next -- every installed catalog entry declares at least one modality */
+    ...model.input.length > 0 ? { input: [...model.input] } : {},
+    inputModalities: [...model.input],
+  }))
+}
+
+/**
+ * Fill what one endpoint's listing left out from the installed catalog entry of
+ * the same id. The endpoint decides which models exist — a provider releases a
+ * model its catalog has not recorded — while the catalog keeps the capacities it
+ * curates, which listings report partly or not at all. A listed model the
+ * catalog does not describe keeps exactly what the endpoint disclosed.
+ *
+ * A name the listing supplies wins over the catalog's; the catalog's applies
+ * only where the listing repeated the request id, which {@link readListing}
+ * substitutes when an entry names nothing.
+ * @param listed - the models the endpoint advertises, in its order.
+ * @param installed - the installed catalog entries for the same route.
+ * @returns the endpoint's models with undisclosed facts filled in.
+ */
+function completeFromCatalog(
+  listed: readonly (LlmDiscoveredModel & { name: string })[],
+  installed: ReadonlyMap<string, { name: string; contextWindow: number; maxTokens: number; input: readonly ('text' | 'image')[] }>,
+): LlmDiscoveredModel[] {
+  return listed.map((model): LlmDiscoveredModel => {
+    const installedModel = installed.get(model.id)
+    if (installedModel === undefined) return { ...model }
+    // `readListing` substitutes the request id where an entry names nothing, so
+    // an equal name is the absence of one rather than a curated spelling.
+    const name = model.name === model.id ? installedModel.name : model.name
+    return {
+      id: model.id,
+      name,
+      contextWindow: model.contextWindow ?? installedModel.contextWindow,
+      maxTokens: model.maxTokens ?? installedModel.maxTokens,
+      input: model.input ?? [...installedModel.input],
+    }
+  })
+}
+
 /**
  * Interrogate one draft provider endpoint for the models it advertises.
+ *
+ * A route the installed catalog ships is answered from that catalog only when
+ * the draft names no endpoint; a draft that does name one is interrogated, and
+ * the catalog then fills the capacities its reply leaves out. The endpoint has
+ * to decide membership: the installed catalog lags a provider's releases, and
+ * answering from it alone would withhold every model newer than the installed
+ * pi-ai data.
  * @param request - the endpoint, protocol, and one-shot credential to use.
  * @param storedProfile - Host-owned headers and lazy credential resolution for
  *   the named route. It is read only on the path that reaches the network; the
@@ -303,22 +377,10 @@ export async function discoverModels(
   request: LlmModelDiscoveryOperation,
   storedProfile?: () => StoredModelDiscoveryProfile | undefined,
 ): Promise<readonly LlmDiscoveredModel[]> {
-  // A catalog route already has its answer, and a better one: the installed
-  // entries carry context windows and output caps no listing endpoint reports.
-  if (request.provider !== undefined) {
-    const installed = catalogModels(request.provider)
-    if (installed.size > 0) {
-      return [...installed.values()].map(model => ({
-        id: model.id,
-        name: model.name,
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-        /* v8 ignore next -- every installed catalog entry declares at least one modality */
-        ...model.input.length > 0 ? { input: [...model.input] } : {},
-        inputModalities: [...model.input],
-      }))
-    }
-  }
+  const installed = request.provider === undefined ? new Map() : catalogModels(request.provider)
+  // Without an endpoint there is nothing to ask, and a catalog route already
+  // has its answer — the better one, since it costs no network call.
+  if (installed.size > 0 && (request.baseURL ?? '').length === 0) return catalogAnswers(installed)
   if (request.baseURL === undefined || request.baseURL.length === 0) {
     throw new LlmError(
       `pi-ai ships no catalog for provider "${request.provider ?? ''}", so its models can only come from its`
@@ -326,13 +388,16 @@ export async function discoverModels(
       'DISCOVERY_FAILED',
     )
   }
-  // A draft that has not chosen a protocol yet is asked as OpenAI Chat
-  // Completions: it is the shape a gateway is overwhelmingly likely to speak,
-  // and the alternative — refusing until the field is filled — would withhold
-  // the action from the case it exists for. The cost is a misdirected message
-  // when the endpoint speaks something else (an Anthropic gateway answers 401,
-  // which reads as a credential problem), and hand-entry remains the way out.
-  const api = request.api ?? 'openai-completions'
+  // A catalog route shares the protocol its shipped models agree on, so a draft
+  // that has not chosen one still asks the right endpoint. A route with no
+  // shared answer — and every route the catalog does not describe — is asked as
+  // OpenAI Chat Completions: it is the shape a gateway is overwhelmingly likely
+  // to speak, and the alternative — refusing until the field is filled — would
+  // withhold the action from the case it exists for. The cost is a misdirected
+  // message when the endpoint speaks something else (an Anthropic gateway
+  // answers 401, which reads as a credential problem), and hand-entry remains
+  // the way out.
+  const api = request.api ?? sharedCatalogApi(installed) ?? 'openai-completions'
   if (!LISTABLE_PROTOCOLS.has(api)) {
     throw new LlmError(
       `pi-ai protocol "${api}" has no model listing this build can read; enter this provider's models by hand`,
@@ -394,5 +459,5 @@ export async function discoverModels(
   } catch (error: unknown) {
     throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
   }
-  return readListing(body)
+  return completeFromCatalog(readListing(body), installed)
 }

@@ -685,8 +685,11 @@ function invalid(provider: string, detail: string): never {
  * already use. A route whose shipped models disagree (an OpenAI-style catalog
  * spanning Responses and Chat Completions) has no such answer, so a model it
  * does not describe must name its protocol at the route.
+ * @param defaults - the installed catalog entries for one route.
+ * @returns the shared protocol, or `undefined` when they disagree or the route
+ *   ships no model.
  */
-function sharedCatalogApi(defaults: ReadonlyMap<string, Model<Api>>): string | undefined {
+export function sharedCatalogApi(defaults: ReadonlyMap<string, Model<Api>>): string | undefined {
   const apis = new Set<string>()
   for (const model of defaults.values()) apis.add(model.api)
   return apis.size === 1 ? [...apis][0] : undefined

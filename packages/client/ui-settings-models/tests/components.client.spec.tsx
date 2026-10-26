@@ -280,10 +280,11 @@ function renderPiAiEditor(
   provider: string,
   namespace: SettingsNamespaceView,
   facts: Pick<ProviderEditorProps, 'defaultBaseURL' | 'baseURLEnv' | 'nativeAuth' | 'credential' | 'credentialChecks'> = {},
+  operationsOverride?: ModelsOperations,
 ): void {
   render(<ProviderEditor provider={provider} displayName={provider}
     namespace={namespace} settingsPath={['providers', provider]} schema={settingsSchema}
-    operations={operationsWith(scriptedFace().face)} t={t} readOnly={false} onClose={vi.fn()} {...facts} />)
+    operations={operationsOverride ?? operationsWith(scriptedFace().face)} t={t} readOnly={false} onClose={vi.fn()} {...facts} />)
 }
 
 /** Hover the key label's help button and read its tooltip; null when the label has no button. */
@@ -1962,6 +1963,28 @@ describe('ModelsSection', () => {
     // The apply closes the card once it lands; nothing was switched underneath it.
     await waitFor(() => { expect(screen.queryByRole('tablist')).toBeNull() })
     expect(mutate).toHaveBeenCalledOnce()
+  })
+
+  it('asks a catalog route\'s own endpoint when its profile pins none', async () => {
+    const scripted = scriptedFace()
+    renderPiAiEditor(
+      'anthropic',
+      piAiNamespaceWith('anthropic', {}),
+      { defaultBaseURL: 'https://api.anthropic.com', nativeAuth: { env: ['ANTHROPIC_API_KEY'], oauth: false } },
+      operationsWith(scripted.face),
+    )
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.click(screen.getByRole('button', { name: en.fetchModels }))
+
+    // The adapter withholds models newer than its installed catalog unless the
+    // interrogation names an endpoint, and this route's endpoint is the
+    // directory's default rather than a stored profile field.
+    await waitFor(() => {
+      expect(scripted.face.llm.discoverModels).toHaveBeenCalledWith('llm-pi-ai', {
+        provider: 'anthropic',
+        baseURL: 'https://api.anthropic.com',
+      })
+    })
   })
 
   it('locks the mode switch while the custom form is asking the endpoint for models', async () => {

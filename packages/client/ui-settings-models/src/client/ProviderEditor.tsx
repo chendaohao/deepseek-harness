@@ -247,13 +247,17 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     : undefined
   const shownKeyFailure = credentialRequiredFailure ?? keyFailure
   // What the form currently shows, which is what an interrogation must ask:
-  // an edited-but-unsaved endpoint, and a key typed but not yet stored.
+  // an edited-but-unsaved endpoint, and a key typed but not yet stored. A
+  // catalog route whose profile pins no endpoint shows the adapter's default,
+  // and that default is what the interrogation has to reach: without it the
+  // adapter answers from its installed catalog and withholds any model newer
+  // than the installed data.
   const probeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
-  const probeBaseURL = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL')
+  const probeBaseURL = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL') ?? props.defaultBaseURL
   const probe = {
     settingsNs: namespace.ns,
-    // Naming the route lets an adapter that already describes it answer from
-    // its own registry — better metadata, no network call, no endpoint needed.
+    // Naming the route lets the adapter answer a draft with no endpoint from
+    // its own registry, and pick the protocol its shipped models share.
     provider: props.provider,
     ...probeBaseURL === undefined ? {} : { baseURL: probeBaseURL },
     ...probeApi === undefined ? {} : { api: probeApi },

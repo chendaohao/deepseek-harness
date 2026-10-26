@@ -82,23 +82,58 @@ describe('catalog-route model discovery', () => {
     expect(models.find(model => model.id === 'gpt-6-astra')).toMatchObject({ inputModalities: installed?.input })
   })
 
-  it('answers from the installed registry, with capacities and no network call', async () => {
-    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'from-the-endpoint' }] }) })
+  it('asks the endpoint a draft names, and lets the catalog complete its reply', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({
+        data: [
+          // A model the endpoint discloses capacities for keeps them.
+          { id: 'from-the-endpoint', context_length: 65_536, max_output_tokens: 4_096 },
+          // A model the catalog also ships keeps the endpoint's membership.
+          { id: 'deepseek-flash' },
+          // A listing that names a model keeps its own spelling of the name.
+          { id: 'deepseek-v4-pro', display_name: 'DeepSeek Pro (team)' },
+        ],
+      }),
+    })
     const ctx = await harness()
 
     const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: server.url })
 
-    // pi-ai's own registry is the authority for its own providers, and it
-    // carries what a listing endpoint would not disclose.
-    expect(models.map(model => model.id).sort())
-      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
-    expect(models.every(model => (model.contextWindow ?? 0) > 0 && (model.maxTokens ?? 0) > 0)).toBe(true)
-    expect(server.paths).toEqual([])
+    // The endpoint decides which models exist: the installed catalog lags a
+    // provider's releases, and answering from it alone would withhold them.
+    expect(models.map(model => model.id)).toEqual(['from-the-endpoint', 'deepseek-flash', 'deepseek-v4-pro'])
+    expect(models[0]).toMatchObject({ contextWindow: 65_536, maxTokens: 4_096 })
+    // What the listing left out comes from the installed entry, which carries
+    // the capacities and modalities an id-only reply would not disclose.
+    expect(models[1]).toMatchObject({
+      name: 'DeepSeek V4.1 Flash',
+      contextWindow: 1_000_000,
+      maxTokens: 384_000,
+      input: ['text', 'image'],
+    })
+    expect(models[2]).toMatchObject({ name: 'DeepSeek Pro (team)', contextWindow: 1_000_000 })
+    expect(server.paths).toEqual(['/models'])
   })
 
   it('needs no endpoint for a route the catalog describes', async () => {
     const ctx = await harness()
+    // A draft with no endpoint is answered from the installed registry, which
+    // costs no network call and carries capacities a listing would not.
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
+  })
+
+  it('asks a catalog route in the protocol its shipped models share', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [] }) })
+    const ctx = await harness()
+
+    // A draft that named no protocol still reaches the right endpoint: the
+    // route's own models answer which one it speaks, so an Anthropic catalog
+    // is not asked at the OpenAI listing path with a bearer token.
+    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'anthropic', baseURL: server.url, apiKey: 'typed' })
+
+    expect(server.paths).toEqual(['/v1/models?limit=1000'])
+    expect(server.headers[0]?.['x-api-key']).toBe('typed')
+    expect(server.headers[0]?.authorization).toBeUndefined()
   })
 
   it('says where a route the catalog does not describe must get its models', async () => {
@@ -153,6 +188,8 @@ describe('draft-provider model discovery', () => {
           { id: 'unknown-only', modalities: ['audio'] },
           { id: 'silent' },
           { id: 'junk-shape', modalities: 'text' },
+          // A gateway that nests the same list under `modalities.input`.
+          { id: 'nested-modalities', modalities: { input: ['text', 'image', 'video'], output: ['text'] } },
         ],
       }),
     })
@@ -167,6 +204,7 @@ describe('draft-provider model discovery', () => {
       { id: 'unknown-only', name: 'unknown-only' },
       { id: 'silent', name: 'silent' },
       { id: 'junk-shape', name: 'junk-shape' },
+      { id: 'nested-modalities', name: 'nested-modalities', input: ['text', 'image'] },
     ])
   })
 
@@ -556,10 +594,12 @@ const RECORDED_LISTINGS = [
     name: 'the models.dev anthropic provider object',
     file: 'models-dev-anthropic-2026-09-02.json',
     api: 'openai-completions',
+    // `modalities.input` is the nested spelling of the same list an OpenAI
+    // listing gives directly, and `pdf` is a term this build cannot serve.
     models: [
-      { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', contextWindow: 1_000_000, maxTokens: 128_000 },
-      { id: 'claude-fable-5-1', name: 'Claude Fable 5.1', contextWindow: 1_000_000, maxTokens: 128_000 },
-      { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5 (latest)', contextWindow: 200_000, maxTokens: 64_000 },
+      { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', contextWindow: 1_000_000, maxTokens: 128_000, input: ['text', 'image'] },
+      { id: 'claude-fable-5-1', name: 'Claude Fable 5.1', contextWindow: 1_000_000, maxTokens: 128_000, input: ['text', 'image'] },
+      { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5 (latest)', contextWindow: 200_000, maxTokens: 64_000, input: ['text', 'image'] },
     ],
   },
   {
