@@ -956,17 +956,24 @@ describe('turn and step boundary recovery', () => {
     })
     send(agent, 'go')
     await waitForIdle(ctx, agent)
+    // The rejected step/start returned the claimed batch and latched one
+    // automatic resume; waitForIdle can resolve at the idle flicker between
+    // the failed driver and its successor, which runs the vetoed step for real.
+    await agent.whenIdle()
 
-    expect(adapter.requests).toEqual([])
+    expect(adapter.requests).toHaveLength(1)
     expect(boundaryCounts(agent)).toMatchObject({
-      turnStart: 1,
-      turnEnd: 1,
-      stepStart: 0,
-      stepEnd: 0,
+      turnStart: 2,
+      turnEnd: 2,
+      stepStart: 1,
+      stepEnd: 1,
       errors: 1,
     })
-    expect(agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')).toMatchObject({
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
       data: { reason: { kind: 'error', error: { message: 'reject step-start before commit', code: 'UNKNOWN' } } },
+    })
+    expect(agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'completed' } },
     })
   })
 

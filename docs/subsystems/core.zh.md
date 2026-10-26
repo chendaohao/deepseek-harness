@@ -138,9 +138,10 @@ interface Agent {
   /**
    * Queue model-facing context for the next pre-step without waking the
    * driver. A running driver claims it at the nearest later step boundary;
-   * idle drivers leave it pending until follow-up or steering
-   * wakes them. It may miss a request whose pre-step already claimed its
-   * batch. Cancellation or disposal may discard pending context.
+   * idle drivers leave it pending until follow-up, steering, or the automatic
+   * resume of an error turn wakes them. It may miss a request whose pre-step
+   * already claimed its batch. Cancellation or disposal may discard pending
+   * context.
    * @param message - identified injected context and the source that supplied it.
    */
   inject(message: UserMessage): void
@@ -405,6 +406,8 @@ type PreStepDecision =
 
 `agent/request-error` 在失败的模型步骤关闭之后、其轮次关闭之前运行。listener 可以在失败轮次的 signal 仍然存活时修复持久状态或 await 策略工作。处理该错误的 listener 返回 `{ kind: 'retry' }` 且不调用 `next()`，并可用 `dropReasoningEffort` 在重试时剥除 reasoning 通道；默认的 `undefined` 会让失败保持终态。
 
+以错误结束的轮次对其输入负责。它把从未产生 `user/message` 事件的已认领消息按原顺序退回 next-turn，因此失败不会静默吞掉工作。当失败代码属于重试策略可能清除的瞬态类别或 `UNKNOWN`，且有输入等待时，该轮次还会锁存一次自动续跑，由 `kick()` 在驱动器边界重放；已消耗的锁存会带入重放，因此持续失败的队列在每段故障期内只获得一次自动重试。取消保持原有语义，退回任何内容。[Agent-loop](../../packages/core/agent-loop/README.zh.md#understand-the-implementation) 负责这些规则。
+
 ```ts type-equiv
 /** Action returned by a listener that owns model-request recovery. */
 type RequestErrorAction = | { kind: 'retry'; dropReasoningEffort?: boolean } | undefined
@@ -506,6 +509,8 @@ interface TurnBoundaryProjection {
   readonly lastStepBoundary: { readonly kind: 'start' | 'end'; readonly seq: SessionSeq } | null
   /** Turn number of the latest `turn/start`; 0 before the first turn. */
   readonly lastTurn: number
+  /** Kind of the latest `turn/end` reason and its seq, or null before any turn closes. */
+  readonly lastTurnEnd: { readonly kind: TurnEndReason['kind']; readonly seq: SessionSeq } | null
 }
 ```
 

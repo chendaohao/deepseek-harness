@@ -15,18 +15,23 @@ const turnBoundaryProjectionSchema: zod.ZodType<TurnBoundaryProjection> = zod.ob
     seq: sessionSeqSchema,
   }).nullable(),
   lastTurn: zod.number().int().nonnegative(),
+  lastTurnEnd: zod.object({
+    kind: zod.enum(['completed', 'max-tokens', 'blocked', 'aborted', 'error']),
+    seq: sessionSeqSchema,
+  }).nullable(),
 })
 
 /** Host projection of agent turn and step boundaries. */
 export const turnBoundaryProjectionDefinition = {
   key: 'turnBoundary',
-  stateVersion: 2,
+  stateVersion: 3,
   stateSchema: turnBoundaryProjectionSchema,
   init: () => ({
     openTurnStartSeq: null,
     lastStepStartSeq: null,
     lastStepBoundary: null,
     lastTurn: 0,
+    lastTurnEnd: null,
   }),
   apply: (state, event) => {
     switch (event.type) {
@@ -40,6 +45,7 @@ export const turnBoundaryProjectionDefinition = {
         return {
           ...state,
           openTurnStartSeq: null,
+          lastTurnEnd: { kind: event.data.reason.kind, seq: event.seq },
         }
       case 'step/start':
         return {

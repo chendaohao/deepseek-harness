@@ -535,7 +535,7 @@ describe('agent/pre-step', () => {
   })
 
   it('a throwing pre-step listener reports the driver error and retains adjacent work', async () => {
-    const adapter = new MockAdapter([textResponse('after')])
+    const adapter = new MockAdapter([textResponse('after'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -559,18 +559,24 @@ describe('agent/pre-step', () => {
     send(agent, 'first')
     send(agent, 'second')
     await idle
+    // The error turn latched one automatic resume; waitForIdle can resolve at
+    // the idle flicker between the failed driver and its resumed successor.
+    await agent.whenIdle()
     expect(errors).toEqual([expect.objectContaining({ message: 'prompt hook broke' })])
     const log = events(agent)
-    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
-    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(1)
-    expect(reasons).toEqual([{
-      kind: 'error',
-      error: { message: 'prompt hook broke', code: 'UNKNOWN' },
-    }])
-    expect(statuses).toEqual(['running', 'idle'])
-    expect(adapter.requests).toHaveLength(0)
-    expect(agent.inbox.nextTurn.map(message => message.content[0]))
-      .toEqual([{ type: 'text', text: 'second' }])
+    // Turn 1 errors; the resumed driver serves the returned 'first' batch and
+    // then the queued 'second', each in its own completed turn.
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(3)
+    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(3)
+    expect(reasons).toEqual([
+      { kind: 'error', error: { message: 'prompt hook broke', code: 'UNKNOWN' } },
+      { kind: 'completed' },
+      { kind: 'completed' },
+    ])
+    expect(statuses[0]).toBe('running')
+    expect(statuses.at(-1)).toBe('idle')
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.inbox.nextTurn).toEqual([])
   })
 })
 

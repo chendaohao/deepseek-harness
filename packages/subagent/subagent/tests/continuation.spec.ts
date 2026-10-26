@@ -17,7 +17,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import * as SubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import type { ContentBlock, GenerateOptions, MessageId, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { ToolCallId, createUserMessage, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createUserMessage, LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentRuntime, {
@@ -2182,6 +2182,58 @@ describe('continuable review regressions', () => {
     const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'caller' })
     try {
       await expect(started.result).resolves.toMatchObject({ stopReason: 'completed' })
+    } finally {
+      await started.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('settles an epoch whose last turn errored despite input that failure returned', async () => {
+    // The failed turn returns its claimed batch before the turn closes, so the
+    // inbox holds pending input in a state no later turn of this epoch can
+    // serve. Settlement must read that as a failure report, not wait forever.
+    const { ctx, parent } = await setup([textResponse('unused')])
+    const ends: SubagentRunEndInfo[] = []
+    ctx.on('subagent/end', (info) => { ends.push(info) })
+    ctx.on('agent/pre-step', ({ agent }, next) => {
+      if (!agent.session.id.startsWith('parent')) throw new LlmError('assembly refused', 'UNKNOWN')
+      return next()
+    })
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'caller' })
+    try {
+      await expect(started.result).resolves.toMatchObject({ stopReason: 'error' })
+      await waitNoActivation(ctx, started.childId)
+      expect(ends).toHaveLength(1)
+      expect(ends[0]!.stopReason).toBe('error')
+    } finally {
+      await started.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('settles an accepted follow-up parked behind a failed turn', async () => {
+    // The child fails its turn with a follow-up already pending. The failed
+    // epoch cannot serve that input, so settlement reports the failure instead
+    // of holding the activation open on work no turn will claim.
+    const { ctx, parent } = await setup([textResponse('child answer')])
+    let failed = false
+    ctx.on('subagent/start', ({ id }) => {
+      const child = ctx.agents.get(id)!
+      child.ctx.on('agent/pre-step', (_payload, next) => {
+        if (failed) return next()
+        failed = true
+        throw new LlmError('assembly refused', 'UNKNOWN')
+      }, { prepend: true })
+    })
+    const ends: SubagentRunEndInfo[] = []
+    ctx.on('subagent/end', (info) => { ends.push(info) })
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await queuePrompt(ctx, parent, started.childId, message('parked behind the failure'))
+    try {
+      await expect(started.result).resolves.toMatchObject({ stopReason: 'error' })
+      await waitNoActivation(ctx, started.childId)
+      expect(ends).toHaveLength(1)
+      expect(ends[0]!.stopReason).toBe('error')
     } finally {
       await started.dispose()
       await ctx.fiber.dispose()

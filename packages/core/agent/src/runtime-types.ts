@@ -264,9 +264,10 @@ declare module './types.ts' {
     /**
    * Queue model-facing context for the next pre-step without waking the
    * driver. A running driver claims it at the nearest later step boundary;
-   * idle drivers leave it pending until follow-up or steering
-   * wakes them. It may miss a request whose pre-step already claimed its
-   * batch. Cancellation or disposal may discard pending context.
+   * idle drivers leave it pending until follow-up, steering, or the automatic
+   * resume of an error turn wakes them. It may miss a request whose pre-step
+   * already claimed its batch. Cancellation or disposal may discard pending
+   * context.
    * @param message - identified injected context and the source that supplied it.
    */
     inject(message: UserMessage): void

@@ -52,15 +52,17 @@ describe('AgentRegistry', () => {
     const session = Session.create(SessionId('turn-positions'))
     expect(ctx.agents.turnBoundaryOf(session)).toEqual({
       openTurnStartSeq: null, lastStepStartSeq: null, lastStepBoundary: null, lastTurn: 0,
+      lastTurnEnd: null,
     })
     const turn = session.append('turn/start', { turn: 3 })
     const step = session.append('step/start', { turn: 3, step: 1 })
     expect(ctx.agents.turnBoundaryOf(session)).toEqual({
       openTurnStartSeq: turn.seq, lastStepStartSeq: step.seq,
-      lastStepBoundary: { kind: 'start', seq: step.seq }, lastTurn: 3,
+      lastStepBoundary: { kind: 'start', seq: step.seq }, lastTurn: 3, lastTurnEnd: null,
     })
     session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
     expect(ctx.agents.turnBoundaryOf(session)).toMatchObject({ openTurnStartSeq: null, lastTurn: 3 })
+    expect(ctx.agents.turnBoundaryOf(session).lastTurnEnd).toEqual({ kind: 'completed', seq: 2 })
     expect(ctx.sessionProjections.checkpoint(session).turnBoundary).toBeDefined()
     await fiber.dispose()
     expect(ctx.sessionProjections.checkpoint(session).turnBoundary).toBeUndefined()

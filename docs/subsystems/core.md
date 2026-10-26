@@ -134,9 +134,10 @@ interface Agent {
   /**
    * Queue model-facing context for the next pre-step without waking the
    * driver. A running driver claims it at the nearest later step boundary;
-   * idle drivers leave it pending until follow-up or steering
-   * wakes them. It may miss a request whose pre-step already claimed its
-   * batch. Cancellation or disposal may discard pending context.
+   * idle drivers leave it pending until follow-up, steering, or the automatic
+   * resume of an error turn wakes them. It may miss a request whose pre-step
+   * already claimed its batch. Cancellation or disposal may discard pending
+   * context.
    * @param message - identified injected context and the source that supplied it.
    */
   inject(message: UserMessage): void
@@ -397,6 +398,8 @@ type PreStepDecision =
 
 `agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`, optionally with `dropReasoningEffort` to strip the reasoning channel from the retry; the default `undefined` leaves the failure terminal.
 
+A turn ending in error owns its input. It returns the claimed messages that never reached a `user/message` event to next-turn in their original order, so no failure silently consumes work. When the failure code is a transient class the retry policy could clear, or `UNKNOWN`, and input is pending, the turn also latches one automatic resume that `kick()` replays at the driver boundary; the spent latch carries into the replay, so a permanently failing queue earns exactly one automatic retry per episode. Cancellation keeps its previous semantics and returns nothing. [Agent-loop](../../packages/core/agent-loop/README.md#understand-the-implementation) owns the rules.
+
 ```ts type-equiv
 /** Action returned by a listener that owns model-request recovery. */
 type RequestErrorAction = | { kind: 'retry'; dropReasoningEffort?: boolean } | undefined
@@ -494,6 +497,8 @@ interface TurnBoundaryProjection {
   readonly lastStepBoundary: { readonly kind: 'start' | 'end'; readonly seq: SessionSeq } | null
   /** Turn number of the latest `turn/start`; 0 before the first turn. */
   readonly lastTurn: number
+  /** Kind of the latest `turn/end` reason and its seq, or null before any turn closes. */
+  readonly lastTurnEnd: { readonly kind: TurnEndReason['kind']; readonly seq: SessionSeq } | null
 }
 ```
 

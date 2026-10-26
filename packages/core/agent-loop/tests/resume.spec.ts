@@ -1120,7 +1120,11 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     // Lifecycle 1: run one full turn, persisting it.
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const h1 = await ctx1.agents.create({ sessionId: SessionId('sess-resume'), meta: { cwd: '/w' } })
+    const h1 = await ctx1.agents.create({
+      sessionId: SessionId('sess-resume'),
+      meta: { cwd: '/w' },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
     const a1 = h1.agent
     a1.followup(createUserMessage({ content: [{ type: 'text', text: 'first question' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
@@ -1133,7 +1137,10 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     // Lifecycle 2: a brand-new context over the SAME root; resume the session.
     const ctx2 = await mountPersistentHarness(root, new MockAdapter([textResponse('second answer')]))
 
-    const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('sess-resume') })).agent
+    const a2 = (await ctx2.agents.resume({
+      resumeSessionId: SessionId('sess-resume'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })).agent
     // The resumed session carries the prior history…
     expect(a2.session.id).toBe('sess-resume')
     // …followed by one end-seed event marking the constructor seed.

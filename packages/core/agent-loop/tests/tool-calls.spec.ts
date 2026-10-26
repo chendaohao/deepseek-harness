@@ -687,6 +687,7 @@ describe('tool-call scheduler: failure quiescence', () => {
         { id: 'c2', name: 'p', args: { id: '2' } },
         { id: 'c3', name: 'p', args: { id: '3' } },
       ]),
+      textResponse('resumed'),
       textResponse('continued'),
     ])
     const ctx = await harness(adapter)
@@ -729,6 +730,10 @@ describe('tool-call scheduler: failure quiescence', () => {
     const failedTurn = waitForIdle(ctx, agent)
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await failedTurn
+    // The scheduler failure left the deferred context pending, so the error
+    // turn latched one automatic resume; waitForIdle can resolve at the idle
+    // flicker between the failed driver and its successor.
+    await agent.whenIdle()
 
     const failedEvents = events(agent)
     const calls = failedEvents.filter(event => event.type === 'tool/call')
@@ -748,9 +753,16 @@ describe('tool-call scheduler: failure quiescence', () => {
       phase === 'execution-mode' ? undefined : [calls[1]?.seq],
       undefined,
     ])
-    expect(failedEvents.slice(-3).map(event => event.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
-    expect(failedEvents.at(-1)).toMatchObject({
+    // The failed turn's own tail is unchanged; the automatic resume then
+    // serves the deferred context in one more completed turn.
+    const firstTurnEnd = failedEvents.findIndex(event => event.type === 'turn/end')
+    expect(failedEvents.slice(firstTurnEnd - 2, firstTurnEnd + 1).map(event => event.type))
+      .toEqual(['tool/result', 'step/end', 'turn/end'])
+    expect(failedEvents[firstTurnEnd]).toMatchObject({
       data: { reason: { kind: 'error', error: { message: failure.message, code: 'UNKNOWN' } } },
+    })
+    expect(failedEvents.at(-1)).toMatchObject({
+      data: { reason: { kind: 'completed' } },
     })
     expect(listenerCount()).toBe(idleListenerCount)
 
@@ -761,7 +773,9 @@ describe('tool-call scheduler: failure quiescence', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
     await nextTurn
 
-    expect(adapter.requests[1]?.messages.flatMap((message): string[] => {
+    // requests[1] served the resumed deferred context; requests[2] is the
+    // manual follow-up and sees the complete recovered history.
+    expect(adapter.requests[2]?.messages.flatMap((message): string[] => {
       if (message.role === 'tool') return [`result:${message.toolCallId}`]
       return message.content.flatMap((block): string[] => {
         if (block.type === 'tool-call') return [`call:${block.id}`]

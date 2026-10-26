@@ -567,7 +567,7 @@ describe('agent loop', () => {
 
   it('contains a strict-variable render failure: the turn errors, the loop keeps serving turns', async () => {
     // A missing custom_directory variable must fail one turn without preventing a later valid turn.
-    const adapter = new MockAdapter([textResponse('ok after rescue')])
+    const adapter = new MockAdapter([textResponse('ok after rescue'), textResponse('second ok')])
     const ctx = await harness(adapter, 'In {{custom_directory}}.')
     ctx.systemPrompt.variable('custom_directory', () => undefined)
     const errors: Error[] = []
@@ -578,9 +578,14 @@ describe('agent loop', () => {
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
+    // The render failure is an UNKNOWN error with the batch returned to the
+    // queue, so the driver spends its one automatic resume and fails again;
+    // waitForIdle can resolve at the idle flicker between the two drivers.
+    await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(0) // the request was never sent
     expect(errors.map(error => error.message)).toEqual([
+      'prompt variable "{{custom_directory}}" has no value for this assembly (section "deployment:persona-prefix")',
       'prompt variable "{{custom_directory}}" has no value for this assembly (section "deployment:persona-prefix")',
     ])
     const turnEnd = agent.session.snapshotEvents().find(e => e.type === 'turn/end')
@@ -597,12 +602,15 @@ describe('agent loop', () => {
     })
     send(agent, 'again')
     await waitForIdle(ctx, agent)
+    await agent.whenIdle()
 
-    expect(adapter.requests).toHaveLength(1)
+    // The returned 'hi' batch is served first, then 'again': two real turns.
+    expect(adapter.requests).toHaveLength(2)
     expect(systemOf(adapter.requests[0])).toBe('You are an AI agent powered by DeepSeek Harness.\n\nIn /rescued.')
     const turnEnds = agent.session.snapshotEvents().filter(e => e.type === 'turn/end')
-    expect(turnEnds).toHaveLength(2)
-    expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
+    expect(turnEnds).toHaveLength(4)
+    expect(turnEnds[2]?.type === 'turn/end' && turnEnds[2].data.reason.kind).toBe('completed')
+    expect(turnEnds[3]?.type === 'turn/end' && turnEnds[3].data.reason.kind).toBe('completed')
   })
 
   it('uses a recorded selection for both the request and the {{model}} persona', async () => {
@@ -1068,7 +1076,7 @@ describe('agent loop', () => {
     expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('second idle steer')
   })
 
-  it('stops after a throwing pre-step listener and retains later steering until a wakeup', async () => {
+  it('a throwing pre-step listener returns its batch and latched steering to the automatic resume', async () => {
     const adapter = new MockAdapter([textResponse('recovered')])
     const ctx = await harness(adapter)
     const agent = await ctx.agentLoop.create(SessionId('failed-steering'), { provider: 'mock', model: 'mock' })
@@ -1082,18 +1090,20 @@ describe('agent loop', () => {
 
     send(agent, 'prompt')
     await waitForIdle(ctx, agent)
+    // The error latched one automatic resume; waitForIdle can resolve at the
+    // idle flicker between the failed driver and its successor.
+    await agent.whenIdle()
 
-    expect(adapter.requests).toHaveLength(0)
-    expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(1)
-    expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/end')).toHaveLength(1)
-    expect(agent.inbox.nextStep).toHaveLength(1)
-
-    send(agent, 'resume')
-    await waitForIdle(ctx, agent)
-
+    // The resumed turn claims the steered next-step message and the returned
+    // 'prompt' batch in one step and completes without a manual wakeup.
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/end')
+      .map(event => event.type === 'turn/end' && event.data.reason.kind)).toEqual(['error', 'completed'])
+    expect(agent.inbox.nextStep).toHaveLength(0)
+    expect(agent.inbox.nextTurn).toHaveLength(0)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('prompt')
   })
 
   it('inject() while idle durably stages context without opening a turn', async () => {
@@ -1312,6 +1322,10 @@ describe('agent loop', () => {
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
+    // The rejection returned the claimed batch and spent the one automatic
+    // resume on an identical failure; waitForIdle can resolve at the idle
+    // flicker between the two error turns.
+    await agent.whenIdle()
     expect(adapter.requests).toEqual([])
     expect(agent.session.snapshotEvents().filter(event => ['request/header', 'user/message', 'system/message'].includes(event.type)))
       .toEqual([])
@@ -1369,7 +1383,7 @@ describe('agent loop', () => {
   })
 
   it('a throwing agent/pre-step listener fails the proposal, not the loop', async () => {
-    const adapter = new MockAdapter([textResponse('second turn ok')])
+    const adapter = new MockAdapter([textResponse('resumed turn ok'), textResponse('second turn ok')])
     const ctx = await harness(adapter)
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -1386,16 +1400,20 @@ describe('agent loop', () => {
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    // The first proposal failed inside a balanced turn without calling the model.
+    // The failure returned the claimed batch and latched one automatic resume;
+    // waitForIdle can resolve at the idle flicker between the two drivers.
+    await agent.whenIdle()
+    // The first proposal failed inside a balanced turn; the resumed turn then
+    // served the returned batch with a real model call.
     expect(errors.map(error => error.message)).toEqual(['boom in pre-step'])
-    expect(adapter.requests.length).toBe(0)
-    expect(agent.session.snapshotEvents().some(event => event.type === 'turn/start')).toBe(true)
-    expect(agent.session.snapshotEvents().some(event => event.type === 'turn/end')).toBe(true)
+    expect(adapter.requests.length).toBe(1)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/end')
+      .map(event => event.type === 'turn/end' && event.data.reason.kind)).toEqual(['error', 'completed'])
 
     // The loop survived: a second prompt runs a normal completed turn.
     send(agent, 'second')
     await waitForIdle(ctx, agent)
-    expect(adapter.requests.length).toBe(1)
+    expect(adapter.requests.length).toBe(2)
     const lastTurnEnd = agent.session.snapshotEvents().findLast(e => e.type === 'turn/end')
     expect(lastTurnEnd?.type === 'turn/end' && lastTurnEnd.data.reason).toEqual({ kind: 'completed' })
   })

@@ -1107,7 +1107,14 @@ export class SubagentManager {
     if (activation.poke !== observation) return 'retry'
     const inbox = activation.handle.agent.inbox
     if (activation.ownedChildren.size > 0) return 'wait'
-    if (activation.failureAt === undefined && (inbox.nextTurn.length > 0 || inbox.nextStep.length > 0)) return 'wait'
+    if (activation.failureAt === undefined && (inbox.nextTurn.length > 0 || inbox.nextStep.length > 0)) {
+      // Pending input blocks settlement only while a live epoch might still
+      // serve it. When the epoch's last committed turn ended in error, the
+      // driver is idle: input that failure returned to the queue belongs to
+      // the failure report, not to a future turn of this epoch.
+      const boundary = this.ctx.agents.turnBoundaryOf(activation.handle.agent.session)
+      if (boundary.lastTurnEnd?.kind !== 'error') return 'wait'
+    }
     return 'ready'
   }
 

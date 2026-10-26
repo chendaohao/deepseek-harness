@@ -19,8 +19,9 @@ import type {
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { AgentModel, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, MessageId, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
+  EMPTY_RESPONSE_CODE,
   LlmError,
   createAssistantMessage,
   createDeveloperMessage,
@@ -50,7 +51,31 @@ type Phase =
     lastTurn: number
     wakeRequested: boolean
   }
-  | { kind: 'running'; abort: AbortController; turn: number; step: number; wakeRequested: boolean }
+  | {
+    kind: 'running'
+    abort: AbortController
+    turn: number
+    step: number
+    wakeRequested: boolean
+    /** Latched once this driver spends its one automatic error resume; each new driver starts clear. */
+    autoResumed: boolean
+  }
+
+/**
+ * Turn-failure codes one automatic resume could clear: the transient classes
+ * the llm retry policy retries per request, plus UNKNOWN for unclassified
+ * failures. Deterministic rejections (AUTH, INVALID_REQUEST, QUOTA,
+ * ACCOUNT_QUOTA, TOOL_ACTIVATION_FAILED) keep the previous fail-closed
+ * behavior.
+ */
+const RESUMABLE_TURN_CODES: ReadonlySet<string> = new Set([
+  EMPTY_RESPONSE_CODE,
+  'RATE_LIMIT',
+  'SERVER',
+  'TIMEOUT',
+  'TRANSPORT',
+  'UNKNOWN',
+])
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
 
@@ -232,8 +257,10 @@ export class ReactLoopAgent implements Agent {
    * the queue no longer holds the wake.
    * @param wakeAfterAbort - the {@link send} classification, captured before
    *   the inbox insertion so a reentrant cancel cannot reclassify it.
+   * @param autoResumed - carry-over of the previous driver's spent automatic
+   *   resume, so an error-latch replay cannot chain a fresh resume per driver.
    */
-  private wakeDriver(wakeAfterAbort = false): void {
+  private wakeDriver(wakeAfterAbort = false, autoResumed = false): void {
     if (this.phase.kind !== 'idle') {
       // Maintenance and aborted drivers cannot deliver the wake: latch it for
       // replay at convergence. Live drivers claim queued work themselves;
@@ -252,6 +279,7 @@ export class ReactLoopAgent implements Agent {
       turn: this.phase.lastTurn,
       step: 0,
       wakeRequested: false,
+      autoResumed,
     })
     this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject)
   }
@@ -279,18 +307,30 @@ export class ReactLoopAgent implements Agent {
     } finally {
       /* v8 ignore next -- kick owns a running phase until this driver boundary */
       if (this.phase.kind === 'running') {
-        const { turn, wakeRequested } = this.phase
+        const { turn, wakeRequested, autoResumed } = this.phase
         this.setPhase({ kind: 'idle', lastTurn: turn })
-        if (wakeRequested && this.inbox.hasPending) this.wakeDriver()
+        // A wake replaying an error latch carries the spent resume flag: a
+        // permanently failing queue gets one automatic resume per episode,
+        // not a fresh one per driver.
+        if (wakeRequested && this.inbox.hasPending) this.wakeDriver(false, autoResumed)
       }
     }
   }
 
-  private async preStep(target: InboxTarget, position: { turn: number; step: number }): Promise<PreparedStep> {
+  /**
+   * @param claimSink - receives the claimed batch before any later step of
+   *   preparation can throw, so the turn can return it on failure.
+   */
+  private async preStep(
+    target: InboxTarget,
+    position: { turn: number; step: number },
+    claimSink?: { messages: UserMessage[] },
+  ): Promise<PreparedStep> {
     /* v8 ignore next -- private callers establish the running phase before proposing a step */
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": pre-step outside running phase`)
     const signal = this.phase.abort.signal
     const claimed = this.inbox.claim(target, position.turn)
+    if (claimSink !== undefined) claimSink.messages = claimed
     const selection = this.model.current()
     if (selection === undefined) {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`)
@@ -329,7 +369,14 @@ export class ReactLoopAgent implements Agent {
     return !headerEquals(baseline, canonicalHeader({ ...baseline, tools: [...tools] }))
   }
 
-  /** Open one turn before claiming its first proposed step. */
+  /**
+   * Open one turn before claiming its first proposed step.
+   *
+   * Error endings own their input: a claimed batch that never reached the
+   * surface is prepended back to next-turn in its original order, and a
+   * resumable failure with pending input latches one automatic resume on the
+   * running phase, which kick() replays at the driver boundary.
+   */
   private async turn(): Promise<boolean> {
     if (this.phase.kind !== 'running') {
       this.throwError(new Error(`agent "${this.id}": turn without driver reservation`))
@@ -346,15 +393,26 @@ export class ReactLoopAgent implements Agent {
     phase.turn = turn
     let turnEnds: TurnEndReason | null = null
     let target: InboxTarget = 'next-turn'
+    // claim() is a deliberate one-way transfer; only this turn's failure path
+    // returns a claimed batch, and only the part that never reached the
+    // surface (the admit watcher sees this session's committed user/message
+    // events, which step() appends before opening the model stream). preStep
+    // publishes each claim into this holder before its later stages can throw.
+    const claimed: { messages: UserMessage[] } = { messages: [] }
+    const admitted = new Set<MessageId>()
+    const stopAdmitWatch = this.ctx.on('session/event', (session, event) => {
+      if (session === this.session && event.type === 'user/message') admitted.add(event.data.id)
+    })
     try {
       while (true) {
         signal.throwIfAborted()
         const step = phase.step + 1
-        const decision = await this.preStep(target, { turn, step })
+        const decision = await this.preStep(target, { turn, step }, claimed)
         if (decision.kind === 'reject') {
           turnEnds = { kind: 'blocked' }
           return false
         }
+        claimed.messages = decision.messages.filter(message => message.source.kind !== 'runtime-context')
         try {
           if (turnEnds && decision.messages.length === 0) break
           // A removed waking message or an enter decision rewritten to empty
@@ -421,8 +479,28 @@ export class ReactLoopAgent implements Agent {
           ? error.failure
           : { message: errorChain(error), code: error instanceof ToolActivationError ? error.code : 'UNKNOWN' },
       }
+      // Return claimed input this turn never admitted. prepend writes a plain
+      // insertion (no removedCount), so foldConsumedWork still reads the
+      // original claim as this turn's work and the client's requeued-claim
+      // projection already handles the same message id twice. Reversed replay
+      // preserves queue order through prepend's index-0 insertion. A duplicate
+      // id already pending means a listener raced this requeue; prepend throws
+      // and that loud failure is intentional. Unadmitted input is returned
+      // even for non-resumable failures, so a manual resend cannot
+      // double-deliver.
+      const stranded = claimed.messages.filter(message => !admitted.has(message.id))
+      for (const message of [...stranded].reverse()) this.inbox.prepend('next-turn', message)
+      // One automatic resume per driver, only for a failure a resume could
+      // clear, and only when input waits: a driver whose turn ends in error
+      // never reaches its next-step boundary, so without this latch input
+      // that arrived during the failed turn would stall until the next send.
+      if (!phase.autoResumed && RESUMABLE_TURN_CODES.has(turnEnds.error.code) && this.inbox.hasPending) {
+        phase.wakeRequested = true
+        phase.autoResumed = true
+      }
       this.throwError(error)
     } finally {
+      stopAdmitWatch()
       try {
         // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending
         this.session.append('turn/end', { turn, reason: turnEnds! })

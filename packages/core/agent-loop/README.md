@@ -129,6 +129,8 @@ Final adapter selection, dispatch, and iteration failures arrive as terminal fin
 
 Before closing a failed step, the driver records an error result for each unanswered assistant tool call. A recorded `tool/call` without a committed result receives `TOOL_OUTCOME_UNKNOWN`; a request without a call record receives `TOOL_NOT_STARTED`. Committed results remain intact, started dispatches settle before recovery, and the turn retains the original failure. These results let later requests use paired tool history without automatically retrying uncertain operations.
 
+An error ending owns its queued input. The failing turn prepends the part of its claimed batch that never reached a `user/message` event back to next-turn in original order, so a failed turn never silently consumes input. When the failure code is one a retry could clear (the transient codes of the llm retry policy, plus `UNKNOWN`) and input is pending, the turn also latches one automatic resume, replayed at the driver boundary; the latch carries across the replay, so a permanently failing queue earns exactly one automatic retry per episode. Cancellations keep the previous semantics and return nothing.
+
 </details>
 
 -----
