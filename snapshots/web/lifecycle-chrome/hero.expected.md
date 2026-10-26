@@ -1,7 +1,7 @@
-- button "New session"
 - button "Collapse sidebar"
 - button "New session": New Session
 - navigation "Global panels":
+  - button "Global panels" [expanded]
   - button "Plugins"
   - button "Automation tasks"
   - button "More"

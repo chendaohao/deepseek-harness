@@ -169,6 +169,11 @@ async function mountPanels(runtime: SlotTestRuntime, locale: LocaleRuntime, beta
   return { alpha, beta }
 }
 
+/** Launcher rows inside the navigation landmark, without the group caption that folds them. */
+function launcherRows(navigation: HTMLElement): HTMLElement[] {
+  return within(navigation).getAllByRole('button').filter(row => row.getAttribute('aria-controls') === null)
+}
+
 describe('sidebar global panels', () => {
   it('adds late registrations, removes each plugin contribution, and leaves no empty panel-list DOM', async () => {
     const { runtime, locale, view } = await bench()
@@ -179,7 +184,7 @@ describe('sidebar global panels', () => {
 
     const { alpha, beta } = await mountPanels(runtime, locale)
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    expect(within(navigation).getAllByRole('button')).toHaveLength(2)
+    expect(within(navigation).getAllByRole('button')).toHaveLength(3)
     fireEvent.click(within(navigation).getByRole('button', { name: 'Alpha panel' }))
     expect(view.getByRole('heading', { name: 'Alpha content' })).toBeTruthy()
 
@@ -204,7 +209,7 @@ describe('sidebar global panels', () => {
     const { runtime, locale, view } = await bench(collapsed)
     await mountPanels(runtime, locale)
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    const rows = within(navigation).getAllByRole('button')
+    const rows = launcherRows(navigation)
     expect(rows.map(row => row.getAttribute('aria-label'))).toEqual(['Beta panel', 'Alpha panel'])
     for (const [id, label] of [[BETA, 'Beta panel'], [ALPHA, 'Alpha panel']] as const) {
       const row = within(navigation).getByRole('button', { name: label })
@@ -229,7 +234,7 @@ describe('sidebar global panels', () => {
     const { runtime, locale, view } = await bench()
     await mountPanels(runtime, locale, 20)
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    expect(within(navigation).getAllByRole('button').map(row => row.textContent)).toEqual(['Alpha panel', 'Beta panel'])
+    expect(launcherRows(navigation).map(row => row.textContent)).toEqual(['Alpha panel', 'Beta panel'])
   })
 
   it('selects registered main content and keeps a repeated selection active', async () => {
@@ -281,7 +286,7 @@ describe('sidebar global panels', () => {
     await mountPanel(runtime, { id: ALPHA, heading: 'Alpha content', label: 'Alpha panel', order: 20 })
     await mountPanel(runtime, { id: BETA, heading: 'Beta content' })
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    expect(within(navigation).getAllByRole('button').map(row => row.textContent)).toEqual([BETA, 'Alpha panel'])
+    expect(launcherRows(navigation).map(row => row.textContent)).toEqual([BETA, 'Alpha panel'])
     fireEvent.click(within(navigation).getByRole('button', { name: BETA }))
     expect(view.getByRole('heading', { name: 'Beta content' })).toBeTruthy()
   })
@@ -334,6 +339,56 @@ describe('sidebar global panels', () => {
   })
 })
 
+describe('sidebar launcher group fold', () => {
+  const FOLD_KEY = 'dsh.sidebar.panels-expanded'
+
+  it('folds every launcher behind the group caption and persists the choice', async () => {
+    const { runtime, locale, view } = await bench()
+    await mountPanels(runtime, locale)
+    const navigation = await view.findByRole('navigation', { name: 'Global panels' })
+    const caption = within(navigation).getByRole('button', { name: 'Global panels' })
+    expect(caption.getAttribute('aria-expanded')).toBe('true')
+    expect(caption.getAttribute('aria-controls')).toBe(launcherRows(navigation)[0]?.parentElement?.id)
+    expect(launcherRows(navigation)).toHaveLength(2)
+
+    fireEvent.click(caption)
+    expect(caption.getAttribute('aria-expanded')).toBe('false')
+    // Folded rows leave the accessibility tree but stay mounted, so the caption's
+    // aria-controls still names a real element.
+    expect(launcherRows(navigation)).toHaveLength(0)
+    expect(document.getElementById(caption.getAttribute('aria-controls') ?? '')).not.toBeNull()
+    expect(localStorage.getItem(FOLD_KEY)).toBe('false')
+
+    fireEvent.click(caption)
+    expect(caption.getAttribute('aria-expanded')).toBe('true')
+    expect(launcherRows(navigation)).toHaveLength(2)
+    expect(localStorage.getItem(FOLD_KEY)).toBe('true')
+    await runtime.dispose()
+  })
+
+  it('reopens folded from a previous load', async () => {
+    localStorage.setItem(FOLD_KEY, 'false')
+    const { runtime, locale, view } = await bench()
+    await mountPanels(runtime, locale)
+    const navigation = await view.findByRole('navigation', { name: 'Global panels' })
+    expect(within(navigation).getByRole('button', { name: 'Global panels' }).getAttribute('aria-expanded')).toBe('false')
+    expect(launcherRows(navigation)).toHaveLength(0)
+    // The landmark itself stays, so a folded group still announces its section.
+    expect(navigation.getAttribute('aria-label')).toBe('Global panels')
+    await runtime.dispose()
+  })
+
+  it('keeps the rail icons unfolded and offers no caption there', async () => {
+    localStorage.setItem(FOLD_KEY, 'false')
+    const { runtime, locale, view } = await bench(true)
+    await mountPanels(runtime, locale)
+    const navigation = await view.findByRole('navigation', { name: 'Global panels' })
+    expect(within(navigation).queryByRole('button', { name: 'Global panels' })).toBeNull()
+    expect(launcherRows(navigation)).toHaveLength(2)
+    await runtime.dispose()
+  })
+})
+
 describe('sidebar launcher pins', () => {
   const PINS_KEY = 'dsh.slot.manual-order.sidebar.panellist.v1'
 
@@ -342,10 +397,10 @@ describe('sidebar launcher pins', () => {
     const { runtime, locale, view } = await bench()
     await mountPanels(runtime, locale)
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    expect(within(navigation).getAllByRole('button').map(row => row.textContent)).toEqual(['Beta panel', 'Alpha panel'])
+    expect(launcherRows(navigation).map(row => row.textContent)).toEqual(['Beta panel', 'Alpha panel'])
     await mountPanel(runtime, { id: PLUGINS, heading: 'Plugins content', label: 'Plugins', order: 0 })
     await waitFor(() => {
-      expect(within(navigation).getAllByRole('button').map(row => row.textContent)).toEqual(['Plugins', 'Beta panel', 'Alpha panel'])
+      expect(launcherRows(navigation).map(row => row.textContent)).toEqual(['Plugins', 'Beta panel', 'Alpha panel'])
     })
     expect(runtime.slots.entries('main').map(entry => entry.options.key)).toEqual(['conversation', ALPHA, BETA, PLUGINS])
   })
@@ -355,7 +410,7 @@ describe('sidebar launcher pins', () => {
     const { runtime, locale, view } = await bench()
     await mountPanels(runtime, locale)
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    expect(within(navigation).getAllByRole('button').map(row => row.textContent)).toEqual(['Beta panel', 'Alpha panel'])
+    expect(launcherRows(navigation).map(row => row.textContent)).toEqual(['Beta panel', 'Alpha panel'])
   })
 
   it('shows More after the rows only while the actions list has registrations', async () => {
@@ -364,7 +419,7 @@ describe('sidebar launcher pins', () => {
     expect(view.queryByRole('navigation')).toBeNull()
     await mountPanels(runtime, locale)
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    expect(within(navigation).getAllByRole('button').map(row => row.getAttribute('aria-label'))).toEqual(['Beta panel', 'Alpha panel', 'More'])
+    expect(launcherRows(navigation).map(row => row.getAttribute('aria-label'))).toEqual(['Beta panel', 'Alpha panel', 'More'])
     await probe.dispose()
     await waitFor(() => { expect(within(navigation).queryByRole('button', { name: 'More' })).toBeNull() })
   })

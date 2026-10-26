@@ -518,6 +518,56 @@
   margin-bottom: 8px;
 }
 
+/* The rows keep their own 2px rhythm and sit under the caption as one block. */
+.panelRows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A folded group keeps its rows mounted behind the caption's aria-controls and
+   takes them out of layout and the accessibility tree. */
+.panelRows[hidden] {
+  display: none;
+}
+
+/* The group caption folds every launcher: the whole 24px row toggles, matching
+   the pinned section's caption in ui-workspace. It exists only in the expanded
+   column — the rail's icons are the navigation itself. */
+.panelGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 2px;
+  padding: 0 8px 0 4px;
+  min-height: 24px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .panelGroupLabel:hover {
+    color: var(--dsw-alias-label-secondary);
+  }
+}
+
+.panelGroupLabel:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+.panelGroupArrow {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Panel entries share the New Session bar's 12px radius and 2px inset, the
    session rows' hover/selected surface, and the primary ink. */
 .panelRow {
@@ -584,8 +634,11 @@
 }
 
 .collapsed .panelList {
-  gap: 12px;
   margin-bottom: 12px;
+}
+
+.collapsed .panelRows {
+  gap: 12px;
 }
 
 .collapsed .panelRow {

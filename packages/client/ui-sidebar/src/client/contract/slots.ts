@@ -165,6 +165,8 @@ export type SidebarRootInjected = {
    * @param pinned - Whether the launcher shows in the sidebar.
    */
   setPinned: (id: string, pinned: boolean) => void
+  /** Fold or unfold the launcher group; the rail ignores it. */
+  setPanelsExpanded: (expanded: boolean) => void
   /** Record activation of an official navigation control without changing navigation. */
   trackEntryClick: (attributes: ProductEventMap['sidebar_menu_click']) => void
   /** Private reactive sources bound to framework selector hooks. */
@@ -175,6 +177,8 @@ export type SidebarRootInjected = {
     entryPins: ObservableSnapshot<readonly string[]>
     /** Whether `sidebar.panellist.actions` has registrations. */
     entryActions: ObservableSnapshot<boolean>
+    /** Persisted launcher-group expansion, read as expanded for a fresh browser. */
+    panelsExpanded: ObservableSnapshot<boolean>
   }
 }
 

@@ -1,7 +1,7 @@
-- button "新建会话"
 - button "收起侧边栏"
 - button "新建会话": 新会话
 - navigation "全局面板":
+  - button "全局面板" [expanded]
   - button "插件"
   - button "自动化任务"
   - button "更多"

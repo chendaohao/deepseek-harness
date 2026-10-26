@@ -37,6 +37,8 @@ dsh Web 客户端的侧边栏让用户识别当前构建、启动新会话、将
 
 插件在 root 作用域的 `sidebar.panellist` list 中注册图标组件，提供 `id`、可选 `order`，以及字符串或 locale-aware 的 `label`。同一个 id 寻址布局中 root 作用域 `main` keyed slot 的组件；选择不存在的主面板条目会抛错，并保留当前选中态。标签提供普通可见文字、无障碍名称和折叠提示。展开态导航行的间距为 2px。每一行通过 `usePanelInfo` 读取自己的选中态；DOM 焦点移到搜索框或目录选择器时，显示的面板及其列表项选中态不变。没有面板注册项时，列表及其间距均不渲染。产品随附的组合不注册示例面板。
 
+展开态列在这些行之前渲染一行 24px 的标题，文字即导航区域的名称，点击折叠其下全部入口；该选择在浏览器中持久化，一次访问折叠后，下次访问仍保持折叠。折叠时导航区域与其标题保留，标题仍可点击展开。窄栏不渲染标题，也不折叠：它的图标本身就是导航。
+
 root 作用域的 `sidebar.panellist.actions` list 有注册项时，导航区域的面板行之后显示面板行样式的**更多**按钮；收起的窄栏以提示框显示其名称。它打开的菜单以该 list 的注册项为菜单行。每个注册项接收 `entries`（按注册顺序的可自定义面板，含 `id`、`label`、`pinned` 与 `active`；不含插件管理）、选中面板的 `onOpen(id)`、`onPinnedChange(id, pinned)`，以及关闭菜单的 `onDismiss()`。侧边栏在内存中保存所有会话共用的已收起面板 id 列表；插件管理入口始终显示。默认更多菜单只提供插件浏览和创建，不列出面板或 Pin 控件。其他注册项仍可调用 Pin 回调，但插件重新加载时选择重置，不读取旧 localStorage 值。收起只隐藏导航行，主面板、其注册和当前选中态不变。未注册面板的 id 保留在内存列表中，直到插件重新加载。
 
 ### 折叠行为
@@ -74,7 +76,7 @@ root 作用域的 `sidebar.panellist.actions` list 有注册项时，导航区�
 <details>
 <summary>实现细节——点击展开</summary>
 
-外壳是纯组合：`SidebarRootComponentProps` 组合布局 owner share、全局 `useSessions` 与 `useWorkspaces` 钩子、已声明的品牌、`sidebar.workspaces` 与 `sidebar.settings` 子 slot，以及注入的导航回调。侧边栏声明 `sidebar.panellist`，并直接渲染各面板注册的图标。面板元数据由列表注册和 locale 变化派生；选中态属于布局存储。注入的 `trackEntryClick(attributes)` 转发到 `ctx.get('productAnalytics')?.track('sidebar_menu_click', attributes)`；`selectPanel` 只负责选中，因此由各控件自行提供入口与位置。
+外壳是纯组合：`SidebarRootComponentProps` 组合布局 owner share、全局 `useSessions` 与 `useWorkspaces` 钩子、已声明的品牌、`sidebar.workspaces` 与 `sidebar.settings` 子 slot，以及注入的导航回调。侧边栏声明 `sidebar.panellist`，并直接渲染各面板注册的图标。面板元数据由列表注册和 locale 变化派生；选中态属于布局存储；入口分组的折叠是 `apply` 内创建的浏览器持久化存储。注入的 `trackEntryClick(attributes)` 转发到 `ctx.get('productAnalytics')?.track('sidebar_menu_click', attributes)`；`selectPanel` 只负责选中，因此由各控件自行提供入口与位置。
 
 ### slot 纪律
 

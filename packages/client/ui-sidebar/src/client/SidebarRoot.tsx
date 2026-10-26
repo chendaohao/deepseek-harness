@@ -19,7 +19,8 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo, IconAppsAddOutlineRegular, IconNewChatOutlineMedium, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular,
+  FishLogo, IconAppsAddOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular,
+  IconNewChatOutlineMedium, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular,
   isDarwinDesktop, Menu, ShortcutKeys, Toast, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -31,6 +32,9 @@ import css from './SidebarRoot.module.css'
 
 /** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
 const COLLAPSE_SETTLE_MS = 150
+
+/** DOM id of the launcher rows, so the group caption can name what it toggles. */
+const PANEL_ROWS_ID = 'dsh-sidebar-panel-rows'
 
 /**
  * How long the column's scrollbars stay drawn after the pointer leaves it.
@@ -99,6 +103,33 @@ type PanelMoreMenuProps =
   & Pick<InjectFace<SidebarRootInjected>, 'trackEntryClick'>
   & { readonly label: string }
 
+type PanelGroupLabelProps = Pick<InjectFace<SidebarRootInjected>, 'usePanelsExpanded' | 'setPanelsExpanded'>
+  & { readonly label: string; readonly controls: string }
+
+/**
+ * The launcher group's caption: a 24px row whose whole width toggles the rows
+ * below it. The rail has no caption — its icons are the navigation itself.
+ * @param props - the caption's copy, the id of the rows it controls, and the fold Hook and action.
+ * @returns the caption row.
+ */
+function PanelGroupLabel({ label, controls, usePanelsExpanded, setPanelsExpanded }: PanelGroupLabelProps) {
+  const expanded = usePanelsExpanded(value => value)
+  return (
+    <button
+      type="button"
+      className={css.panelGroupLabel}
+      aria-expanded={expanded}
+      aria-controls={controls}
+      onClick={() => { setPanelsExpanded(!expanded) }}
+    >
+      <span className={css.panelGroupArrow} aria-hidden="true">
+        {expanded ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronRightOutlineRegular size={12} />}
+      </span>
+      <span className={css.panelTitle}>{label}</span>
+    </button>
+  )
+}
+
 /** The panel list's More launcher: a panel-row button whose menu rows come from `sidebar.panellist.actions`. */
 function PanelMoreMenu({ wide, label, entries, onOpen, onPinnedChange, trackEntryClick, renderSlot }: PanelMoreMenuProps) {
   const [open, setOpen] = useState(false)
@@ -134,9 +165,11 @@ export function SidebarRoot({
   toggleSidebar,
   selectPanel,
   setPinned,
+  setPanelsExpanded,
   trackEntryClick,
   useRemoteAccess,
   usePanels,
+  usePanelsExpanded,
   useEntryPins,
   useEntryActions,
   useShortcuts,
@@ -145,6 +178,7 @@ export function SidebarRoot({
   renderSlot,
 }: SidebarRootComponentProps) {
   const panels = usePanels(snapshot => snapshot)
+  const panelsExpanded = usePanelsExpanded(expanded => expanded)
   const unpinned = useEntryPins(ids => ids)
   const activePanelId = usePanelInfo(info => info.activePanelId)
   const hasEntryActions = useEntryActions(registered => registered)
@@ -339,35 +373,46 @@ export function SidebarRoot({
 
       {panels.length > 0 && (
         <nav className={css.panelList} aria-label={t('panels.label')}>
-          {panels.filter(({ id }) => id === FIXED_PANEL_ID || !unpinned.includes(id)).map(({ id, label }) => (
-            <PanelRow
-              key={id}
-              id={id}
-              label={label}
-              wide={wide}
-              usePanelInfo={usePanelInfo}
-              selectPanel={selectPanel}
-              trackEntryClick={trackEntryClick}
-              renderSlot={renderSlot}
-            />
-          ))}
-          {hasEntryActions && (
-            <PanelMoreMenu
-              wide={wide}
-              label={t('panels.more')}
-              entries={panels.filter(({ id }) => id !== FIXED_PANEL_ID)
-                .map(({ id, label }) => ({ id, label, pinned: !unpinned.includes(id), active: id === activePanelId }))}
-              onOpen={(id) => {
-                const entry = officialEntry(id)
-                if (entry !== undefined) trackEntryClick({ menu_name: entry, position: 'sidebar_more' })
-                const panel = panels.find(candidate => candidate.id === id)
-                if (panel !== undefined) selectPanel(panel.id)
-              }}
-              onPinnedChange={setPinned}
-              trackEntryClick={trackEntryClick}
-              renderSlot={renderSlot}
+          {wide && (
+            <PanelGroupLabel
+              label={t('panels.label')}
+              controls={PANEL_ROWS_ID}
+              usePanelsExpanded={usePanelsExpanded}
+              setPanelsExpanded={setPanelsExpanded}
             />
           )}
+          {/* Kept mounted while folded so the caption's aria-controls always names a real element. */}
+          <div id={PANEL_ROWS_ID} className={css.panelRows} hidden={wide && !panelsExpanded}>
+            {panels.filter(({ id }) => id === FIXED_PANEL_ID || !unpinned.includes(id)).map(({ id, label }) => (
+              <PanelRow
+                key={id}
+                id={id}
+                label={label}
+                wide={wide}
+                usePanelInfo={usePanelInfo}
+                selectPanel={selectPanel}
+                trackEntryClick={trackEntryClick}
+                renderSlot={renderSlot}
+              />
+            ))}
+            {hasEntryActions && (
+              <PanelMoreMenu
+                wide={wide}
+                label={t('panels.more')}
+                entries={panels.filter(({ id }) => id !== FIXED_PANEL_ID)
+                  .map(({ id, label }) => ({ id, label, pinned: !unpinned.includes(id), active: id === activePanelId }))}
+                onOpen={(id) => {
+                  const entry = officialEntry(id)
+                  if (entry !== undefined) trackEntryClick({ menu_name: entry, position: 'sidebar_more' })
+                  const panel = panels.find(candidate => candidate.id === id)
+                  if (panel !== undefined) selectPanel(panel.id)
+                }}
+                onPinnedChange={setPinned}
+                trackEntryClick={trackEntryClick}
+                renderSlot={renderSlot}
+              />
+            )}
+          </div>
         </nav>
       )}
 
