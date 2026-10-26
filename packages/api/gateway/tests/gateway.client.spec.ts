@@ -3505,9 +3505,42 @@ describe('Remote stream client carrier lifecycle', () => {
     })
   })
 
+  it('re-arms instead of recycling the socket of a page the browser reports offline', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      vi.useFakeTimers()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const offline = { value: true }
+        const client = new RemoteStreamMuxClient(undefined, false, {
+          timeoutMs: 1_000,
+          isOffline: () => offline.value,
+        })
+        client.start()
+        await vi.advanceTimersByTimeAsync(0)
+        const socket = FakeWebSocket.sockets[0]!
+        // An offline browser explains the silence without a dead leg, and
+        // Connection has already suspended its retries: recycling here spends a
+        // dial that cannot open.
+        await vi.advanceTimersByTimeAsync(5_000)
+        expect(socket.closedWith).toEqual([])
+        expect(FakeWebSocket.sockets).toHaveLength(1)
+        // The return to `online` is what owns the recycle, so a live deadline
+        // resumes watching the leg.
+        offline.value = false
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(socket.closedWith).toContainEqual({ code: 4001, reason: 'socket recycled' })
+        await client.close()
+      } finally {
+        warn.mockRestore()
+        vi.useRealTimers()
+      }
+    })
+  })
+
   it('arms the liveness deadline only when the serving Host injected one', async () => {
     const previous = Object.getOwnPropertyDescriptor(globalThis, '__DSH_MUX_LIVENESS__')
     const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+    const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
     try {
       vi.stubGlobal('__DSH_MUX_LIVENESS__', { timeoutMs: 7_000 })
       expect(resolveMuxLiveness().timeoutMs).toBe(7_000)
@@ -3530,11 +3563,20 @@ describe('Remote stream client carrier lifecycle', () => {
       expect(resolved.isHidden?.()).toBe(true)
       page.visibilityState = 'visible'
       expect(resolved.isHidden?.()).toBe(false)
+      // The offline seam reads the live verdict for the same reason: the
+      // browser reports network access as it changes.
+      const browser = { onLine: false }
+      vi.stubGlobal('navigator', browser)
+      expect(resolveMuxLiveness().isOffline?.()).toBe(true)
+      browser.onLine = true
+      expect(resolveMuxLiveness().isOffline?.()).toBe(false)
     } finally {
       if (previous === undefined) Reflect.deleteProperty(globalThis, '__DSH_MUX_LIVENESS__')
       else Object.defineProperty(globalThis, '__DSH_MUX_LIVENESS__', previous)
       if (previousDocument === undefined) Reflect.deleteProperty(globalThis, 'document')
       else Object.defineProperty(globalThis, 'document', previousDocument)
+      if (previousNavigator === undefined) Reflect.deleteProperty(globalThis, 'navigator')
+      else Object.defineProperty(globalThis, 'navigator', previousNavigator)
     }
   })
 

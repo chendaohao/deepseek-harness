@@ -55,6 +55,8 @@ export interface MuxLivenessOptions {
   readonly timeoutMs: number
   /** Whether the page is currently hidden; a thawed frozen page must not count its own freeze as silence. */
   readonly isHidden?: () => boolean
+  /** Whether the browser reports no network access; silence then has an explanation other than a dead leg. */
+  readonly isOffline?: () => boolean
 }
 
 /** Host-injected liveness timing, present when the serving Host sends liveness frames. */
@@ -81,9 +83,11 @@ export function resolveMuxLiveness(): MuxLivenessOptions {
     ? injected
     : 0
   const documentRef = (globalThis as { readonly document?: { readonly visibilityState?: string } }).document
+  const navigatorRef = (globalThis as { readonly navigator?: { readonly onLine?: boolean } }).navigator
   return {
     timeoutMs,
     ...documentRef === undefined ? {} : { isHidden: () => documentRef.visibilityState === 'hidden' },
+    ...navigatorRef === undefined ? {} : { isOffline: () => navigatorRef.onLine === false },
   }
 }
 
@@ -331,6 +335,13 @@ export class RemoteStreamMuxClient {
       // rather than evidence of a dead leg: re-arm instead of recycling while
       // hidden. The foreground return owns that recycle.
       if (this.liveness.isHidden?.() === true) {
+        this.armLiveness(socket)
+        return
+      }
+      // The browser reporting no network access explains the silence without a
+      // dead leg, and Connection has already suspended its retries: recycling
+      // here only spends a dial that cannot open. The return to `online` owns it.
+      if (this.liveness.isOffline?.() === true) {
         this.armLiveness(socket)
         return
       }

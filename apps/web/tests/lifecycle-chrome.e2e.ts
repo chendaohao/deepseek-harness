@@ -490,6 +490,12 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   }, 60_000)
 
   it.skipIf(MODE === 'record')('shows automatic and user-requested connection recovery beside Settings', async () => {
+    // The offline legs drive `navigator.onLine`, which a loopback page never
+    // watches: its Host answers over the machine's own loopback interface, so an
+    // offline verdict describes a path that page does not use. Browse through a
+    // trusted name that resolves to loopback instead, so the browser network
+    // watch that publishes `disconnected` is the one under test.
+    const recoveryScaffold = await launchWebScaffold({ remoteAuthority: 'remote.localhost' })
     const recoveryPage = await newEnglishPage(browser)
     const recoveryTripwire = watchConsole(recoveryPage)
     const sockets: WebSocketRoute[] = []
@@ -503,7 +509,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     onTestFailed(() => saveFailureShot(recoveryPage, 'web-e2e-connection-recovery'))
     try {
       await recoveryPage.clock.install()
-      await recoveryPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+      await recoveryPage.goto(recoveryScaffold.authenticatedUrl, { waitUntil: 'load' })
       await recoveryPage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       await expect.poll(() => sockets.length).toBe(1)
       rejectConnections = true
@@ -545,7 +551,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       const indicator = connecting
       expect(await connectionIndicatorGeometry(indicator)).toEqual(connectingGeometry)
       expect(await connectionIndicatorTextAlignment(indicator)).toBe('left')
-      const snapshot = await captureStableAria(recoveryPage, '[class*="footArea"]', scaffold.workspaceCwd)
+      const snapshot = await captureStableAria(recoveryPage, '[class*="footArea"]', recoveryScaffold.workspaceCwd)
       await compareOrRefreshGolden(CONNECTION_ERROR_EXPECTED, snapshot, MODE)
       const expectedColors = await recoveryPage.evaluate(() => {
         const probe = document.createElement('span')
@@ -606,6 +612,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
         .toHaveLength(11)
     } finally {
       await recoveryPage.close()
+      await recoveryScaffold.close()
     }
   }, 60_000)
 
