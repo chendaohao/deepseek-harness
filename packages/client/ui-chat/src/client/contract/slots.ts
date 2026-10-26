@@ -31,6 +31,7 @@ import type {
 } from './snapshot.ts'
 import type { TurnProcessSpec } from './turn-process.ts'
 import type { PerformanceUsageMode } from '../../chat-settings.ts'
+import type { BranchChipState } from '../chat/branch-chip.ts'
 
 /** Selector hook over the current Conversation binding's Chat target. */
 export type UseChat = SnapshotSelectorHook<ChatSnapshot>
@@ -302,11 +303,19 @@ export interface ChatViewInjected {
   readonly fileDrag: import('@deepseek-ai/dsh-client-ui-primitives').FileDragActions
   /** Dispatch one gesture to the Conversation plugin registry. */
   dispatchInteraction: (gesture: TextInteractionGesture) => string | null
+  /**
+   * Read the Git branch checked out at one Session's working directory.
+   * @param sessionId - the viewed Session.
+   * @returns after the answer is published on the `branch` hook.
+   */
+  loadBranch: (sessionId: SessionId) => Promise<void>
   hooks: {
     /** Live plugin IDs; removed plugins dismiss their active surface. */
     interactionIds: ObservableSnapshot<readonly string[]>
     /** Live presentation policy derived from the accepted work-details mode. */
     presentation: ObservableSnapshot<ChatPresentationPolicy>
+    /** Branch answers by viewed Session id; the run chip reads its own entry. */
+    branch: ObservableSnapshot<Record<string, BranchChipState | undefined>>
   }
   keyedHooks: {
     /** Resolve the stable source for one Chat Node key. */

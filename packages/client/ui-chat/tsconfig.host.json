@@ -7,6 +7,8 @@
   },
   "files": [
     "src/chat-settings.ts",
+    "src/branch.ts",
+    "src/branch-host.ts",
     "src/index.ts"
   ],
   "references": [
@@ -18,6 +20,15 @@
     },
     {
       "path": "../../settings/settings"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../subprocess/subprocess"
+    },
+    {
+      "path": "../../client/connection/tsconfig.host.json"
     }
   ]
 }

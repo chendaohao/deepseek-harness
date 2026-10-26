@@ -1,0 +1,32 @@
+/* Floating branch readout beside the transcript controls: same elevation
+   family as the Back-to-bottom button, sized as a secondary reading. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  max-width: 220px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 100px;
+  corner-shape: round;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-button-floating-fill);
+  box-shadow: var(--dsw-elevation-panel);
+  font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px);
+  line-height: 1;
+  user-select: none;
+}
+
+.chip svg {
+  flex: none;
+  opacity: 0.75;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

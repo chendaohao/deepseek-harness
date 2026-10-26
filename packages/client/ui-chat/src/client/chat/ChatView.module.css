@@ -406,13 +406,22 @@
   bottom: calc(var(--dsh-composer-height, 152px) + 16px);
 }
 
+/* The zero-height anchor lifts its content above the transcript edge; the row
+   carries that lift so the branch chip and the jump control share one line. */
+.floatingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -34px;
+  pointer-events: none;
+}
+
 .toBottom {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 34px;
   height: 34px;
-  margin-top: -34px;
   padding: 0;
   border: 0;
   --dsw-elevation-stroke-color: var(--dsw-alias-border-l3);

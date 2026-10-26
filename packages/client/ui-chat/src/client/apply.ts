@@ -30,6 +30,7 @@ import type {
 import type { ChatSnapshot } from './contract/snapshot.ts'
 import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
+import { BranchChipStore } from './chat/branch-chip.ts'
 import { ChatView } from './chat/ChatView.tsx'
 import { ChatFlow } from './chat/ChatFlow.tsx'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
@@ -84,6 +85,9 @@ export const inject = [
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context): void {
+  const branches = new BranchChipStore()
+  ctx.effect(() => () => branches.dispose(), 'ui-chat: branch reads')
+  ctx.on('connection/reset', () => { branches.reset() })
   const quotaNotice = createSnapshotStore<QuotaNoticeState | null>(null)
   let quotaNoticeSeq = 0
   // Each hold is its own token, so a release can only drop the hold it was
@@ -251,7 +255,8 @@ export function apply(ctx: Context): void {
         return {
           ...nodeSources(binding),
           fileDrag: ctx.fileDrag.actions,
-          hooks: { presentation, interactionIds: ctx.uiConversation.interactions },
+          hooks: { presentation, interactionIds: ctx.uiConversation.interactions, branch: branches.state },
+          loadBranch: id => branches.load(id),
           dispatchInteraction: gesture => ctx.uiConversation.interactions.dispatch(sessionId, gesture),
           fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner, sessionId),
           // Files open in the right Sidebar, not in a desktop application: the

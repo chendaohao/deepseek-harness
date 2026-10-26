@@ -13,6 +13,7 @@ import {
 import { isAtOrOutside } from '../contract/group-tree.ts'
 import type { ChatFlowHookContext, ChatViewSlotProps, OpenFileOptions } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
+import { BranchChip } from './BranchChip.tsx'
 import { TurnNavigator } from './TurnNavigator.tsx'
 import { mergeTurnRailItems } from './turn-rail-items.ts'
 import { useTextInteraction } from './text-interaction.ts'
@@ -61,7 +62,7 @@ const MOTION_TAIL_MS = 800
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
   sessionId, openFile, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
-  usePresentation, useProjection, useInteractionIds, dispatchInteraction, t, fileDrag,
+  usePresentation, useProjection, useInteractionIds, useBranch, dispatchInteraction, loadBranch, t, fileDrag,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
@@ -94,6 +95,17 @@ export function ChatView({
     },
   }), [cwd, t, fileDrag, sessionId])
   const running = useSession(s => s.running)
+  // The branch belongs to the working directory, so a chipped run is read
+  // when a Turn starts: the chip answers "what is this run checking out".
+  const branchState = useBranch(s => s[String(sessionId)])
+  useEffect(() => {
+    if (!running) return
+    void loadBranch(sessionId)
+  }, [running, sessionId, loadBranch])
+  // Only a live run shows the branch: it answers where THIS run works, so it
+  // leaves with the Turn instead of lingering as a workspace fact.
+  const loadedBranch = typeof branchState === 'object' && branchState !== null ? branchState.branch : null
+  const runBranch = running && loadedBranch !== null ? loadedBranch : undefined
   // Fold transitions run while a Turn is live, while an input is pending, and briefly after settling.
   const [motionTail, setMotionTail] = useState(false)
   useEffect(() => {
@@ -250,16 +262,23 @@ export function ChatView({
           <div className={css.turnSpacer} data-chat-turn-spacer aria-hidden="true" />
         </div>
       </div>
-      {!scroll.followingTail && (
+      {(!scroll.followingTail || runBranch !== undefined) && (
         <div className={css.toBottomSlot}>
-          <button
-            type="button"
-            className={css.toBottom}
-            aria-label={t('chat.toBottom')}
-            onClick={scroll.returnToBottom}
-          >
-            <IconChevronDownOutlineRegular />
-          </button>
+          <div className={css.floatingRow} data-floating-controls="">
+            {/* Which branch a live run works on sits left of the jump control;
+                it keeps its place when the jump control is not needed. */}
+            <BranchChip branch={runBranch} t={t} />
+            {!scroll.followingTail && (
+              <button
+                type="button"
+                className={css.toBottom}
+                aria-label={t('chat.toBottom')}
+                onClick={scroll.returnToBottom}
+              >
+                <IconChevronDownOutlineRegular />
+              </button>
+            )}
+          </div>
         </div>
       )}
       {fileOpenError !== null && (

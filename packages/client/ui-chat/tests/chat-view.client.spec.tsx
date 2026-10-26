@@ -35,6 +35,7 @@ import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { createChatStore } from '../src/client/stores.ts'
+import type { BranchChipState } from '../src/client/chat/branch-chip.ts'
 import { derivePresentationPolicy, type CollapseTiming, type FoldedReplies } from '../src/client/presentation-policy.ts'
 import { CHAT_FLOW_INJECT, CHAT_NODE_INJECT } from '../src/client/apply.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
@@ -415,6 +416,9 @@ function makeHarness(
     read: () => savedScroll,
   }
   const forkAt = vi.fn()
+  // The run chip reads one branch answer per viewed Session; tests replace it.
+  const branch = createSnapshotStore<Record<string, BranchChipState | undefined>>({})
+  const loadBranch = vi.fn<(id: SessionId) => Promise<void>>(() => Promise.resolve())
   // Rows and the harness must observe the same chat-store instance.
   const chat = createChatStore().create()
   const transcriptView = createSnapshotStore<TranscriptViewMode>('compact')
@@ -508,6 +512,8 @@ function makeHarness(
     actions: chat.actions,
     useInteractionIds: bindSnapshotSelector(createSnapshotStore<readonly string[]>([])),
     dispatchInteraction: () => null,
+    useBranch: bindSnapshotSelector(branch),
+    loadBranch,
     usePresentation: bindSnapshotSelector(derivePresentationPolicy(transcriptView, collapseTiming, foldedReplies)),
     // The fixture implements the concrete flow dispatch behind the generic slot signature.
     renderSlot: renderSlot as ChatViewSlotProps['renderSlot'],
@@ -550,7 +556,8 @@ function makeHarness(
     setConnection: (state: ConnectionState) => { connection.set(state) },
     openFile, openUserFile, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
-    chatScroll, forkAt, toolOwners,
+    chatScroll, forkAt, toolOwners, loadBranch,
+    setBranch: (value: BranchChipState | undefined) => { branch.set(value === undefined ? {} : { [SID]: value }) },
     setPerformanceUsage: (mode: 'compact' | 'detailed') => { performanceUsage.set(mode) },
     setGrouped: (value: ConversationGroupedView<ProcessGroupData> | undefined) => {
       grouped = value
@@ -748,6 +755,40 @@ describe('Chat node rendering', () => {
 })
 
 describe('ChatView', () => {
+  it('shows the run branch left of the floating jump control, and only while a turn runs', () => {
+    const h = makeHarness({ nodes: [user(1, 'ship it'), assistant(2, 'done', 1)], turnEnds: new Map([[1, 2]]) }, { running: true })
+    h.setBranch({ branch: 'master' })
+    const view = render(<h.ChatView {...h.props} />)
+    const row = view.container.querySelector<HTMLElement>('[data-floating-controls]')
+    expect(row).not.toBeNull()
+    // The branch sits left of the jump control in the same row.
+    const texts = [...row!.children].map(child => child.textContent)
+    expect(texts[0]).toBe('master')
+    // The read belongs to the start of the run.
+    expect(h.loadBranch).toHaveBeenCalledWith(SID)
+    // A stopped turn leaves no branch behind: it answers where the run works.
+    act(() => { h.setSession({ running: false }) })
+    expect(view.container.querySelector('[data-floating-controls]')).toBeNull()
+  })
+
+  it('keeps the run branch visible while the transcript follows the tail', () => {
+    const h = makeHarness({ nodes: [user(1, 'ship it'), assistant(2, 'done', 1)], turnEnds: new Map([[1, 2]]) }, { running: true })
+    h.setBranch({ branch: 'topic' })
+    const view = render(<h.ChatView {...h.props} />)
+    const row = view.container.querySelector<HTMLElement>('[data-floating-controls]')
+    expect(within(row!).getByText('topic')).toBeTruthy()
+  })
+
+  it('renders no branch chip without a branch, a null branch, or a missing answer', () => {
+    for (const state of [undefined, { branch: null }, 'missing' as const]) {
+      const h = makeHarness({ nodes: [user(1, 'ship it'), assistant(2, 'done', 1)], turnEnds: new Map([[1, 2]]) }, { running: true })
+      h.setBranch(state)
+      const view = render(<h.ChatView {...h.props} />)
+      expect(view.container.querySelector('[data-floating-controls]')).toBeNull()
+      cleanup()
+    }
+  })
+
   it('renders only referenced Nodes without deleting unreferenced Node data', () => {
     const snapshot = chatSnapshotFixture({ nodes: [user(1, 'included'), user(2, 'omitted')] })
     const h = makeHarness({}, {}, snapshot)

@@ -502,6 +502,24 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('reads the run branch per Session and drops it when the connection is replaced', async () => {
+    const b = await bench()
+    const fetch = vi.fn<(input: string) => Promise<Response>>(async () => Response.json({ branch: 'master' }))
+    vi.stubGlobal('fetch', fetch)
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      expect(injected.hooks.branch.getSnapshot()).toEqual({})
+      await injected.loadBranch(ROOT)
+      expect(fetch).toHaveBeenCalledWith('api/chat.branch?sessionId=root-1', expect.anything())
+      expect(injected.hooks.branch.getSnapshot()).toEqual({ 'root-1': { branch: 'master' } })
+      b.runtime.ctx.emit('connection/reset')
+      expect(injected.hooks.branch.getSnapshot()).toEqual({})
+    } finally {
+      vi.unstubAllGlobals()
+      await b.runtime.dispose()
+    }
+  })
+
   it('owns image loading, scroll memory, and optional closing-file mentions', async () => {
     const b = await bench()
     const { injected } = b.chatViewApi(b.rootReference)

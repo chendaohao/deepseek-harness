@@ -1,5 +1,6 @@
-/** Host registration for browser Chat preferences. */
+/** Host registration for browser Chat preferences and the run chip's branch read. */
 import type {} from '@deepseek-ai/dsh-settings'
+import { registerChatBranch } from './branch-host.ts'
 
 import type { Volatile, Context } from '@deepseek-ai/cordis'
 import type { ChatSettings, CollapseTiming, FoldedReplies, LinkOpening, PerformanceUsageMode } from './chat-settings.ts'
@@ -42,4 +43,5 @@ export const Config = z.object({
  */
 export function apply(ctx: Context): void {
   ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
+  registerChatBranch(ctx)
 }
