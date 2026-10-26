@@ -50,15 +50,15 @@
   min-width: 200px;
 }
 
-/* The pinned section leads the browsing region above the section header: a
-   caption label, then one unindented row per pinned Session.
+/* The pinned section leads the browsing region above the section header: a fold
+   caption, then one unindented row per rendered pinned Session.
 
-   It caps its own height and scrolls internally. The section sits outside the
-   list's scroll box, so an uncapped pin list grows until the section header and
-   the Workspace list below it have no height left to scroll in — pinning a few
-   Sessions then made the Workspace list look frozen. 30vh is a phone's worth of
-   pins (six rows, more scroll inside the section) while still leaving the
-   Workspace list most of the column; a taller column simply shows more. */
+   The renderer caps the rows it shows and folds the section on request, so the
+   height cap is a second guard: the section sits outside the list's scroll box,
+   so an unfolded pin list could still grow until the section header and the
+   Workspace list below it have no height left to scroll in. 30vh covers the
+   base watermark plus its overflow row on a phone-sized column while leaving
+   the Workspace list most of the column; a taller column simply shows more. */
 .pinnedSection {
   flex: 0 1 auto;
   min-height: 0;
@@ -68,14 +68,33 @@
   margin-bottom: 4px;
 }
 
+/* The caption is the section's fold control: the whole 24px row toggles. */
 .pinnedLabel {
   display: flex;
   align-items: center;
   gap: 4px;
+  width: 100%;
   height: 24px;
-  padding-left: 4px;
+  padding: 0 0 0 4px;
+  border: none;
+  background: transparent;
   box-sizing: border-box;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   color: var(--dsw-alias-label-tertiary);
+}
+
+@media (hover: hover) {
+  .pinnedLabel:hover {
+    color: var(--dsw-alias-label-secondary);
+  }
+}
+
+/* Pinned rows are unindented, so their overflow row aligns to the row edge
+   instead of the group rows' title indent. */
+.pinnedOverflow {
+  padding-left: 8px;
 }
 
 /* Section header: title, an inline search control, and the two trailing

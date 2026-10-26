@@ -35,6 +35,8 @@ type WorkspaceViewState = {
   sessionOrderByAccount: Record<string, string[]>
   /** Archived-row visibility; omitted in pre-filter v5 snapshots and read as 'default'. */
   archivedFilter?: ArchivedFilter
+  /** Pinned-section expansion; omitted before this field existed and read as expanded. */
+  pinnedExpanded?: boolean
 }
 
 type SessionOrderSource = {
@@ -74,6 +76,7 @@ type WorkspaceViewActions = {
     source: SessionOrderSource,
   ) => void
   setArchivedFilter: (draft: WorkspaceViewState, filter: ArchivedFilter) => void
+  setPinnedExpanded: (draft: WorkspaceViewState, expanded: boolean) => void
 }
 
 /** Copy read-only projections into the persisted mutable store representation. */
@@ -96,6 +99,7 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       groupExpansion: {},
       sessionOrderByAccount: {},
       archivedFilter: 'default',
+      pinnedExpanded: true,
     }),
     persist: 'dsh.workspace.view.v5',
     actions: {
@@ -138,6 +142,7 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
         }))
       },
       setArchivedFilter: (d, filter: ArchivedFilter) => { d.archivedFilter = filter },
+      setPinnedExpanded: (d, expanded: boolean) => { d.pinnedExpanded = expanded },
     },
   })
 }
