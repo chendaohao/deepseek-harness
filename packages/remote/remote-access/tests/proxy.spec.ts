@@ -38,6 +38,8 @@ beforeEach(async () => {
         origin: req.headers.origin ?? null,
         secFetchSite: req.headers['sec-fetch-site'] ?? null,
         xProxied: req.headers['x-dsh-proxied'] ?? null,
+        cfConnectingIp: req.headers['cf-connecting-ip'] ?? null,
+        forwardedFor: req.headers['x-forwarded-for'] ?? null,
         body: Buffer.concat(chunks).toString('utf8'),
       }))
       receivedBodies.push(Buffer.concat(chunks).toString('utf8'))
@@ -113,6 +115,8 @@ describe('HTTP relaying', () => {
       'sec-fetch-site': 'cross-site',
       'x-extra': 'kept',
       'x-dsh-proxied': 'spoofed',
+      'cf-connecting-ip': '111.183.129.23',
+      'x-forwarded-for': '111.183.129.23',
     }, 'hello')
     expect(response.status).toBe(201)
     expect(response.headers['x-proxied']).toBe('yes')
@@ -122,6 +126,12 @@ describe('HTTP relaying', () => {
     expect(echoed.host).toBe('127.0.0.1:' + String(targetPort))
     expect(echoed.origin).toBeNull()
     expect(echoed.secFetchSite).toBeNull()
+    // Headers stamped by the tunnel edge describe that hop, not this browser's
+    // request; the shared host fences read them as "a proxy stood in between"
+    // and refused every plugin route behind them (usage, git-graph, ssh). Only
+    // the proxy's own marker may reach the main server.
+    expect(echoed.cfConnectingIp).toBeNull()
+    expect(echoed.forwardedFor).toBeNull()
     // An inbound marker is stripped and the proxy stamps its own, so the main
     // server can tell tunnel-originated traffic apart from desktop loopback.
     expect(echoed.xProxied).toBe('1')

@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-27-remote-proxy-strips-hop-headers.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-27-remote-proxy-strips-hop-headers.md
+/agent-note-the-remote-proxy-strips-the-forwarding-headers-a-hop-in-front-stamps:
+  en: b9bfa2aa94b4e1a2
+  zh: 5e0a3a83bf528b15
+/agent-note-the-remote-proxy-strips-the-forwarding-headers-a-hop-in-front-stamps/problem:
+  en: 9a8661c2997295c3
+  zh: 7453d3813435098e
+/agent-note-the-remote-proxy-strips-the-forwarding-headers-a-hop-in-front-stamps/decision:
+  en: 517c9f34cd7e5fc3
+  zh: 7aa98516c162aa2c
+/agent-note-the-remote-proxy-strips-the-forwarding-headers-a-hop-in-front-stamps/verification:
+  en: a6d68ae27db1b1c0
+  zh: 264cf2de6cbbcca2
+/agent-note-the-remote-proxy-strips-the-forwarding-headers-a-hop-in-front-stamps/alternatives-considered:
+  en: 0a8334ed247f43f1
+  zh: fa1d6d6bceed82a3
+/agent-note-the-remote-proxy-strips-the-forwarding-headers-a-hop-in-front-stamps/consequences:
+  en: 06d79ffde85b3b28
+  zh: 397102e3e3219e72

@@ -25,6 +25,19 @@ const HOP_BY_HOP = new Set([
 /** Browser-trust markers normalized away: the main server must see a loopback-shaped request. */
 const BROWSER_TRUST_HEADERS = new Set(['origin', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest', 'sec-fetch-user'])
 
+/**
+ * Forwarding headers stamped by a hop in front of this proxy. They name the
+ * tunnel edge, not the browser's request to this process, and the shared host
+ * fences read their presence as "a proxy stood in between" — a relayed request
+ * that kept `cf-connecting-ip` was refused 403 by every plugin route built on
+ * that fence (usage, git-graph, ssh, …) even with a valid pairing cookie. The
+ * proxy's own `x-dsh-proxied` marker is the only forwarded signal the main
+ * server sees; none of these reach it.
+ */
+const FORWARDING_HEADERS = new Set([
+  'forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip', 'true-client-ip', 'cf-connecting-ip',
+])
+
 /** WebSocket handshake headers, relayed only by the upgrade path. */
 const WEBSOCKET_HEADERS = new Set(['sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol', 'sec-websocket-extensions'])
 
@@ -124,7 +137,7 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       /* v8 ignore next -- parsed header values are strings or arrays, never undefined */
       if (value === undefined) continue
       const lower = name.toLowerCase()
-      if (lower === 'host' || HOP_BY_HOP.has(lower) || BROWSER_TRUST_HEADERS.has(lower) || WEBSOCKET_HEADERS.has(lower) || lower === PROXIED_HEADER) continue
+      if (lower === 'host' || HOP_BY_HOP.has(lower) || BROWSER_TRUST_HEADERS.has(lower) || FORWARDING_HEADERS.has(lower) || WEBSOCKET_HEADERS.has(lower) || lower === PROXIED_HEADER) continue
       headers[name] = value
     }
     headers.host = targetHost + ':' + String(targetPort)
