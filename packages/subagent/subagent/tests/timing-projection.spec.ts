@@ -38,6 +38,15 @@ describe('subagent timing projection', () => {
     expect(subagentIdentityProjectionDefinition.wire.view(state)).toEqual({ mode: 'one-shot', seq: 1 })
   })
 
+  it('keeps a labelled one-shot identity', () => {
+    const descriptor = {
+      ...event('subagent/descriptor', 1, 110),
+      data: { version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'one-shot', provider: 'spawn', label: 'once' },
+    } as SessionEvent
+    const state = subagentIdentityProjectionDefinition.apply(subagentIdentityProjectionDefinition.init(), descriptor)
+    expect(subagentIdentityProjectionDefinition.wire.view(state)).toEqual({ mode: 'one-shot', label: 'once', seq: 1 })
+  })
+
   it('waits for the session projection registry and releases its projections on unload', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
