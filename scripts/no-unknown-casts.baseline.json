@@ -574,8 +574,7 @@
   },
   "packages/client/ui-settings-models/tests/apply.client.spec.ts": {
     "0464c472dfc74994388bf63a6b3c110df506ce44fe47a5040e93c67a5eb3b4ae": 1,
-    "04984a2ce1486250236e638e0197da0a1a840855ed3975c59130a85358c7e5fe": 4,
-    "5c8c41ba658c0576bea6c34b1226c27e7b0328c03c9eea0d6c920f940c9d8f5b": 1
+    "04984a2ce1486250236e638e0197da0a1a840855ed3975c59130a85358c7e5fe": 3
   },
   "packages/client/ui-settings-models/tests/components.client.spec.tsx": {
     "149134633dbc576c06d4fd7ae295957de037e229a7d9f029d5576be5f3d56bd0": 1
@@ -1012,14 +1011,6 @@
   "packages/experimental/hook-protocol/tests/events.spec.ts": {
     "a59fe57e5f3994018a6bd25208b9c2f56a7bcf7353d6ec2d453564f3f5c225f2": 1
   },
-  "packages/experimental/hooks-claude-code/tests/bridge.spec.ts": {
-    "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1
-  },
-  "packages/experimental/hooks-claude-code/tests/coverage-cases.ts": {
-    "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1,
-    "54f541ed10b92b1386306754b4a96741f6d9e40058ddac191f5aed03af30c32a": 1,
-    "593ac2fabae51a87153bf285d326f2de6ddb84bf2581f2ac280083b9bc130188": 1
-  },
   "packages/experimental/hooks-codex/tests/bridge.spec.ts": {
     "bced8a97654435422589a4bdd1b46b5147d4120cd5b496dcf055c453494ce0ab": 1
   },
@@ -1093,6 +1084,14 @@
   "packages/experimental/inspector/tests/plugin.client.spec.ts": {
     "148509a0193d8d3c16a606a15f5145770f454c2ebc70dd0ccaa51fc1a0f43e99": 1,
     "2066ad746457f15b6737d62124c4ec81f2140fc3fa425187eac8e3b1c3b6ab0b": 8
+  },
+  "packages/experimental/notify-hooks/tests/bridge.spec.ts": {
+    "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1
+  },
+  "packages/experimental/notify-hooks/tests/coverage-cases.ts": {
+    "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1,
+    "54f541ed10b92b1386306754b4a96741f6d9e40058ddac191f5aed03af30c32a": 1,
+    "593ac2fabae51a87153bf285d326f2de6ddb84bf2581f2ac280083b9bc130188": 1
   },
   "packages/experimental/ptc-runtime-python/src/index.ts": {
     "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1
@@ -1242,20 +1241,6 @@
   },
   "packages/goal/goal/src/index.ts": {
     "09a26f55e58db3477446e73f59bd3cdf678ae76ff8f54d185ec4a0ce0dc7da2d": 1
-  },
-  "packages/experimental/hook-protocol/tests/events.spec.ts": {
-    "a59fe57e5f3994018a6bd25208b9c2f56a7bcf7353d6ec2d453564f3f5c225f2": 1
-  },
-  "packages/experimental/notify-hooks/tests/bridge.spec.ts": {
-    "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1
-  },
-  "packages/experimental/notify-hooks/tests/coverage-cases.ts": {
-    "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1,
-    "54f541ed10b92b1386306754b4a96741f6d9e40058ddac191f5aed03af30c32a": 1,
-    "593ac2fabae51a87153bf285d326f2de6ddb84bf2581f2ac280083b9bc130188": 1
-  },
-  "packages/experimental/hooks-codex/tests/bridge.spec.ts": {
-    "bced8a97654435422589a4bdd1b46b5147d4120cd5b496dcf055c453494ce0ab": 1
   },
   "packages/host/directory-picker-auto/tests/loader-composition.spec.ts": {
     "923a65f07e42e49412ff5a8b2f7ff681e37ed1d07bfbf2187b3672b11685edd1": 1
