@@ -429,13 +429,15 @@ export function SidebarRoot({
         <Toast key={copiedToast} tone="success" text={t('version.copied')} onDone={() => { setCopiedToast(null) }} />
       )}
 
-      {/* Footer actions stack above Settings in both sidebar widths. */}
+      {/* Settings leads the expanded foot's bottom line and the footer actions
+          close it; the rail stacks the actions above Settings. The DOM order
+          matches that reading and Tab order. */}
       <div className={css.footArea}>
-        <div className={css.footerActions}>
-          {renderSlot('sidebar.footer.action', { wide })}
-        </div>
         <div className={css.settingsArea}>
           {renderSlot('sidebar.settings', { wide })}
+        </div>
+        <div className={css.footerActions}>
+          {renderSlot('sidebar.footer.action', { wide })}
         </div>
       </div>
     </div>

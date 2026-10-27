@@ -63,6 +63,18 @@ describe('SidebarRoot.module.css', () => {
     expect(css).toMatch(/@keyframes rail-fade-in\s*\{\s*from\s*\{\s*opacity: 0;\s*}\s*}/)
   })
 
+  it('shares the expanded foot line between Settings and the footer actions', () => {
+    const foot = declarations('.footArea')
+    expect(foot?.get('flex-flow')).toBe('row wrap')
+    expect(declarations('.settingsArea')?.get('flex')).toBe('1 1 auto')
+    // Any other foot child (a plugin's glance card) keeps a full row above them.
+    expect(declarations('.footArea > :not(.settingsArea):not(.footerActions)')?.get('flex')).toBe('1 1 100%')
+    // The rail stacks the actions above Settings again.
+    expect(declarations('.collapsed .footArea')?.get('flex-direction')).toBe('column')
+    expect(declarations('.collapsed .footArea')?.get('flex-wrap')).toBe('nowrap')
+    expect(css).toMatch(/\.collapsed \.footerActions\s*\{\s*order:\s*-1;\s*}/)
+  })
+
   it('gives shell rail controls the same base anchor for their shared translation', () => {
     expect(declarations('.collapsed .logoRow')?.get('justify-content')).toBe('flex-start')
     expect(declarations('.collapsed .newSession')?.get('align-self')).toBe('flex-start')

@@ -670,34 +670,51 @@
   padding-left: 0;
 }
 
-/* Footer seats: additive actions stack above Settings. Each occupant owns its
-   button geometry and hover chrome. */
+/* Footer seats: the expanded column closes on one line — the Settings row
+   leads it and the optional footer actions sit at its right end. A foot child
+   that is neither (a plugin's glance card inserted into the foot) keeps a full
+   row of its own above them. The rail stacks the actions above Settings. Each
+   occupant owns its button geometry and hover chrome. */
 .footArea {
   flex: none;
   display: flex;
-  flex-direction: column;
+  flex-flow: row wrap;
+  align-items: center;
 }
 
-.settingsArea,
+/* The Settings row takes the line's free width; the actions keep theirs. */
+.settingsArea {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .footerActions {
   flex: none;
+  display: flex;
   min-width: 0;
-  width: 100%;
 }
 
-.footerActions {
-  display: flex;
+.footArea > :not(.settingsArea):not(.footerActions) {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .collapsed .footArea {
+  flex-direction: column;
+  flex-wrap: nowrap;
   align-items: center;
 }
 
 .collapsed .settingsArea,
 .collapsed .footerActions {
   display: flex;
+  flex: none;
   justify-content: center;
   width: auto;
+}
+
+.collapsed .footerActions {
+  order: -1;
 }
 
 @media (prefers-reduced-motion: reduce) {
