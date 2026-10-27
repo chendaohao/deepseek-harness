@@ -3159,7 +3159,11 @@ describe('continuable settlement delivery', () => {
     const child = await loadStoredSession(ctx.sessionPersistence, started.childId)
     expect(hasUserText(child.events, 'second task')).toBe(false)
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} failed before it finished.\nIts closing message:\nthe answer`,
+      `Background subagent ${started.childId} failed before it finished.\nIts closing message:\nthe answer`
+      // The failure detail rides the notice so the parent can tell a policy
+      // rejection from an upstream one without reading the child's transcript.
+      // A code that carried no information is not rendered beside the message.
+      + '\nENOSPC: no space left on device',
     )
   })
 
@@ -4442,8 +4446,49 @@ describe('settlement reconciliation after a lost settlement', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(2) })
     expect(settlementNotices(parent)[1]!.text).toBe(
-      `Background subagent ${childId} was stopped before it finished.`
+      // The reconciliation fold keeps the recorded cancel cause, so the parent
+      // learns nobody typed into the child's session.
+      `Background subagent ${childId} was stopped before it finished, when its runtime was disposed.`
       + '\nIt left no closing message.',
+    )
+  })
+
+  it('reports a reconciled account that names no canceller when the process died mid-turn', async () => {
+    const { ctx, parent } = await setup([textResponse('the answer')])
+    // A child whose log ends inside a turn: the owning process died before the
+    // turn closed, so the fold reports stopped work with no cancel cause to
+    // name. The notice must say that rather than attribute a stop to anyone.
+    const childId = SessionId('died-mid-turn-child')
+    const child = ctx.sessions.create(childId)
+    child.append('turn/start', { turn: 1 })
+    await ctx.sessions.flush(child)
+    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Died mid-turn' })
+
+    await subagentManager(ctx).reconcileResumedParent(parent)
+
+    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
+    expect(settlementNotices(parent)[0]!.text).toBe(
+      `Background subagent ${childId} was stopped before it finished.\nIt left no closing message.`,
+    )
+  })
+
+  it('carries a recorded cancel cause through reconciliation', async () => {
+    const { ctx, parent } = await setup([textResponse('the answer')])
+    // The child's log records who cancelled its turn before the process died,
+    // so the folded account can still tell the parent a person stopped it.
+    const childId = SessionId('cancelled-then-lost-child')
+    const child = ctx.sessions.create(childId)
+    child.append('turn/start', { turn: 1 })
+    child.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+    await ctx.sessions.flush(child)
+    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Cancelled then lost' })
+
+    await subagentManager(ctx).reconcileResumedParent(parent)
+
+    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
+    expect(settlementNotices(parent)[0]!.text).toBe(
+      `Background subagent ${childId} was stopped before it finished, `
+      + 'by a person writing in its own session.\nIt left no closing message.',
     )
   })
 
@@ -4485,7 +4530,8 @@ describe('settlement reconciliation after a lost settlement', () => {
       await vi.waitFor(() => {
         expect(settlementNotices(resumed.agent).some(notice =>
           notice.sender === childId
-          && notice.text.startsWith(`Background subagent ${childId} was stopped before it finished.`),
+          // Prefix only: the notice's stop line also names the cancel cause.
+          && notice.text.startsWith(`Background subagent ${childId} was stopped before it finished`),
         )).toBe(true)
       })
     } finally {

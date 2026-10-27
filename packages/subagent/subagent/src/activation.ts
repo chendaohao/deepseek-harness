@@ -6,7 +6,7 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { finalAssistantOutput } from './assistant-output.ts'
-import { epochStopReason, lastTurnBudget } from './lifecycle.ts'
+import { epochAbortCause, epochFailure, epochStopReason, lastTurnBudget } from './lifecycle.ts'
 import type { ActivationObserver } from './lifecycle.ts'
 import { SubagentError } from './error.ts'
 import type { StructuredAttachment } from './structured.ts'
@@ -162,6 +162,13 @@ export function captureLocalResult(activation: LocalActivation): SubagentResult 
   // stopped with nothing visible spent its output ceiling or ran out of context;
   // teardown failure already reads as `error` and reports no budget.
   const budget = activation.failureAt === undefined ? lastTurnBudget(events) : undefined
+  // A failed epoch's notice names the failure itself: an upstream queue
+  // rejection, an exhausted quota, and a broken transport read identically as
+  // "failed before it finished", yet each calls for a different recovery.
+  const diagnostic = activation.failureAt === undefined
+    ? epochFailure(events)
+    : undefined
+  const abortCause = activation.failureAt === undefined ? epochAbortCause(events) : undefined
   const structured = activation.structured
   if (structured !== undefined) {
     const captured = structured.captured()
@@ -176,7 +183,13 @@ export function captureLocalResult(activation: LocalActivation): SubagentResult 
      * a request torn down mid-turn reports `aborted` and never arrives here. */
     if (stopReason === 'completed') return { output, stopReason: 'error', ...budget === undefined ? {} : { budget } }
   }
-  return { output, stopReason, ...budget === undefined ? {} : { budget } }
+  return {
+    output,
+    stopReason,
+    ...budget === undefined ? {} : { budget },
+    ...diagnostic === undefined ? {} : { diagnostic },
+    ...abortCause === undefined ? {} : { abortCause },
+  }
 }
 
 /** Serialize each durable child's delivery, release, and disposal. */

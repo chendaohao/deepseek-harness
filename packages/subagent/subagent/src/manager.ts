@@ -1266,8 +1266,14 @@ export class SubagentManager {
       const message = createSettlementMessage(
         childId,
         // A reconciled epoch's budget report rides the same notice as a live
-        // one; the fold supplies stop reason and output only.
-        { output: terminal.output ?? [], stopReason: terminal.stopReason },
+        // one; the fold supplies stop reason, output, failure detail, and the
+        // cancel cause a restarted process never delivered.
+        {
+          output: terminal.output ?? [],
+          stopReason: terminal.stopReason,
+          ...terminal.diagnostic === undefined ? {} : { diagnostic: terminal.diagnostic },
+          ...terminal.abortCause === undefined ? {} : { abortCause: terminal.abortCause },
+        },
         true,
       )
       this.sendWaking(parent, message, parent.status === 'idle' ? 'queue' : 'steer')

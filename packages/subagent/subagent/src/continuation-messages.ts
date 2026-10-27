@@ -8,6 +8,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { ActivationTerminal } from './lifecycle.ts'
 import type { SubagentResult, TurnBudgetReport } from './types.ts'
 
 /** Durable attribution for one model-authored message between Agents. */
@@ -99,19 +100,31 @@ export function withContinuableReturnGuidance(
  * One line telling a parent that a background child is finished and why, in
  * the parent's own task vocabulary.
  * @param childId - the durable child the parent knows by id.
- * @param stopReason - how the child's last ordinary turn ended.
+ * @param terminal - the recorded terminal state; `abortCause` refines `aborted`.
  * @param continuable - whether the child accepts a later message.
  * @returns the model-facing opening line of the settlement notice.
  */
-function settlementSummary(childId: SessionId, stopReason: SubagentResult['stopReason'], continuable: boolean): string {
+function settlementSummary(childId: SessionId, terminal: ActivationTerminal, continuable: boolean): string {
   const subject = `Background subagent ${childId}`
-  switch (stopReason) {
+  switch (terminal.stopReason) {
     case 'completed':
       return continuable
         ? `${subject} finished and will do no further work unless you send it more.`
         : `${subject} finished. It cannot receive follow-up messages.`
+    // Who stopped it decides what the parent should do next: a person typing in
+    // the child's own session usually wants something else, while the
+    // delegating side stopping it means the work is still owed.
     case 'aborted':
-      return `${subject} was stopped before it finished.`
+      switch (terminal.abortCause?.kind) {
+        case 'user':
+          return `${subject} was stopped before it finished, by a person writing in its own session.`
+        case 'disposed':
+          return `${subject} was stopped before it finished, when its runtime was disposed.`
+        case 'hook':
+          return `${subject} was stopped before it finished, by a hook.`
+        default:
+          return `${subject} was stopped before it finished.`
+      }
     // Name the limit. A parent that reads a vague "ran out of room" as context
     // exhaustion discards a child that still had context left.
     case 'max-tokens':
@@ -126,7 +139,7 @@ function settlementSummary(childId: SessionId, stopReason: SubagentResult['stopR
      * needs a backend that adds a variant; an unnameable ending is reported as unfinished
      * rather than silently as success. */
     default:
-      return `${subject} ended abnormally (${String(stopReason)}) before it finished.`
+      return `${subject} ended abnormally (${String(terminal.stopReason)}) before it finished.`
   }
 }
 
@@ -165,7 +178,7 @@ export function createSettlementMessage(
   continuable = true,
   omitClosingText = false,
 ): ReturnType<typeof createUserMessage> {
-  const summary = settlementSummary(childId, terminal.stopReason, continuable)
+  const summary = settlementSummary(childId, terminal, continuable)
   // Parent providers receive this notice as a user message and may reject
   // nontext assistant blocks. Keep this conversion local so SDK/UI consumers
   // retain the complete child output.

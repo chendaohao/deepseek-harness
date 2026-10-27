@@ -97,6 +97,46 @@ describe('continuable settlement content', () => {
     },
   )
 
+  it.each([
+    [{ kind: 'user' } as const, 'by a person writing in its own session'],
+    [{ kind: 'disposed' } as const, 'when its runtime was disposed'],
+    [{ kind: 'hook', reason: 'denied' } as const, 'by a hook'],
+  ])('names the %s cancel cause, because the parent’s next move differs', (abortCause, phrase) => {
+    const message = createSettlementMessage(childId, { stopReason: 'aborted', output: [], abortCause })
+
+    expect(message.content[0]).toEqual({
+      type: 'text',
+      text: `Background subagent ${childId} was stopped before it finished, ${phrase}.`,
+    })
+  })
+
+  it('keeps the neutral stop line when the cancel cause is absent or legacy', () => {
+    const legacy = createSettlementMessage(childId, {
+      stopReason: 'aborted', output: [], abortCause: { kind: 'legacy' },
+    })
+    const absent = createSettlementMessage(childId, { stopReason: 'aborted', output: [] })
+
+    expect(legacy.content).toEqual(absent.content)
+    expect(absent.content[0]).toEqual({
+      type: 'text', text: `Background subagent ${childId} was stopped before it finished.`,
+    })
+  })
+
+  it('reports a failure detail alongside the closing text', () => {
+    const message = createSettlementMessage(childId, {
+      stopReason: 'error',
+      output: [{ type: 'text', text: 'partial work' }],
+      diagnostic: 'upstream returned 429: user concurrency limit exceeded (RATE_LIMIT)',
+    })
+
+    expect(message.content).toEqual([
+      { type: 'text', text: `Background subagent ${childId} failed before it finished.` },
+      { type: 'text', text: 'Its closing message:' },
+      { type: 'text', text: 'partial work' },
+      { type: 'text', text: 'upstream returned 429: user concurrency limit exceeded (RATE_LIMIT)' },
+    ])
+  })
+
   it('preserves text block order and bytes around omitted reasoning and tool calls', () => {
     const first: ContentBlock = { type: 'text', text: '  first\n' }
     const second: ContentBlock = { type: 'text', text: '\n第二段  ' }

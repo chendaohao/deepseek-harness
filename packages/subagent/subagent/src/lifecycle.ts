@@ -10,10 +10,11 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmFailure } from '@deepseek-ai/dsh-llm'
 import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import { renderThrown } from '@deepseek-ai/dsh-util-values'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { TurnEndCancelCause } from '@deepseek-ai/dsh-session'
 import { SubagentRunId } from './types.ts'
 import type { SubagentResult, SubagentRunEndInfo, SubagentRunInfo, TurnBudgetReport } from './types.ts'
 
@@ -40,6 +41,19 @@ export interface ActivationTerminal {
    * event for a consumer that does not exist.
    */
   readonly budget?: TurnBudgetReport
+  /**
+   * Failure detail for a `stopReason: 'error'` epoch — the child's own recorded
+   * failure, or a cold fold of it. A parent that reads only "failed before it
+   * finished" cannot tell an upstream queue rejection from an exhausted quota or
+   * a broken transport, and re-delegates with the wrong constraint.
+   */
+  readonly diagnostic?: string
+  /**
+   * Who cancelled the epoch's last consumed turn, absent for any other ending.
+   * Carried to the parent's settlement notice so a person who typed into the
+   * child's own session is not mistaken for the delegating side's own stop.
+   */
+  readonly abortCause?: TurnEndCancelCause
 }
 
 
@@ -186,6 +200,61 @@ export function epochStopReason(events: readonly SessionEvent[]): SubagentResult
     default:
       return 'error'
   }
+}
+
+/**
+ * Why this child's last consumed turn failed, in the terms the parent can act on.
+ *
+ * A settlement notice that says only "failed before it finished" is
+ * indistinguishable across an upstream queue rejection, an exhausted quota, and
+ * a broken transport — and the three call for opposite recoveries: resume the
+ * same child, wait, or replace the route. The child's own log already holds the
+ * structured `LlmFailure`, so the parent's notice carries it too.
+ *
+ * Read from the same accounting turn {@link epochStopReason} reads, so a
+ * failure that a later clean turn superseded is not reported.
+ * @param events - this epoch's own event suffix.
+ * @returns the failure detail, or `undefined` when the accounting turn did not fail.
+ */
+export function epochFailure(events: readonly SessionEvent[]): string | undefined {
+  const { end } = foldConsumedWork(events)
+  const reason = end?.data.reason
+  if (reason?.kind !== 'error') return undefined
+  return formatFailureDetail(reason.error)
+}
+
+/**
+ * Render one structured failure as the single line a parent's notice carries.
+ *
+ * The routing code is included only when it distinguishes something: `UNKNOWN`
+ * is the adapter's fallback for an error that carried no code, so printing it
+ * would add noise beside the message it already prefixes.
+ * @param failure - the recorded structured failure.
+ * @returns the message, with its code and HTTP status when either is informative.
+ */
+export function formatFailureDetail(failure: LlmFailure): string {
+  const qualifiers = [
+    ...failure.code === 'UNKNOWN' ? [] : [failure.code],
+    ...failure.status === undefined ? [] : [`HTTP ${String(failure.status)}`],
+  ]
+  return qualifiers.length === 0 ? failure.message : `${failure.message} (${qualifiers.join(', ')})`
+}
+
+/**
+ * Who cancelled this child's last consumed turn.
+ *
+ * `aborted` alone conflates two situations a parent must handle in opposite
+ * ways: a person typed into the child's own session and cancelled the work it
+ * was doing (ask before resuming — they may want something else), and the
+ * delegating side stopped it (resume). The cancel cause is already recorded on
+ * the turn's own ending, so the notice can say which happened.
+ * @param events - this epoch's own event suffix.
+ * @returns the recorded cancel cause, or `undefined` for any other ending.
+ */
+export function epochAbortCause(events: readonly SessionEvent[]): TurnEndCancelCause | undefined {
+  const { end } = foldConsumedWork(events)
+  const reason = end?.data.reason
+  return reason?.kind === 'aborted' ? reason.reason : undefined
 }
 
 /**

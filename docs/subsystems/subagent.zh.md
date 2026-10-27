@@ -268,6 +268,13 @@ interface SubagentResult {
    * to 4096 UTF-8 bytes. Consumers present it separately from {@link output}.
    */
   readonly diagnostic?: string
+  /**
+   * Who cancelled the last consumed turn, when {@link stopReason} is
+   * `aborted`. A person typing into the child's own session and a delegating
+   * ancestor both end the turn as `aborted`, but the parent should ask about
+   * the first and resume the second, so the notice names which happened.
+   */
+  readonly abortCause?: TurnEndCancelCause
   /** Why the run ended. A non-`completed` reason means `output` may be partial. */
   readonly stopReason: SubagentStopReason
 }

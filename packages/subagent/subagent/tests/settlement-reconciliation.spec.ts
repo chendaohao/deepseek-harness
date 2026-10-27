@@ -140,6 +140,25 @@ describe('coldSettlementTerminal', () => {
     expect(coldSettlementTerminal([turnStart(1, 1), turnEnd(1, 2, 'blocked')])?.stopReason).toBe('refusal')
     expect(coldSettlementTerminal([turnStart(1, 1), turnEnd(1, 2, 'aborted')])?.stopReason).toBe('aborted')
   })
+
+  it('carries the recorded failure detail a restarted process would otherwise drop', () => {
+    const terminal = coldSettlementTerminal([turnStart(1, 1), turnEnd(1, 2, 'error')])
+
+    expect(terminal?.diagnostic).toBe('boom (X)')
+  })
+
+  it('carries the cancel cause so the notice can name who stopped the child', () => {
+    const cancelled = coldSettlementTerminal([turnStart(1, 1), turnEnd(1, 2, 'aborted')])
+
+    expect(cancelled?.abortCause).toEqual({ kind: 'legacy' })
+  })
+
+  it('leaves the cancel cause absent when the process died without closing the turn', () => {
+    // An open turn and an interrupted marker both mean the owning process
+    // ended; neither names a canceller, so the notice must not invent one.
+    expect(coldSettlementTerminal([turnStart(1, 1)])?.abortCause).toBeUndefined()
+    expect(coldSettlementTerminal([turnStart(1, 1), turnEnd(1, 2, 'interrupted')])?.abortCause).toBeUndefined()
+  })
 })
 
 describe('settlementNoticeCovers', () => {

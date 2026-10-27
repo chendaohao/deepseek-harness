@@ -13,6 +13,7 @@
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { finalAssistantOutput } from './assistant-output.ts'
+import { formatFailureDetail } from './lifecycle.ts'
 import type { ActivationTerminal } from './lifecycle.ts'
 
 /**
@@ -64,12 +65,16 @@ export function coldSettlementTerminal(events: readonly SessionEvent[]): Activat
     case 'max-tokens':
       return { stopReason: 'max-tokens', ...suffix }
     case 'aborted':
+      return { stopReason: 'aborted', abortCause: end.data.reason.reason, ...suffix }
+    // A crash-orphaned turn closed after the fact, and an epoch whose turn never
+    // closed at all, both mean the owning process ended: `abortCause` stays
+    // absent so the notice reports that instead of inventing a canceller.
     case 'interrupted':
       return { stopReason: 'aborted', ...suffix }
     case 'blocked':
       return { stopReason: 'refusal', ...suffix }
     case 'error':
-      return { stopReason: 'error', ...suffix }
+      return { stopReason: 'error', diagnostic: formatFailureDetail(end.data.reason.error), ...suffix }
     /* v8 ignore next 4 -- `forked` appears only in constructor seed history, and
      * TurnEndReason is merge-extensible; an unnameable ending must not read as
      * success to a parent that never received the live account. */
