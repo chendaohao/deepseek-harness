@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type SessionController from '../src/index.ts'
 import { ApiSessionList } from '../src/list.ts'
 import type { SessionControlFrame, SessionRequestId, SessionSearchValue } from '../src/types.ts'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { createSessionTestController } from './test-remote.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -86,8 +87,12 @@ async function harness(): Promise<{
   await ctx.plugin(TypertRegistry)
   await mountAgentLoopTestDependencies(ctx)
   const loop = await mountAgentLoopTestHarness(ctx)
-  const shared = await loop.create(SHARED, {}, { cwd: '/tmp' })
-  const hidden = await loop.create(PRIVATE, {}, { cwd: '/tmp' })
+  // A turn that cannot reach a registered model fails, and the failure path
+  // returns the claimed message to next-turn, so an unserved selection would
+  // replay one prompt through several turns instead of admitting it once.
+  ctx.llm.registerAdapter(['p'], new MockAdapter([textResponse('ok'), textResponse('ok')]))
+  const shared = await loop.create(SHARED, { provider: 'p', model: 'm' }, { cwd: '/tmp' })
+  const hidden = await loop.create(PRIVATE, { provider: 'p', model: 'm' }, { cwd: '/tmp' })
   const controller = await createSessionTestController(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
   const as = (principal: Principal, method: string): Context => {
     const invocation: RemoteInvocation = {
