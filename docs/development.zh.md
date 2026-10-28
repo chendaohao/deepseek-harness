@@ -24,6 +24,14 @@
 
 在每种环境中分别安装依赖，因为不同操作系统使用的原生二进制和链接可能不同。测试结果适用于执行测试的环境；Windows 特有行为仍需在原生 Windows 上验证。
 
+在 WSL 下，`pwsh` 必须指向 Linux 版 PowerShell。包在 `pwsh.exe` 外的 `exec` 包装脚本能被解析，于是 pwsh 套件的自跳过探针通过，但 Windows 宿主看不到 Linux 临时路径、不继承调用方环境，也无法寻址 Linux PID——套件随后失败而不是跳过。跑测试时把 Linux 安装放在 `PATH` 前面：
+
+```sh
+PATH="$HOME/.local/opt/powershell-7.6.9:$PATH" pnpm run test
+```
+
+`packages/shell/pwsh-local/src` 的覆盖率同理：豁免文件中探针通过的会被实测，而不是跳过。
+
 ### 首次搭建
 
 pnpm 使用严格的符号链接布局，让未声明的依赖直接失败，而不是依赖提升。依赖的构建脚本必须明确列入 `pnpm-workspace.yaml` 的允许列表。

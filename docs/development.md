@@ -22,6 +22,14 @@ Keep the checkout, installed dependencies, and toolchain in the same operating s
 
 Install dependencies separately in each environment because native binaries and links can differ between operating systems. Test results apply to the environment where the tests ran; Windows-specific behavior still needs native Windows validation.
 
+Under WSL, `pwsh` must name a Linux PowerShell. An `exec` wrapper around `pwsh.exe` resolves, so the pwsh suites' self-skip probe passes, but the Windows host cannot see Linux temp paths, inherit the caller's environment, or address a Linux PID — the suites then fail rather than skip. Put a Linux install ahead of it on `PATH` for the test command:
+
+```sh
+PATH="$HOME/.local/opt/powershell-7.6.9:$PATH" pnpm run test
+```
+
+The same applies to `packages/shell/pwsh-local/src` coverage: an exempted file whose probe passes is measured, not skipped.
+
 ### First-time setup
 
 pnpm uses its strict symlinked linker so undeclared dependencies fail instead of relying on hoisting. Keep dependency build scripts explicitly allowlisted in `pnpm-workspace.yaml`.
