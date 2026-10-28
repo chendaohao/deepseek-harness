@@ -224,6 +224,7 @@ export class SessionEventStream extends RemoteJournalStream<
     const assistantCursor = afterSeq === undefined ? undefined : this.sinks.assistantCursor?.()
     for await (const frame of this.remote.session.follow({
       address: this.address,
+      activate: true,
       assistantStream: true,
       ...this.repairRequest(request),
       ...(afterSeq === undefined ? {} : { afterSeq }),

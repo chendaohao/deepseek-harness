@@ -1,0 +1,480 @@
+/** Fork live-follow with bounded buffering, Assistant batch delivery, and continuation cursors. */
+
+import type { Context } from '@deepseek-ai/cordis'
+import { Deque } from '@deepseek-ai/dsh-deque'
+import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import type { SessionEvent, SessionHeader, SessionId, SessionLogOffset as SessionLogOffsetType, SessionSeqCursor } from '@deepseek-ai/dsh-session'
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+import { SessionAssistantStreamAccumulator } from '../assistant-stream.ts'
+import {
+  DEFAULT_MAX_MESSAGES, addressId, entryFor, pageRecords, paginate, validateAddress, validateHistoryWindow, rejectNotFound,
+} from '../history.ts'
+import type {
+  SessionAddress, SessionAssistantStreamFrame, SessionFollowFrame, SessionFollowRequest, SessionPage, SessionWireHeader,
+  SessionPageRequest, SessionProjectionBaseline, SessionProjectionValues,
+} from '../types.ts'
+
+/** Live-follow buffer bound in durable and Assistant frames, including frames inside batches. */
+const DEFAULT_MAX_BUFFERED_EVENTS = 10_000
+const DEFAULT_ASSISTANT_STREAM_BATCH_SIZE = 64
+/** Milliseconds a partial Assistant batch waits for its successor before delivery. */
+const DEFAULT_ASSISTANT_STREAM_BATCH_DELAY_MS = 16
+
+interface NumberedAssistantStreamFrame {
+  readonly frame: SessionAssistantStreamFrame
+  readonly ordinal: number
+}
+
+type BufferedFollowItem =
+  | { readonly type: 'event'; readonly event: SessionEvent }
+  | ({ readonly type: 'assistant-stream' } & NumberedAssistantStreamFrame)
+  | {
+    readonly type: 'assistant-stream-batch'
+    readonly frames: readonly NumberedAssistantStreamFrame[]
+  }
+
+/** Live-follow batching policy for one history controller. */
+export interface SessionHistoryControllerOptions {
+  /** Maximum subsequent chunks in one Assistant batch; 1 disables batching. */
+  readonly assistantStreamBatchSize?: number
+  /**
+   * Milliseconds a partial Assistant batch waits for its successor before it is
+   * delivered on its own. Bounds first-visible streaming latency for a producer
+   * slower than the batch size.
+   */
+  readonly assistantStreamBatchDelayMs?: number
+}
+
+/** Implements cold-safe history operations delegated by the Session Controller. */
+export class SessionHistoryController {
+  private readonly closeFollowers = new Set<() => void>()
+  private readonly assistantStreams = new Map<SessionId, SessionAssistantStreamAccumulator>()
+  private readonly assistantStreamBatchSize: number
+  private readonly assistantStreamBatchDelayMs: number
+
+  /**
+   * @param ctx - Host context carrying Session query and projection services.
+   * @param promote - starts ordinary Session activation after snapshot delivery.
+   * @param options - live-follow batching policy; omitted values use 64 chunks per
+   * batch and a 16 ms partial-batch deadline.
+   */
+  constructor(
+    private readonly ctx: Context,
+    private readonly promote: (observation: SessionObservation) => void,
+    options: SessionHistoryControllerOptions = {},
+  ) {
+    this.assistantStreamBatchSize = options.assistantStreamBatchSize ?? DEFAULT_ASSISTANT_STREAM_BATCH_SIZE
+    this.assistantStreamBatchDelayMs = options.assistantStreamBatchDelayMs
+      ?? DEFAULT_ASSISTANT_STREAM_BATCH_DELAY_MS
+    ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+      let stream = this.assistantStreams.get(agent.session.id)
+      if (stream === undefined) {
+        stream = new SessionAssistantStreamAccumulator()
+        this.assistantStreams.set(agent.session.id, stream)
+      }
+      stream.accept(frame, cursorBeforeNext(agent.session.seq))
+    }, { global: true })
+    ctx.on('agent/disposed', ({ agent }) => {
+      this.assistantStreams.delete(agent.session.id)
+    }, { global: true })
+    ctx.effect(() => () => {
+      for (const close of this.closeFollowers) close()
+      this.closeFollowers.clear()
+    }, 'session-controller.history')
+  }
+
+  /**
+   * Read one message-aligned history page without activating an Agent.
+   * @param request - durable address and backwards-page cursor.
+   * @param signal - caller cancellation for persistence reads.
+   * @returns a contiguous event page.
+   */
+  async page(request: SessionPageRequest, signal: AbortSignal): Promise<SessionPage> {
+    validatePageRequest(request)
+    const throughSeq: SessionSeqCursor = request.throughSeq === -1
+      ? -1
+      : SessionSeq(request.throughSeq ?? -1)
+    const beforeSeq = request.beforeSeq === undefined
+      ? undefined
+      : SessionLogOffset(request.beforeSeq)
+    using source = await this.sourceFor(request.address, signal, false)
+    signal.throwIfAborted()
+    const sourceLog = source.events
+    const sourceCursor: SessionSeqCursor = sourceLog.at(-1)?.seq ?? -1
+    if (throughSeq > sourceCursor) {
+      throw new RemoteError(
+        'gateway/bad-request',
+        `session page through seq ${String(throughSeq)} is past cursor ${String(sourceCursor)}`,
+        {},
+      )
+    }
+    /* v8 ignore next -- Session and persistence validation guarantee a dense zero-based event prefix. */
+    if (throughSeq >= 0 && sourceLog[throughSeq]?.seq !== throughSeq) {
+      throw new RemoteError('gateway/internal', `session log does not contain through seq ${String(throughSeq)}`, {})
+    }
+    const page = paginate(
+      sourceLog,
+      beforeSeq,
+      request.maxMessages ?? DEFAULT_MAX_MESSAGES,
+      throughSeq,
+      request.turnWindow,
+    )
+    const records = pageRecords(page.events)
+    return {
+      records,
+      hasMore: page.hasMore,
+    }
+  }
+
+  /**
+   * Follow events appended after an initial cursor on one durable address.
+   * @param request - durable address, optionally the last committed sequence the caller already holds.
+   * @param signal - stream cancellation owned by the Remote carrier.
+   * @returns an opening snapshot — complete, or carrying only the events after
+   *   the requested cursor — followed by gap-free durable events and opted-in assistant frames.
+   */
+  async *follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame> {
+    validateFollowRequest(request)
+    const { address } = request
+    const target = addressId(address)
+    const buffered = new Deque<BufferedFollowItem>()
+    /** Set when the producer outran the buffer; the pump loop reports it. */
+    const overflow = { flag: false }
+    let bufferedFrameCount = 0
+    let pendingAssistantStreamBatch: NumberedAssistantStreamFrame[] = []
+    let snapshotCursor: SessionSeqCursor | undefined
+    let assistantStreamOrdinal = 0
+    const chunkedAssistantAttempts = new Set<SessionAssistantStreamFrame['attemptId']>()
+    // Overflow ends this generation, so admission stops instead of letting a
+    // synchronous producer grow the queue after the bound has been crossed.
+    const accountBufferedFrames = (count: number): boolean => {
+      if (overflow.flag) return false
+      if (bufferedFrameCount + count > DEFAULT_MAX_BUFFERED_EVENTS) {
+        overflow.flag = true
+        return false
+      }
+      bufferedFrameCount += count
+      return true
+    }
+    const pushBuffered = (item: BufferedFollowItem): void => {
+      if (accountBufferedFrames(1)) buffered.pushBack(item)
+    }
+    const flushAssistantStreamBatch = (): void => {
+      if (overflow.flag || pendingAssistantStreamBatch.length === 0) return
+      buffered.pushBack({ type: 'assistant-stream-batch', frames: pendingAssistantStreamBatch })
+      pendingAssistantStreamBatch = []
+      cancelAssistantStreamBatchDeadline()
+    }
+    // A producer slower than one frame per batch size would otherwise leave a
+    // partial batch unread until the next frame joins it. The run is complete
+    // when the producer pauses, and the pause is exactly the latency the reader
+    // sees, so the deadline bounds it instead of waiting for a full batch.
+    let assistantStreamBatchTimer: ReturnType<typeof setTimeout> | undefined
+    const cancelAssistantStreamBatchDeadline = (): void => {
+      if (assistantStreamBatchTimer === undefined) return
+      clearTimeout(assistantStreamBatchTimer)
+      assistantStreamBatchTimer = undefined
+    }
+    let wake: (() => void) | undefined
+    const notify = (): void => {
+      const resume = wake
+      wake = undefined
+      resume?.()
+    }
+    const scheduleAssistantStreamBatchDeadline = (): void => {
+      if (assistantStreamBatchTimer !== undefined) return
+      assistantStreamBatchTimer = setTimeout(() => {
+        assistantStreamBatchTimer = undefined
+        flushAssistantStreamBatch()
+        notify()
+      }, this.assistantStreamBatchDelayMs)
+    }
+    const follower = { closed: false }
+    const close = (): void => {
+      follower.closed = true
+      notify()
+    }
+    this.closeFollowers.add(close)
+    const disposeEvent = this.ctx.on('session/event', (session, event) => {
+      if (session.id !== target) return
+      // A consumer that cannot keep up (a suspended phone leg, a slow tunnel)
+      // would otherwise accumulate every appended event in memory forever.
+      // The listener cannot throw (observers are contained), so overflow is
+      // flagged here and reported by the pump loop below.
+      flushAssistantStreamBatch()
+      pushBuffered({ type: 'event', event })
+      notify()
+    }, { global: true })
+    const disposeCreated = this.ctx.on('session/created', (session) => {
+      if (session.id !== target) return
+      flushAssistantStreamBatch()
+      // Constructor seed events have no session/event notification. Normally
+      // only the end-seed suffix is new; if persistence advanced after the
+      // opening observation, replay everything beyond that snapshot cursor.
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+      const suffix = session.snapshotEvents(snapshotCursor === undefined
+        ? session.firstLiveSeq
+        : SessionLogOffset(snapshotCursor + 1))
+      if (!accountBufferedFrames(suffix.length)) {
+        notify()
+        return
+      }
+      for (let index = suffix.length - 1; index >= 0; index -= 1) {
+        buffered.pushFront({ type: 'event', event: suffix[index] as SessionEvent })
+      }
+      notify()
+    }, { global: true })
+    const disposeAssistantStream = request.assistantStream !== true
+      ? undefined
+      : this.ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+        if (agent.session.id !== target) return
+        const item: NumberedAssistantStreamFrame = {
+          frame: wireAssistantStreamFrame(frame, cursorBeforeNext(agent.session.seq)),
+          ordinal: ++assistantStreamOrdinal,
+        }
+        if (frame.type !== 'chunk') {
+          flushAssistantStreamBatch()
+          chunkedAssistantAttempts.delete(frame.attemptId)
+          pushBuffered({ type: 'assistant-stream', ...item })
+        } else if (this.assistantStreamBatchSize <= 1 || !chunkedAssistantAttempts.has(frame.attemptId)) {
+          flushAssistantStreamBatch()
+          chunkedAssistantAttempts.add(frame.attemptId)
+          pushBuffered({ type: 'assistant-stream', ...item })
+        } else {
+          if (!accountBufferedFrames(1)) {
+            notify()
+            return
+          }
+          pendingAssistantStreamBatch.push(item)
+          const full = pendingAssistantStreamBatch.length >= this.assistantStreamBatchSize
+          if (full) flushAssistantStreamBatch()
+          // A partial batch is not readable yet, and this call only ever added
+          // to a queue that no pump can see: waking the follower here wakes it
+          // for nothing, once per chunk. The batch deadline owns that wakeup.
+          else scheduleAssistantStreamBatchDeadline()
+          if (full) notify()
+          return
+        }
+        notify()
+      }, { global: true })
+    const onAbort = (): void => { notify() }
+    signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      using source = await this.sourceFor(address, signal, true)
+      const events = source.events
+      signal.throwIfAborted()
+      const cursor = source.cursor
+      snapshotCursor = cursor
+      // A cursor at the tail is the common phone-resume case — nothing was
+      // appended while the page was suspended — and it continues with an empty
+      // record list rather than re-sending the window the caller already holds.
+      // A cursor *past* the tail cannot be continued (the caller holds state
+      // this log does not have), so it falls back to an ordinary opening.
+      const continued = request.afterSeq !== undefined
+        && request.afterSeq >= -1
+        && request.afterSeq <= cursor
+      const page = continued
+        ? { events: events.slice(SessionLogOffset(request.afterSeq + 1), events.length), hasMore: true }
+        : paginate(events, undefined, request.maxMessages ?? DEFAULT_MAX_MESSAGES, cursor, request.turnWindow)
+      // A caller that names its Assistant position gets an answer about that
+      // position rather than about its durable cursor alone: only the attempt it
+      // is already rendering may continue, and anything else owes it a complete
+      // prefix. A caller that names none keeps the cursor-only behaviour — a
+      // continuation already holds the durable events the prefix describes, so
+      // metadata alone lets it accept the frames that follow, while an ordinary
+      // opening carries the whole prefix.
+      const opening = request.assistantStream !== true
+        ? undefined
+        : this.assistantStreams.get(target)?.opening(request.assistantCursor, continued)
+          ?? { baseline: { revision: 0 }, outcome: undefined }
+      const assistantStream = opening?.baseline
+      // The accumulator snapshot and this watermark are synchronous. Frames
+      // through the cut are represented or superseded by that baseline,
+      // including larger revisions from a retired Agent; later revision
+      // resets reach Client continuity validation.
+      const assistantStreamOrdinalCut = assistantStreamOrdinal
+      yield {
+        type: 'snapshot',
+        header: wireHeader(source.header),
+        cursor,
+        records: pageRecords(page.events),
+        hasMore: page.hasMore,
+        projections: source.projections === undefined
+          ? { asOfSeq: cursor, values: {} }
+          : projectionBlock(source.projections),
+        ...assistantStream === undefined ? {} : { assistantStream },
+        ...opening?.outcome === undefined ? {} : { assistantCursorApplied: opening.outcome },
+        ...continued ? { continued: true as const } : {},
+      }
+      if (address.kind === 'session' && source.source === 'prepared') {
+        const promotion = source.retain()
+        try {
+          this.promote(promotion)
+        } catch (error: unknown) {
+          promotion[Symbol.dispose]()
+          throw error
+        }
+      }
+      let nextOffset = SessionLogOffset(cursor + 1)
+      while (!follower.closed && !signal.aborted) {
+        if (overflow.flag) {
+          throw new RemoteError('session/stream-overflow', 'session follow buffer exceeded', { maxBufferedEvents: DEFAULT_MAX_BUFFERED_EVENTS })
+        }
+        const item = buffered.popFront()
+        if (item === undefined) {
+          await new Promise<void>((resolve) => { wake = resolve })
+          continue
+        }
+        bufferedFrameCount -= item.type === 'assistant-stream-batch' ? item.frames.length : 1
+        if (item.type === 'assistant-stream') {
+          if (item.ordinal > assistantStreamOrdinalCut) {
+            yield { type: 'assistant-stream', frame: item.frame }
+          }
+          continue
+        }
+        if (item.type === 'assistant-stream-batch') {
+          const frames = item.frames.filter(frame => frame.ordinal > assistantStreamOrdinalCut)
+          if (frames.length > 0) {
+            yield { type: 'assistant-stream-batch', frames: frames.map(frame => frame.frame) }
+          }
+          continue
+        }
+        const expectedSeq = SessionSeq(nextOffset)
+        if (item.event.seq < expectedSeq) continue
+        if (item.event.seq !== expectedSeq) {
+          throw new RemoteError('gateway/internal', `session event stream skipped seq ${String(expectedSeq)}`, {})
+        }
+        nextOffset = SessionLogOffset(nextOffset + 1)
+        yield entryFor(item.event)
+      }
+    } finally {
+      this.closeFollowers.delete(close)
+      signal.removeEventListener('abort', onAbort)
+      disposeCreated()
+      disposeEvent()
+      disposeAssistantStream?.()
+      cancelAssistantStreamBatchDeadline()
+    }
+  }
+
+  private async sourceFor(
+    address: SessionAddress,
+    signal: AbortSignal,
+    withProjections: boolean,
+  ): Promise<SessionObservation> {
+    const sessionId = addressId(address)
+    try {
+      const observation = await this.ctx.sessionQuery.observeSession(sessionId, {
+        signal,
+        projectionMode: withProjections || address.kind === 'subagent' ? 'all' : 'none',
+      })
+      if (observation.header.cwd === undefined) {
+        observation[Symbol.dispose]()
+        rejectNotFound(address)
+      }
+      try {
+        validateAddress(
+          address,
+          observation.header,
+          observation.inheritedEventCount,
+          observation.projections,
+        )
+      } catch (error: unknown) {
+        observation[Symbol.dispose]()
+        throw error
+      }
+      return observation
+    } catch (error: unknown) {
+      if (error instanceof SessionQueryError
+        && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') rejectNotFound(address)
+      throw error
+    }
+  }
+
+}
+
+function cursorBeforeNext(nextSeq: SessionLogOffsetType): SessionSeqCursor {
+  return nextSeq === 0 ? -1 : SessionSeq(nextSeq - 1)
+}
+
+function wireAssistantStreamFrame(
+  frame: AssistantStreamFrame,
+  durableCursor: SessionSeqCursor,
+): SessionAssistantStreamFrame {
+  if (frame.type === 'start') return { ...frame, startedAfterSeq: durableCursor }
+  if (frame.type === 'end') return frame
+  return {
+    ...frame,
+    chunk: frame.chunk as JsonValue,
+  }
+}
+
+function projectionBlock(
+  snapshot: NonNullable<SessionObservation['projections']>,
+): SessionProjectionBaseline {
+  return {
+    asOfSeq: snapshot.asOfSeq,
+    // Projection definitions validate whole JSON values before snapshot publication.
+    values: snapshot.values as SessionProjectionValues,
+  }
+}
+
+/** Translate current logical Session metadata to the browser wire. */
+function wireHeader(header: SessionHeader): SessionWireHeader {
+  return { ...header }
+}
+
+function validatePageRequest(request: SessionPageRequest): void {
+  if (request.throughSeq !== undefined
+    && (!Number.isSafeInteger(request.throughSeq)
+      || request.throughSeq < -1
+      || Object.is(request.throughSeq, -0))) {
+    throw new RemoteError('gateway/bad-request', 'throughSeq must be an integer greater than or equal to -1', {})
+  }
+  if (request.beforeSeq !== undefined
+    && (!Number.isSafeInteger(request.beforeSeq)
+      || request.beforeSeq < 0
+      || Object.is(request.beforeSeq, -0))) {
+    throw new RemoteError('gateway/bad-request', 'beforeSeq must be a non-negative safe integer', {})
+  }
+  validateHistoryWindow(request)
+}
+
+/**
+ * Validate one live-follow request: the history window plus the continuation
+ * cursor.
+ * @param request - the caller's follow request.
+ * @throws when any supplied field is malformed.
+ */
+function validateFollowRequest(request: SessionFollowRequest): void {
+  validateHistoryWindow(request)
+  // A malformed cursor is a caller defect, not a curve to fall back on: the
+  // continuation branch itself answers an in-range cursor that is simply too
+  // old with a complete snapshot.
+  if (request.afterSeq !== undefined
+    && (!Number.isSafeInteger(request.afterSeq) || request.afterSeq < -1)) {
+    throw new RemoteError('gateway/bad-request', 'afterSeq must be an integer >= -1', {})
+  }
+  const cursor = request.assistantCursor
+  if (cursor === undefined) return
+  // A cursor the Host cannot read is a caller defect too. Answering it as a
+  // mismatch would look like a legitimate "replaced" reply and hide the bug.
+  if (request.assistantStream !== true) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor requires assistantStream', {})
+  }
+  if (typeof cursor.attemptId !== 'string' || cursor.attemptId.length === 0) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor.attemptId must be a non-empty string', {})
+  }
+  if (!Number.isSafeInteger(cursor.startedAfterSeq) || cursor.startedAfterSeq < -1) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor.startedAfterSeq must be an integer >= -1', {})
+  }
+  if (!Number.isSafeInteger(cursor.revision) || cursor.revision < 0) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor.revision must be a non-negative integer', {})
+  }
+  if (!Number.isSafeInteger(cursor.nextIndex) || cursor.nextIndex < 0) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor.nextIndex must be a non-negative integer', {})
+  }
+}

@@ -910,7 +910,7 @@ describe('subagent catalogs', () => {
           childSessionId: S2,
           mode: 'continuable',
         },
-        assistantStream: true,
+        activate: true, assistantStream: true,
         maxMessages: 500,
         turnWindow: { minMessages: 50, minTurns: 2 },
       },
@@ -1006,7 +1006,7 @@ describe('subagent catalogs', () => {
     if (source === 'control') {
       manager.handleControlFrame({ type: 'baseline', value: { projections: { [S1]: baseline } } })
     } else {
-      mock.stream(FOLLOW, followScript(ok({ records: [], hasMore: false, projections: baseline })))
+      mock.stream(FOLLOW, followScript(ok({ cursor: baseline.asOfSeq, records: [], hasMore: false, projections: baseline })))
       await session.open()
     }
 
@@ -1031,7 +1031,7 @@ describe('subagent catalogs', () => {
       if (source === 'control') {
         manager.handleControlFrame({ type: 'baseline', value: { projections: { [S1]: baseline } } })
       } else {
-        mock.stream(FOLLOW, followScript(ok({ records: [], hasMore: false, projections: baseline })))
+        mock.stream(FOLLOW, followScript(ok({ cursor: baseline.asOfSeq, records: [], hasMore: false, projections: baseline })))
         await manager.get(S1).open()
       }
       response.resolve(ok({ kind: 'migration-required', values: {
@@ -1593,6 +1593,7 @@ describe('connected generation', () => {
 
   it('refreshes query baselines without rebuilding independently resumed Session sources', async ({ mock, remote, start }) => {
     mock.stream(FOLLOW, followScript(ok({
+      cursor: 5,
       records: entries(plainTurn(SessionSeq(0), 0, 'a', 'b')) as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-chat' },

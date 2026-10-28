@@ -262,20 +262,11 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
-        if (hasText(args.blocked_reason)) {
-          throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
-        }
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
         return Promise.resolve(goalValue(goal))
       }
       if (args.action === 'pause' || args.action === 'resume') {
         requireDirectHuman(ctx, execution)
-        if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasText(args.blocked_reason)) {
-          throw new HarnessError(
-            'objective and max_goal_rounds are valid only with action edit; blocked_reason is valid only with action blocked',
-            'GOAL_TOOL_INVALID_UPDATE',
-          )
-        }
         const current = ctx.goals.get(execution.agent)
         if (args.action === 'resume' && current?.id === ref.id && current.revision === ref.revision
           && current.phase === 'paused') {
@@ -295,15 +286,6 @@ export function apply(ctx: Context, config: Config): void {
           'blocked requires a direct human turn or a goal round; a delegation report may only complete',
           'GOAL_TOOL_AUTHORITY_REQUIRED',
         )
-      }
-      if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds)) {
-        throw new HarnessError(
-          'objective and max_goal_rounds are valid only with action edit',
-          'GOAL_TOOL_INVALID_UPDATE',
-        )
-      }
-      if (args.action === 'complete' && hasText(args.blocked_reason)) {
-        throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
       }
       if (args.action === 'blocked'
         && (args.blocked_reason === undefined || args.blocked_reason.trim().length === 0)) {
@@ -340,11 +322,11 @@ export function apply(ctx: Context, config: Config): void {
     presentCall: args => present(
       `${args.action === 'blocked' ? 'Mark' : args.action.charAt(0).toUpperCase() + args.action.slice(1)} goal`,
       'other',
-      hasText(args.blocked_reason)
+      args.action === 'blocked' && hasText(args.blocked_reason)
         ? args.blocked_reason
-        : hasText(args.objective)
+        : args.action === 'edit' && hasText(args.objective)
           ? args.objective
-          : hasRoundCap(args.max_goal_rounds) ? args.max_goal_rounds : args.goal_id,
+          : args.action === 'edit' && hasRoundCap(args.max_goal_rounds) ? args.max_goal_rounds : args.goal_id,
     ),
   }))
 }

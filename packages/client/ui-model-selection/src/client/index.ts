@@ -180,6 +180,7 @@ export function apply(ctx: ClientContext): void {
           load: () => {
             if (available) directory.load().catch(() => { /* surfaced on the store */ })
           },
+          resolveText: text => ctx.locale.resolveText(text),
           select: (selection: ModelSelection, explicitEffort?: boolean) => available
             ? directory.select(selection, explicitEffort)
             : Promise.resolve(undefined),

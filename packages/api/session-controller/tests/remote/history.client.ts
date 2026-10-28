@@ -2,7 +2,7 @@
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session/types'
 import type {
   SessionAssistantCursorOutcome, SessionAssistantStreamBaseline, SessionFollowFrame, SessionFollowRequest,
-  SessionPage, SessionProjectionBaseline,
+  SessionPage, SessionEventsPage, SessionProjectionBaseline,
 } from '../../src/types.ts'
 import { historyRecordLastSeq } from '../../src/client/sessions/history-records.ts'
 
@@ -12,8 +12,8 @@ import { historyRecordLastSeq } from '../../src/client/sessions/history-records.
  * @param throughSeq - inclusive final sequence.
  * @returns the page without records beyond the cursor.
  */
-export function pageThrough(page: SessionPage, throughSeq: number): SessionPage {
-  return { ...page, records: page.records.filter(record => historyRecordLastSeq(record) <= throughSeq) }
+export function pageThrough(page: SessionPage, throughSeq: number): SessionEventsPage {
+  return { ...page, cursor: throughSeq, records: page.records.filter(record => historyRecordLastSeq(record) <= throughSeq) }
 }
 
 /**

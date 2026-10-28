@@ -26,7 +26,7 @@ import type {
   SessionFollowFrame,
   SessionFollowRequest,
   SessionHistoryRecord,
-  SessionPage,
+  SessionEventsPage,
   SessionPageRequest,
   SessionWireEvent,
 } from '../src/types.ts'
@@ -45,8 +45,8 @@ function entry(seq: number): SessionEventEntry {
   return { type: 'event', event: { type: 'turn/start', seq, time: seq, data: { turn: seq } } }
 }
 
-function page(records: readonly SessionHistoryRecord[], hasMore = false): SessionPage {
-  return { records, hasMore }
+function page(records: readonly SessionHistoryRecord[], hasMore = false): SessionEventsPage {
+  return { cursor: records.at(-1)?.event?.seq ?? -1, records, hasMore }
 }
 
 function snapshot(
@@ -108,7 +108,7 @@ class ScriptedSessionRemote implements SessionTransportRemote {
   constructor(
     private readonly generations: FollowGeneration[],
     /** Page outcomes; a Promise entry lets a fixture keep a page pending forever. */
-    private readonly pages: (RemoteResult<SessionPage> | Promise<RemoteResult<SessionPage>>)[],
+    private readonly pages: (RemoteResult<SessionEventsPage> | Promise<RemoteResult<SessionEventsPage>>)[],
     private readonly controlFrames: readonly SessionControlFrame[] = [],
     private readonly holdControl = true,
     /** Per-generation control frames; each generation yields its own slice. */
@@ -137,13 +137,13 @@ class ScriptedSessionRemote implements SessionTransportRemote {
     }
   }
 
-  page(request: SessionPageRequest): Promise<RemoteResult<SessionPage>> {
+  page(request: SessionPageRequest): Promise<RemoteResult<SessionEventsPage>> {
     this.pageRequests.push(request)
     const result = this.pages.shift()
     if (result === undefined) throw new Error('no scripted Session page')
-    return typeof result === 'object' && typeof (result as Promise<RemoteResult<SessionPage>>).then === 'function'
-      ? result as Promise<RemoteResult<SessionPage>>
-      : Promise.resolve(result as RemoteResult<SessionPage>)
+    return typeof result === 'object' && typeof (result as Promise<RemoteResult<SessionEventsPage>>).then === 'function'
+      ? result as Promise<RemoteResult<SessionEventsPage>>
+      : Promise.resolve(result as RemoteResult<SessionEventsPage>)
   }
 
   control(signal = new AbortController().signal): RemoteStreamHandle<SessionControlFrame, never> {
@@ -342,7 +342,7 @@ describe('Session Client stream adapters', () => {
     await stream.open({})
     await vi.waitFor(() => { expect(changes).toHaveLength(2) })
 
-    expect(remote.followRequests).toEqual([{ address: ADDRESS, assistantStream: true }])
+    expect(remote.followRequests).toEqual([{ address: ADDRESS, activate: true, assistantStream: true }])
     expect(changes).toMatchObject([
       { type: 'replace', page: { assistantStream: baseline } },
       { type: 'assistant-stream', frame },
@@ -450,7 +450,7 @@ describe('Session Client stream adapters', () => {
         code: 'gateway/internal',
         message: 'session event stream emitted an entry before its opening cursor',
       })
-      expect(remote.followRequests).toEqual([{ address: ADDRESS, assistantStream: true }])
+      expect(remote.followRequests).toEqual([{ address: ADDRESS, activate: true, assistantStream: true }])
     } finally {
       await stream.dispose()
     }
@@ -615,7 +615,7 @@ describe('Session Client stream adapters', () => {
     await stream.prepend({ beforeSeq: 2, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } })
 
     expect(remote.followRequests).toEqual([{
-      address: ADDRESS, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 },
+      address: ADDRESS, activate: true, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 },
     }])
     expect(remote.pageRequests).toEqual([
       { address: ADDRESS, throughSeq: 4, beforeSeq: 2, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
@@ -656,8 +656,11 @@ describe('Session Client stream adapters', () => {
     // applied (entry(2) -> seq 2) so the Host can answer with the gap; the first
     // generation has nothing to continue from and claims no cursor.
     expect(remote.followRequests).toEqual([
-      { address: ADDRESS, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
-      { address: ADDRESS, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 }, afterSeq: 2 },
+      { address: ADDRESS, activate: true, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
+      {
+        address: ADDRESS, activate: true, assistantStream: true, maxMessages: 500,
+        turnWindow: { minMessages: 50, minTurns: 2 }, afterSeq: 2,
+      },
     ])
     expect(remote.pageRequests).toEqual([])
     expect(changes.map(change => change.type)).toEqual(['replace', 'append', 'replace'])
@@ -715,7 +718,7 @@ describe('Session Client stream adapters', () => {
         },
         { frames: [snapshot(3, [entry(0), entry(1), entry(2), entry(3)])], hold: true },
       ],
-      [new Promise<RemoteResult<SessionPage>>(() => {})],
+      [new Promise<RemoteResult<SessionEventsPage>>(() => {})],
     )
     const changes: SessionJournalChange[] = []
     const carrierFailed = vi.fn()
@@ -799,8 +802,8 @@ describe('Session Client stream adapters', () => {
     finish.resolve(undefined)
     await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
     expect(remote.followRequests).toEqual([
-      { address: ADDRESS, assistantStream: true },
-      { address: ADDRESS, assistantStream: true, afterSeq: 0 },
+      { address: ADDRESS, activate: true, assistantStream: true },
+      { address: ADDRESS, activate: true, assistantStream: true, afterSeq: 0 },
     ])
     expect(remote.pageRequests).toEqual([])
     await stream.dispose()
