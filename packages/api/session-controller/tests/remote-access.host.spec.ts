@@ -87,9 +87,9 @@ async function harness(): Promise<{
   await ctx.plugin(TypertRegistry)
   await mountAgentLoopTestDependencies(ctx)
   const loop = await mountAgentLoopTestHarness(ctx)
-  // A turn that cannot reach a registered model fails, and the failure path
-  // returns the claimed message to next-turn, so an unserved selection would
-  // replay one prompt through several turns instead of admitting it once.
+  // Turns must complete for the durable splice log to record one source per
+  // prompt; an unserved selection fails before admission and each failure
+  // returns its claimed message to next-turn.
   ctx.llm.registerAdapter(['p'], new MockAdapter([textResponse('ok'), textResponse('ok')]))
   const shared = await loop.create(SHARED, { provider: 'p', model: 'm' }, { cwd: '/tmp' })
   const hidden = await loop.create(PRIVATE, { provider: 'p', model: 'm' }, { cwd: '/tmp' })
