@@ -53,9 +53,20 @@ const REAUTHORIZE_INTERVAL_MS = 30_000
 const PONG_MISS_MAX = 3
 /** Deflate window shared with the Gateway mux for repetitive history JSON. */
 const WS_DEFLATE_WINDOW_BITS = 15
+/**
+ * Smallest relayed message worth deflating, in bytes.
+ *
+ * `perMessageDeflate.threshold` does not decide this: `ws` accepts the option
+ * and never reads it, so a socket created with compression deflates every
+ * message it sends. A streamed reply is a long run of small JSON frames, and
+ * each one would pay a deflate call plus a 7-bit block header on top of a
+ * payload that barely shrinks. Relaying decides per frame instead, at the size
+ * where deflate starts to win.
+ */
+const WS_DEFLATE_MIN_BYTES = 1_024
 /** Per-message compression settings applied independently to both relay hops. */
 const WS_DEFLATE_OPTIONS = {
-  threshold: 1_024,
+  threshold: WS_DEFLATE_MIN_BYTES,
   zlibDeflateOptions: { level: 4, windowBits: WS_DEFLATE_WINDOW_BITS },
   zlibInflateOptions: { windowBits: WS_DEFLATE_WINDOW_BITS },
 } as const
@@ -253,7 +264,12 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       })
       downstream.on('pong', () => { unansweredPings = 0 })
       upstream.on('open', () => {
-        for (const frame of pending) upstream.send(frame.data, { binary: frame.isBinary })
+        for (const frame of pending) {
+          upstream.send(frame.data, {
+            binary: frame.isBinary,
+            compress: payloadBytes(frame.data) >= WS_DEFLATE_MIN_BYTES,
+          })
+        }
         pending.length = 0
         pendingBytes = 0
       })
@@ -270,7 +286,10 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
           closePair()
           return
         }
-        downstream.send(data, { binary: isBinary })
+        downstream.send(data, {
+          binary: isBinary,
+          compress: payloadBytes(data) >= WS_DEFLATE_MIN_BYTES,
+        })
       })
       downstream.on('message', (data, isBinary) => {
         if (upstream.readyState === WebSocket.OPEN) {
@@ -279,7 +298,10 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
             closePair()
             return
           }
-          upstream.send(data, { binary: isBinary })
+          upstream.send(data, {
+            binary: isBinary,
+            compress: payloadBytes(data) >= WS_DEFLATE_MIN_BYTES,
+          })
         } else if (pendingBytes + payloadBytes(data) <= internals.pendingMaxBytes) {
           pending.push({ data, isBinary })
           pendingBytes += payloadBytes(data)
