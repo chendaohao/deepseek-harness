@@ -293,8 +293,14 @@ describe('enabled', () => {
     // The relay dials the real Web server, so a bind that has not happened yet
     // is a composition error worth naming instead of dialling port undefined.
     unprovideWebServer()
-    fakeWebServer = { port: undefined, host: '127.0.0.1', register: vi.fn(() => () => {}) }
-    context!.provide('webServer', fakeWebServer)
+    // The port is absent, not merely zero: the Service must report that rather
+    // than dial a listener that never bound. The real service reads the port off
+    // the Web server interface, which the fixture cannot narrow without it.
+    const unbound: Omit<FakeWebServer, 'port'> & { readonly port?: number } = {
+      host: '127.0.0.1',
+      register: vi.fn(() => () => {}),
+    }
+    context!.provide('webServer', unbound as FakeWebServer)
 
     await expect(boot()).rejects.toThrow('the Web server has not bound a port')
     expect(tunnel.openPorts).toHaveLength(0)
