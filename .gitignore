@@ -52,3 +52,6 @@ native/system/test/bin/
 .omc/
 apps/mobile/
 *.tgz
+
+# fork-local working notes (tracked by origin/master until 2026-10-28)
+TODO.md
