@@ -54,7 +54,7 @@ const selection = ctx.agentDefaultModel.currentSelection()
 await ctx.agentDefaultModel.saveSelection({ provider, model, reasoningEffort: 'high' })
 ```
 
-没有配置编辑器时，`saveSelection()` 不执行写入。此服务不验证目录成员资格；发起模型请求的消费者负责可用性诊断。
+没有配置编辑器时，`saveSelection()` 不执行写入。此服务不验证目录成员资格；发起模型请求的消费者负责可用性诊断。它也不决定何时改默认值：会话控制器只从尚未记录任何回合的会话保存选择，因此在已开始的对话里切换模型只影响该对话。
 
 ### 按模型记忆推理强度
 

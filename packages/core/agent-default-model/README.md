@@ -54,7 +54,7 @@ const selection = ctx.agentDefaultModel.currentSelection()
 await ctx.agentDefaultModel.saveSelection({ provider, model, reasoningEffort: 'high' })
 ```
 
-Without a configuration editor, `saveSelection()` is a no-op. The service does not validate catalog membership; the consumer opening a model request owns availability diagnostics.
+Without a configuration editor, `saveSelection()` is a no-op. The service does not validate catalog membership; the consumer opening a model request owns availability diagnostics. It also does not decide when a default changes: the Session controller saves a pick only from a Session with no recorded turn, so switching models inside a started conversation stays local to that conversation.
 
 ### Per-model effort memory
 

@@ -31,6 +31,7 @@ import {
   ApiSessionSubagentOwnership,
   apiSessionSubagentOwnershipError,
   hasApiSessionSubagentOwner,
+  isBlankSession,
   type ApiSessionCreated,
 } from './agent.ts'
 import type {
@@ -145,12 +146,14 @@ export class SessionCommandController {
   }
 
   /**
-   * Validate and record one Session model selection, saving the default in
-   * the background. A plain model switch (no effort) resolves the adapter
-   * default first, then the route's remembered effort when one exists; an
-   * explicit effort is honored as sent and remembered for the resolved route;
-   * an explicit provider-default pick clears the memory. Memory writes are
-   * best-effort like the default save.
+   * Validate and record one Session model selection. A Session that has not
+   * started a turn also saves the selection as the deployment default in the
+   * background; one that has keeps the pick to itself, so a task overriding
+   * its route cannot retarget later Sessions. A plain model switch (no effort)
+   * resolves the adapter default first, then the route's remembered effort when
+   * one exists; an explicit effort is honored as sent and remembered for the
+   * resolved route; an explicit provider-default pick clears the memory.
+   * Memory writes are best-effort like the default save.
    * @param request - Session identity, requested selection, and effort explicitness.
    * @returns the normalized selection recorded for the Session, without waiting for default persistence.
    */
@@ -216,11 +219,17 @@ export class SessionCommandController {
         }
         await this.ctx.llm.resolveCallConfig(selected)
         agent.model.select(selected)
-        void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
-          this.ctx.logger.warn(
-            `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
-          )
-        })
+        // Only an unstarted Session's pick states a preference about later
+        // Sessions. A started conversation switching models is overriding its
+        // own route; writing that route into the deployment default would turn
+        // one task's choice into every future Session's default.
+        if (isBlankSession(this.ctx, agent.session)) {
+          void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
+            this.ctx.logger.warn(
+              `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
+            )
+          })
+        }
         return { selected: { ...selected } }
       } catch (error) {
         if (remoteErrorOf(error) !== undefined) throw error

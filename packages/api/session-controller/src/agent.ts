@@ -122,6 +122,21 @@ export function apiSessionSubagentOwnershipError(sessionId: SessionId): ApiSessi
   )
 }
 
+/**
+ * Whether a Session has no recorded turn yet.
+ *
+ * This is the predicate the preset registry's `select` enforces before it
+ * applies a preset, shared with the model-selection entry points that may only
+ * change the deployment default from a Session the user has not started.
+ * @param ctx - Host context carrying the Agent registry's turn-boundary projection.
+ * @param session - attached or live Session to test.
+ * @returns whether no turn has started.
+ */
+export function isBlankSession(ctx: Context, session: Session): boolean {
+  const boundary = ctx.agents.turnBoundaryOf(session)
+  return boundary.openTurnStartSeq === null && boundary.lastTurn === 0
+}
+
 /** Owns every operation that may create, resume, or configure a Web Agent. */
 export class ApiSessionAgentController {
   private readonly resumes = new Map<SessionId, Promise<Agent>>()
@@ -426,8 +441,7 @@ export class ApiSessionAgentController {
 
   /** Whether no turn has started, by the predicate the preset registry's `select` enforces. */
   private isBlank(session: Session): boolean {
-    const boundary = this.ctx.agents.turnBoundaryOf(session)
-    return boundary.openTurnStartSeq === null && boundary.lastTurn === 0
+    return isBlankSession(this.ctx, session)
   }
 
   /** Without a roster, reuse cannot apply a named preset. */

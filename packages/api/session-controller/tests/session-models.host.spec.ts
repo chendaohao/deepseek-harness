@@ -716,6 +716,47 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('keeps a started Session’s model switch out of the deployment default', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const saved: unknown[] = []
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: (selection) => { saved.push(selection) },
+      cwd: '/tmp',
+    })
+
+    // A task overriding its own route must not retarget every later Session.
+    agent.session.append('turn/start', { turn: 1 })
+    const switched = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+    })))
+    expect(switched.selected).toEqual({
+      provider: 'deepseek-official',
+      model: 'deepseek-reasoner',
+      reasoningEffort: 'max',
+    })
+    expect(currentSelection(ctx, sessionId)).toEqual(switched.selected)
+    expect(saved).toEqual([])
+
+    // The same deployment still learns a default from an unstarted Session.
+    const fresh = await harness()
+    onTestFinished(() => fresh.ctx.fiber.dispose())
+    const freshSaved: unknown[] = []
+    const freshRemote = await createSessionTestRemote(fresh.ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: (selection) => { freshSaved.push(selection) },
+      cwd: '/tmp',
+    })
+    expectValue(await freshRemote.selectModel(request({
+      sessionId: fresh.sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner',
+    })))
+    // The adapter's declared default effort rides along, as any saved default does.
+    expect(freshSaved).toEqual([
+      { provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'high' },
+    ])
+    await ctx.fiber.dispose()
+  })
+
   it('admits saved selections without querying the advisory model catalog', async () => {
     const { ctx, sessionId, agent } = await harness()
     const followup = vi.fn()

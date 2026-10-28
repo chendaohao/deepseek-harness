@@ -1,8 +1,11 @@
-// Web e2e scenario: switching models in the composer is how this deployment's
-// default is chosen. The gesture writes the shared `agent-default-model` settings section, a
-// session created afterwards starts from it, and a session that already logged
-// a route keeps deriving from its own log — the tier order the gateway
-// resolves on every read.
+// Web e2e scenario: switching models in the composer of a conversation with no
+// turn yet is how this deployment's default is chosen. The gesture writes the
+// shared `agent-default-model` settings section, a session created afterwards
+// starts from it, and a session that already logged a route keeps deriving from
+// its own log — the tier order the gateway resolves on every read. A started
+// conversation keeps its switch to itself; the Host suite proves that path
+// (`session-models.host.spec.ts`), because proving it here would need a model
+// call and this scenario deliberately makes none.
 // Zero model calls: the switch is settings/llm-domain traffic only, so there
 // is no fixture and a stray stream would fail loud because the adapter registry is empty. Both
 // routes are declared host-side (not through the UI, which has its own
@@ -30,7 +33,7 @@ const START_MODEL = 'origin-large'
 const ROUTE = 'acme-gateway'
 const MODEL = 'acme-large'
 
-describe('web e2e: the composer model switch is the default for later sessions', () => {
+describe('web e2e: an unstarted composer model switch is the default for later sessions', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
