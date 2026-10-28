@@ -184,7 +184,9 @@ class ClientRemoteService extends Service implements ClientRemote {
       // Phone web only: the browser transport owns the mux socket, and a
       // suspended phone page is the one case whose socket dies without a
       // close event. The installer is inert off a phone and outside a browser.
-      this.stopForegroundResync = installForegroundResync(this.streams)
+      this.stopForegroundResync = installForegroundResync(this.streams, {
+        reconnect: () => { connection.reconnect() },
+      })
     }
     let disposed = false
     let loop: ReturnType<ConnectionHandle['start']> | undefined

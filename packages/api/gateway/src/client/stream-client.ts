@@ -690,6 +690,8 @@ function remoteStreamUrl(): string {
 
 /** Injection seams for {@link installForegroundResync}. */
 export interface ForegroundResyncOptions {
+  /** Immediate Connection recovery to run before the mux recycle. */
+  readonly reconnect?: () => void
   /** Phone-web gate; defaults to {@link isPhoneWeb}. */
   readonly isPhone?: () => boolean
   /** Page-lifecycle targets; defaults to the browser `document` and `window`. */
@@ -721,7 +723,7 @@ export function isPhoneWeb(): boolean {
  * desktop tab switch keeps the socket healthy and must not churn every open
  * stream. Outside a browser or off a phone this installs nothing.
  * @param client - the mux client whose socket the foreground return recycles.
- * @param options - phone gate and page-lifecycle seams for tests.
+ * @param options - Connection recovery, phone gate, and page-lifecycle seams.
  * @returns an uninstaller.
  */
 export function installForegroundResync(
@@ -740,11 +742,15 @@ export function installForegroundResync(
   const readVisibility = options.visibilityState ?? (documentRef === undefined
     ? (): string => 'visible'
     : (): string => documentRef.visibilityState)
+  const resume = (): void => {
+    options.reconnect?.()
+    client.resume()
+  }
   const onVisibility = (): void => {
-    if (readVisibility() === 'visible') client.resume()
+    if (readVisibility() === 'visible') resume()
   }
   const onPageShow = (event: Event): void => {
-    if ((event as PageTransitionEvent).persisted) client.resume()
+    if ((event as PageTransitionEvent).persisted) resume()
   }
   visibilityTarget.addEventListener('visibilitychange', onVisibility)
   pageTarget.addEventListener('pageshow', onPageShow)

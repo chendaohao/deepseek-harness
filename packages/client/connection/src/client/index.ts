@@ -199,8 +199,10 @@ interface ConnectionOwner {
   readonly stopNetworkWatch: () => void
 }
 
-/** Network Information API surface: fires on an effective-connection change, not only on an offline gap. */
+/** Network Information API surface: carrier identity and quality estimates share one change event. */
 interface NetworkInformationTarget {
+  readonly type?: string
+  readonly effectiveType?: string
   addEventListener(type: 'change', listener: () => void): void
   removeEventListener(type: 'change', listener: () => void): void
 }
@@ -261,14 +263,24 @@ function watchBrowserNetwork(controller: ConnectionController): () => void {
     if (network.onLine === false) controller.reconnect()
   }
   controller.setNetworkAvailable(initiallyAvailable)
-  // Network Information is a Chrome-family API whose change event fires on an
-  // effective-connection change — the phone moving between cellular and Wi-Fi —
-  // even when no offline gap was observed at all. Safari implements neither it
-  // nor a switch signal, which is what the liveness deadline and the foreground
-  // re-read cover.
+  // Network Information also fires for RTT and downlink estimates. Only a
+  // carrier identity or effective-type change proves a switch; when the browser
+  // exposes neither field, retain the event as the only available switch signal.
   const networkInfo = network.connection
+  let previousType = networkInfo?.type
+  let previousEffectiveType = networkInfo?.effectiveType
+  let hasCarrierFields = previousType !== undefined || previousEffectiveType !== undefined
   let switchTimer: ReturnType<typeof setTimeout> | undefined
   const switched = (): void => {
+    const nextType = networkInfo?.type
+    const nextEffectiveType = networkInfo?.effectiveType
+    hasCarrierFields ||= nextType !== undefined || nextEffectiveType !== undefined
+    const unchanged = hasCarrierFields
+      && nextType === previousType
+      && nextEffectiveType === previousEffectiveType
+    previousType = nextType
+    previousEffectiveType = nextEffectiveType
+    if (unchanged) return
     if (switchTimer !== undefined) clearTimeout(switchTimer)
     switchTimer = setTimeout(() => {
       switchTimer = undefined

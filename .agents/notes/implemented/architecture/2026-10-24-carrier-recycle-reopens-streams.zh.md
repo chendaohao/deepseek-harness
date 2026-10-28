@@ -30,7 +30,7 @@ Status: implemented
 
 **`Session` 吸收仍然会落到它身上的可重试失败。** `failEventStream` 和终态失败的 `doOpen` 按同一节奏安排一次自动重开，并在 `dispose()` 与 `resync()` 时取消。只吸收本客户端层自己拥有的码——`gateway/internal`、`gateway/cancelled` 与 `session/stream-overflow` 命名的是传输或 journal 条件，其修复方式就是一次新的 opening。Host 点名的判决（`session/not-found` 及其同类）不重试，因为重开只会重复它。
 
-**触发侧移除了两处冗余中断。** Network Information 的 `change` 处理器防抖 1.5 秒：射频转换会报告一串事件，只有其中最后一个描述了页面实际会使用的载体。`RemoteStreamMuxClient.reconnect()` 消费一个由自身回收设置的一次性标记，因此一次有意回收所引发的替换请求被视为已满足；更晚的请求照常替换。该标记把仍在拨号中的替代也算作已满足，而不只是已经打开的——为什么"只认已打开"的判断在手机上从未成立，见[重连不再重建页面已经显示的内容](2026-10-26-reconnect-stops-rebuilding-published-state.zh.md)。
+**触发侧移除了两处冗余中断。** Network Information 的 `change` 处理器防抖 1.5 秒：射频转换会报告一串事件，只有其中最后一个描述了页面实际会使用的载体。只有 `type` 或 `effectiveType` 变化会进入这段防抖；仅 RTT/downlink 变化会被忽略，而两个字段都未暴露的浏览器保留原有重连兜底。`RemoteStreamMuxClient.reconnect()` 消费一个由自身回收设置的一次性标记，因此一次有意回收所引发的替换请求被视为已满足；更晚的请求照常替换。该标记把仍在拨号中的替代也算作已满足，而不只是已经打开的——为什么"只认已打开"的判断在手机上从未成立，见[重连不再重建页面已经显示的内容](2026-10-26-reconnect-stops-rebuilding-published-state.zh.md)。
 
 ## 考虑过的替代方案
 
@@ -54,4 +54,4 @@ Session 层的重开使浏览器的错误态变成瞬态。想观察 `openState 
 
 ## 测试
 
-`packages/api/gateway/tests/control-retry.client.spec.ts` 钉住节奏与边界两侧：generation 当前时的反复重开、有限的 opening 前预算、增长的延迟，以及丢失 generation 时不变的等待。`packages/api/session-controller/tests/session.client.spec.ts` 钉住 Session 的吸收行为，以及它拒绝重开 Host 点名的失败。`packages/client/connection/tests/client-apply.client.spec.ts` 钉住突发防抖及其产生的单次中断。
+`packages/api/gateway/tests/control-retry.client.spec.ts` 钉住节奏与边界两侧：generation 当前时的反复重开、有限的 opening 前预算、增长的延迟，以及丢失 generation 时不变的等待。`packages/api/session-controller/tests/session.client.spec.ts` 钉住 Session 的吸收行为，以及它拒绝重开 Host 点名的失败。`packages/client/connection/tests/browser-network.client.spec.ts` 钉住质量指标过滤、真实类型变化的突发防抖，以及字段缺失时的重连兜底。
