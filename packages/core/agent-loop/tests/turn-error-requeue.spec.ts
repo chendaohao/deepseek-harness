@@ -199,4 +199,31 @@ describe('agent/turn-error-requeue', () => {
     ])
     expect(adapter.requests).toHaveLength(1)
   })
+
+  it('returns the batch without resuming when the Agent has no model selection', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    // No AgentOptions provider/model and no recorded selection: every turn
+    // fails before asking the model, so a resume could only fail the same way.
+    const agent = await ctx.agentLoop.create(SessionId('requeue-no-selection'))
+    const message = text('needs a model')
+    agent.followup(message)
+    await agent.whenIdle()
+
+    expect(turnEndings(agent.session)).toEqual(['error'])
+    expect(agent.inbox.nextTurn.map(pending => pending.id)).toEqual([message.id])
+    expect(admissions(agent.session, message.id)).toBe(0)
+    expect(adapter.requests).toHaveLength(0)
+  })
+
+  it('reports the failed turn as an unresolvable selection rather than an unclassified failure', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('unused')]))
+    const agent = await ctx.agentLoop.create(SessionId('requeue-no-selection-code'))
+    agent.followup(text('needs a model'))
+    await agent.whenIdle()
+
+    const endings = agent.session.snapshotEvents().filter(event => event.type === 'turn/end')
+    expect(endings.map(event => event.data.reason.kind === 'error' ? event.data.reason.error.code : event.data.reason.kind))
+      .toEqual(['NO_MODEL_SELECTION'])
+  })
 })

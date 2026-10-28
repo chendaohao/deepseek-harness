@@ -213,7 +213,10 @@ export interface TurnEndReasonMap {
    * The turn failed. `error` is always a structured failure: the `LlmError`
    * facts verbatim, or `{ message: errorChain(error), code }` flattened from
    * any other error, where `code` is `TOOL_ACTIVATION_FAILED` for a failed
-   * tool condition and `UNKNOWN` otherwise.
+   * tool condition, `NO_MODEL_SELECTION` when the turn opened without a model
+   * to request, and `UNKNOWN` otherwise. The first two are failures a retry
+   * cannot clear, so a reader deciding whether to retry must not treat every
+   * non-`UNKNOWN` code as final.
    */
   error: { kind: 'error'; error: LlmFailure }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */

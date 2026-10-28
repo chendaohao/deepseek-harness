@@ -62,11 +62,21 @@ type Phase =
   }
 
 /**
+ * Failure code for a turn that cannot open its first step at all: the driver
+ * has no model selection to request, so no retry of the same turn can change
+ * the outcome. It shares the `UNKNOWN`-flattened message text with every other
+ * non-`LlmError` failure but must stay out of {@link RESUMABLE_TURN_CODES},
+ * which reserves its one automatic resume for failures a retry could clear.
+ */
+const UNRESOLVED_SELECTION_CODE = 'NO_MODEL_SELECTION'
+
+/**
  * Turn-failure codes one automatic resume could clear: the transient classes
  * the llm retry policy retries per request, plus UNKNOWN for unclassified
  * failures. Deterministic rejections (AUTH, INVALID_REQUEST, QUOTA,
  * ACCOUNT_QUOTA, TOOL_ACTIVATION_FAILED) keep the previous fail-closed
- * behavior.
+ * behavior, and {@link UNRESOLVED_SELECTION_CODE} joins them: resuming spends
+ * the turn's one retry on a configuration no retry can supply.
  */
 const RESUMABLE_TURN_CODES: ReadonlySet<string> = new Set([
   EMPTY_RESPONSE_CODE,
@@ -333,7 +343,10 @@ export class ReactLoopAgent implements Agent {
     if (claimSink !== undefined) claimSink.messages = claimed
     const selection = this.model.current()
     if (selection === undefined) {
-      throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`)
+      throw new LlmError(
+        `agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`,
+        UNRESOLVED_SELECTION_CODE,
+      )
     }
     const toolSet = await this.loopCtx.tools.resolve({ agent: this, modelSelection: selection, signal })
     try {
