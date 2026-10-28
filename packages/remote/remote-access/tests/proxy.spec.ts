@@ -294,6 +294,60 @@ describe('WebSocket relaying', () => {
     await expect(rejected).resolves.toEqual({ code: 401 })
   })
 
+  it('relays a small frame uncompressed and a large one compressed on the same socket', async () => {
+    for (const client of wss?.clients ?? []) client.terminate()
+    await new Promise<void>((resolve) => { wss?.close(() => { resolve() }) })
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0, perMessageDeflate: { threshold: 0 } })
+    await new Promise<void>((resolve) => { wss!.once('listening', resolve) })
+    echoPort = (wss.address() as AddressInfo).port
+    const small = JSON.stringify({ type: 'assistant-stream', t: 'a' })
+    const large = JSON.stringify({ type: 'assistant-stream', text: 'remote-access-'.repeat(8_192) })
+    // The frames are distinguished by content length so one read can assert
+    // both decisions without depending on socket timing.
+    wss.on('connection', (socket) => {
+      socket.send(small)
+      socket.send(large)
+    })
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+    })
+
+    const frames = await readFrames(proxy.port, 2)
+    expect(Buffer.byteLength(small)).toBeLessThan(1_024)
+    expect(frames[0]!.compressed).toBe(false)
+    expect(frames[0]!.payloadBytes).toBe(Buffer.byteLength(small))
+    // A small frame earns nothing from deflate and pays a deflate call plus a
+    // block header; the large one still has to shrink.
+    expect(frames[1]!.compressed).toBe(true)
+    expect(frames[1]!.payloadBytes).toBeLessThan(Buffer.byteLength(large))
+  })
+
+  it('preserves the binary flag on a compressed and an uncompressed frame', async () => {
+    for (const client of wss?.clients ?? []) client.terminate()
+    await new Promise<void>((resolve) => { wss?.close(() => { resolve() }) })
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0, perMessageDeflate: { threshold: 0 } })
+    await new Promise<void>((resolve) => { wss!.once('listening', resolve) })
+    echoPort = (wss.address() as AddressInfo).port
+    const small = Buffer.from('binary-small')
+    const large = Buffer.alloc(4_096, 7)
+    wss.on('connection', (socket) => {
+      socket.send(small)
+      socket.send(large)
+    })
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+    })
+
+    const frames = await readFrames(proxy.port, 2)
+    // `compress` rides in RSV1; the opcode must stay binary either way.
+    expect(frames[0]).toMatchObject({ compressed: false, binary: true })
+    expect(frames[1]).toMatchObject({ compressed: true, binary: true })
+  })
+
   it('negotiates deflate and reduces a large repetitive downlink frame', async () => {
     for (const client of wss?.clients ?? []) client.terminate()
     await new Promise<void>((resolve) => { wss?.close(() => { resolve() }) })
@@ -643,17 +697,38 @@ describe('createAccessPolicy integration', () => {
 
 /** Read one server-to-client frame after offering permessage-deflate. */
 async function readFirstFrame(port: number): Promise<{ handshake: string; compressed: boolean; payloadBytes: number }> {
+  const frames = await readFrames(port, 1)
+  const first = frames[0]!
+  return { handshake: first.handshake, compressed: first.compressed, payloadBytes: first.payloadBytes }
+}
+
+/**
+ * Read `count` server-to-client frames from one upgraded socket.
+ *
+ * The frames stay raw on purpose: RSV1 is the only direct evidence that the
+ * relay compressed a frame, and the negotiated extension hides that decision
+ * from any WebSocket client that would inflate it.
+ * @param port - relay port to connect to.
+ * @param count - number of complete frames to read before closing.
+ * @returns each frame's handshake, RSV1 flag, opcode-derived binary flag, and payload length.
+ */
+async function readFrames(
+  port: number,
+  count: number,
+): Promise<{ handshake: string; compressed: boolean; binary: boolean; payloadBytes: number }[]> {
   const socket = connect(port, '127.0.0.1')
   await once(socket, 'connect')
   const iterator = socket[Symbol.asyncIterator]()
   let buffered = Buffer.alloc(0)
-  const readBytes = async (count: number): Promise<Buffer> => {
-    while (buffered.length < count) {
+  const readBytes = async (wanted: number): Promise<Buffer> => {
+    while (buffered.length < wanted) {
       const next = await iterator.next()
       if (next.done === true) throw new Error('WebSocket closed before a complete frame arrived')
       buffered = Buffer.concat([buffered, next.value])
     }
-    return buffered.subarray(0, count)
+    const taken = buffered.subarray(0, wanted)
+    buffered = buffered.subarray(wanted)
+    return taken
   }
   try {
     socket.write([
@@ -675,22 +750,23 @@ async function readFirstFrame(port: number): Promise<{ handshake: string; compre
     }
     const handshake = buffered.subarray(0, headerEnd).toString('utf8')
     buffered = buffered.subarray(headerEnd + 4)
-    const first = await readBytes(2)
-    const compressed = (first[0]! & 0x40) !== 0
-    const masked = (first[1]! & 0x80) !== 0
-    let payloadBytes = first[1]! & 0x7f
-    let offset = 2
-    if (payloadBytes === 126) {
-      payloadBytes = (await readBytes(4)).readUInt16BE(2)
-      offset = 4
-    } else if (payloadBytes === 127) {
-      const wide = (await readBytes(10)).readBigUInt64BE(2)
-      if (wide > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('frame is too large to measure')
-      payloadBytes = Number(wide)
-      offset = 10
+    const frames: { handshake: string; compressed: boolean; binary: boolean; payloadBytes: number }[] = []
+    for (let index = 0; index < count; index++) {
+      const first = await readBytes(2)
+      const compressed = (first[0]! & 0x40) !== 0
+      const binary = (first[0]! & 0x0f) === 0x02
+      const masked = (first[1]! & 0x80) !== 0
+      let payloadBytes = first[1]! & 0x7f
+      if (payloadBytes === 126) payloadBytes = (await readBytes(2)).readUInt16BE(0)
+      else if (payloadBytes === 127) {
+        const wide = (await readBytes(8)).readBigUInt64BE(0)
+        if (wide > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('frame is too large to measure')
+        payloadBytes = Number(wide)
+      }
+      await readBytes(payloadBytes + (masked ? 4 : 0))
+      frames.push({ handshake, compressed, binary, payloadBytes })
     }
-    await readBytes(offset + payloadBytes + (masked ? 4 : 0))
-    return { handshake, compressed, payloadBytes }
+    return frames
   } finally {
     socket.destroy()
   }

@@ -15,6 +15,7 @@ import type {
   QueueAction,
   SessionAddress,
   SessionAssistantStreamBaseline,
+  SessionAssistantStreamFrame,
   SessionProjectionBaseline,
   SessionRequestId,
 } from '../../types.ts'
@@ -735,7 +736,31 @@ export class Session implements SessionFace {
         return
       case 'assistant-stream':
         this.publishAssistantEntry(this.assistantStream.acceptFrame(change.frame))
+        return
+      case 'assistant-streams':
+        this.acceptAssistantBatch(change.frames)
     }
+  }
+
+  /**
+   * Fold one Host message's consecutive Assistant frames as one publication.
+   *
+   * The dense chunks of a streamed reply arrive in groups; appending each row
+   * on its own would publish a window revision, a feed notification, and a
+   * notifier wakeup per row. A frame that ends the transient run — a durable
+   * publication, settlement, abandonment, or rebaseline — goes through the
+   * single-frame path so its own ordering against the already-accepted rows is
+   * preserved.
+   * @param frames - consecutive Assistant stream frames from one message.
+   */
+  private acceptAssistantBatch(frames: readonly SessionAssistantStreamFrame[]): void {
+    if (frames.length === 0) return
+    const { transients, stop } = this.assistantStream.acceptFrames(frames)
+    if (transients.length > 0) {
+      this.eventSource.appendMany(transients)
+      this.notifier.markDirty()
+    }
+    this.publishAssistantEntry(stop)
   }
 
   /**
@@ -769,10 +794,12 @@ export class Session implements SessionFace {
     // resumed attempt. The returned rows are the held entries plus that
     // attempt's reconstructed transient rows; the window is deliberately not
     // re-installed with them, because the user is reading it and the durable
-    // settlement reconstructs the attempt's text on its own.
+    // settlement reconstructs the attempt's text on its own — so the prefix is
+    // not expanded at all here.
     this.assistantStream.replace(
       this.eventSource.getSnapshot().entries.filter(entry => entry.type === 'event'),
       assistantStream,
+      false,
     )
     if (projections !== undefined) this.projections.seed(projections)
     for (const entry of entries) {

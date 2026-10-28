@@ -39,6 +39,8 @@ const DEFAULT_MAX_MESSAGES = 50
 /** Live-follow buffer bound in durable and Assistant frames, including frames inside batches. */
 const DEFAULT_MAX_BUFFERED_EVENTS = 10_000
 const DEFAULT_ASSISTANT_STREAM_BATCH_SIZE = 64
+/** Milliseconds a partial Assistant batch waits for its successor before delivery. */
+const DEFAULT_ASSISTANT_STREAM_BATCH_DELAY_MS = 16
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
 interface NumberedAssistantStreamFrame {
@@ -58,6 +60,12 @@ type BufferedFollowItem =
 export interface SessionHistoryControllerOptions {
   /** Maximum subsequent chunks in one Assistant batch; 1 disables batching. */
   readonly assistantStreamBatchSize?: number
+  /**
+   * Milliseconds a partial Assistant batch waits for its successor before it is
+   * delivered on its own. Bounds first-visible streaming latency for a producer
+   * slower than the batch size.
+   */
+  readonly assistantStreamBatchDelayMs?: number
 }
 
 /** Implements cold-safe history operations delegated by the Session Controller. */
@@ -65,11 +73,13 @@ export class SessionHistoryController {
   private readonly closeFollowers = new Set<() => void>()
   private readonly assistantStreams = new Map<SessionId, SessionAssistantStreamAccumulator>()
   private readonly assistantStreamBatchSize: number
+  private readonly assistantStreamBatchDelayMs: number
 
   /**
    * @param ctx - Host context carrying Session query and projection services.
    * @param promote - starts ordinary Session activation after snapshot delivery.
-   * @param options - live-follow batching policy; omitted values use 64 chunks per batch.
+   * @param options - live-follow batching policy; omitted values use 64 chunks per
+   * batch and a 16 ms partial-batch deadline.
    */
   constructor(
     private readonly ctx: Context,
@@ -77,6 +87,8 @@ export class SessionHistoryController {
     options: SessionHistoryControllerOptions = {},
   ) {
     this.assistantStreamBatchSize = options.assistantStreamBatchSize ?? DEFAULT_ASSISTANT_STREAM_BATCH_SIZE
+    this.assistantStreamBatchDelayMs = options.assistantStreamBatchDelayMs
+      ?? DEFAULT_ASSISTANT_STREAM_BATCH_DELAY_MS
     ctx.on('agent/assistant-stream', ({ agent, frame }) => {
       let stream = this.assistantStreams.get(agent.session.id)
       if (stream === undefined) {
@@ -174,12 +186,31 @@ export class SessionHistoryController {
       if (overflow.flag || pendingAssistantStreamBatch.length === 0) return
       buffered.pushBack({ type: 'assistant-stream-batch', frames: pendingAssistantStreamBatch })
       pendingAssistantStreamBatch = []
+      cancelAssistantStreamBatchDeadline()
+    }
+    // A producer slower than one frame per batch size would otherwise leave a
+    // partial batch unread until the next frame joins it. The run is complete
+    // when the producer pauses, and the pause is exactly the latency the reader
+    // sees, so the deadline bounds it instead of waiting for a full batch.
+    let assistantStreamBatchTimer: ReturnType<typeof setTimeout> | undefined
+    const cancelAssistantStreamBatchDeadline = (): void => {
+      if (assistantStreamBatchTimer === undefined) return
+      clearTimeout(assistantStreamBatchTimer)
+      assistantStreamBatchTimer = undefined
     }
     let wake: (() => void) | undefined
     const notify = (): void => {
       const resume = wake
       wake = undefined
       resume?.()
+    }
+    const scheduleAssistantStreamBatchDeadline = (): void => {
+      if (assistantStreamBatchTimer !== undefined) return
+      assistantStreamBatchTimer = setTimeout(() => {
+        assistantStreamBatchTimer = undefined
+        flushAssistantStreamBatch()
+        notify()
+      }, this.assistantStreamBatchDelayMs)
     }
     const follower = { closed: false }
     const close = (): void => {
@@ -238,7 +269,14 @@ export class SessionHistoryController {
             return
           }
           pendingAssistantStreamBatch.push(item)
-          if (pendingAssistantStreamBatch.length >= this.assistantStreamBatchSize) flushAssistantStreamBatch()
+          const full = pendingAssistantStreamBatch.length >= this.assistantStreamBatchSize
+          if (full) flushAssistantStreamBatch()
+          // A partial batch is not readable yet, and this call only ever added
+          // to a queue that no pump can see: waking the follower here wakes it
+          // for nothing, once per chunk. The batch deadline owns that wakeup.
+          else scheduleAssistantStreamBatchDeadline()
+          if (full) notify()
+          return
         }
         notify()
       }, { global: true })
@@ -261,9 +299,17 @@ export class SessionHistoryController {
       const page = continued
         ? { events: events.slice(SessionLogOffset(request.afterSeq + 1), events.length), hasMore: true }
         : paginate(events, undefined, request.maxMessages ?? DEFAULT_MAX_MESSAGES, cursor, request.turnWindow)
-      const assistantStream = request.assistantStream === true
-        ? this.assistantStreams.get(target)?.snapshot() ?? { revision: 0 }
-        : undefined
+      // A continuation caller already holds every durable event this log has,
+      // so the compact copy of the live attempt's prefix is content it can
+      // rebuild from what it already has; it costs bytes on the wire and an
+      // expansion at the receiver that a held-window reseed then discards. The
+      // cursor metadata alone lets it accept the frames that follow. An
+      // ordinary opening still carries the whole prefix.
+      const assistantStream = request.assistantStream !== true
+        ? undefined
+        : continued
+          ? this.assistantStreams.get(target)?.metadataSnapshot() ?? { revision: 0 }
+          : this.assistantStreams.get(target)?.snapshot() ?? { revision: 0 }
       // The accumulator snapshot and this watermark are synchronous. Frames
       // through the cut are represented or superseded by that baseline,
       // including larger revisions from a retired Agent; later revision
@@ -328,6 +374,7 @@ export class SessionHistoryController {
       disposeCreated()
       disposeEvent()
       disposeAssistantStream?.()
+      cancelAssistantStreamBatchDeadline()
     }
   }
 

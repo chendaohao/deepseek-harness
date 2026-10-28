@@ -15,7 +15,9 @@ export default defineConfig({
     standardDecoratorPlugin(),
   ],
   test: {
-    setupFiles: ['./scripts/test-invariants.ts'],
+    setupFiles: [
+      './scripts/test-proxy-environment.ts', './scripts/test-dom-environment.ts', './scripts/test-official-listing-guard.ts',
+    ],
     include: ['repro/**/*.spec.ts'],
     pool: 'forks',
   },

@@ -200,9 +200,14 @@ public static class DshFileAssociations {
     var apps = new List<Application>();
     var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     Visit(path, delegate(IHandler handler) {
-      string id, name;
-      handler.GetName(out id); handler.GetUIName(out name);
-      if (!seen.Add(id)) return;
+      // One registration can be broken on this machine and still answer Next(): a
+      // Qt Creator handler returned E_FAIL from GetUIName alone, which failed the
+      // whole query. A handler that names no identifier is unusable and skipped;
+      // one that only withholds its display name keeps its identifier as the name.
+      string id = null, name = null;
+      try { handler.GetName(out id); } catch (Exception) { return; }
+      try { handler.GetUIName(out name); } catch (Exception) { name = id; }
+      if (String.IsNullOrEmpty(id) || !seen.Add(id)) return;
       apps.Add(new Application { id = id, name = name, icon = IconData(handler, id),
         @default = String.Equals(id, executable, StringComparison.OrdinalIgnoreCase) || String.Equals(id, appId, StringComparison.OrdinalIgnoreCase) });
     });
@@ -236,22 +241,54 @@ public static class DshFileAssociations {
 }`
 
 /**
+ * `Add-Type` reference set for the adapter, chosen by the hosting PowerShell runtime.
+ *
+ * The two runtimes resolve `System.Drawing` differently. PowerShell 5.1 compiles against
+ * .NET Framework, where the three framework assemblies cover the icon member. PowerShell 7
+ * compiles against .NET, where `System.Drawing.Common` forwards its image types to
+ * `System.Private.Windows.Core`, so the framework names fail with CS1069 and the forwarded
+ * set must be named explicitly. Both sets are additive over `Add-Type`'s own defaults.
+ * @param powershellMajor - the hosting PowerShell major version (`$PSVersionTable.PSVersion.Major`).
+ * @returns assembly names for `-ReferencedAssemblies`; one PowerShell variable element binds
+ * one assembly, so the set stays an array rather than a comma-joined string.
+ */
+function addTypeReferences(powershellMajor: number): readonly string[] {
+  if (powershellMajor < 7) return ['System', 'System.Core', 'System.Drawing']
+  return [
+    'System.Drawing.Common',
+    'System.Private.Windows.GdiPlus',
+    'System.Private.Windows.Core',
+    'System.Drawing.Primitives',
+    'System.Drawing.Design',
+    'Microsoft.Win32.Primitives',
+    'System.Runtime',
+    'System.Collections',
+  ]
+}
+
+/**
  * Execute the Windows Shell adapter in a Unicode STA PowerShell process; the adapter
  * source is a private temporary script file, removed once the call settles.
  * @param path - Windows file path, translated by the caller for WSL.
  * @param application - registered handler to invoke; null requests the application list.
  * @param signal - caller cancellation.
  * @param run - native command runner.
+ * @param powershell - Windows PowerShell executable to run; defaults to the PATH name `powershell.exe`.
  * @returns adapter output; query mode emits a JSON array.
  */
 export async function windowsFileApplications(
   path: string, application: string | null, signal: AbortSignal, run: NativeCommandRunner,
+  powershell: string = 'powershell.exe',
 ): Promise<string> {
   const encodedPath = Buffer.from(path).toString('base64')
   const encodedApplication = Buffer.from(application ?? '').toString('base64')
+  // One script serves both PowerShell majors: the hosting runtime picks the reference
+  // set it can compile against before Add-Type runs.
   const script = `$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
-Add-Type -ReferencedAssemblies System,System.Core,System.Drawing -TypeDefinition @'
+$references = @(${addTypeReferences(1).map(name => `'${name}'`).join(', ')})
+if ($PSVersionTable.PSVersion.Major -ge 7) { $references = @(${addTypeReferences(7).map(name => `'${name}'`).join(', ')}) }
+Add-Type -ReferencedAssemblies $references -TypeDefinition @'
 ${WINDOWS_ASSOCIATIONS}
 '@
 $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPath}'))
@@ -266,7 +303,7 @@ ${application === null ? 'ConvertTo-Json -InputObject @([DshFileAssociations]::L
   const scriptPath = join(directory, 'associations.ps1')
   try {
     await writeFile(scriptPath, `\uFEFF${script}`, 'utf8')
-    const result = await run('powershell.exe', [
+    const result = await run(powershell, [
       '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
     ], signal, 'hidden')
     return result.stdout

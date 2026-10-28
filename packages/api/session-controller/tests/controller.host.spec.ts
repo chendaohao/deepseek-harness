@@ -30,6 +30,14 @@ describe('SessionController facade', () => {
     }
   })
 
+  it('defaults and validates the partial-batch deadline', () => {
+    expect(SessionController.Config({}).assistantStreamBatchDelayMs).toBe(16)
+    expect(SessionController.Config({ assistantStreamBatchDelayMs: 32 }).assistantStreamBatchDelayMs).toBe(32)
+    for (const value of [0, -1, 1.5, Number.NaN]) {
+      expect(() => SessionController.Config({ assistantStreamBatchDelayMs: value })).toThrow()
+    }
+  })
+
   it('owns Host service methods and publishes Agent lifecycle projections', async () => {
     const ctx = new Context()
     onTestFinished(() => ctx.fiber.dispose())

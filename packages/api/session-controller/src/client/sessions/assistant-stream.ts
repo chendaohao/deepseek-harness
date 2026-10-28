@@ -53,11 +53,14 @@ export class ClientAssistantStream {
    * Replace the durable Web window and adopt an optional reconnect baseline.
    * @param entries - durable entries in the replacement window.
    * @param baseline - compact prefix for an Assistant attempt that is still live.
+   * @param expandPrefix - whether to rebuild the baseline's transient rows; a
+   * caller that discards them passes `false` to skip the expansion entirely.
    * @returns immediately visible durable entries plus reconstructed transient chunks.
    */
   replace(
     entries: readonly SessionEventLikeEntry[],
     baseline?: SessionAssistantStreamBaseline,
+    expandPrefix = true,
   ): readonly SessionEventLikeEntry[] {
     this.pending.clear()
     this.transientInGap = 0
@@ -76,7 +79,7 @@ export class ClientAssistantStream {
     const visible: SessionEventLikeEntry[] = [...entries]
     this.publishedSeqs = new Set(visible.map(entry => entry.event.seq))
     this.durableCursor = visible.reduce((cursor, entry) => Math.max(cursor, entry.event.seq), -1)
-    if (opening !== undefined) {
+    if (opening !== undefined && expandPrefix) {
       for (const [index, member] of expandAssistantStream(
         opening.stream as unknown as readonly AssistantStreamRecord[],
       ).entries()) {
@@ -117,6 +120,30 @@ export class ClientAssistantStream {
       return undefined
     }
     return this.publish(entry)
+  }
+
+  /**
+   * Fold a run of dense frames delivered by one carrier message.
+   *
+   * Frames are folded in order and the run stops at the first frame whose
+   * decision is not a single transient row: a publication, settlement,
+   * abandonment, or rebaseline changes the window in a way the remaining
+   * frames must observe through the caller's normal single-frame path.
+   * @param frames - consecutive Assistant stream frames from one message.
+   * @returns the transient rows accepted so far and the decision that ended the
+   * run, which is `undefined` when every frame was transient.
+   */
+  acceptFrames(frames: readonly SessionAssistantStreamFrame[]): {
+    readonly transients: readonly SessionTransientEventEntry[]
+    readonly stop: ClientAssistantStreamResult
+  } {
+    const transients: SessionTransientEventEntry[] = []
+    for (const frame of frames) {
+      const result = this.acceptFrame(frame)
+      if (result?.type !== 'transient') return { transients, stop: result }
+      transients.push(result.entry)
+    }
+    return { transients, stop: undefined }
   }
 
   /**

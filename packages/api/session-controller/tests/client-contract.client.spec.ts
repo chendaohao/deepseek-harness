@@ -130,6 +130,39 @@ describe('Client Session contracts', () => {
     expect(listener).toHaveBeenCalledTimes(3)
   })
 
+  it('publishes a contiguous run of live entries as one append change', () => {
+    const feed = new MutableSessionEventSource()
+    const first = entry(SessionSeq(1))
+    feed.replace([first], false)
+    const listener = vi.fn()
+    const dispose = feed.subscribe(listener)
+    const run = [transient('attempt-one', 2.5), transient('attempt-one', 2.75)]
+
+    feed.appendMany(run)
+
+    expect(feed.getSnapshot()).toEqual({
+      entries: [first, ...run],
+      hasMore: false,
+      revision: 2,
+      change: { kind: 'append', entries: run },
+    })
+    expect(listener).toHaveBeenCalledOnce()
+    dispose()
+  })
+
+  it('appends nothing and publishes nothing for an empty run', () => {
+    const feed = new MutableSessionEventSource()
+    feed.replace([entry(SessionSeq(1))], false)
+    const listener = vi.fn()
+    const dispose = feed.subscribe(listener)
+
+    feed.appendMany([])
+
+    expect(feed.getSnapshot().revision).toBe(1)
+    expect(listener).not.toHaveBeenCalled()
+    dispose()
+  })
+
   it('does not traverse the complete event window while appending', () => {
     const feed = new MutableSessionEventSource()
     const first = entry(SessionSeq(1))

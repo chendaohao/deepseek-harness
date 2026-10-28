@@ -165,11 +165,25 @@ export class MutableSessionEventSource implements SessionEventSource {
    * @param entry - live tail entry.
    */
   append(entry: SessionEventLikeEntry): void {
-    const entries = [entry]
-    this.window = concat(this.window, leaf(entries))
+    this.appendMany([entry])
+  }
+
+  /**
+   * Append a contiguous run of live entries as one publication.
+   *
+   * A streamed reply arrives as many transient rows at once; publishing them
+   * individually costs one window node, one snapshot object, and one revision
+   * per row, and forces each folder subscriber to reconcile the change kind
+   * once per row instead of once per carrier message.
+   * @param entries - live tail entries in arrival order.
+   */
+  appendMany(entries: readonly SessionEventLikeEntry[]): void {
+    if (entries.length === 0) return
+    const added = [...entries]
+    this.window = concat(this.window, leaf(added))
     this.publish(this.snapshot.hasMore, {
       kind: 'append',
-      entries,
+      entries: added,
     })
   }
 

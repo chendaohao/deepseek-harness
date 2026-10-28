@@ -48,6 +48,15 @@ interface SessionJournalPage extends SessionPage {
   readonly continued?: true
 }
 
+/**
+ * What one Hub message contributes to the Assistant stream: a single frame, or
+ * the run of frames a Host batch carries. A run is folded and published once by
+ * the Client instead of once per frame.
+ */
+type SessionAssistantStreamNotice =
+  | SessionAssistantStreamFrame
+  | readonly SessionAssistantStreamFrame[]
+
 /** One complete publication from the Session journal stream. */
 export type SessionJournalChange =
   | {
@@ -58,10 +67,12 @@ export type SessionJournalChange =
   }
   | { readonly type: 'append'; readonly entry: SessionLiveEventEntry }
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
+  /** Consecutive frames carried by one Host message; folded as one window publication. */
+  | { readonly type: 'assistant-streams'; readonly frames: readonly SessionAssistantStreamFrame[] }
 
 function toSessionJournalChange(
   change: RemoteJournalChange<
-    SessionJournalPage, SessionHistoryRecord, SessionAssistantStreamFrame
+    SessionJournalPage, SessionHistoryRecord, SessionAssistantStreamNotice
   >,
 ): SessionJournalChange {
   switch (change.type) {
@@ -75,7 +86,9 @@ function toSessionJournalChange(
       }
     }
     case 'notification':
-      return { type: 'assistant-stream', frame: change.notification }
+      return Array.isArray(change.notification)
+        ? { type: 'assistant-streams', frames: change.notification }
+        : { type: 'assistant-stream', frame: change.notification as SessionAssistantStreamFrame }
   }
 }
 
@@ -149,7 +162,7 @@ export class SessionEventStream extends RemoteJournalStream<
   SessionHistoryRecord,
   number,
   ClientSessionPageRequest,
-  SessionAssistantStreamFrame
+  SessionAssistantStreamNotice
 > {
   /**
    * @param remote - generated Session namespace and Gateway stream factory.
@@ -184,7 +197,7 @@ export class SessionEventStream extends RemoteJournalStream<
     request: ClientSessionPageRequest,
     signal: AbortSignal,
   ): AsyncIterable<RemoteJournalFrame<
-    SessionHistoryRecord, number, SessionJournalPage, SessionAssistantStreamFrame
+    SessionHistoryRecord, number, SessionJournalPage, SessionAssistantStreamNotice
   >> {
     let assistantRevision: number | undefined
     // A reconnecting generation reports the cursor this client already applied,
@@ -222,6 +235,9 @@ export class SessionEventStream extends RemoteJournalStream<
       }
       if (frame.type === 'assistant-stream' || frame.type === 'assistant-stream-batch') {
         const assistantFrames = frame.type === 'assistant-stream' ? [frame.frame] : frame.frames
+        // Every frame is checked against its own revision even though the run
+        // is delivered once: a gap must end this generation before any frame of
+        // the run reaches a consumer.
         for (const assistantFrame of assistantFrames) {
           const expected = (assistantRevision ?? 0) + 1
           if (assistantFrame.revision !== expected) {
@@ -230,7 +246,12 @@ export class SessionEventStream extends RemoteJournalStream<
             )
           }
           assistantRevision = assistantFrame.revision
-          yield { type: 'notification', notification: assistantFrame }
+        }
+        const [only] = assistantFrames
+        if (only !== undefined) {
+          yield assistantFrames.length === 1
+            ? { type: 'notification', notification: only }
+            : { type: 'notification', notification: assistantFrames }
         }
         continue
       }

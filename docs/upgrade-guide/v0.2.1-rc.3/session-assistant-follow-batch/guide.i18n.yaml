@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-rc.3/session-assistant-follow-batch/guide.md
 /:
-  en: 7d24c1cc7c025f98
-  zh: 869139b603b913d6
+  en: 120eb83bde84d42b
+  zh: f47a76fbfdb7aa01
 /session-follow-adds-assistant-stream-batch:
   en: c73443f853fd4779
   zh: b7c87e76edeb3900
 /session-follow-adds-assistant-stream-batch/change:
-  en: 578cc5cc39fb727b
-  zh: 154e6ef4191e7777
+  en: 335984175debc956
+  zh: 47b8c2cfd8974a23
 /session-follow-adds-assistant-stream-batch/migration:
-  en: e4a1aa81bdee9da5
-  zh: db8df4808fab9b2f
+  en: 5235b87a695555e6
+  zh: f72915df9c6b9b4d
