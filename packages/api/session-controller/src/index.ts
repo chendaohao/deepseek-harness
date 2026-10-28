@@ -115,12 +115,19 @@ export interface Config {
   readonly listWorkSliceMs?: number
   /** Maximum subsequent Assistant chunks per follow batch; 1 disables batching. */
   readonly assistantStreamBatchSize?: number
+  /**
+   * Milliseconds a partial Assistant batch may wait for the next chunk before
+   * it is delivered on its own. Bounds streaming latency when a producer is
+   * slower than batch size; the frame count per message is unaffected.
+   */
+  readonly assistantStreamBatchDelayMs?: number
 }
 
 /** Deployment policy after schema defaults have been applied. */
 type ResolvedConfig = Config & {
   readonly listWorkSliceMs: number
   readonly assistantStreamBatchSize: number
+  readonly assistantStreamBatchDelayMs: number
 }
 
 /** Host integrations replaceable by direct unit tests. */
@@ -158,6 +165,7 @@ export class SessionController extends TypertRemoteService {
     nativeOpen: z.boolean(),
     listWorkSliceMs: z.natural().min(1).default(16),
     assistantStreamBatchSize: z.natural().min(1).default(64),
+    assistantStreamBatchDelayMs: z.natural().min(1).default(16),
   })
 
   private agents!: ApiSessionAgentController
@@ -172,6 +180,7 @@ export class SessionController extends TypertRemoteService {
   private readonly canOpenPath: () => boolean
   private readonly listWorkSliceMs: number
   private readonly assistantStreamBatchSize: number
+  private readonly assistantStreamBatchDelayMs: number
   private readonly promotions = new Set<Promise<void>>()
 
   /**
@@ -184,6 +193,7 @@ export class SessionController extends TypertRemoteService {
     const resolved = SessionController.Config(config)
     this.listWorkSliceMs = resolved.listWorkSliceMs
     this.assistantStreamBatchSize = resolved.assistantStreamBatchSize
+    this.assistantStreamBatchDelayMs = resolved.assistantStreamBatchDelayMs
     this.fileApplications = internals.fileApplications ?? nativeFileApplications
     this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication
     this.openPath = internals.openPath ?? openNativeAssociatedPath
@@ -211,6 +221,7 @@ export class SessionController extends TypertRemoteService {
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) }, {
       assistantStreamBatchSize: this.assistantStreamBatchSize,
+      assistantStreamBatchDelayMs: this.assistantStreamBatchDelayMs,
     })
     this.listState = new ApiSessionList(ctx, this.listWorkSliceMs)
     await this.listState.initialize()

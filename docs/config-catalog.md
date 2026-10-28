@@ -270,6 +270,12 @@ export interface Config {
   readonly listWorkSliceMs?: number
   /** Maximum subsequent Assistant chunks per follow batch; 1 disables batching. */
   readonly assistantStreamBatchSize?: number
+  /**
+   * Milliseconds a partial Assistant batch may wait for the next chunk before
+   * it is delivered on its own. Bounds streaming latency when a producer is
+   * slower than batch size; the frame count per message is unaffected.
+   */
+  readonly assistantStreamBatchDelayMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->

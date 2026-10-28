@@ -1567,4 +1567,75 @@ describe('Session history raw journal', () => {
       await ctx.fiber.dispose()
     }
   })
+
+  it('delivers a partial batch on the deadline instead of waiting for the next chunk', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
+      assistantStreamBatchSize: 3,
+      assistantStreamBatchDelayMs: 20,
+    })
+    const attemptId = LlmAttemptId('assistant-batch-deadline')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+      })
+      await iterator.next()
+      ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, 2, 0) })
+      await iterator.next()
+
+      // A producer that pauses after two of three batched chunks: nothing will
+      // arrive to complete the batch, so the deadline alone must deliver it.
+      const partial = [1, 2].map(index => assistantTextChunk(attemptId, index + 2, index))
+      for (const frame of partial) ctx.emit('agent/assistant-stream', { agent, frame })
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream-batch', frames: partial },
+      })
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('clears the partial-batch deadline when the follow is torn down', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    onTestFinished(() => { vi.useRealTimers() })
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
+      assistantStreamBatchSize: 3,
+      assistantStreamBatchDelayMs: 20,
+    })
+    const attemptId = LlmAttemptId('assistant-batch-deadline-dispose')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+    ctx.emit('agent/assistant-stream', {
+      agent,
+      frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+    })
+    await iterator.next()
+    ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, 2, 0) })
+    await iterator.next()
+    ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, 3, 1) })
+    expect(vi.getTimerCount()).toBe(1)
+
+    abort.abort()
+    await iterator.return?.()
+    // A deadline left armed would flush into a buffer whose follower is gone.
+    expect(vi.getTimerCount()).toBe(0)
+    await ctx.fiber.dispose()
+  })
 })
