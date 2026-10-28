@@ -17,7 +17,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir, platform as osPlatform, release as kernelRelease } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import {
-  canOpenNativePath, nativeFileManager, openNativePath, runNativeCommand,
+  hasDesktopSession, nativeFileManager, openNativePath, runNativeCommand,
   desktopEntryFields, desktopDataDirectories, type NativeCommandRunner,
 } from '@deepseek-ai/dsh-native-command'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -521,7 +521,9 @@ async function locate(
       }
     }
     case 'cli': {
-      if (locator.requiresDesktop === true && !canOpenNativePath({
+      // The desktop-session marker is all this catalog needs: the executable itself is
+      // resolved on the line below, so the launcher is offered exactly when that finds it.
+      if (locator.requiresDesktop === true && !hasDesktopSession({
         platform: internals.platform,
         osRelease: internals.osRelease,
         env: { ...internals.env },

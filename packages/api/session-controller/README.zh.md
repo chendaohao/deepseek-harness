@@ -99,7 +99,7 @@ GUI 模型选择要求确切提供方／模型对出现在可用目录中；不�
 
 | 字段 | 默认值 | 含义 |
 |---|---:|---|
-| `nativeOpen` | 平台探测 | 是否能把 Session 工作区路径交给原生桌面打开器 |
+| `nativeOpen` | 平台探测 | 是否能把 Session 工作区路径交给原生桌面打开器；探测同时要求存在桌面会话且打开器命令可解析，因此 PATH 里没有 Windows 目录的服务型宿主会报告不可用 |
 | `listWorkSliceMs` | `16` | 列表工作时间片，单位为毫秒，取正整数；在完整条目之间检查 |
 | `assistantStreamBatchSize` | `64` | 每批后续 Assistant chunk 的正整数上限；1 时全部保持单帧 |
 | `assistantStreamBatchDelayMs` | `16` | 部分 Assistant 批次等待后继帧的正整数毫秒上限，超时后单独投递 |

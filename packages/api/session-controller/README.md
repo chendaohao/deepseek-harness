@@ -99,7 +99,7 @@ A successful `selectModel` response acknowledges the recorded Session selection 
 
 | Field | Default | Meaning |
 |---|---:|---|
-| `nativeOpen` | platform-detected | Whether Session workspace paths can be handed to a native desktop opener |
+| `nativeOpen` | platform-detected | Whether Session workspace paths can be handed to a native desktop opener; detection requires both a desktop session and a resolvable opener command, so a service-started host without the Windows directories on PATH reports unavailable |
 | `listWorkSliceMs` | `16` | Positive integral list-work time slice in milliseconds; checks occur between complete rows |
 | `assistantStreamBatchSize` | `64` | Positive integral maximum of subsequent Assistant chunks per follow batch; 1 keeps every frame single |
 | `assistantStreamBatchDelayMs` | `16` | Positive integral milliseconds a partial Assistant batch waits for its successor before it is delivered alone |

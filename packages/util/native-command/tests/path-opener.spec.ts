@@ -15,15 +15,21 @@ const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn<ExecFileMock>()
 
 vi.mock('node:child_process', () => ({ execFile: execFileMock }))
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { release as osRelease } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { canOpenNativePath, nativeFileManager, revealNativePath, openNativeAssociatedPath, openNativePath, openNativeTextFile, type PathOpenerRunner } from '../src/index.ts'
+import { canOpenNativePath, hasDesktopSession, nativeFileManager, revealNativePath, openNativeAssociatedPath, openNativePath, openNativeTextFile, type PathOpenerRunner } from '../src/index.ts'
 
 const signal = () => new AbortController().signal
 
 /** A WSL Linux host hands paths to the Windows desktop, so its ambient file manager is Explorer. */
 const ambientWsl = osRelease().toLowerCase().includes('microsoft')
   || Boolean(process.env.WSL_DISTRO_NAME) || Boolean(process.env.WSL_INTEROP)
+
+/** Whether this machine's own PATH carries the opener the ambient host would spawn. */
+const ambientOpenerResolves = (process.env.PATH ?? '').split(':').some(entry =>
+  existsSync(join(entry, ambientWsl ? 'explorer.exe' : 'xdg-open')))
 
 /** The file-manager action the ambient host resolves to. */
 const ambientFileManager = process.platform === 'darwin' ? 'finder'
@@ -345,33 +351,95 @@ describe('browser-renderable documents', () => {
   })
 })
 
+describe('hasDesktopSession', () => {
+  it('answers from platform markers alone, independent of installed commands', () => {
+    // A caller that resolves the launcher itself needs only this half: the file
+    // manager is offered exactly when its own executable resolution finds it.
+    expect(hasDesktopSession({ platform: 'darwin', env: {} })).toBe(true)
+    expect(hasDesktopSession({ platform: 'win32', env: {} })).toBe(true)
+    expect(hasDesktopSession({ platform: 'linux', osRelease: '6.8.0-generic', env: {} })).toBe(false)
+    expect(hasDesktopSession({ platform: 'linux', osRelease: '6.8.0-generic', env: { DISPLAY: ':0' } })).toBe(true)
+    expect(hasDesktopSession({
+      platform: 'linux', osRelease: '5.15.153.1-microsoft-standard-WSL2', env: {},
+    })).toBe(true)
+    // With no environment override the kernel release alone names WSL.
+    expect(hasDesktopSession({ platform: 'linux', osRelease: '5.15.153.1-microsoft-standard-WSL2' })).toBe(true)
+    // With neither an environment nor a release override, the ambient kernel answers.
+    expect(hasDesktopSession({ platform: 'linux', env: {} })).toBe(
+      hasDesktopSession({ platform: 'linux', env: {}, osRelease: osRelease() }),
+    )
+    expect(hasDesktopSession({ platform: 'freebsd', env: {} })).toBe(false)
+  })
+})
+
 describe('canOpenNativePath', () => {
+  /** Every command resolves; platform markers alone decide. */
+  const resolvable = () => true
+  /** No command resolves, as on a PATH without the desktop directories. */
+  const absent = () => false
+
   it('always answers yes where the desktop is part of the platform', () => {
-    expect(canOpenNativePath({ platform: 'darwin', env: {} })).toBe(true)
-    expect(canOpenNativePath({ platform: 'win32', env: {} })).toBe(true)
+    expect(canOpenNativePath({ platform: 'darwin', env: {}, resolveCommand: resolvable })).toBe(true)
+    expect(canOpenNativePath({ platform: 'win32', env: {}, resolveCommand: resolvable })).toBe(true)
   })
 
   it('requires a display server or WSL interop on linux', () => {
-    const linux = { platform: 'linux' as const, osRelease: '6.8.0-generic' }
+    const linux = { platform: 'linux' as const, osRelease: '6.8.0-generic', resolveCommand: resolvable }
     // Headless is the case the capability exists for: `xdg-open` would spawn
     // into nothing, so a surface should show the path as text instead.
     expect(canOpenNativePath({ ...linux, env: {} })).toBe(false)
     expect(canOpenNativePath({ ...linux, env: { DISPLAY: ':0' } })).toBe(true)
     expect(canOpenNativePath({ ...linux, env: { WAYLAND_DISPLAY: 'wayland-0' } })).toBe(true)
     expect(canOpenNativePath({
-      platform: 'linux', osRelease: '5.15.153.1-microsoft-standard-WSL2', env: {},
+      platform: 'linux', osRelease: '5.15.153.1-microsoft-standard-WSL2', env: {}, resolveCommand: resolvable,
     })).toBe(true)
   })
 
+  it('requires the marker and the opener command the marker selects', () => {
+    // A service-started WSL host inherits a PATH without the Windows directories:
+    // the marker is present, `explorer.exe` is not, and the button would fail.
+    expect(canOpenNativePath({
+      platform: 'linux', osRelease: 'microsoft-standard', env: {}, resolveCommand: absent,
+    })).toBe(false)
+    expect(canOpenNativePath({
+      platform: 'linux', osRelease: '6.8.0-generic', env: { DISPLAY: ':0' }, resolveCommand: absent,
+    })).toBe(false)
+    const probed: string[] = []
+    canOpenNativePath({
+      platform: 'linux', osRelease: 'microsoft-standard', env: {},
+      resolveCommand: (command) => { probed.push(command); return true },
+    })
+    canOpenNativePath({ platform: 'linux', osRelease: '6.8.0-generic', env: { DISPLAY: ':0' }, resolveCommand: (command) => {
+      probed.push(command)
+      return true
+    } })
+    expect(probed).toEqual(['explorer.exe', 'xdg-open'])
+  })
+
+  it('resolves the opener through the PATH in the environment it is given', () => {
+    // The real probe reads the injected environment, not the process PATH, and an
+    // environment naming no PATH at all resolves nothing.
+    expect(canOpenNativePath({ platform: 'linux', osRelease: 'microsoft-standard', env: {} })).toBe(false)
+    expect(canOpenNativePath({ platform: 'linux', osRelease: 'microsoft-standard', env: { PATH: '' } })).toBe(false)
+    const directory = process.env.PATH!.split(':').find(entry =>
+      existsSync(join(entry, ambientWsl ? 'explorer.exe' : 'xdg-open')))
+    // The ambient host either carries the opener on its PATH or it does not; the probe
+    // answers exactly that, so the test holds on a developer machine and in a bare container.
+    expect(canOpenNativePath({
+      platform: 'linux', osRelease: 'microsoft-standard', env: { PATH: directory ?? '' },
+    })).toBe(directory !== undefined)
+  })
+
   it('answers no on a platform the opener does not support', () => {
-    expect(canOpenNativePath({ platform: 'freebsd', env: {} })).toBe(false)
+    expect(canOpenNativePath({ platform: 'freebsd', env: {}, resolveCommand: resolvable })).toBe(false)
   })
 
   it('samples the ambient environment when no override is supplied', () => {
     const env = process.env
     const marked = (value: string | undefined): boolean => value !== undefined && value !== ''
-    const expected = marked(env.WSL_DISTRO_NAME) || marked(env.WSL_INTEROP)
-      || marked(env.DISPLAY) || marked(env.WAYLAND_DISPLAY)
+    const expected = (marked(env.WSL_DISTRO_NAME) || marked(env.WSL_INTEROP)
+      || marked(env.DISPLAY) || marked(env.WAYLAND_DISPLAY))
+      && ambientOpenerResolves
 
     expect(canOpenNativePath({ platform: 'linux', osRelease: '6.8.0-generic' })).toBe(expected)
   })

@@ -12,8 +12,9 @@
  * @module @deepseek-ai/dsh-native-command/path-opener
  */
 
+import { accessSync, constants } from 'node:fs'
 import { release as osRelease } from 'node:os'
-import { dirname, extname } from 'node:path'
+import { delimiter, dirname, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runNativeCommand, type NativeCommandRunner } from './runner.ts'
 
@@ -25,9 +26,11 @@ export interface PathOpenerInternals {
   platform?: NodeJS.Platform
   /** Kernel release override used to distinguish WSL from desktop Linux. */
   osRelease?: string
-  /** Environment used for WSL markers and the desktop Linux browser convention. */
+  /** Environment used for WSL markers, the desktop Linux browser convention, and PATH resolution. */
   env?: NodeJS.ProcessEnv
   run?: PathOpenerRunner
+  /** Executable-resolution probe for {@link canOpenNativePath}; the real probe reads `env`. */
+  resolveCommand?: (command: string, env: NodeJS.ProcessEnv) => boolean
 }
 
 /** Documents a browser renders, as opposed to ones an editor merely edits. */
@@ -202,22 +205,75 @@ async function openNativePathWithIntent(
 }
 
 /**
- * Whether {@link openNativePath} plausibly reaches a desktop on this host.
+ * Whether this host runs a desktop session the opener can hand a path to.
  *
  * macOS and Windows always carry a desktop opener; Linux does when it is WSL
  * (the Windows desktop takes the path) or a display server is announced.
  * A headless or containerised Linux host answers false, which is what lets a
  * surface show a path as text instead of offering a button that would spawn
  * `xdg-open` into nothing.
+ *
+ * This is the platform-marker question alone. It says nothing about whether the
+ * opener's executable is installed, so a caller that will spawn the opener itself
+ * combines it with its own executable resolution; {@link canOpenNativePath} asks
+ * both together.
  * @param internals - platform and environment seam for deterministic tests.
- * @returns true when handing a path to the native opener can work at all.
+ * @returns true when this host has a desktop the opener could address.
  */
-export function canOpenNativePath(internals: PathOpenerInternals = {}): boolean {
+export function hasDesktopSession(internals: PathOpenerInternals = {}): boolean {
   const platform = internals.platform ?? process.platform
   if (platform === 'darwin' || platform === 'win32') return true
   if (platform !== 'linux') return false
   const env = internals.env ?? process.env
   return isWsl(internals) || present(env.DISPLAY) || present(env.WAYLAND_DISPLAY)
+}
+
+/**
+ * Whether {@link openNativePath} can actually reach a desktop on this host.
+ *
+ * A desktop session is necessary but not sufficient: a WSL host started by a
+ * service inherits a PATH without the Windows directories, so the marker is
+ * present while `explorer.exe` cannot be spawned at all. Offering a button there
+ * produces a retryable failure instead of an unavailable action, so the opener's
+ * own executable must resolve on the PATH the caller's environment names.
+ * @param internals - platform, environment, and executable-resolution seam for deterministic tests.
+ * @returns true when handing a path to the native opener can work at all.
+ */
+export function canOpenNativePath(internals: PathOpenerInternals = {}): boolean {
+  if (!hasDesktopSession(internals)) return false
+  const env = internals.env ?? process.env
+  const command = nativeFileManager(internals) === 'explorer' ? 'explorer.exe' : 'xdg-open'
+  return (internals.resolveCommand ?? resolvesOnPath)(command, env)
+}
+
+/**
+ * Whether one bare Linux opener name resolves through the given environment's PATH.
+ *
+ * Only a Linux host reaches this: macOS and Windows answer availability from the
+ * platform alone, and both openers named here are bare commands without a suffix.
+ * @param command - opener name the Linux dispatch spawns.
+ * @param env - environment whose PATH describes the search.
+ * @returns true when an executable file of that name is reachable.
+ */
+function resolvesOnPath(command: string, env: NodeJS.ProcessEnv): boolean {
+  const path = env.PATH ?? ''
+  return path !== '' && path.split(delimiter).some(directory => isExecutable(join(directory, command)))
+}
+
+/**
+ * Whether one path names an executable file.
+ * @param candidate - absolute path to test.
+ * @returns true when the path is a file the caller may execute.
+ */
+function isExecutable(candidate: string): boolean {
+  try {
+    accessSync(candidate, constants.X_OK)
+    return true
+  } catch {
+    // Every permission, absence, and unsupported-path failure reads the same way here:
+    // the opener cannot spawn this candidate.
+    return false
+  }
 }
 
 /**
