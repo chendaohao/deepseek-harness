@@ -29,9 +29,12 @@ const EMPTY_BASELINE: SessionAssistantStreamBaseline = { revision: 0 }
 export class SessionAssistantStreamAccumulator {
   private activeAttempt: MutableAttempt | undefined
   private revision = 0
+  /** Cached baseline carrying the accumulated stream, rebuilt only when read after a change. */
   private withStream: SessionAssistantStreamBaseline = EMPTY_BASELINE
+  /** Cached baseline without it, materialized independently of {@link withStream}. */
   private metadataOnly: SessionAssistantStreamBaseline = EMPTY_BASELINE
-  private dirty = false
+  private withStreamDirty = false
+  private metadataDirty = false
 
   /**
    * Fold one trusted frame from the current attached Agent lifecycle.
@@ -46,7 +49,7 @@ export class SessionAssistantStreamAccumulator {
     if (frame.revision !== this.revision + 1) {
       this.activeAttempt = undefined
       this.revision = frame.revision
-      this.dirty = true
+      this.invalidate()
       return
     }
     this.revision = frame.revision
@@ -77,7 +80,7 @@ export class SessionAssistantStreamAccumulator {
         this.activeAttempt = undefined
         break
     }
-    this.dirty = true
+    this.invalidate()
   }
 
   /**
@@ -139,31 +142,55 @@ export class SessionAssistantStreamAccumulator {
     }
   }
 
+  /** Mark both cached baselines stale; each rebuilds only when something reads it. */
+  private invalidate(): void {
+    this.withStreamDirty = true
+    this.metadataDirty = true
+  }
+
   private materialize(withStream: boolean): SessionAssistantStreamBaseline {
-    if (!this.dirty) return withStream ? this.withStream : this.metadataOnly
+    return withStream ? this.fullSnapshot() : this.metadataSnapshotOfLatest()
+  }
+
+  private metadataSnapshotOfLatest(): SessionAssistantStreamBaseline {
+    if (!this.metadataDirty) return this.metadataOnly
     const activeAttempt = this.activeAttempt
     if (activeAttempt === undefined) {
       this.metadataOnly = { revision: this.revision }
-      this.withStream = this.metadataOnly
     } else {
-      const attempt: SessionAssistantStreamAttempt = {
-        attemptId: activeAttempt.attemptId,
-        startedAfterSeq: activeAttempt.startedAfterSeq,
-        turn: activeAttempt.turn,
-        step: activeAttempt.step,
-        nextIndex: activeAttempt.nextIndex,
-        stream: [],
-      }
-      this.metadataOnly = { revision: this.revision, activeAttempt: attempt }
-      this.withStream = {
+      this.metadataOnly = {
         revision: this.revision,
+        activeAttempt: {
+          attemptId: activeAttempt.attemptId,
+          startedAfterSeq: activeAttempt.startedAfterSeq,
+          turn: activeAttempt.turn,
+          step: activeAttempt.step,
+          nextIndex: activeAttempt.nextIndex,
+          stream: [],
+        },
+      }
+    }
+    this.metadataDirty = false
+    return this.metadataOnly
+  }
+
+  private fullSnapshot(): SessionAssistantStreamBaseline {
+    if (!this.withStreamDirty) return this.withStream
+    const metadata = this.metadataSnapshotOfLatest()
+    const attempt = metadata.activeAttempt
+    const activeAttempt = this.activeAttempt
+    this.withStream = attempt === undefined || activeAttempt === undefined
+      // Without a live attempt the two baselines carry the same fields, so one
+      // object serves both rather than a copy nothing distinguishes.
+      ? metadata
+      : {
+        revision: metadata.revision,
         activeAttempt: {
           ...attempt,
           stream: activeAttempt.stream.snapshot() as unknown as readonly JsonValue[],
         },
       }
-    }
-    this.dirty = false
-    return withStream ? this.withStream : this.metadataOnly
+    this.withStreamDirty = false
+    return this.withStream
   }
 }

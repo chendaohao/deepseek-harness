@@ -180,7 +180,12 @@ export class RemoteStreamMuxServer {
         // text liveness frame on the same tick: a page whose leg died without a
         // close event otherwise cannot tell a healthy quiet socket from a dead
         // one. Reusing this tick keeps the two cadences from drifting apart.
-        socket.send(LIVENESS_FRAME)
+        //
+        // Extensions stay off for this frame. It repeats one short constant, so
+        // compressing it saves nothing to speak of, and paying for a deflate
+        // pass per heartbeat costs the Host work on a timer for as long as any
+        // socket is open — including the quiet stretches the frame exists for.
+        socket.send(LIVENESS_FRAME, { compress: false })
       }
     }, this.heartbeatIntervalMs)
     this.heartbeatTimer.unref()

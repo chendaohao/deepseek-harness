@@ -2,15 +2,22 @@
  * Standalone before/after harness for the Assistant streaming path between the
  * Host's follow socket and the Client's event feed.
  *
- * Three fixed workloads, all measured through the production Client objects
- * (`SessionEventStream` -> `Session` -> `ClientAssistantStream` ->
- * `MutableSessionEventSource` -> `Notifier`), not through copies of that code:
+ * Three fixed workloads. The first and third measure the production Client
+ * objects (`SessionEventStream` -> `Session` -> `ClientAssistantStream` ->
+ * `MutableSessionEventSource` -> `Notifier`); the second drives the real Host
+ * `SessionHistoryController` so its batching is what gets measured.
  *
  *  1. burst      - 1000 chunks arriving back to back, framed exactly as the Host
  *                  currently frames them (one `assistant-stream` frame, then
  *                  `assistant-stream-batch` frames of `assistantStreamBatchSize`).
- *  2. paced      - the same chunks on a 20 ms cadence, reporting first/chunk/tail
- *                  latency and the number of wakeups that carried no work.
+ *  2. paced      - 50 chunks at 10, 20, and 50 ms producer cadences, emitted as
+ *                  Agent frames into the Host's own follow path and read back
+ *                  through `SessionEventStream`. Reports wire messages, batched
+ *                  messages, publications, and first/tail latency against the
+ *                  producer's own budget. Only the 10 ms cadence is fast enough
+ *                  for several chunks to land inside one batching deadline; the
+ *                  20 and 50 ms cadences exceed it, so they send one frame per
+ *                  chunk and act as the control.
  *  3. reconnect  - a continued reconnect while a 100,000-delta reasoning prefix
  *                  is live, measuring the baseline bytes on the wire and the
  *                  `replace()` fold that currently expands the whole prefix.
@@ -23,7 +30,15 @@
 
 import { performance } from 'node:perf_hooks'
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SessionStore from '@deepseek-ai/dsh-session'
 import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm/assistant-stream'
+import { SessionHistoryController } from '../packages/api/session-controller/src/history.ts'
+import {
+  installSessionReadTestServices,
+} from '../packages/api/session-controller/tests/test-remote.ts'
 import { SessionAssistantStreamAccumulator } from '../packages/api/session-controller/src/assistant-stream.ts'
 import { LlmAttemptId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
@@ -44,7 +59,8 @@ const ATTEMPT = LlmAttemptId('repro-attempt')
 const HOST_BATCH_SIZE = 64
 const CHUNKS = 1000
 const PACED_CHUNKS = 50
-const PACED_INTERVAL_MS = 20
+/** Producer cadences the Host batching defaults are judged against. */
+const PACED_CADENCES_MS = [10, 20, 50]
 const RECONNECT_DELTAS = 100_000
 
 function chunkFrame(revision: number, index: number): SessionAssistantStreamFrame {
@@ -102,7 +118,141 @@ interface BurstReport {
   readonly elapsedMs: number
 }
 
+interface PacedReport {
+  readonly intervalMs: number
+  readonly chunks: number
+  readonly deliveredChunks: number
+  /** Host messages the Client read: single frames plus batches. */
+  readonly wireFrames: number
+  /** Chunks each message carried, so a batch is counted once. */
+  readonly batchFrames: number
+  readonly eventPublications: number
+  readonly firstChunkMs: number
+  readonly tailChunkMs: number
+  readonly producerBudgetMs: number
+}
+
+/**
+ * Drive paced chunks through the real Host follow and the real Client fold.
+ *
+ * The Host's batching is what these numbers are about, so the frames are emitted
+ * as Agent frames into `SessionHistoryController` and read back through
+ * `SessionEventStream` — not scripted on the mock, which would only measure the
+ * Client against an assumed wire shape.
+ * @param intervals - producer cadences to measure, in milliseconds.
+ * @returns one report per cadence.
+ */
+async function measurePacedThroughHost(intervals: readonly number[]): Promise<PacedReport[]> {
+  const reports: PacedReport[] = []
+  for (const intervalMs of intervals) reports.push(await measureOne(intervalMs))
+  return reports
+}
+
+async function measureOne(intervalMs: number): Promise<PacedReport> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
+  installSessionReadTestServices(ctx)
+  try {
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    // Batch size 1 would flush every chunk alone and measure nothing; the Host
+    // default is what the product runs, so the deadline is what is under test.
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+
+    const fold = new ClientAssistantStream()
+    const abort = new AbortController()
+    const arrivals: number[] = []
+    let wireFrames = 0
+    let batchFrames = 0
+    let chunks = 0
+    let publications = 0
+    const started = performance.now()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    // The opening snapshot precedes any chunk; the producer below emits into a
+    // live follow, which is the path a paced model response takes.
+    // The opening snapshot fixes the ordinal cut; emitting before it lands
+    // would place the start frame behind that cut and drop the whole attempt.
+    const opened = Promise.withResolvers<undefined>()
+    const produce = (async () => {
+      await opened.promise
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId: ATTEMPT, revision: 1, turn: 1, step: 1 },
+      })
+      for (let index = 0; index < PACED_CHUNKS; index++) {
+        const due = started + index * intervalMs
+        const wait = due - performance.now()
+        if (wait > 0) await new Promise<void>((resolve) => { setTimeout(resolve, wait) })
+        ctx.emit('agent/assistant-stream', {
+          agent,
+          frame: {
+            type: 'chunk',
+            attemptId: ATTEMPT,
+            revision: index + 2,
+            index,
+            time: index,
+            chunk: { type: 'text-delta', index: 0, text: 'token ' },
+          },
+        })
+      }
+    })()
+
+    try {
+      const deadline = started + PACED_CHUNKS * intervalMs + 30_000
+      while (chunks < PACED_CHUNKS && performance.now() < deadline) {
+        const step = await iterator.next()
+        if (step.done) break
+        const frame = step.value
+        if (frame.type === 'snapshot') {
+          opened.resolve(undefined)
+          continue
+        }
+        if (frame.type === 'assistant-stream') {
+          wireFrames += 1
+          const result = fold.acceptFrame(frame.frame)
+          if (result?.type === 'transient') { chunks += 1; publications += 1 }
+          arrivals.push(performance.now() - started)
+          continue
+        }
+        if (frame.type === 'assistant-stream-batch') {
+          wireFrames += 1
+          batchFrames += 1
+          const { transients } = fold.acceptFrames(frame.frames)
+          chunks += transients.length
+          if (transients.length > 0) publications += 1
+          arrivals.push(performance.now() - started)
+        }
+      }
+    } finally {
+      abort.abort()
+      await iterator.next().catch(() => undefined)
+      await produce
+    }
+
+    return {
+      intervalMs,
+      chunks: PACED_CHUNKS,
+      deliveredChunks: chunks,
+      wireFrames,
+      batchFrames,
+      eventPublications: publications,
+      firstChunkMs: arrivals[0] ?? Number.NaN,
+      tailChunkMs: arrivals.at(-1) ?? Number.NaN,
+      producerBudgetMs: (PACED_CHUNKS - 1) * intervalMs,
+    }
+  } finally {
+    await ctx.fiber.dispose()
+  }
+}
+
 describe('Assistant stream batching baseline', () => {
+
   itLive('measures a 1000-chunk burst through the assembled Client Session', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     mock.stream(FOLLOW, followScript(history([]), { assistantStream: { revision: 0 } }))
@@ -141,55 +291,14 @@ describe('Assistant stream batching baseline', () => {
       .toHaveLength(CHUNKS)
   })
 
-  itLive('measures a paced 1000-chunk stream and its idle wakeups', async ({ mock, start }) => {
-    const session = await sessionBench(mock, start, SID)
-    mock.stream(FOLLOW, followScript(history([]), { assistantStream: { revision: 0 } }))
-    await session.open()
-
-    const frames = hostFrames(PACED_CHUNKS)
-    let notifications = 0
-    let publications = 0
-    session.subscribe(() => { notifications += 1 })
-    session.eventSource.subscribe(() => { publications += 1 })
-    const windowRevisionStart = session.eventSource.getSnapshot().revision
-
-    // One chunk per tick on the Host's own single-frame path: this is what a
-    // paced producer looks like on the wire today, unaffected by batching.
-    mock.streams.push(FOLLOW, { type: 'assistant-stream', frame: startFrame() })
-    const arrivals: number[] = []
-    const started = performance.now()
-    for (const [index, frame] of frames.entries()) {
-      const due = started + index * PACED_INTERVAL_MS
-      const wait = due - performance.now()
-      if (wait > 0) await new Promise<void>((resolve) => { setTimeout(resolve, wait) })
-      mock.streams.push(FOLLOW, { type: 'assistant-stream', frame })
-      await mock.streams.drained(FOLLOW)
-      arrivals.push(performance.now() - started)
+  it('measures paced chunks through the Host follow path at three cadences', { timeout: 120_000 }, async () => {
+    const reports = await measurePacedThroughHost(PACED_CADENCES_MS)
+    for (const report of reports) {
+      console.log(JSON.stringify({ benchmark: 'assistant-stream/paced-host', ...report }))
     }
-    const totalMs = performance.now() - started
-    const firstMs = arrivals[0]!
-    const tailMs = arrivals.at(-1)!
-    const budgetMs = (PACED_CHUNKS - 1) * PACED_INTERVAL_MS
-    // Frames the consumer was woken for beyond the paced producer's own tick:
-    // a wakeup that carries no new durable or transient work.
-    const idleWakeups = notifications + publications
-      - (session.eventSource.getSnapshot().revision - windowRevisionStart)
-
-    console.log(JSON.stringify({
-      benchmark: 'assistant-stream/paced',
-      chunks: PACED_CHUNKS,
-      intervalMs: PACED_INTERVAL_MS,
-      totalMs,
-      producerBudgetMs: budgetMs,
-      firstChunkMs: firstMs,
-      tailChunkMs: tailMs,
-      eventPublications: session.eventSource.getSnapshot().revision - windowRevisionStart,
-      subscriberNotifications: notifications,
-      feedPublications: publications,
-      idleWakeups,
-    }))
-    expect(session.eventSource.getSnapshot().entries.filter(entry => entry.type === 'transient'))
-      .toHaveLength(PACED_CHUNKS)
+    // Every chunk must still reach the Client: batching changes how many frames
+    // carry them, never whether one is delivered.
+    for (const report of reports) expect(report.deliveredChunks).toBe(PACED_CHUNKS)
   })
 
   it('measures a continued reconnect over a 100000-delta live prefix', () => {

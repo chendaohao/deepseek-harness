@@ -40,7 +40,15 @@ describe('Remote stream mux server carrier lifecycle', () => {
     const pong = once(serverSocket, 'pong')
     expect((await ping)[0]).toEqual(Buffer.alloc(0))
     expect((await pong)[0]).toEqual(Buffer.alloc(0))
-    expect(messages).not.toHaveBeenCalled()
+    // The control frame itself carries no payload. The same tick also emits the
+    // liveness text frame — that is the point of it, since a browser never sees
+    // a Ping — so what must not appear is a stream message.
+    await vi.waitFor(() => {
+      expect(messages).toHaveBeenCalled()
+    })
+    for (const [received] of messages.mock.calls) {
+      expect(JSON.parse(String(received))).toEqual({ type: 'liveness' })
+    }
 
     const closingPing = vi.spyOn(serverSocket, 'ping')
     client.pause()
@@ -499,6 +507,32 @@ describe('Remote stream mux server compression', () => {
     sending.mockRestore()
     client.close()
     await once(client, 'close')
+  })
+
+  it('sends the liveness frame with compression off', async () => {
+    // A short interval keeps the wait for one heartbeat off the test's budget.
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) =>
+      waitForAbort(control.signal), 100)
+    const client = await connect(entry.url)
+    const writer = acceptedSocket(entry.mux) as {
+      send(data: string, options?: { compress?: boolean }): void
+    }
+    const sending = vi.spyOn(writer, 'send')
+    try {
+      // One heartbeat must reach the wire for its options to be observable.
+      await pings(client, 1)
+      await vi.waitFor(() => {
+        expect(sending.mock.calls.some(([data]) => data.includes('"liveness"'))).toBe(true)
+      })
+      const liveness = sending.mock.calls.filter(([data]) => data.includes('"liveness"'))
+      // The frame is one short constant repeated on a timer: compressing it
+      // buys nothing and costs a deflate pass on every heartbeat.
+      expect(liveness.every(([, options]) => options?.compress === false)).toBe(true)
+    } finally {
+      sending.mockRestore()
+      client.close()
+      await once(client, 'close')
+    }
   })
 
   it('keeps a socket alive while compressed frames are written without a Pong', { timeout: 20_000 }, async () => {

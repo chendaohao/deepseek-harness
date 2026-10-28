@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { LlmAttemptId } from '@deepseek-ai/dsh-llm'
+import { describe, expect, it, vi } from 'vitest'
+import { AssistantStreamAccumulator, LlmAttemptId } from '@deepseek-ai/dsh-llm'
+import { joinAssistantStreamText, type AssistantStreamRecord } from '@deepseek-ai/dsh-llm/assistant-stream'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import { SessionAssistantStreamAccumulator } from '../src/assistant-stream.ts'
 
@@ -117,5 +118,43 @@ describe('SessionAssistantStreamAccumulator', () => {
     const ended = accumulator.opening(cursor, true)
     expect(ended.outcome).toBe('replaced')
     expect(ended.baseline).toEqual({ revision: 3 })
+  })
+
+  it('materializes the metadata-only baseline without compacting the stream', () => {
+    const accumulator = new SessionAssistantStreamAccumulator()
+    const attemptId = LlmAttemptId('session:1')
+    accumulator.accept({ type: 'start', attemptId, revision: 1, turn: 1, step: 1 }, SessionSeq(5))
+    const chunks = Array.from({ length: 64 }, (_, index) => ({ index, text: `c${index}` }))
+    for (const [index, chunk] of chunks.entries()) {
+      accumulator.accept({
+        type: 'chunk', attemptId, revision: index + 2, index, time: index,
+        chunk: { type: 'text-delta', index: 0, text: chunk.text },
+      }, SessionSeq(5))
+    }
+
+    // A continuation reads the metadata baseline for every reconnect. Compacting
+    // the accumulated stream for it would cost one pass over every chunk the
+    // caller already holds, on the path that exists to avoid that work.
+    const snapshot = vi.spyOn(AssistantStreamAccumulator.prototype, 'snapshot')
+    try {
+      const metadata = accumulator.metadataSnapshot()
+      expect(snapshot).not.toHaveBeenCalled()
+      expect(metadata.activeAttempt).toMatchObject({ attemptId, nextIndex: 64, stream: [] })
+
+      // The full baseline still carries the stream, and only now is it built.
+      const full = accumulator.snapshot()
+      expect(snapshot).toHaveBeenCalledTimes(1)
+      expect(full.activeAttempt?.stream).toHaveLength(1)
+      expect(joinAssistantStreamText(
+        (full.activeAttempt?.stream ?? []) as readonly AssistantStreamRecord[],
+      )).toBe(chunks.map(chunk => chunk.text).join(''))
+      // The metadata baseline is unchanged by that read: the two caches are
+      // independent, so a full snapshot does not make the next reconnect pay.
+      expect(snapshot).toHaveBeenCalledTimes(1)
+      expect(accumulator.metadataSnapshot()).toBe(metadata)
+      expect(snapshot).toHaveBeenCalledTimes(1)
+    } finally {
+      snapshot.mockRestore()
+    }
   })
 })
