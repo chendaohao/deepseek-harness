@@ -27,6 +27,8 @@ Status: implemented
 
 **只要拨号已经开始，替代就算已经完成。** `reconnect()` 在 socket 存在**或**有拨号在进行时都认为标记已满足。`maintain()` 对这两个条件本来就幂等，所以提前返回不会让载体缺席。标记仍然一次性：被吸收的请求是回收自身的后果，下一个请求面对的是真正过期的 socket。
 
+**前台恢复同时清除 Connection 的普通重试退避。** `installForegroundResync` 先调用 `connection.reconnect()`，再调用 `mux.resume()`，让恢复立即开始，同时由一次性标记吸收由此产生的重复物理替换。
+
 **换代只让水位退役，不删除值。** `ProjectionValueStore` 给每一行打上写入它的 generation 标记，`beginGeneration()` 只推进标记、不动映射。读取仍然返回上一代的值，屏幕上什么都不空；新 generation 的第一次写入替换它们。seq 只在同一代内可比，这正是让新 baseline 能压过携带更大 seq 的退役行的原因——也就是当初引入删除所针对的那个场景。
 
 **cached block 仍然覆盖它的全部 key 集合。** 新 generation 的 block 未携带的退役 cached 行随该 block 一并丢弃，因为 block 是当前完整的答案，被省略的 key 是来源不再报告的 key。没有这一条，Host 已停止发送的 key 会熬过每一次重连。
@@ -53,6 +55,6 @@ Status: implemented
 
 ## Testing
 
-`packages/api/gateway/tests/gateway.client.spec.ts` 钉住标记的两侧：在替代拨号仍在握手时发起重连不取消任何东西，而标记被消费之后的请求正常替换。第一条用例对旧的 `socket !== undefined` 判断会失败。
+`packages/api/gateway/tests/gateway.client.spec.ts` 钉住标记的两侧：在替代拨号仍在握手时发起重连不取消任何东西，而标记被消费之后的请求正常替换。第一条用例对旧的 `socket !== undefined` 判断会失败。手机前台组合用例还钉住 mux 恢复前的 Connection 重置。
 
 `packages/api/session-controller/tests/projection-store.client.spec.ts` 钉住退役：值熬过 `beginGeneration()`，水位不熬过，新一代更低 seq 的 baseline 仍然落地，省略该 key 的 cut 会让它退役，而同代的过期 cut 仍然输给更新的 frame。`tests/inbox-projection.client.spec.ts` 与 `tests/manager.client.spec.ts` 承载了两条点名旧行为的端到端预期——一次重连中原本会变空的冷 Inbox 与标题——现在断言值在被替换之前保持发布。

@@ -27,6 +27,8 @@ The two can also arrive in either order, because the control restart does not wa
 
 **A replacement counts as dialed whether or not it has opened.** `reconnect()` treats the marker as satisfied when a socket exists *or* a dial is in flight. `maintain()` is already idempotent on both conditions, so the early return cannot leave the carrier absent. The marker stays one-shot: the request it absorbs is the consequence of the recycle, and the next request is a genuinely stale socket.
 
+**A foreground return also clears Connection's ordinary retry delay.** `installForegroundResync` calls `connection.reconnect()` before `mux.resume()`, so recovery starts immediately while the one-shot marker absorbs the resulting duplicate physical replacement.
+
 **Generation change retires watermarks; it does not delete values.** `ProjectionValueStore` tags every row with the generation that wrote it, and `beginGeneration()` advances the tag without touching the map. Reads keep returning the previous generation's values, so nothing blanks on screen; the first write of the new generation replaces them. Seqs become comparable only within one generation, which is what makes a new baseline able to land over a retired row carrying a higher seq — the case the deletion was originally introduced for.
 
 **A cached block still covers its whole key set.** A retired cached row that the new generation's block omits is dropped with that block, because the block is the complete current answer and an omitted key is one the source no longer reports. Without this, a key the Host had stopped sending would survive every reconnect.
@@ -53,6 +55,6 @@ Retired rows also persist until written, so a Session that reconnects and is the
 
 ## Testing
 
-`packages/api/gateway/tests/gateway.client.spec.ts` pins both sides of the marker: a reconnect during the replacement's handshake cancels nothing, and the request after the marker is consumed replaces normally. The first case fails against the previous `socket !== undefined` test.
+`packages/api/gateway/tests/gateway.client.spec.ts` pins both sides of the marker: a reconnect during the replacement's handshake cancels nothing, and the request after the marker is consumed replaces normally. The first case fails against the previous `socket !== undefined` test. The phone foreground composition case also pins the Connection reset before mux recovery.
 
 `packages/api/session-controller/tests/projection-store.client.spec.ts` pins retirement: a value survives `beginGeneration()`, its watermark does not, a lower-seq baseline of the new generation still lands, an omitting cut retires it, and a same-generation stale cut still loses to a newer frame. `tests/inbox-projection.client.spec.ts` and `tests/manager.client.spec.ts` carry the two end-to-end expectations that named the old behavior — a cold Inbox and a title that used to blank across a reconnection — and now assert the value stays published until replaced.
