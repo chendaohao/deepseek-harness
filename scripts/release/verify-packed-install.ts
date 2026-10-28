@@ -117,6 +117,11 @@ function main(): void {
       // Keep foreign-platform metadata local without turning those tarballs into required installations.
       optionalDependencies: Object.fromEntries([...packed].filter(([, entryPacked]) => !entryPacked.compatible)
         .map(([name, entryPacked]) => [name, entryPacked.url])),
+      // npm 12 blocks install scripts an allowlist does not name, and it keys
+      // that allowlist by install source rather than package name. The packed
+      // trees under --from are the only sources here, so approving them keeps
+      // the verification driving real lifecycle scripts.
+      allowScripts: Object.fromEntries([...packed].map(([, entryPacked]) => [entryPacked.url, true])),
     }, null, 2)}\n`)
 
     const environment = consumerEnvironment(consumerRoot)
