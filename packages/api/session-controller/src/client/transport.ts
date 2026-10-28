@@ -12,6 +12,8 @@ import {
 } from '@deepseek-ai/dsh-api-gateway/client'
 import type {
   SessionAddress,
+  SessionAssistantCursor,
+  SessionAssistantCursorOutcome,
   SessionAssistantStreamBaseline,
   SessionAssistantStreamFrame,
   SessionControlFrame,
@@ -46,6 +48,11 @@ interface SessionJournalPage extends SessionPage {
   readonly assistantStream?: SessionAssistantStreamBaseline
   /** The Host answered a continuation request: entries extend the held window. */
   readonly continued?: true
+  /**
+   * What the opening's Assistant baseline carries, as the Host answered the
+   * position this client reported. Absent when the Host read no position.
+   */
+  readonly assistantCursorApplied?: SessionAssistantCursorOutcome
 }
 
 /**
@@ -115,6 +122,13 @@ export interface SessionControlStreamOptions {
 export interface SessionEventStreamOptions {
   /** Apply one complete event-window change. */
   readonly publish: (change: SessionJournalChange) => void
+  /**
+   * Read the Assistant position to report on a reconnect, or undefined when no
+   * attempt is open. A reported position lets the Host answer whether the
+   * attempt is still the one it holds; without one the Client can only trust
+   * that the opening's metadata describes the stream it is rendering.
+   */
+  readonly assistantCursor?: () => SessionAssistantCursor | undefined
   /** Observe a retryable carrier loss before reconnection. */
   readonly carrierFailed?: (error: RemoteStreamCarrierError) => void
   /** Publish a terminal stream, page, or protocol failure after opening. */
@@ -172,7 +186,7 @@ export class SessionEventStream extends RemoteJournalStream<
   constructor(
     private readonly remote: SessionRemotes,
     private readonly address: SessionAddress,
-    options: SessionEventStreamOptions,
+    private readonly sinks: SessionEventStreamOptions,
   ) {
     super(remote, {
       name: 'session event stream',
@@ -184,11 +198,11 @@ export class SessionEventStream extends RemoteJournalStream<
       compare: (left, right) => left - right,
       follows: (left, right) => right === left + 1,
       continues: page => page.continued === true,
-      publish: (change) => { options.publish(toSessionJournalChange(change)) },
-      ...(options.carrierFailed === undefined
+      publish: (change) => { sinks.publish(toSessionJournalChange(change)) },
+      ...(sinks.carrierFailed === undefined
         ? {}
-        : { carrierFailed: options.carrierFailed }),
-      failed: options.failed,
+        : { carrierFailed: sinks.carrierFailed }),
+      failed: sinks.failed,
     })
   }
 
@@ -204,11 +218,16 @@ export class SessionEventStream extends RemoteJournalStream<
     // so the Host answers with the gap instead of the whole window again. The
     // first generation has nothing to continue from and must not claim one.
     const afterSeq = this.appliedCursor
+    // The Assistant position rides along only with that cursor: the Host reads
+    // it as "continue this attempt", which is only meaningful for a window the
+    // caller is already holding.
+    const assistantCursor = afterSeq === undefined ? undefined : this.sinks.assistantCursor?.()
     for await (const frame of this.remote.session.follow({
       address: this.address,
       assistantStream: true,
       ...this.repairRequest(request),
       ...(afterSeq === undefined ? {} : { afterSeq }),
+      ...(assistantCursor === undefined ? {} : { assistantCursor }),
     }, signal)) {
       if (frame.type === 'snapshot') {
         for (const record of frame.records) assertSessionWireEvent(record.event)
@@ -220,6 +239,14 @@ export class SessionEventStream extends RemoteJournalStream<
           )
         }
         assistantRevision = frame.assistantStream.revision
+        // A Host that does not read `assistantCursor` answers without the
+        // outcome. Adopting that as a resume would append dense frames to rows
+        // it never confirmed, so a reported position with no answer is read as
+        // the replacement it might be: the caller rebuilds from what was sent.
+        const applied: SessionAssistantCursorOutcome | undefined = assistantCursor !== undefined
+          && frame.assistantCursorApplied === undefined
+          ? 'replaced'
+          : frame.assistantCursorApplied
         yield {
           type: 'opened',
           cursor: frame.cursor,
@@ -229,6 +256,7 @@ export class SessionEventStream extends RemoteJournalStream<
             projections: frame.projections,
             assistantStream: frame.assistantStream,
             ...(frame.continued === true ? { continued: true as const } : {}),
+            ...(applied === undefined ? {} : { assistantCursorApplied: applied }),
           },
         }
         continue

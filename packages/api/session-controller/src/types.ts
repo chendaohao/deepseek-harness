@@ -513,8 +513,39 @@ export interface SessionFollowRequest extends Pick<SessionPageRequest, 'maxMessa
    * caller that asks for continuation always receives a coherent window.
    */
   readonly afterSeq?: number
+  /**
+   * Process-local Assistant position the caller already holds, reported beside
+   * `afterSeq` so the Host can answer with the stream state alone when that
+   * position is still current, and with a complete prefix when it is not.
+   * Omit it for an ordinary opening.
+   *
+   * A Host that does not recognize the field ignores it and sends a complete
+   * baseline; a Client that receives one rebuilds from it. See
+   * {@link SessionAssistantCursor}.
+   */
+  readonly assistantCursor?: SessionAssistantCursor
   /** Include process-local assistant presentation frames for the Web client. */
   readonly assistantStream?: true
+}
+
+/**
+ * One Client's process-local Assistant position, reported on a reconnect so the
+ * Host can tell a continuation of the attempt the Client is already rendering
+ * from an unrelated attempt that started while it was away.
+ *
+ * An attempt id is unique only within one Agent lifecycle: it is the Session id
+ * plus an attempt counter owned by that Agent, and a replacement Agent restarts
+ * the counter. `startedAfterSeq` names the durable position the attempt opened
+ * at, so two attempts that reuse an id are still told apart.
+ */
+export interface SessionAssistantCursor {
+  readonly attemptId: LlmAttemptId
+  /** Durable position the attempt opened at, as the opening start frame reported it. */
+  readonly startedAfterSeq: SessionSeqCursor
+  /** Last process-local frame revision the Client applied. */
+  readonly revision: number
+  /** Dense position the Client expects for the next chunk frame. */
+  readonly nextIndex: number
 }
 
 /** One active assistant attempt in a reconnect opening snapshot. */
@@ -592,11 +623,22 @@ export type SessionFollowFrame =
      * ordinary opening, where the records are the complete window.
      */
     readonly continued?: true
+    /**
+     * What this snapshot's `assistantStream` carries, when the caller supplied
+     * an `assistantCursor`. A `resumed` answer holds attempt metadata only and
+     * continues the attempt the caller is already rendering; a `replaced`
+     * answer holds the complete prefix for whichever attempt is current, which
+     * may be a different one. Absent when the caller supplied no cursor.
+     */
+    readonly assistantCursorApplied?: SessionAssistantCursorOutcome
   }
   | SessionEventEntry
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
   /** Subsequent chunks in original order; every frame retains its own revision and index. */
   | { readonly type: 'assistant-stream-batch'; readonly frames: readonly SessionAssistantStreamFrame[] }
+
+/** How one opening answered the Assistant cursor its caller reported. */
+export type SessionAssistantCursorOutcome = 'resumed' | 'replaced'
 
 /** Complete live control baseline emitted once per control stream generation. */
 export interface SessionControlBaseline {

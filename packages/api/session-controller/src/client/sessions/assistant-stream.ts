@@ -1,6 +1,7 @@
 /** Web presentation fold joining transient Assistant frames to one durable v2 settlement. */
 
 import type {
+  SessionAssistantCursor,
   SessionAssistantStreamBaseline,
   SessionAssistantStreamFrame,
 } from '../../types.ts'
@@ -48,6 +49,41 @@ export class ClientAssistantStream {
   private publishedSeqs = new Set<number>()
   private durableCursor = -1
   private transientInGap = 0
+  /** Last frame revision this Client applied; a Host restart begins again at one. */
+  private revision = 0
+
+  /**
+   * Report the Assistant position this Client holds, for a reconnect opening.
+   *
+   * Only an open attempt is a position: the Host answers a report about an
+   * attempt it still holds, and a Client holding none appends to nothing.
+   * @returns the position to report, or undefined when no attempt is open.
+   */
+  cursor(): SessionAssistantCursor | undefined {
+    const attempt = this.activeAttempt
+    if (attempt === undefined) return undefined
+    return {
+      attemptId: attempt.attemptId,
+      startedAfterSeq: attempt.startedAfterSeq as SessionAssistantCursor['startedAfterSeq'],
+      revision: this.revision,
+      nextIndex: attempt.nextIndex,
+    }
+  }
+
+  /**
+   * Retire every transient row this fold published, ahead of a window rebuild.
+   *
+   * A full recovery installs the Host's own prefix, so rows the Client built
+   * from a stream the Host no longer holds would duplicate or contradict it.
+   * @returns the attempt whose rows were retired, when one was open.
+   */
+  retireAttempt(): LlmAttemptId | undefined {
+    const attempt = this.activeAttempt
+    if (attempt === undefined) return undefined
+    this.activeAttempt = undefined
+    this.retainedAttempt = undefined
+    return attempt.attemptId
+  }
 
   /**
    * Adopt the window this fold now describes and an optional reconnect baseline.
@@ -66,6 +102,7 @@ export class ClientAssistantStream {
     this.pending.clear()
     this.activeAttempt = undefined
     this.retainedAttempt = undefined
+    this.revision = baseline?.revision ?? 0
     // A row already installed keeps the seq it was published with, so the gap
     // counter resumes past it. Restarting at zero would hand the next chunk a
     // seq an installed row already owns, and a row repeating an earlier seq is
@@ -172,6 +209,9 @@ export class ClientAssistantStream {
         if (this.activeAttempt !== undefined || this.retainedAttempt !== undefined
           || this.pending.size > 0) return { type: 'rebaseline' }
         this.pending.clear()
+        // A Host restart begins its frame numbering again at one, so the
+        // accepted revision follows the frames rather than accumulating.
+        this.revision = frame.revision
         this.activeAttempt = {
           attemptId: frame.attemptId,
           startedAfterSeq: frame.startedAfterSeq,
@@ -187,6 +227,7 @@ export class ClientAssistantStream {
         // ignore the transient suffix until the next known start.
         if (attempt === undefined || attempt.attemptId !== frame.attemptId) return undefined
         if (frame.index !== attempt.nextIndex) return { type: 'rebaseline' }
+        this.revision = frame.revision
         attempt.nextIndex += 1
         this.transientInGap += 1
         return {
@@ -213,6 +254,7 @@ export class ClientAssistantStream {
           return undefined
         }
         this.activeAttempt = undefined
+        this.revision = frame.revision
         if (frame.index !== attempt.nextIndex) return { type: 'rebaseline' }
         if (frame.outcome.kind === 'abandoned') {
           return this.pending.size === 0

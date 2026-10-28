@@ -1,7 +1,8 @@
 /** Pure history response builders for assembled Session tests. */
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session/types'
 import type {
-  SessionAssistantStreamBaseline, SessionFollowFrame, SessionFollowRequest, SessionPage, SessionProjectionBaseline,
+  SessionAssistantCursorOutcome, SessionAssistantStreamBaseline, SessionFollowFrame, SessionFollowRequest,
+  SessionPage, SessionProjectionBaseline,
 } from '../../src/types.ts'
 import { historyRecordLastSeq } from '../../src/client/sessions/history-records.ts'
 
@@ -21,6 +22,9 @@ export function pageThrough(page: SessionPage, throughSeq: number): SessionPage 
  * @param request - addressed follow request.
  * @param cursor - opening cursor; defaults to the history tail, or -1 when empty.
  * @param assistantStream - baseline included only when the request opts in.
+ * @param assistantCursorApplied - how a Host reading the request's Assistant
+ *   cursor answered it; omitted when the scripted answer is a Host that predates
+ *   the field and therefore reports nothing.
  * @returns the opening frame.
  */
 export function followSnapshot(
@@ -28,6 +32,7 @@ export function followSnapshot(
   request: SessionFollowRequest,
   cursor = page.records.length === 0 ? -1 : historyRecordLastSeq(page.records.at(-1)!),
   assistantStream: SessionAssistantStreamBaseline = { revision: 0 },
+  assistantCursorApplied?: SessionAssistantCursorOutcome,
 ): Extract<SessionFollowFrame, { type: 'snapshot' }> {
   const { address } = request
   return {
@@ -44,5 +49,6 @@ export function followSnapshot(
     hasMore: page.hasMore,
     projections: page.projections ?? { asOfSeq: cursor, values: {} },
     ...(request.assistantStream === true ? { assistantStream } : {}),
+    ...(assistantCursorApplied === undefined ? {} : { assistantCursorApplied }),
   }
 }

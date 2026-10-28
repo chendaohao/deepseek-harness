@@ -5,6 +5,8 @@ import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm'
 import type { SessionSeqCursor } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
+  SessionAssistantCursor,
+  SessionAssistantCursorOutcome,
   SessionAssistantStreamAttempt,
   SessionAssistantStreamBaseline,
 } from './types.ts'
@@ -97,6 +99,44 @@ export class SessionAssistantStreamAccumulator {
    */
   metadataSnapshot(): SessionAssistantStreamBaseline {
     return this.materialize(false)
+  }
+
+  /**
+   * Decide which Assistant baseline one follow opening owes its caller.
+   *
+   * Two independent facts decide it. Whether the caller continues its durable
+   * window (`continued`) says it already holds every durable event; whether it
+   * names the attempt it is rendering and the dense index it expects next says
+   * its rows describe this stream. Only both together mean those rows are still
+   * current and the wire owes metadata alone. Otherwise the caller's rows
+   * describe an attempt the Host no longer holds — one that ended while it was
+   * away, or one a replaced Agent restarted — so it is owed the complete prefix
+   * and rebuilds from it.
+   * @param cursor - position the caller reported, absent when it reported none.
+   * @param continued - whether the caller's durable cursor was continued.
+   * @returns the baseline to send and how it answered a reported position; the
+   *   outcome is undefined when the caller reported no position.
+   */
+  opening(cursor: SessionAssistantCursor | undefined, continued: boolean): {
+    readonly baseline: SessionAssistantStreamBaseline
+    readonly outcome: SessionAssistantCursorOutcome | undefined
+  } {
+    const attempt = this.activeAttempt
+    // An attempt the Host no longer holds cannot be resumed: it ended, or a
+    // replacement Agent retired it, so the durable settlement retires those
+    // rows instead of a stream the Client would keep appending to.
+    const resumed = continued
+      && cursor !== undefined
+      && attempt !== undefined
+      && attempt.attemptId === cursor.attemptId
+      && attempt.startedAfterSeq === cursor.startedAfterSeq
+      && attempt.nextIndex === cursor.nextIndex
+    return {
+      baseline: resumed || (continued && cursor === undefined)
+        ? this.metadataSnapshot()
+        : this.snapshot(),
+      outcome: cursor === undefined ? undefined : resumed ? 'resumed' : 'replaced',
+    }
   }
 
   private materialize(withStream: boolean): SessionAssistantStreamBaseline {

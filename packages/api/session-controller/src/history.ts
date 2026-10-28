@@ -299,17 +299,18 @@ export class SessionHistoryController {
       const page = continued
         ? { events: events.slice(SessionLogOffset(request.afterSeq + 1), events.length), hasMore: true }
         : paginate(events, undefined, request.maxMessages ?? DEFAULT_MAX_MESSAGES, cursor, request.turnWindow)
-      // A continuation caller already holds every durable event this log has,
-      // so the compact copy of the live attempt's prefix is content it can
-      // rebuild from what it already has; it costs bytes on the wire and an
-      // expansion at the receiver that a held-window reseed then discards. The
-      // cursor metadata alone lets it accept the frames that follow. An
-      // ordinary opening still carries the whole prefix.
-      const assistantStream = request.assistantStream !== true
+      // A caller that names its Assistant position gets an answer about that
+      // position rather than about its durable cursor alone: only the attempt it
+      // is already rendering may continue, and anything else owes it a complete
+      // prefix. A caller that names none keeps the cursor-only behaviour — a
+      // continuation already holds the durable events the prefix describes, so
+      // metadata alone lets it accept the frames that follow, while an ordinary
+      // opening carries the whole prefix.
+      const opening = request.assistantStream !== true
         ? undefined
-        : continued
-          ? this.assistantStreams.get(target)?.metadataSnapshot() ?? { revision: 0 }
-          : this.assistantStreams.get(target)?.snapshot() ?? { revision: 0 }
+        : this.assistantStreams.get(target)?.opening(request.assistantCursor, continued)
+          ?? { baseline: { revision: 0 }, outcome: undefined }
+      const assistantStream = opening?.baseline
       // The accumulator snapshot and this watermark are synchronous. Frames
       // through the cut are represented or superseded by that baseline,
       // including larger revisions from a retired Agent; later revision
@@ -325,6 +326,7 @@ export class SessionHistoryController {
           ? { asOfSeq: cursor, values: {} }
           : projectionBlock(source.projections),
         ...assistantStream === undefined ? {} : { assistantStream },
+        ...opening?.outcome === undefined ? {} : { assistantCursorApplied: opening.outcome },
         ...continued ? { continued: true as const } : {},
       }
       if (address.kind === 'session' && source.source === 'prepared') {
@@ -486,6 +488,25 @@ function validateFollowRequest(request: SessionFollowRequest): void {
   if (request.afterSeq !== undefined
     && (!Number.isSafeInteger(request.afterSeq) || request.afterSeq < -1)) {
     throw new RemoteError('gateway/bad-request', 'afterSeq must be an integer >= -1', {})
+  }
+  const cursor = request.assistantCursor
+  if (cursor === undefined) return
+  // A cursor the Host cannot read is a caller defect too. Answering it as a
+  // mismatch would look like a legitimate "replaced" reply and hide the bug.
+  if (request.assistantStream !== true) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor requires assistantStream', {})
+  }
+  if (typeof cursor.attemptId !== 'string' || cursor.attemptId.length === 0) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor.attemptId must be a non-empty string', {})
+  }
+  if (!Number.isSafeInteger(cursor.startedAfterSeq) || cursor.startedAfterSeq < -1) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor.startedAfterSeq must be an integer >= -1', {})
+  }
+  if (!Number.isSafeInteger(cursor.revision) || cursor.revision < 0) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor.revision must be a non-negative integer', {})
+  }
+  if (!Number.isSafeInteger(cursor.nextIndex) || cursor.nextIndex < 0) {
+    throw new RemoteError('gateway/bad-request', 'assistantCursor.nextIndex must be a non-negative integer', {})
   }
 }
 

@@ -9,7 +9,9 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { LlmAttemptId, ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionHistoryController } from '@deepseek-ai/dsh-api-session-controller/src/history.ts'
-import type { SessionFollowFrame, SessionPage, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
+import type {
+  SessionAssistantCursor, SessionFollowFrame, SessionFollowRequest, SessionPage, SessionWireEvent,
+} from '@deepseek-ai/dsh-api-session-controller/types'
 import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
 
 type CheckpointSource = Extract<MessageSource, { readonly kind: 'compact-checkpoint' }>
@@ -1469,6 +1471,134 @@ describe('Session history raw journal', () => {
     }
     abort.abort()
     await ctx.fiber.dispose()
+  })
+
+  it('rejects a malformed Assistant cursor instead of answering it as a mismatch', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    const abort = new AbortController()
+    const valid: SessionAssistantCursor = {
+      attemptId: LlmAttemptId('cursor-attempt'),
+      startedAfterSeq: SessionSeq(0),
+      revision: 1,
+      nextIndex: 0,
+    }
+    // Every field is checked at the wire boundary, so each case drives the
+    // request as a browser could send it rather than through the type.
+    const cases: readonly [string, (request: Record<string, unknown>) => Record<string, unknown>][] = [
+      ['assistantCursor.attemptId must be a non-empty string',
+        request => ({ ...request, attemptId: '' })],
+      ['assistantCursor.startedAfterSeq must be an integer >= -1',
+        request => ({ ...request, startedAfterSeq: -2 })],
+      ['assistantCursor.revision must be a non-negative integer',
+        request => ({ ...request, revision: -1 })],
+      ['assistantCursor.nextIndex must be a non-negative integer',
+        request => ({ ...request, nextIndex: 1.5 })],
+    ]
+    try {
+      for (const [message, mutate] of cases) {
+        // The request is built as JSON, which is what a browser would send:
+        // the wire validator, not the type, is what this case exercises.
+        const request = JSON.parse(JSON.stringify({
+          address: { kind: 'session', sessionId: session.id },
+          assistantStream: true,
+          assistantCursor: mutate({ ...valid }),
+        })) as SessionFollowRequest
+        const iterator = history.follow(request, abort.signal)[Symbol.asyncIterator]()
+        await expect(iterator.next()).rejects.toThrow(message)
+      }
+      // A position without an opted-in stream names nothing the Host would send,
+      // so answering it would silently look like a replacement.
+      const iterator = history.follow({
+        address: { kind: 'session', sessionId: session.id },
+        assistantCursor: valid,
+      }, abort.signal)[Symbol.asyncIterator]()
+      await expect(iterator.next()).rejects.toThrow('assistantCursor requires assistantStream')
+    } finally {
+      abort.abort()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('answers a reported Assistant position with metadata only while it still matches', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    const attemptId = LlmAttemptId('cursor-live-attempt')
+    const emit = (frame: AssistantStreamFrame): void => {
+      ctx.emit('agent/assistant-stream', { agent, frame })
+    }
+    emit({ type: 'start', attemptId, revision: 1, turn: 1, step: 1 })
+    emit({
+      type: 'chunk', attemptId, revision: 2, index: 0,
+      time: 1, chunk: { type: 'text-delta', index: 0, text: 'a' },
+    })
+    // Open once to learn the durable cursor the attempt started after, then
+    // close: the next opening is the reconnect this case is about.
+    const first = new AbortController()
+    const cursor = await (async () => {
+      const iterator = history.follow({
+        address: { kind: 'session', sessionId: session.id },
+        assistantStream: true,
+      }, first.signal)[Symbol.asyncIterator]()
+      const opening = await iterator.next()
+      first.abort()
+      await iterator.next()
+      return (opening.value as Extract<SessionFollowFrame, { type: 'snapshot' }>).cursor
+    })()
+
+    const position: SessionAssistantCursor = {
+      attemptId, startedAfterSeq: -1, revision: 2, nextIndex: 1,
+    }
+    const abort = new AbortController()
+    const matching = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      afterSeq: cursor,
+      assistantStream: true,
+      assistantCursor: position,
+    }, abort.signal)[Symbol.asyncIterator]()
+    try {
+      await expect(matching.next()).resolves.toMatchObject({
+        value: {
+          type: 'snapshot',
+          continued: true,
+          assistantCursorApplied: 'resumed',
+          assistantStream: { activeAttempt: { attemptId, nextIndex: 1, stream: [] } },
+        },
+      })
+    } finally {
+      abort.abort()
+      await matching.next()
+    }
+
+    // The same position one index behind is not this stream's own prefix.
+    const behind = new AbortController()
+    const stale = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      afterSeq: cursor,
+      assistantStream: true,
+      assistantCursor: { ...position, nextIndex: 0 },
+    }, behind.signal)[Symbol.asyncIterator]()
+    try {
+      await expect(stale.next()).resolves.toMatchObject({
+        value: {
+          type: 'snapshot',
+          continued: true,
+          assistantCursorApplied: 'replaced',
+          assistantStream: {
+            activeAttempt: {
+              attemptId, nextIndex: 1, stream: [{ type: 'text-chunks', texts: ['a'] }],
+            },
+          },
+        },
+      })
+    } finally {
+      behind.abort()
+      await stale.next()
+      await ctx.fiber.dispose()
+    }
   })
 
   it('fails the follow stream when the live buffer overflows', async () => {

@@ -16,7 +16,9 @@ import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import { createClientTest, type TestClient, webApp } from '@deepseek-ai/dsh-client-test-runtime/src/assembly/index.ts'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionEventStream } from '../src/client/transport.ts'
-import type { SessionFollowRequest, SessionPage, SessionPageRequest } from '../src/types.ts'
+import type {
+  SessionAssistantCursor, SessionFollowRequest, SessionPage, SessionPageRequest,
+} from '../src/types.ts'
 import { entries, ev, historyValue, plainTurn } from './event-script.client.ts'
 import { sessionBench } from './remote/bench.client.ts'
 import {
@@ -1043,7 +1045,8 @@ describe('remaining branches', () => {
     expect(before).toHaveLength(2)
 
     // The Host answers the reconnect with attempt metadata only, exactly as a
-    // continuation past the live attempt's prefix does.
+    // continuation past the live attempt's prefix does, and confirms it is
+    // still the attempt the client is rendering.
     mock.stream(FOLLOW, ([request], stream) => {
       const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
         revision: 5,
@@ -1055,7 +1058,7 @@ describe('remaining branches', () => {
           nextIndex: 2,
           stream: [],
         },
-      })
+      }, 'resumed')
       stream.push({ ...opening, continued: true })
     })
     mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
@@ -1383,5 +1386,179 @@ describe('snapshot ownership', () => {
     expect(windowAfter).not.toBe(windowBefore)
     expect(windowAfter.entries[0]).toBe(firstEntry)
     expect(windowAfter.change).toMatchObject({ kind: 'append' })
+  })
+})
+
+/** The Assistant position a Session reported on its most recent follow opening. */
+function reportedCursor(mock: RemoteMock): SessionAssistantCursor | undefined {
+  return (mock.log.requests(FOLLOW).at(-1) as SessionFollowRequest | undefined)?.assistantCursor
+}
+
+describe('Assistant continuation cursor', () => {
+  /** Open a Session on a closed turn and start one live attempt with `chunks` applied. */
+  async function opened(
+    mock: RemoteMock,
+    start: () => Promise<TestClient>,
+    attemptId: string,
+    chunks: readonly string[],
+  ): Promise<{ session: Session; attempt: LlmAttemptId }> {
+    const session = await sessionBench(mock, start, SID)
+    const attempt = LlmAttemptId(attemptId)
+    mock.stream(FOLLOW, followScript(
+      history(plainTurn(SessionSeq(10), 1, '问', '答')),
+      { assistantStream: { revision: 1 } },
+    ))
+    await session.open()
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: {
+        type: 'start', attemptId: attempt, revision: 2, startedAfterSeq: SessionSeq(15), turn: 2, step: 1,
+      },
+    })
+    await mock.streams.drained(FOLLOW)
+    if (chunks.length > 0) {
+      mock.streams.push(FOLLOW, {
+        type: 'assistant-stream-batch',
+        frames: chunks.map((text, index) => ({
+          type: 'chunk' as const,
+          attemptId: attempt,
+          revision: 3 + index,
+          index,
+          time: 20 + index,
+          chunk: { type: 'text-delta' as const, index: 0, text },
+        })),
+      })
+      await mock.streams.drained(FOLLOW)
+    }
+    return { session, attempt }
+  }
+
+  it('reports the position it holds and resumes without rebuilding the prefix', async ({ mock, start }) => {
+    const { session, attempt } = await opened(mock, start, 's1-resume', ['前0', '前1'])
+
+    // The Host still holds this attempt at the index the client expects, so it
+    // answers with metadata alone and says so.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
+        revision: 4,
+        activeAttempt: {
+          attemptId: attempt, startedAfterSeq: SessionSeq(15), turn: 2, step: 1, nextIndex: 2, stream: [],
+        },
+      }, 'resumed')
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+
+    // Two chunks at revisions 3 and 4, so the held frame revision is the second.
+    expect(reportedCursor(mock)).toEqual({
+      attemptId: attempt, startedAfterSeq: 15, revision: 4, nextIndex: 2,
+    })
+    // The rows the user was already watching stay exactly where they were.
+    expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(2)
+    expect(windowEntries(session)
+      .filter(entry => entry.type === 'event')
+      .map(entry => entry.event.seq)).toEqual([10, 11, 12, 13, 14, 15])
+
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: {
+        type: 'chunk', attemptId: attempt, revision: 5, index: 2, time: 22,
+        chunk: { type: 'text-delta', index: 0, text: '续' },
+      },
+    })
+    await mock.streams.drained(FOLLOW)
+    const chunks = windowEntries(session)
+      .filter(entry => entry.type === 'transient')
+      .map(entry => entry.event.data.chunk)
+    expect(chunks).toEqual([
+      { type: 'text-delta', index: 0, text: '前0' },
+      { type: 'text-delta', index: 0, text: '前1' },
+      { type: 'text-delta', index: 0, text: '续' },
+    ])
+  })
+
+  it('installs the Host prefix when a replacement Agent restarted the stream', async ({ mock, start }) => {
+    const { session } = await opened(mock, start, 's1-restarted', ['旧0', '旧1'])
+
+    // The replacement Agent reuses the attempt id — its counter restarts with
+    // the Agent — but opens at a different durable position, so the Host says
+    // this is not the stream the client is rendering.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
+        revision: 2,
+        activeAttempt: {
+          attemptId: LlmAttemptId('s1-restarted'),
+          startedAfterSeq: SessionSeq(18),
+          turn: 3,
+          step: 1,
+          nextIndex: 1,
+          stream: [{ type: 'chunk', time: 30, chunk: { type: 'text-delta', index: 0, text: '新' } }],
+        },
+      }, 'replaced')
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+
+    // The rows from the retired attempt are gone and the Host's prefix stands
+    // in their place, at positions this client never handed out.
+    const transients = windowEntries(session).filter(entry => entry.type === 'transient')
+    expect(transients).toHaveLength(1)
+    expect(transients[0]?.event.data).toMatchObject({
+      turn: 3, step: 1, chunk: { type: 'text-delta', text: '新' },
+    })
+    const seqs = windowEntries(session).map(entry => entry.event.seq)
+    expect(new Set(seqs).size).toBe(seqs.length)
+  })
+
+  it('retires the attempt when the Host holds none, leaving no running residue', async ({ mock, start }) => {
+    const { session } = await opened(mock, start, 's1-ended', ['前0'])
+
+    // The attempt ended while the carrier was down: the Host has nothing live,
+    // and the durable settlement carries the text.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
+        revision: 3,
+      }, 'replaced')
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+
+    expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(0)
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+  })
+
+  it('treats a Host that reports no outcome as having replaced the attempt', async ({ mock, start }) => {
+    const { session } = await opened(mock, start, 's1-old-host', ['前0', '前1'])
+
+    // A Host that predates the cursor reads no position, so it answers with a
+    // complete prefix and no outcome. Adopting it as resumed would append dense
+    // frames to rows nothing confirmed.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
+        revision: 3,
+        activeAttempt: {
+          attemptId: LlmAttemptId('s1-old-host'),
+          startedAfterSeq: SessionSeq(15),
+          turn: 2,
+          step: 1,
+          nextIndex: 2,
+          stream: [{ type: 'chunk', time: 20, chunk: { type: 'text-delta', index: 0, text: '前缀' } }],
+        },
+      })
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+
+    const transients = windowEntries(session).filter(entry => entry.type === 'transient')
+    expect(transients).toHaveLength(1)
+    expect(transients[0]?.event.data.chunk).toEqual({ type: 'text-delta', index: 0, text: '前缀' })
   })
 })

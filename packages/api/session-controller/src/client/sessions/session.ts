@@ -675,6 +675,7 @@ export class Session implements SessionFace {
         if (generation !== this.openGeneration || this.events !== events) return
         this.acceptEventChange(change)
       },
+      assistantCursor: () => this.assistantStream.cursor(),
       failed: (error) => {
         this.failEventStream(events, generation, error)
       },
@@ -713,11 +714,15 @@ export class Session implements SessionFace {
           // A continuation carries only durable records: the Host streams
           // exactly the events after the reported cursor. Its Assistant
           // baseline still describes Host state at this opening, so it is
-          // adopted exactly as a replacement opening adopts it.
+          // adopted exactly as a replacement opening adopts it — unless the
+          // Host answered that the attempt this Client renders is not the one
+          // it holds, in which case those rows must not survive the opening.
+          const replaced = change.page.assistantCursorApplied === 'replaced'
           this.continueWindow(
             change.entries as readonly SessionLiveEventEntry[],
             change.page.projections === undefined ? undefined : projectionsBaseline(change.page.projections),
             change.page.assistantStream,
+            replaced,
           )
           return
         }
@@ -766,29 +771,39 @@ export class Session implements SessionFace {
   /**
    * Extend the held window with a continuation's entries.
    *
-   * The held entries stay authoritative for everything the client already
-   * showed, so a reconnect never re-installs a window the user is reading; only
-   * the events past the reported cursor are appended. The opening's projection
-   * and Assistant metadata describe Host state at this opening rather than a
-   * replacement of the window, so they are adopted first — without the
-   * Assistant baseline the dense frames that follow a resumed attempt carry
-   * indices this client never saw, and every one of them would read as a
-   * revision gap.
+   * The held durable entries stay authoritative for everything the client
+   * already showed, so a reconnect never re-installs a window the user is
+   * reading; only the events past the reported cursor are appended. The
+   * opening's projection and Assistant metadata describe Host state at this
+   * opening rather than a replacement of the window, so they are adopted first —
+   * without the Assistant baseline the dense frames that follow a resumed
+   * attempt carry indices this client never saw, and every one of them would
+   * read as a revision gap.
    *
-   * Known boundary: a resumed attempt's rows for chunks dropped during the
-   * disconnect are not reconstructed into the held window, because re-installing
-   * it would replace the entries the user is reading. Streaming text resumes at
-   * the first chunk after the reconnect and the attempt's durable settlement
-   * carries the complete message, so the missed prefix reappears at settlement.
+   * The Host decides whether the attempt this client renders is still the one
+   * it holds. When it says so, the held rows are current and only the metadata
+   * is owed: streaming resumes at the first chunk after the reconnect, and the
+   * attempt's durable settlement carries the complete message, so a prefix
+   * dropped during the disconnect reappears there. When it says otherwise — the
+   * attempt ended, or a replacement Agent restarted the stream — those rows
+   * would describe a stream the Host no longer holds, so they are retired and
+   * the opening's own prefix is expanded in their place.
    * @param entries - events after the cursor this client reported, in cursor order.
    * @param projections - projection baseline carried by the opening.
    * @param assistantStream - Assistant stream baseline carried by the opening.
+   * @param replaced - whether the Host answered that the attempt this client
+   * holds is not the one it would continue.
    */
   private continueWindow(
     entries: readonly SessionLiveEventEntry[],
     projections: ProjectionsBaseline | undefined,
     assistantStream: SessionAssistantStreamBaseline | undefined,
+    replaced: boolean,
   ): void {
+    if (replaced) {
+      this.recoverAssistantStream(entries, projections, assistantStream)
+      return
+    }
     // The fold is re-seeded over the window this client already holds:
     // that restores its published-seq and cursor accounting, keeps the
     // attempt's transient rows counted so the next chunk lands after them,
@@ -798,6 +813,40 @@ export class Session implements SessionFace {
     // and the durable settlement reconstructs the attempt's text on its own —
     // so the prefix is not expanded at all here.
     this.assistantStream.replace(this.eventSource.getSnapshot().entries, assistantStream, false)
+    if (projections !== undefined) this.projections.seed(projections)
+    for (const entry of entries) {
+      this.publishAssistantEntry(this.assistantStream.acceptDurable(entry))
+      if (entry.event.type === 'turn/start') this.firstPromptPendingTurn = false
+    }
+    this.notifier.markDirty()
+  }
+
+  /**
+   * Install the Host's own Assistant prefix after it retired this client's attempt.
+   *
+   * The held rows belong to an attempt the Host no longer holds, so they are
+   * dropped before the opening's prefix is expanded: keeping them would render
+   * text the Host will never settle, and the rebuilt rows must own fresh
+   * positions rather than reuse the retired ones.
+   * @param entries - events after the cursor this client reported, in cursor order.
+   * @param projections - projection baseline carried by the opening.
+   * @param assistantStream - complete Assistant baseline carried by the opening.
+   */
+  private recoverAssistantStream(
+    entries: readonly SessionLiveEventEntry[],
+    projections: ProjectionsBaseline | undefined,
+    assistantStream: SessionAssistantStreamBaseline | undefined,
+  ): void {
+    const retired = this.assistantStream.retireAttempt()
+    if (retired !== undefined) this.eventSource.settleAssistant(retired)
+    // Both the held durable window and the Host's prefix are installed in one
+    // publication, so the transcript rebuilds once rather than once per step.
+    const visible = this.assistantStream.replace(
+      this.eventSource.getSnapshot().entries,
+      assistantStream,
+      true,
+    )
+    this.eventSource.replace(visible, this.eventSource.getSnapshot().hasMore)
     if (projections !== undefined) this.projections.seed(projections)
     for (const entry of entries) {
       this.publishAssistantEntry(this.assistantStream.acceptDurable(entry))
