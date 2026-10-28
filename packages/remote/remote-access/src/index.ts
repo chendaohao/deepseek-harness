@@ -43,17 +43,23 @@ const DEVICE_RENAME_SUFFIX = '/rename'
 /** Maximum length of a user-assigned device label. */
 const DEVICE_NAME_MAX = 40
 
-/** Plugin config: activation plus secret rotation. */
+/** Plugin config: activation, secret rotation, and relay compression. */
 export interface Config {
   /** Whether the proxy, gate, and tunnel run at all; false leaves the plugin inert. */
   enabled: boolean
   /** Rotate the persisted pairing secret and revoke every device before opening the tunnel. */
   resetSecret: boolean
+  /** Per-message compression for both WebSocket relay hops. @default 'deflate' */
+  readonly websocketCompression?: 'none' | 'deflate'
 }
 
-export const Config: z<Config> = z.object({
+/** Deployment policy after schema defaults have been applied. */
+type ResolvedConfig = Config & { readonly websocketCompression: 'none' | 'deflate' }
+
+export const Config: z<Config, ResolvedConfig> = z.object({
   enabled: z.boolean().default(false),
   resetSecret: z.boolean().default(false),
+  websocketCompression: z.union([z.const('none'), z.const('deflate')]).default('deflate'),
 })
 
 /** Connection-service face the pair bridge needs; structural so this package keeps its dependency set. */
@@ -87,7 +93,7 @@ export class RemoteAccess extends Service {
    * @param ctx - owning Cordis context with the tunnel, webserver, and shell-env services.
    * @param config - validated {@link Config}.
    */
-  constructor(ctx: Context, private readonly config: Config) {
+  constructor(ctx: Context, private readonly config: ResolvedConfig) {
     super(ctx, 'remotePairing')
   }
 
@@ -129,7 +135,12 @@ export class RemoteAccess extends Service {
     if (targetPort === undefined) {
       throw new Error('remote-access: the Web server has not bound a port; activate it before the tunnel proxy')
     }
-    this.proxy = await createRemoteProxy({ targetPort, targetHost, policy })
+    this.proxy = await createRemoteProxy({
+      targetPort,
+      targetHost,
+      policy,
+      websocketCompression: this.config.websocketCompression,
+    })
     this.registerControlPlane()
     this.ctx.effect(() => async () => {
       this.disposed = true

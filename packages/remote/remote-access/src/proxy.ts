@@ -51,6 +51,14 @@ const WS_BACKLOG_MAX_BYTES = 128 * 1024 * 1024
 const REAUTHORIZE_INTERVAL_MS = 30_000
 /** Consecutive relayed pings a downstream leg may leave unanswered before the pair is closed. */
 const PONG_MISS_MAX = 3
+/** Deflate window shared with the Gateway mux for repetitive history JSON. */
+const WS_DEFLATE_WINDOW_BITS = 15
+/** Per-message compression settings applied independently to both relay hops. */
+const WS_DEFLATE_OPTIONS = {
+  threshold: 1_024,
+  zlibDeflateOptions: { level: 4, windowBits: WS_DEFLATE_WINDOW_BITS },
+  zlibInflateOptions: { windowBits: WS_DEFLATE_WINDOW_BITS },
+} as const
 
 /** Test hook: WebSocket relay bounds, overridable so fixture tests need no huge frames. */
 export const internals = {
@@ -102,18 +110,21 @@ export interface RemoteProxyOptions {
   targetHost?: string
   /** The access policy every request and upgrade passes through. */
   policy: AccessPolicy
+  /** Per-message compression negotiated independently on both relay hops. @default 'deflate' */
+  readonly websocketCompression?: 'none' | 'deflate'
 }
 
 /**
  * Start the reverse proxy on an OS-assigned loopback port.
- * @param options - target port and access policy.
+ * @param options - target port, access policy, and relay compression.
  * @returns the live handle once the socket is bound.
  */
 export async function createRemoteProxy(options: RemoteProxyOptions): Promise<RemoteProxyHandle> {
-  const { targetPort, targetHost = '127.0.0.1', policy } = options
+  const { targetPort, targetHost = '127.0.0.1', policy, websocketCompression = 'deflate' } = options
   const upstreamSockets = new Set<Duplex>()
   const upstreamClients = new Set<WebSocket>()
-  const wss = new WebSocketServer({ noServer: true, maxPayload: internals.maxPayload })
+  const perMessageDeflate = websocketCompression === 'deflate' ? WS_DEFLATE_OPTIONS : false
+  const wss = new WebSocketServer({ noServer: true, maxPayload: internals.maxPayload, perMessageDeflate })
 
   const handle = (req: IncomingMessage, res: ServerResponse): void => {
     /* v8 ignore next -- node:http always sets url on server requests */
@@ -199,6 +210,7 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
     wss.handleUpgrade(req, socket, head, (downstream) => {
       /* v8 ignore next -- node:http always sets url on server upgrade requests */
       const upstream = new WebSocket('ws://' + targetHost + ':' + String(targetPort) + (req.url ?? ''), {
+        perMessageDeflate,
         // The webserver's browser-auth fence authenticates the upstream
         // upgrade by cookie. Relay the visitor's Cookie header so a tunneled
         // upgrade passes it exactly like the relayed HTTP requests do; an

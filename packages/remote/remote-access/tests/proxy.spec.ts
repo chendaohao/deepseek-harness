@@ -294,6 +294,58 @@ describe('WebSocket relaying', () => {
     await expect(rejected).resolves.toEqual({ code: 401 })
   })
 
+  it('negotiates deflate and reduces a large repetitive downlink frame', async () => {
+    for (const client of wss?.clients ?? []) client.terminate()
+    await new Promise<void>((resolve) => { wss?.close(() => { resolve() }) })
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0, perMessageDeflate: { threshold: 0 } })
+    await new Promise<void>((resolve) => { wss!.once('listening', resolve) })
+    echoPort = (wss.address() as AddressInfo).port
+    const payload = JSON.stringify({ type: 'snapshot', text: 'remote-access-'.repeat(8_192) })
+    wss.on('connection', (socket) => { socket.send(payload) })
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+    })
+
+    const frame = await readFirstFrame(proxy.port)
+    expect(frame.handshake).toContain('101')
+    expect(frame.handshake.toLowerCase()).toContain('sec-websocket-extensions: permessage-deflate')
+    expect(frame.compressed).toBe(true)
+    expect(frame.payloadBytes).toBeLessThan(Buffer.byteLength(payload))
+
+    const received = new Promise<string>((resolve) => {
+      const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port), { perMessageDeflate: { threshold: 0 } })
+      client.on('message', (data) => {
+        resolve(data.toString())
+        client.close()
+      })
+    })
+    await expect(received).resolves.toBe(payload)
+  })
+
+  it('accepts an uncompressed downlink when relay compression is disabled', async () => {
+    for (const client of wss?.clients ?? []) client.terminate()
+    await new Promise<void>((resolve) => { wss?.close(() => { resolve() }) })
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0, perMessageDeflate: { threshold: 0 } })
+    await new Promise<void>((resolve) => { wss!.once('listening', resolve) })
+    echoPort = (wss.address() as AddressInfo).port
+    const payload = JSON.stringify({ type: 'snapshot', text: 'remote-access-'.repeat(8_192) })
+    wss.on('connection', (socket) => { socket.send(payload) })
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+      websocketCompression: 'none',
+    })
+
+    const frame = await readFirstFrame(proxy.port)
+    expect(frame.handshake).toContain('101')
+    expect(frame.handshake.toLowerCase()).not.toContain('sec-websocket-extensions')
+    expect(frame.compressed).toBe(false)
+    expect(frame.payloadBytes).toBe(Buffer.byteLength(payload))
+  })
+
   it('forwards the visitor cookie on the upstream dial so the fence authenticates the upgrade', async () => {
     await proxy?.close()
     proxy = await createRemoteProxy({
@@ -533,13 +585,15 @@ describe('WebSocket relaying', () => {
   it('closes the pair when the upstream send queue exceeds the backlog bound', async () => {
     // The upstream completes the handshake but never reads again, so the
     // relay's send queue to it stays congested: the second downstream frame
-    // trips the backlog bound deterministically.
+    // trips the backlog bound deterministically. Compression is disabled so the
+    // bound measures these fixture bytes rather than their much smaller deflate form.
     const upstream = await silentUpgradeServer()
     proxyInternals.backlogMaxBytes = 1024
     await proxy?.close()
     proxy = await createRemoteProxy({
       targetPort: upstream.port,
       policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+      websocketCompression: 'none',
     })
     const client = new WebSocket('ws://127.0.0.1:' + String(proxy.port))
     const closed = new Promise<void>((resolve) => { client.on('close', () => { resolve() }) })
@@ -586,6 +640,61 @@ describe('createAccessPolicy integration', () => {
     expect(denied.status).toBe(401)
   })
 })
+
+/** Read one server-to-client frame after offering permessage-deflate. */
+async function readFirstFrame(port: number): Promise<{ handshake: string; compressed: boolean; payloadBytes: number }> {
+  const socket = connect(port, '127.0.0.1')
+  await once(socket, 'connect')
+  const iterator = socket[Symbol.asyncIterator]()
+  let buffered = Buffer.alloc(0)
+  const readBytes = async (count: number): Promise<Buffer> => {
+    while (buffered.length < count) {
+      const next = await iterator.next()
+      if (next.done === true) throw new Error('WebSocket closed before a complete frame arrived')
+      buffered = Buffer.concat([buffered, next.value])
+    }
+    return buffered.subarray(0, count)
+  }
+  try {
+    socket.write([
+      'GET /api/remote.mux HTTP/1.1',
+      'Host: 127.0.0.1',
+      'Upgrade: websocket',
+      'Connection: Upgrade',
+      `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+      'Sec-WebSocket-Version: 13',
+      'Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=15',
+      '\r\n',
+    ].join('\r\n'))
+    let headerEnd = buffered.indexOf('\r\n\r\n')
+    while (headerEnd < 0) {
+      const next = await iterator.next()
+      if (next.done === true) throw new Error('WebSocket closed during the upgrade')
+      buffered = Buffer.concat([buffered, next.value])
+      headerEnd = buffered.indexOf('\r\n\r\n')
+    }
+    const handshake = buffered.subarray(0, headerEnd).toString('utf8')
+    buffered = buffered.subarray(headerEnd + 4)
+    const first = await readBytes(2)
+    const compressed = (first[0]! & 0x40) !== 0
+    const masked = (first[1]! & 0x80) !== 0
+    let payloadBytes = first[1]! & 0x7f
+    let offset = 2
+    if (payloadBytes === 126) {
+      payloadBytes = (await readBytes(4)).readUInt16BE(2)
+      offset = 4
+    } else if (payloadBytes === 127) {
+      const wide = (await readBytes(10)).readBigUInt64BE(2)
+      if (wide > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('frame is too large to measure')
+      payloadBytes = Number(wide)
+      offset = 10
+    }
+    await readBytes(offset + payloadBytes + (masked ? 4 : 0))
+    return { handshake, compressed, payloadBytes }
+  } finally {
+    socket.destroy()
+  }
+}
 
 /**
  * A raw upstream that completes the WebSocket handshake and never reads again,

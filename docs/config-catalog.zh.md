@@ -2928,12 +2928,14 @@ export type Config = LocalConfig
 - `source`: [`packages/remote/remote-access/src/index.ts:47`](../packages/remote/remote-access/src/index.ts)
 
 ```ts config-catalog
-/** Plugin config: activation plus secret rotation. */
+/** Plugin config: activation, secret rotation, and relay compression. */
 export interface Config {
   /** Whether the proxy, gate, and tunnel run at all; false leaves the plugin inert. */
   enabled: boolean
   /** Rotate the persisted pairing secret and revoke every device before opening the tunnel. */
   resetSecret: boolean
+  /** Per-message compression for both WebSocket relay hops. @default 'deflate' */
+  readonly websocketCompression?: 'none' | 'deflate'
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-remote-access -->

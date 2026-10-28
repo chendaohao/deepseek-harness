@@ -289,6 +289,17 @@ describe('enabled', () => {
     expect(relayed.body).toBe('target:/echo')
   })
 
+  it('refuses to start the tunnel before the webserver has bound a port', async () => {
+    // The relay dials the real Web server, so a bind that has not happened yet
+    // is a composition error worth naming instead of dialling port undefined.
+    unprovideWebServer()
+    fakeWebServer = { port: undefined, host: '127.0.0.1', register: vi.fn(() => () => {}) }
+    context!.provide('webServer', fakeWebServer)
+
+    await expect(boot()).rejects.toThrow('the Web server has not bound a port')
+    expect(tunnel.openPorts).toHaveLength(0)
+  })
+
   it('rotates the pairing secret when resetSecret is set', async () => {
     await mkdir(join(root!, 'secrets'), { recursive: true })
     await writeFile(join(root!, 'secrets', 'remote-pair'), Buffer.alloc(32, 7))
