@@ -122,6 +122,29 @@ describe('ClientAssistantStream', () => {
     expect(stream.replace([])).toEqual([])
   })
 
+  it('resumes chunk positions after transient rows the adopted window already holds', () => {
+    const stream = new ClientAssistantStream()
+    stream.acceptFrame(start())
+    const first = stream.acceptFrame(chunkFrame(0))
+    const second = stream.acceptFrame(chunkFrame(1))
+    if (first?.type !== 'transient' || second?.type !== 'transient') {
+      throw new Error('expected transient chunks')
+    }
+
+    // A continuation reseed adopts the held window rather than a durable-only
+    // prefix, so the rows it already published are part of the window and the
+    // attempt metadata says which index comes next.
+    stream.replace([ordinary(4), first.entry, second.entry], baseline(2), false)
+    const resumed = stream.acceptFrame(chunkFrame(2))
+    if (resumed?.type !== 'transient') throw new Error('expected a transient chunk')
+
+    const seqs = [first.entry.event.seq, second.entry.event.seq, resumed.entry.event.seq]
+    // A chunk that reuses a published seq reads downstream as a repeat of the
+    // row it duplicates, so the reply would stop growing at the reconnect.
+    expect(new Set(seqs).size).toBe(3)
+    expect([...seqs].sort((left, right) => left - right)).toEqual(seqs)
+  })
+
   it('passes through durable events not owned by the active attempt', () => {
     const stream = new ClientAssistantStream()
     stream.acceptFrame(start(ATTEMPT, 1))

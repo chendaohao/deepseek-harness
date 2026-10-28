@@ -50,8 +50,9 @@ export class ClientAssistantStream {
   private transientInGap = 0
 
   /**
-   * Replace the durable Web window and adopt an optional reconnect baseline.
-   * @param entries - durable entries in the replacement window.
+   * Adopt the window this fold now describes and an optional reconnect baseline.
+   * @param entries - the window in force; transient rows are counted so later
+   * chunks keep their position, and only durable rows advance the cursor.
    * @param baseline - compact prefix for an Assistant attempt that is still live.
    * @param expandPrefix - whether to rebuild the baseline's transient rows; a
    * caller that discards them passes `false` to skip the expansion entirely.
@@ -63,9 +64,16 @@ export class ClientAssistantStream {
     expandPrefix = true,
   ): readonly SessionEventLikeEntry[] {
     this.pending.clear()
-    this.transientInGap = 0
     this.activeAttempt = undefined
     this.retainedAttempt = undefined
+    // A row already installed keeps the seq it was published with, so the gap
+    // counter resumes past it. Restarting at zero would hand the next chunk a
+    // seq an installed row already owns, and a row repeating an earlier seq is
+    // dropped downstream as a repeat of the one before it.
+    this.transientInGap = entries.reduce(
+      (count, entry) => entry.type === 'transient' ? count + 1 : count,
+      0,
+    )
     const opening = baseline?.activeAttempt
     if (opening !== undefined) {
       this.activeAttempt = {
@@ -77,8 +85,13 @@ export class ClientAssistantStream {
       }
     }
     const visible: SessionEventLikeEntry[] = [...entries]
-    this.publishedSeqs = new Set(visible.map(entry => entry.event.seq))
-    this.durableCursor = visible.reduce((cursor, entry) => Math.max(cursor, entry.event.seq), -1)
+    this.publishedSeqs = new Set(visible
+      .filter(entry => entry.type === 'event')
+      .map(entry => entry.event.seq))
+    this.durableCursor = visible.reduce(
+      (cursor, entry) => entry.type === 'event' ? Math.max(cursor, entry.event.seq) : cursor,
+      -1,
+    )
     if (opening !== undefined && expandPrefix) {
       for (const [index, member] of expandAssistantStream(
         opening.stream as unknown as readonly AssistantStreamRecord[],

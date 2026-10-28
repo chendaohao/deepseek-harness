@@ -1008,6 +1008,83 @@ describe('remaining branches', () => {
     })
   })
 
+  it('keeps new chunks ordered and unclobbered when a continuation arrives after live chunks', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const attempt = LlmAttemptId('s1-continued-after-live')
+    mock.stream(FOLLOW, followScript(
+      history(plainTurn(SessionSeq(10), 1, '问', '答')),
+      { assistantStream: { revision: 1 } },
+    ))
+    await session.open()
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+
+    // Two chunks already reached the window before the carrier dropped, so the
+    // held window carries two transient rows after the durable tail.
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: {
+        type: 'start', attemptId: attempt, revision: 2, startedAfterSeq: SessionSeq(15), turn: 2, step: 1,
+      },
+    })
+    await mock.streams.drained(FOLLOW)
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream-batch',
+      frames: [0, 1].map(index => ({
+        type: 'chunk' as const,
+        attemptId: attempt,
+        revision: 3 + index,
+        index,
+        time: 20 + index,
+        chunk: { type: 'text-delta' as const, index: 0, text: `前${index}` },
+      })),
+    })
+    await mock.streams.drained(FOLLOW)
+    const before = windowEntries(session).filter(entry => entry.type === 'transient')
+    expect(before).toHaveLength(2)
+
+    // The Host answers the reconnect with attempt metadata only, exactly as a
+    // continuation past the live attempt's prefix does.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
+        revision: 5,
+        activeAttempt: {
+          attemptId: attempt,
+          startedAfterSeq: SessionSeq(15),
+          turn: 2,
+          step: 1,
+          nextIndex: 2,
+          stream: [],
+        },
+      })
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: {
+        type: 'chunk', attemptId: attempt, revision: 6, index: 2, time: 22,
+        chunk: { type: 'text-delta', index: 0, text: '续' },
+      },
+    })
+    await mock.streams.drained(FOLLOW)
+
+    const transients = windowEntries(session).filter(entry => entry.type === 'transient')
+    // Every captured chunk keeps its own identity: a row that reuses the seq of
+    // one already in the window is dropped by the assembler as a repeat, so the
+    // user's streaming text freezes at the first chunk after the reconnect.
+    expect(new Set(transients.map(entry => entry.event.seq)).size).toBe(transients.length)
+    const seqs = transients.map(entry => entry.event.seq)
+    expect([...seqs].sort((left, right) => left - right)).toEqual(seqs)
+    expect(transients.map(entry => entry.event.data.chunk)).toEqual([
+      { type: 'text-delta', index: 0, text: '前0' },
+      { type: 'text-delta', index: 0, text: '前1' },
+      { type: 'text-delta', index: 0, text: '续' },
+    ])
+  })
+
   it('still expands a prefix from a Host that sends one on a continuation', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     const attempt = LlmAttemptId('s1-old-host')
