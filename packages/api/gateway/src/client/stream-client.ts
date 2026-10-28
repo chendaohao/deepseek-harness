@@ -43,6 +43,8 @@ interface LogicalStream {
 }
 
 const UPLINK_DONE: IteratorReturnResult<undefined> = { value: undefined, done: true }
+/** Maximum unconsumed downlink frames per logical stream before explicit carrier failure. */
+const REMOTE_STREAM_INBOX_MAX_FRAMES = 10_000
 
 /** Quiet-socket deadline and the page-lifecycle seams it reads. */
 export interface MuxLivenessOptions {
@@ -579,6 +581,12 @@ class StreamInbox {
 
   push(frame: RemoteStreamServerMessage): void {
     if (this.failure !== undefined) return
+    if (this.frames.size >= REMOTE_STREAM_INBOX_MAX_FRAMES) {
+      this.fail(new RemoteStreamCarrierError(
+        `api gateway: Remote stream inbox exceeded ${String(REMOTE_STREAM_INBOX_MAX_FRAMES)} frames`,
+      ))
+      return
+    }
     this.frames.pushBack(frame)
     this.wake?.()
     this.wake = undefined

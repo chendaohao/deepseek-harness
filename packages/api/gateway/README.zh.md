@@ -65,6 +65,8 @@ Host 组合可通过 `registerRemoteEvents()` 注册唯一的应用事件 source
 
 `ctx.remote.$on()` 订阅一条被转发的 Host 事件。它的合法键恰好等于 Host 装配声明的转发选择，listener 类型就是事件所属包自己的 Cordis `Events` 声明，因此不存在会与之漂移的第二份签名。每个订阅归属调用方 fiber，并随该 fiber 一起消失。Client Remote 服务仅在 `connection.interactions` 为 `answer` 时把 `$events` pump 注册为 Connection generation source，无论当前是否存在 `$on` listener。选择 `none` 时，`$on()` 不可用，Client 只打开物理生命周期连接；unary 调用不等待 socket 就绪。浏览器使用 Remote mux，进程内组合使用 `connection.rpc.open`；opening `ready` 项建立 Connection generation 并提供 Host 信息。物理 carrier 失败、Remote 流故障、意外正常结束、非 ready 首项或畸形事件项都会终止该 generation，由 Connection 按持续且间隔封顶的带抖动指数退避重开。普通通知按注册顺序运行并隔离 listener 失败；Agent-scoped waterfall（瀑布式事件）允许 listener 返回结果、调用 `next()` 或拒绝，Gateway 再通过现有 HTTP 一元载体回送该结果。listener 返回结果后，该结果归 Client 所有，且不会因为 socket 被替换而被再次决策。回送使用自己的超时，而不是以 generation 结束为信号——generation 结束正是它要恢复的丢失；generation 收尾也不等待该回送。传输失败时，结果会留在有界表里，等同一 event id 再次投递时重新回送，并使用本次投递 generation 的 Client id，使 Host 对应该 client 有首份回复；插件释放和该事件的 `cancel` 帧都会结束这条留存。Host 明确拒绝则视为它对该事件的裁定，不重试；连续八次拒绝会中止该 generation，由 Connection 替换回复载体。
 
+`installForegroundResync` 协调手机前台恢复：先调用 `ctx.connection.reconnect()`，再回收 mux，使替代连接跳过普通重试退避，同时由 `recycleSuperseded` 吸收由此产生的重复物理替换请求。
+
 Client waterfall 的 Context 解析保持同步。解析器可以返回借用的 Context 或 `TypertOwnedValue<Context>`；Gateway 仅在处理器使用和回复结算均结束后释放 owned value。Context 解析失败保留既有的记录错误并委托语义，处理器失败产生拒绝回复。取消会抑制迟到回复，但不会释放处理器仍在使用的 Context。每个 handler 都必须响应 `request.signal` 并在取消后结束；插件销毁与 Connection generation 替换会等待未结束的 handler 结算。Session Context 的获取本身不执行历史 I/O。
 
 `ctx.remote` 不暴露 Connection 生命周期控制。只有职责包含恢复的消费方才直接读取 `ctx.connection.state` 并调用 `ctx.connection.reconnect()`；普通 Remote 消费方仍只使用生成的 namespace 与 `$stream()`。
@@ -95,6 +97,7 @@ Client waterfall 的 Context 解析保持同步。解析器可以返回借用的
 - `muxLivenessTimeoutMs` 是页面侧的对应项：下行静默超过该截止时间，说明链路在没有 close 事件的情况下已死（手机切换网络、系统撕掉挂起页面的 socket），页面会回收该 socket，其逻辑流带着新状态重开。页面处于隐藏状态，或浏览器报告离线时，静默会重新计时而非回收：这两种静默都不构成链路已死的证据，回收分别由前台恢复和回到 `online` 负责。Host 将该项注入到每个服务的页面；`0` 关闭该截止时间。
 - `websocketCompression` 默认 `'deflate'`，会协商 `permessage-deflate`；Host 压缩自己发出的、JSON 文本达到 1024 个字符 的帧，更短的帧不压缩，因为 `ws` 在默认上下文接管下会忽略自己的 `threshold` 选项。压缩后的下行写入完成会计入心跳规则中的缓冲活动，而阈值以下的写入只有在本机发送缓冲区已满时才计入；换不到带宽的 loopback 部署可设为 `'none'`。
 - 未压缩的排队写入完成说明 TCP 对端确认了数据；压缩写入则在 `ws` 完成 deflate 并写出后即完成，只证明本地流水线已排空。经过带缓冲的反向代理时，该对端是代理，因此持续下行期间 Client 消失，要等代理不再接收数据后才会被检测到。
+- 每条逻辑流的下行 inbox 最多保留 10,000 个未消费帧。溢出会以可重试的 `RemoteStreamCarrierError` 使该逻辑流失败，让监督层重新同步，而不是保留无界队列。
 - Gateway 通过 `invocation.uplinkWindow` 提供每条 WebSocket 流的 inbox 容量与 JSON 封装开销；没有编码帧 inbox 限额的载体省略该字段。领域协议可以公布该窗口并通过确认约束在途字节数。Gateway 本身不发放额度：Client 发送快于方法读取，或发给从未取用 uplink 的方法时，其流以 `gateway/uplink-overflow` 失败；上行项不会跨载体代际重放，需要恢复上行的领域在重开的请求里自带确认游标。
 
 

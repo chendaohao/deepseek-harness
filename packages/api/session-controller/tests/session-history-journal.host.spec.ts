@@ -39,6 +39,17 @@ function appendAssistantText(session: Session, text: string, step: number, turn 
   }, { surfaceOp: 'append' })
 }
 
+function assistantTextChunk(
+  attemptId: AssistantStreamFrame['attemptId'],
+  revision: number,
+  index: number,
+): AssistantStreamFrame {
+  return {
+    type: 'chunk', attemptId, revision, index,
+    time: revision, chunk: { type: 'text-delta', index: 0, text: `chunk-${index}` },
+  }
+}
+
 /**
  * Append a plugin-owned log-only event. The host proxy is projection-only, so it
  * declares no compaction vocabulary; the cast writes the real event shape without
@@ -243,6 +254,306 @@ describe('Session history raw journal', () => {
     abort.abort()
     await iterator.next()
     await ctx.fiber.dispose()
+  })
+
+  it('keeps the first chunk immediate and batches later chunks before the attempt end', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
+      assistantStreamBatchSize: 3,
+    })
+    const attemptId = LlmAttemptId('assistant-batch-attempt')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+    const emit = (frame: AssistantStreamFrame): void => {
+      ctx.emit('agent/assistant-stream', { agent, frame })
+    }
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+      const start: AssistantStreamFrame = {
+        type: 'start', attemptId, revision: 1, turn: 1, step: 1,
+      }
+      emit(start)
+      await expect(iterator.next()).resolves.toEqual({
+        done: false,
+        value: { type: 'assistant-stream', frame: { ...start, startedAfterSeq: -1 } },
+      })
+      const first = assistantTextChunk(attemptId, 2, 0)
+      emit(first)
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream', frame: first },
+      })
+
+      const batched = [1, 2, 3].map(index => assistantTextChunk(attemptId, index + 2, index))
+      for (const frame of batched) emit(frame)
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream-batch', frames: batched },
+      })
+
+      const pending = assistantTextChunk(attemptId, 6, 4)
+      const end: AssistantStreamFrame = {
+        type: 'end', attemptId, revision: 7, index: 5, outcome: { kind: 'abandoned' },
+      }
+      emit(pending)
+      emit(end)
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream-batch', frames: [pending] },
+      })
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream', frame: end },
+      })
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('reduces a 1,000-chunk burst to 19 ordered follow frames', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    const attemptId = LlmAttemptId('assistant-batch-thousand')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+    const frames: SessionFollowFrame[] = []
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+      })
+      for (let index = 0; index < 1_000; index++) {
+        ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, index + 2, index) })
+      }
+      const end: AssistantStreamFrame = {
+        type: 'end', attemptId, revision: 1_002, index: 1_000, outcome: { kind: 'abandoned' },
+      }
+      ctx.emit('agent/assistant-stream', { agent, frame: end })
+      for (let index = 0; index < 19; index++) {
+        const next = await iterator.next()
+        if (next.done !== false || next.value === undefined) throw new Error('follow ended before all frames arrived')
+        frames.push(next.value)
+      }
+      expect(frames).toHaveLength(19)
+      expect(frames.filter(frame => frame.type === 'assistant-stream-batch')).toHaveLength(16)
+      expect(frames[0]).toMatchObject({ type: 'assistant-stream', frame: { type: 'start' } })
+      expect(frames[1]).toMatchObject({ type: 'assistant-stream', frame: { type: 'chunk', index: 0 } })
+      expect(frames.at(-1)).toEqual({ type: 'assistant-stream', frame: end })
+      const chunks = frames.flatMap(frame => frame.type === 'assistant-stream' ? [frame.frame] : frame.type === 'assistant-stream-batch' ? frame.frames : [])
+      expect(chunks.filter(frame => frame.type === 'chunk')).toHaveLength(1_000)
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('keeps every chunk single when assistantStreamBatchSize is one', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
+      assistantStreamBatchSize: 1,
+    })
+    const attemptId = LlmAttemptId('assistant-single-frame-attempt')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+      })
+      await iterator.next()
+      for (const frame of [0, 1, 2].map(index => assistantTextChunk(attemptId, index + 2, index))) {
+        ctx.emit('agent/assistant-stream', { agent, frame })
+        await expect(iterator.next()).resolves.toEqual({
+          done: false,
+          value: { type: 'assistant-stream', frame },
+        })
+      }
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('flushes a partial batch before a new attempt start and keeps its first chunk immediate', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
+      assistantStreamBatchSize: 3,
+    })
+    const firstAttempt = LlmAttemptId('assistant-batch-first-attempt')
+    const secondAttempt = LlmAttemptId('assistant-batch-second-attempt')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+    const emit = (frame: AssistantStreamFrame): void => {
+      ctx.emit('agent/assistant-stream', { agent, frame })
+    }
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+      emit({ type: 'start', attemptId: firstAttempt, revision: 1, turn: 1, step: 1 })
+      await iterator.next()
+      emit(assistantTextChunk(firstAttempt, 2, 0))
+      await iterator.next()
+      const pending = assistantTextChunk(firstAttempt, 3, 1)
+      const secondStart: AssistantStreamFrame = {
+        type: 'start', attemptId: secondAttempt, revision: 4, turn: 2, step: 1,
+      }
+      emit(pending)
+      emit(secondStart)
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream-batch', frames: [pending] },
+      })
+      await expect(iterator.next()).resolves.toEqual({
+        done: false,
+        value: { type: 'assistant-stream', frame: { ...secondStart, startedAfterSeq: -1 } },
+      })
+      const secondFirst = assistantTextChunk(secondAttempt, 5, 0)
+      emit(secondFirst)
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream', frame: secondFirst },
+      })
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('flushes a partial batch before a durable event', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
+      assistantStreamBatchSize: 3,
+    })
+    const attemptId = LlmAttemptId('assistant-batch-durable-attempt')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+      })
+      await iterator.next()
+      ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, 2, 0) })
+      await iterator.next()
+      const pending = assistantTextChunk(attemptId, 3, 1)
+      ctx.emit('agent/assistant-stream', { agent, frame: pending })
+      const durable = session.append('turn/start', { turn: 1 })
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream-batch', frames: [pending] },
+      })
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'event', event: durable },
+      })
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('flushes a partial batch before a session/created notification', async () => {
+    const { ctx } = await harness()
+    const sessionId = SessionId('assistant-batch-created')
+    const session = ctx.sessions.create(sessionId, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
+      assistantStreamBatchSize: 3,
+    })
+    const attemptId = LlmAttemptId('assistant-batch-created-attempt')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+      })
+      await iterator.next()
+      ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, 2, 0) })
+      await iterator.next()
+      const pending = assistantTextChunk(attemptId, 3, 1)
+      ctx.emit('agent/assistant-stream', { agent, frame: pending })
+      ctx.emit('session/created', session)
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream-batch', frames: [pending] },
+      })
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('filters the opening ordinal cut inside a buffered batch', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
+      assistantStreamBatchSize: 3,
+    })
+    const originalObserve = ctx.sessionQuery.observeSession.bind(ctx.sessionQuery)
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const observe = vi.spyOn(ctx.sessionQuery, 'observeSession').mockImplementation(async (...args) => {
+      entered.resolve(undefined)
+      await release.promise
+      return originalObserve(...args)
+    })
+    const attemptId = LlmAttemptId('assistant-batch-cut-attempt')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    try {
+      const opening = iterator.next()
+      await entered.promise
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+      })
+      ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, 2, 0) })
+      ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, 3, 1) })
+      release.resolve(undefined)
+      await expect(opening).resolves.toMatchObject({
+        done: false,
+        value: { type: 'snapshot', assistantStream: { revision: 3 } },
+      })
+
+      const afterCut = [assistantTextChunk(attemptId, 4, 2), assistantTextChunk(attemptId, 5, 3)]
+      for (const frame of afterCut) ctx.emit('agent/assistant-stream', { agent, frame })
+      await expect(iterator.next()).resolves.toEqual({
+        done: false, value: { type: 'assistant-stream-batch', frames: afterCut },
+      })
+    } finally {
+      release.resolve(undefined)
+      observe.mockRestore()
+      await disposeFollow(ctx, iterator, abort)
+    }
   })
 
   it('forwards revision one when the attached Agent lifecycle restarts after opening', async () => {
@@ -1120,6 +1431,38 @@ describe('Session history raw journal', () => {
       message: 'session follow buffer exceeded',
     })
     await ctx.fiber.dispose()
+  })
+
+  it('counts individual, batched, and pending Assistant frames toward the live buffer overflow', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
+    const attemptId = LlmAttemptId('assistant-buffer-overflow')
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot' } })
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+      })
+      for (let index = 0; index < 10_000; index++) {
+        ctx.emit('agent/assistant-stream', { agent, frame: assistantTextChunk(attemptId, index + 2, index) })
+      }
+      await expect(iterator.next()).rejects.toMatchObject({
+        code: 'session/stream-overflow',
+        message: 'session follow buffer exceeded',
+      })
+    } finally {
+      abort.abort()
+      await iterator.return?.()
+      await ctx.fiber.dispose()
+    }
   })
 
   it('keeps a creation seed out of the follow buffer, so a large seed does not overflow', async () => {

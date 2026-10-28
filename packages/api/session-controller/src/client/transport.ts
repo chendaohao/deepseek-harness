@@ -220,15 +220,18 @@ export class SessionEventStream extends RemoteJournalStream<
         }
         continue
       }
-      if (frame.type === 'assistant-stream') {
-        const expected = (assistantRevision ?? 0) + 1
-        if (frame.frame.revision !== expected) {
-          throw new RemoteStreamCarrierError(
-            `session assistant stream skipped revision ${String(expected)}`,
-          )
+      if (frame.type === 'assistant-stream' || frame.type === 'assistant-stream-batch') {
+        const assistantFrames = frame.type === 'assistant-stream' ? [frame.frame] : frame.frames
+        for (const assistantFrame of assistantFrames) {
+          const expected = (assistantRevision ?? 0) + 1
+          if (assistantFrame.revision !== expected) {
+            throw new RemoteStreamCarrierError(
+              `session assistant stream skipped revision ${String(expected)}`,
+            )
+          }
+          assistantRevision = assistantFrame.revision
+          yield { type: 'notification', notification: assistantFrame }
         }
-        assistantRevision = frame.frame.revision
-        yield { type: 'notification', notification: frame.frame }
         continue
       }
       assertSessionWireEvent(frame.event)

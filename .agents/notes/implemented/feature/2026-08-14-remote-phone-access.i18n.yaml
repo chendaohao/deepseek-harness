@@ -9,11 +9,14 @@
   en: a0cb665fbd007634
   zh: 7429f4e1ac5b3057
 /agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel/decision:
-  en: 585af708d28dd152
-  zh: d43beb1db0b9dc8d
+  en: 056a03814ba299fc
+  zh: 1abaa4095cf99653
 /agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel/alternatives-considered:
   en: d3e132dbab4b1fd7
   zh: df11d792f481eec2
 /agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel/consequences:
   en: ad018390256189b3
   zh: 5f854127c9c341b1
+/agent-note-remote-phone-access-over-a-pairing-gated-https-tunnel/testing:
+  en: c7dd17beaddb4f54
+  zh: d9cfb3e69e7e49bb

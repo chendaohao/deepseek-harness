@@ -53,8 +53,15 @@ export interface Config {
   readonly websocketCompression?: 'none' | 'deflate'
 }
 
-/** Deployment policy after schema defaults have been applied. */
-type ResolvedConfig = Config & { readonly websocketCompression: 'none' | 'deflate' }
+/**
+ * Deployment policy after schema defaults have been applied. The compression
+ * choice always has a value by then, so the resolved face narrows it once here
+ * instead of every consumer defaulting it again.
+ */
+interface ResolvedConfig extends Config {
+  /** Per-message compression for both WebSocket relay hops. @default 'deflate' */
+  readonly websocketCompression: 'none' | 'deflate'
+}
 
 export const Config: z<Config, ResolvedConfig> = z.object({
   enabled: z.boolean().default(false),

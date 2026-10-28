@@ -595,6 +595,8 @@ export type SessionFollowFrame =
   }
   | SessionEventEntry
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
+  /** Subsequent chunks in original order; every frame retains its own revision and index. */
+  | { readonly type: 'assistant-stream-batch'; readonly frames: readonly SessionAssistantStreamFrame[] }
 
 /** Complete live control baseline emitted once per control stream generation. */
 export interface SessionControlBaseline {

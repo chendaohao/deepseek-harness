@@ -36,23 +36,47 @@ import type {
 import { SessionAssistantStreamAccumulator } from './assistant-stream.ts'
 
 const DEFAULT_MAX_MESSAGES = 50
-/** Live-follow buffer bound: events appended while the consumer drains are queued here. */
+/** Live-follow buffer bound in durable and Assistant frames, including frames inside batches. */
 const DEFAULT_MAX_BUFFERED_EVENTS = 10_000
+const DEFAULT_ASSISTANT_STREAM_BATCH_SIZE = 64
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
+
+interface NumberedAssistantStreamFrame {
+  readonly frame: SessionAssistantStreamFrame
+  readonly ordinal: number
+}
+
+type BufferedFollowItem =
+  | { readonly type: 'event'; readonly event: SessionEvent }
+  | ({ readonly type: 'assistant-stream' } & NumberedAssistantStreamFrame)
+  | {
+    readonly type: 'assistant-stream-batch'
+    readonly frames: readonly NumberedAssistantStreamFrame[]
+  }
+
+/** Live-follow batching policy for one history controller. */
+export interface SessionHistoryControllerOptions {
+  /** Maximum subsequent chunks in one Assistant batch; 1 disables batching. */
+  readonly assistantStreamBatchSize?: number
+}
 
 /** Implements cold-safe history operations delegated by the Session Controller. */
 export class SessionHistoryController {
   private readonly closeFollowers = new Set<() => void>()
   private readonly assistantStreams = new Map<SessionId, SessionAssistantStreamAccumulator>()
+  private readonly assistantStreamBatchSize: number
 
   /**
    * @param ctx - Host context carrying Session query and projection services.
    * @param promote - starts ordinary Session activation after snapshot delivery.
+   * @param options - live-follow batching policy; omitted values use 64 chunks per batch.
    */
   constructor(
     private readonly ctx: Context,
     private readonly promote: (observation: SessionObservation) => void,
+    options: SessionHistoryControllerOptions = {},
   ) {
+    this.assistantStreamBatchSize = options.assistantStreamBatchSize ?? DEFAULT_ASSISTANT_STREAM_BATCH_SIZE
     ctx.on('agent/assistant-stream', ({ agent, frame }) => {
       let stream = this.assistantStreams.get(agent.session.id)
       if (stream === undefined) {
@@ -124,18 +148,33 @@ export class SessionHistoryController {
     validateFollowRequest(request)
     const { address } = request
     const target = addressId(address)
-    const buffered = new Deque<
-      | { readonly type: 'event'; readonly event: SessionEvent }
-      | {
-        readonly type: 'assistant-stream'
-        readonly frame: SessionAssistantStreamFrame
-        readonly ordinal: number
-      }
-    >()
+    const buffered = new Deque<BufferedFollowItem>()
     /** Set when the producer outran the buffer; the pump loop reports it. */
     const overflow = { flag: false }
+    let bufferedFrameCount = 0
+    let pendingAssistantStreamBatch: NumberedAssistantStreamFrame[] = []
     let snapshotCursor: SessionSeqCursor | undefined
     let assistantStreamOrdinal = 0
+    const chunkedAssistantAttempts = new Set<SessionAssistantStreamFrame['attemptId']>()
+    // Overflow ends this generation, so admission stops instead of letting a
+    // synchronous producer grow the queue after the bound has been crossed.
+    const accountBufferedFrames = (count: number): boolean => {
+      if (overflow.flag) return false
+      if (bufferedFrameCount + count > DEFAULT_MAX_BUFFERED_EVENTS) {
+        overflow.flag = true
+        return false
+      }
+      bufferedFrameCount += count
+      return true
+    }
+    const pushBuffered = (item: BufferedFollowItem): void => {
+      if (accountBufferedFrames(1)) buffered.pushBack(item)
+    }
+    const flushAssistantStreamBatch = (): void => {
+      if (overflow.flag || pendingAssistantStreamBatch.length === 0) return
+      buffered.pushBack({ type: 'assistant-stream-batch', frames: pendingAssistantStreamBatch })
+      pendingAssistantStreamBatch = []
+    }
     let wake: (() => void) | undefined
     const notify = (): void => {
       const resume = wake
@@ -154,12 +193,13 @@ export class SessionHistoryController {
       // would otherwise accumulate every appended event in memory forever.
       // The listener cannot throw (observers are contained), so overflow is
       // flagged here and reported by the pump loop below.
-      if (buffered.size >= DEFAULT_MAX_BUFFERED_EVENTS) overflow.flag = true
-      buffered.pushBack({ type: 'event', event })
+      flushAssistantStreamBatch()
+      pushBuffered({ type: 'event', event })
       notify()
     }, { global: true })
     const disposeCreated = this.ctx.on('session/created', (session) => {
       if (session.id !== target) return
+      flushAssistantStreamBatch()
       // Constructor seed events have no session/event notification. Normally
       // only the end-seed suffix is new; if persistence advanced after the
       // opening observation, replay everything beyond that snapshot cursor.
@@ -167,7 +207,10 @@ export class SessionHistoryController {
       const suffix = session.snapshotEvents(snapshotCursor === undefined
         ? session.firstLiveSeq
         : SessionLogOffset(snapshotCursor + 1))
-      if (buffered.size + suffix.length > DEFAULT_MAX_BUFFERED_EVENTS) overflow.flag = true
+      if (!accountBufferedFrames(suffix.length)) {
+        notify()
+        return
+      }
       for (let index = suffix.length - 1; index >= 0; index -= 1) {
         buffered.pushFront({ type: 'event', event: suffix[index] as SessionEvent })
       }
@@ -177,11 +220,26 @@ export class SessionHistoryController {
       ? undefined
       : this.ctx.on('agent/assistant-stream', ({ agent, frame }) => {
         if (agent.session.id !== target) return
-        buffered.pushBack({
-          type: 'assistant-stream',
+        const item: NumberedAssistantStreamFrame = {
           frame: wireAssistantStreamFrame(frame, cursorBeforeNext(agent.session.seq)),
           ordinal: ++assistantStreamOrdinal,
-        })
+        }
+        if (frame.type !== 'chunk') {
+          flushAssistantStreamBatch()
+          chunkedAssistantAttempts.delete(frame.attemptId)
+          pushBuffered({ type: 'assistant-stream', ...item })
+        } else if (this.assistantStreamBatchSize <= 1 || !chunkedAssistantAttempts.has(frame.attemptId)) {
+          flushAssistantStreamBatch()
+          chunkedAssistantAttempts.add(frame.attemptId)
+          pushBuffered({ type: 'assistant-stream', ...item })
+        } else {
+          if (!accountBufferedFrames(1)) {
+            notify()
+            return
+          }
+          pendingAssistantStreamBatch.push(item)
+          if (pendingAssistantStreamBatch.length >= this.assistantStreamBatchSize) flushAssistantStreamBatch()
+        }
         notify()
       }, { global: true })
     const onAbort = (): void => { notify() }
@@ -242,9 +300,17 @@ export class SessionHistoryController {
           await new Promise<void>((resolve) => { wake = resolve })
           continue
         }
+        bufferedFrameCount -= item.type === 'assistant-stream-batch' ? item.frames.length : 1
         if (item.type === 'assistant-stream') {
           if (item.ordinal > assistantStreamOrdinalCut) {
             yield { type: 'assistant-stream', frame: item.frame }
+          }
+          continue
+        }
+        if (item.type === 'assistant-stream-batch') {
+          const frames = item.frames.filter(frame => frame.ordinal > assistantStreamOrdinalCut)
+          if (frames.length > 0) {
+            yield { type: 'assistant-stream-batch', frames: frames.map(frame => frame.frame) }
           }
           continue
         }

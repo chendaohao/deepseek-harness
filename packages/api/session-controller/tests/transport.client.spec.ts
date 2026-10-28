@@ -75,6 +75,10 @@ function assistantFrame(frame: SessionAssistantStreamFrame): SessionFollowFrame 
   return { type: 'assistant-stream', frame }
 }
 
+function assistantBatch(frames: readonly SessionAssistantStreamFrame[]): SessionFollowFrame {
+  return { type: 'assistant-stream-batch', frames }
+}
+
 function sessionClient(remote: SessionTransportRemote): SessionRemotes {
   return {
     session: remote as SessionRemote,
@@ -346,6 +350,35 @@ describe('Session Client stream adapters', () => {
     await stream.dispose()
   })
 
+  it('expands an Assistant batch into ordered notifications with unchanged frames', async () => {
+    const attemptId = LlmAttemptId('transport-batch-attempt')
+    const frames: SessionAssistantStreamFrame[] = [2, 3].map(revision => ({
+      type: 'chunk', attemptId, revision, index: revision - 2,
+      time: revision, chunk: { type: 'text-delta', index: 0, text: `chunk-${revision}` },
+    }))
+    const remote = new ScriptedSessionRemote(
+      [{ frames: [snapshot(0, [entry(0)], false, { revision: 1 }), assistantBatch(frames)], hold: true }],
+      [],
+    )
+    const changes: SessionJournalChange[] = []
+    const stream = new SessionEventStream(sessionClient(remote), ADDRESS, {
+      publish: (change) => { changes.push(change) },
+      failed: vi.fn(),
+    })
+
+    try {
+      await stream.open({})
+      await vi.waitFor(() => { expect(changes).toHaveLength(3) })
+      expect(changes).toMatchObject([
+        { type: 'replace' },
+        { type: 'assistant-stream', frame: frames[0] },
+        { type: 'assistant-stream', frame: frames[1] },
+      ])
+    } finally {
+      await stream.dispose()
+    }
+  })
+
   it('rejects an opted-in opening that omits its Assistant baseline', async () => {
     const remote = new ScriptedSessionRemote([{
       frames: [{
@@ -400,7 +433,7 @@ describe('Session Client stream adapters', () => {
     }
   })
 
-  it('rebaselines after a transient assistant revision gap without advancing the durable cursor', async () => {
+  it('rebaselines after an Assistant revision gap inside a batch without advancing the durable cursor', async () => {
     const attemptId = LlmAttemptId('gapped-attempt')
     const start: SessionAssistantStreamFrame = {
       type: 'start', attemptId, revision: 1, startedAfterSeq: -1,
@@ -423,7 +456,7 @@ describe('Session Client stream adapters', () => {
     }
     const remote = new ScriptedSessionRemote([
       {
-        frames: [snapshot(0, [entry(0)]), assistantFrame(start), assistantFrame(gap)],
+        frames: [snapshot(0, [entry(0)]), assistantBatch([start, gap])],
       },
       { frames: [snapshot(0, [entry(0)], false, replacement)], hold: true },
     ], [])

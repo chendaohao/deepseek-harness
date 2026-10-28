@@ -343,6 +343,7 @@ async function benchFiber(
   readonly client: Fiber
   readonly generation: GenerationHarness
   readonly start: ReturnType<typeof vi.fn<ConnectionHandle['start']>>
+  readonly reconnect: ReturnType<typeof vi.fn<ConnectionHandle['reconnect']>>
 }> {
   const ctx = new Context()
   await ctx.plugin(TypertRegistry)
@@ -351,20 +352,21 @@ async function benchFiber(
     : { call, open }
   const generation = new GenerationHarness()
   const start = vi.fn<ConnectionHandle['start']>(() => ({ stop: () => {} }))
+  const reconnect = vi.fn<ConnectionHandle['reconnect']>()
   ctx.provide('connection', {
     interactions: 'answer',
     openWebSocket: openConnectionWebSocket,
     isLoopback: true,
     generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
     state: { getSnapshot: () => undefined, subscribe: () => () => {} },
-    reconnect: () => {},
+    reconnect,
     rpc,
     registerGenerationSource: generation.register,
     start,
   } satisfies ConnectionHandle)
   const client = ctx.plugin({ inject, apply })
   await client
-  return { ctx, client, generation, start }
+  return { ctx, client, generation, start, reconnect }
 }
 
 async function *unexpectedInProcessStream(): AsyncGenerator<never> {
@@ -650,6 +652,31 @@ describe('Client Remote transport readiness', () => {
         await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(2) })
       } finally {
         await client.dispose()
+      }
+    })
+  })
+
+  it('resets Connection immediately on a phone foreground return', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const visibility = Object.assign(new EventTarget(), {
+        baseURI: 'https://harness.example',
+        visibilityState: 'visible',
+      })
+      vi.stubGlobal('window', new EventTarget())
+      vi.stubGlobal('document', visibility)
+      vi.stubGlobal('navigator', { userAgent: 'Android' })
+      const { client, reconnect } = await benchFiber(
+        vi.fn<ConnectionHandle['rpc']['call']>(),
+        'web',
+      )
+      try {
+        await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.readyState).toBe(FakeWebSocket.OPEN) })
+        visibility.dispatchEvent(new Event('visibilitychange'))
+        expect(reconnect).toHaveBeenCalledTimes(1)
+        await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(2) })
+      } finally {
+        await client.dispose()
+        vi.unstubAllGlobals()
       }
     })
   })
@@ -3541,6 +3568,24 @@ describe('Remote stream client carrier lifecycle', () => {
         name: 'RemoteStreamCarrierError', message: 'api gateway: invalid Remote stream frame',
       })
       expect(socket.closedWith).toContainEqual({ code: 4002, reason: 'invalid Remote stream frame' })
+      await client.close()
+    })
+  })
+
+  it('fails a logical stream when its unconsumed inbox exceeds the frame bound', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      const client = new RemoteStreamMuxClient()
+      client.start()
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.readyState).toBe(FakeWebSocket.OPEN) })
+      const opened = client.open('probe/watch', {}, new AbortController().signal)
+      const first = opened.next()
+      await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]?.sent.length).toBe(1) })
+      const opening = JSON.parse(FakeWebSocket.sockets[0]!.sent[0]!) as { streamId: string }
+      const socket = FakeWebSocket.sockets[0]!
+      for (let index = 0; index <= 10_000; index++) {
+        socket.receive({ type: 'item', streamId: opening.streamId, value: index })
+      }
+      await expect(first).rejects.toThrow('Remote stream inbox exceeded 10000 frames')
       await client.close()
     })
   })

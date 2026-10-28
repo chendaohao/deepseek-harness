@@ -16,6 +16,10 @@ Status: implemented
 
 **代理把请求归一化为 webserver 的权威。** 转发时 Host 改写为 webserver 的绑定权威（随附默认即 loopback）并移除 origin/sec-fetch 头，因此现有 `/api` 栅栏与 WebSocket 闸门原样生效；设置/凭据/agent-preset 特权端点持有效 cookie 即可达，Web UI 在非 loopback 页面上将其保留在按会话的内存作用域。隧道域名永不进入主服务器信任表。上游握手完成前到达的下行 WebSocket 帧在字节界内缓冲（8 MiB），帧级（64 MiB）与发送队列（128 MiB）上限拒绝洪泛连接。
 
+**WebSocket 压缩在每条中继 hop 上独立协商。** `websocketCompression` 默认 `deflate`，在面向 cloudflared 与面向 Host 的两条 WebSocket 上均采用与 Gateway 一致的 1,024 字节阈值和 15 位窗口；`none` 同时关闭两跳。代理终止并重建每条 hop，而不是透传 Gateway 扩展，因此不假设压缩会延续到 Cloudflare 独立的浏览器侧链路。
+
+**Assistant 流采用有界合批与显式溢出恢复。** 每个 attempt 的首个 chunk 仍立即发送；后续 chunk 按 `assistantStreamBatchSize`（默认 64）合批，batch 内每个 revision 和 index 都保留。start/end 和 durable 事件先 flush 部分批次。Host follow 队列在 durable 与 Assistant 帧（含 batch 内帧）达到 10,000 后停止接纳，浏览器每条逻辑流 inbox 也采用相同帧数上限。溢出是显式重同步失败，绝不静默增长或当作普通丢帧。
+
 **生命周期与呈现。** 隧道在 Loader 就绪后开启（打印的配对 URL 不能早于 `/api` 路由等兄弟行挂载）；子进程退出后按线性退避重开（最多 5 次，成功即重置），并以新域名重打印 URL/QR。会话存活期间通过 shell-env 接缝注册 `DSH_REMOTE_URL`。
 
 **传输韧性：心跳 + 空闲看门狗。** 手机在移动数据与 WiFi 之间切换时，其到边缘的 TCP 链路被无声撕断，浏览器收不到任何 close 帧；而下行链路单向且事件驱动，空闲连接就这样静默死亡——没有帧、没有 close 事件，重连机器永不启动，页面停止响应。两个机制共同覆盖该失效模式，均位于 `packages/client/connection`：Host 侧 `WebSocketDownlinks` 在每条安静流上每隔 `heartbeatIntervalMs`（Host 插件 Config，默认 15 秒，0 关闭）发送一条 `stream/heartbeat` 帧（两个帧联合体的新成员；业务层忽略它，它从不落日志、从不进入模型请求）——同时避免隧道边缘回收空闲 socket；客户端 `ConnectionController` 为每个 generation 运行空闲看门狗（`idleTimeoutMs`，默认 45 秒 = 3 个心跳，0 关闭；loopback 页面默认关闭，因为其 socket 不跨网络边界）。任何帧都会重置看门狗，因此只有传输层无声死亡时它才会触发；触发即中止该 generation，由既有退避机器重连并重新同步。浏览器的 `online` 事件与 Network Information API 的 `change` 事件会立即回收 generation 作为快速通道（Safari 两者都不触发，由看门狗兜底）。
@@ -33,3 +37,7 @@ Status: implemented
 ## 后果
 
 手机扫码后可经 HTTPS 使用完整 GUI（聊天、审批、提问、工具）；未配对访客得到 401 配对页；本机与局域网行为与之前完全一致（不加 `--remote` 时两行保持惰性）。手机网络切换不再卡死页面：Host 心跳加客户端空闲看门狗检测静默死亡的传输层（最坏约 45 秒），网络切换快速通道通常在不到一秒内重连，二者都走既有重连/重同步机器。历史分页读取也能扛住慢速远程链路：Web 载体让 `session.history`／`subagent.history` 退出固定 30 秒 unary 截止（页面载荷随会话内容增长——用户的真实尾页可达数兆字节），运行时为读取配一个按 generation 作用的中止信号（重连会取消陈旧 fetch，使其无法与新一代自身的 fetch 竞争）加宽裕的 5 分钟页面上限；不传信号的载体（mobile core）保持默认预算。Web UI 在非 loopback 页面上把设置/凭据特权面保留在按会话的内存作用域；端点本身位于配对认证之后——作为 Known Limitation，待认证层经过真实使用后再评估放宽。二进制每台主机下载一次且执行前校验；TryCloudflare 的随机子域名与测试定位已在文档中列为限制。
+
+## 测试
+
+`packages/remote/remote-access/tests/proxy.spec.ts` 验证下游扩展握手、压缩帧的 RSV1、线速帧长下降、解码内容不变，以及 `none` 的未压缩回退。`packages/api/session-controller/tests/session-history-journal.host.spec.ts`、`tests/transport.client.spec.ts` 与 `packages/api/gateway/tests/gateway.client.spec.ts` 钉住首 chunk 即时性、batch 顺序与展开、ordinal cut 过滤、严格溢出接纳和浏览器 inbox 失败。

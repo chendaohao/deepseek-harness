@@ -270,6 +270,8 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /** Maximum subsequent Assistant chunks per follow batch; 1 disables batching. */
+  readonly assistantStreamBatchSize?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->
@@ -2925,9 +2927,19 @@ export type Config = LocalConfig
 ## `@deepseek-ai/dsh-remote-access`
 
 - `inject`: `remoteTunnel` · `webServer` · `shellEnv` · `connection`
-- `source`: [`packages/remote/remote-access/src/index.ts:47`](../packages/remote/remote-access/src/index.ts)
+- `source`: [`packages/remote/remote-access/src/index.ts:61`](../packages/remote/remote-access/src/index.ts)
 
 ```ts config-catalog
+/**
+ * Deployment policy after schema defaults have been applied. The compression
+ * choice always has a value by then, so the resolved face narrows it once here
+ * instead of every consumer defaulting it again.
+ */
+interface ResolvedConfig extends Config {
+  /** Per-message compression for both WebSocket relay hops. @default 'deflate' */
+  readonly websocketCompression: 'none' | 'deflate'
+}
+
 /** Plugin config: activation, secret rotation, and relay compression. */
 export interface Config {
   /** Whether the proxy, gate, and tunnel run at all; false leaves the plugin inert. */
