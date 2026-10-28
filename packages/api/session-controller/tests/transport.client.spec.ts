@@ -350,7 +350,7 @@ describe('Session Client stream adapters', () => {
     await stream.dispose()
   })
 
-  it('expands an Assistant batch into ordered notifications with unchanged frames', async () => {
+  it('publishes an Assistant batch as one run of its frames in order', async () => {
     const attemptId = LlmAttemptId('transport-batch-attempt')
     const frames: SessionAssistantStreamFrame[] = [2, 3].map(revision => ({
       type: 'chunk', attemptId, revision, index: revision - 2,
@@ -368,15 +368,38 @@ describe('Session Client stream adapters', () => {
 
     try {
       await stream.open({})
-      await vi.waitFor(() => { expect(changes).toHaveLength(3) })
+      await vi.waitFor(() => { expect(changes).toHaveLength(2) })
       expect(changes).toMatchObject([
         { type: 'replace' },
-        { type: 'assistant-stream', frame: frames[0] },
-        { type: 'assistant-stream', frame: frames[1] },
+        { type: 'assistant-streams', frames },
       ])
     } finally {
       await stream.dispose()
     }
+  })
+
+  it('still checks every batch frame revision before publishing the run', async () => {
+    const attemptId = LlmAttemptId('transport-batch-gap-attempt')
+    const frames: SessionAssistantStreamFrame[] = [2, 4].map(revision => ({
+      type: 'chunk', attemptId, revision, index: revision - 2,
+      time: revision, chunk: { type: 'text-delta', index: 0, text: `chunk-${revision}` },
+    }))
+    const remote = new ScriptedSessionRemote(
+      [{ frames: [snapshot(0, [entry(0)], false, { revision: 1 }), assistantBatch(frames)] }],
+      [],
+    )
+    const changes: SessionJournalChange[] = []
+    const stream = new SessionEventStream(sessionClient(remote), ADDRESS, {
+      publish: (change) => { changes.push(change) },
+      failed: vi.fn(),
+    })
+
+    await stream.open({})
+    await vi.waitFor(() => { expect(stream.signal.aborted).toBe(true) })
+    // A run is atomic: no frame of a message whose revisions do not chain
+    // reaches a consumer, so the gap cannot apply a partial batch first.
+    expect(changes.map(change => change.type)).toEqual(['replace'])
+    await stream.dispose()
   })
 
   it('rejects an opted-in opening that omits its Assistant baseline', async () => {
@@ -472,7 +495,7 @@ describe('Session Client stream adapters', () => {
     await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
 
     expect(changes.map(change => change.type)).toEqual([
-      'replace', 'assistant-stream', 'replace',
+      'replace', 'replace',
     ])
     expect(changes.at(-1)).toMatchObject({
       type: 'replace', page: { assistantStream: replacement },

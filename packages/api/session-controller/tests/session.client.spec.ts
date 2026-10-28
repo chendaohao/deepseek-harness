@@ -965,6 +965,77 @@ describe('remaining branches', () => {
     expect(windowEntries(session).some(entry => entry.type === 'transient')).toBe(true)
   })
 
+  it('publishes one Host batch as one event-window revision', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const attempt = LlmAttemptId('s1-batch')
+    mock.stream(FOLLOW, followScript(history([]), { assistantStream: { revision: 1 } }))
+    await session.open()
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: attempt, revision: 2, startedAfterSeq: 0, turn: 1, step: 1 },
+    })
+    await mock.streams.drained(FOLLOW)
+    const before = session.eventSource.getSnapshot().revision
+
+    // One carrier message, three chunks: the row count is what the user sees,
+    // and the revision count is what every folder subscriber re-folds for.
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream-batch',
+      frames: [0, 1, 2].map(index => ({
+        type: 'chunk' as const,
+        attemptId: attempt,
+        revision: 3 + index,
+        index,
+        time: 10 + index,
+        chunk: { type: 'text-delta' as const, index: 0, text: `块${index}` },
+      })),
+    })
+    await mock.streams.drained(FOLLOW)
+
+    const window = session.eventSource.getSnapshot()
+    expect(window.entries.filter(entry => entry.type === 'transient')).toHaveLength(3)
+    expect(window.revision - before).toBe(1)
+    // One carrier message carries three chunks, and the window publishes them
+    // together: the row count is what the accumulator holds, the revision count
+    // is what every folder subscriber re-folds for.
+    expect(window.change.kind).toBe('append')
+    expect(window.change.kind === 'append' ? window.change.entries : []).toHaveLength(3)
+  })
+
+  it('keeps a durable settlement ordered after the batch that precedes it', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const attempt = LlmAttemptId('s1-batch-settle')
+    mock.stream(FOLLOW, followScript(history([]), { assistantStream: { revision: 1 } }))
+    await session.open()
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: attempt, revision: 2, startedAfterSeq: 0, turn: 1, step: 1 },
+    })
+    await mock.streams.drained(FOLLOW)
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream-batch',
+      frames: [0, 1].map(index => ({
+        type: 'chunk' as const,
+        attemptId: attempt,
+        revision: 3 + index,
+        index,
+        time: 10 + index,
+        chunk: { type: 'text-delta' as const, index: 0, text: `块${index}` },
+      })),
+    })
+    await mock.streams.drained(FOLLOW)
+    expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(2)
+
+    // The attempt's terminal marker ends the run. A batch that folded past it
+    // would leave the settlement applied against rows the fold no longer holds.
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: { type: 'end', attemptId: attempt, revision: 5, index: 2, outcome: { kind: 'abandoned' } },
+    })
+    await mock.streams.drained(FOLLOW)
+    expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(0)
+  })
+
   it('preserves a Host-reported failure that terminates the live source', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(0), 0, 'a', 'b'))))

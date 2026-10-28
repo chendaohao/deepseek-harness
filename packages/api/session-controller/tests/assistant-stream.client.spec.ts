@@ -242,4 +242,32 @@ describe('ClientAssistantStream', () => {
       kind: 'committed', eventType: 'assistant/attempt', seq: 2,
     }))).toEqual({ type: 'rebaseline' })
   })
+
+  it('folds a run of chunk frames into one ordered transient list', () => {
+    const stream = opened()
+    const { transients, stop } = stream.acceptFrames([chunkFrame(0), chunkFrame(1), chunkFrame(2)])
+    expect(stop).toBeUndefined()
+    expect(transients.map(entry => entry.event.data.chunk)).toEqual([
+      { type: 'text-delta', index: 0, text: 'chunk-0' },
+      { type: 'text-delta', index: 0, text: 'chunk-1' },
+      { type: 'text-delta', index: 0, text: 'chunk-2' },
+    ])
+  })
+
+  it('stops a run at the first frame that is not a transient row', () => {
+    const stream = opened()
+    const { transients, stop } = stream.acceptFrames([
+      chunkFrame(0),
+      start(),
+      chunkFrame(1),
+    ])
+    // The duplicate start rebaselines; the frame after it must not be folded
+    // against state the caller is about to discard.
+    expect(transients).toHaveLength(1)
+    expect(stop).toEqual({ type: 'rebaseline' })
+  })
+
+  it('returns no run for an empty frame list', () => {
+    expect(opened().acceptFrames([])).toEqual({ transients: [], stop: undefined })
+  })
 })

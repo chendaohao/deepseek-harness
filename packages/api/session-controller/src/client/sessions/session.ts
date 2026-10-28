@@ -15,6 +15,7 @@ import type {
   QueueAction,
   SessionAddress,
   SessionAssistantStreamBaseline,
+  SessionAssistantStreamFrame,
   SessionProjectionBaseline,
   SessionRequestId,
 } from '../../types.ts'
@@ -735,7 +736,31 @@ export class Session implements SessionFace {
         return
       case 'assistant-stream':
         this.publishAssistantEntry(this.assistantStream.acceptFrame(change.frame))
+        return
+      case 'assistant-streams':
+        this.acceptAssistantBatch(change.frames)
     }
+  }
+
+  /**
+   * Fold one Host message's consecutive Assistant frames as one publication.
+   *
+   * The dense chunks of a streamed reply arrive in groups; appending each row
+   * on its own would publish a window revision, a feed notification, and a
+   * notifier wakeup per row. A frame that ends the transient run — a durable
+   * publication, settlement, abandonment, or rebaseline — goes through the
+   * single-frame path so its own ordering against the already-accepted rows is
+   * preserved.
+   * @param frames - consecutive Assistant stream frames from one message.
+   */
+  private acceptAssistantBatch(frames: readonly SessionAssistantStreamFrame[]): void {
+    if (frames.length === 0) return
+    const { transients, stop } = this.assistantStream.acceptFrames(frames)
+    if (transients.length > 0) {
+      this.eventSource.appendMany(transients)
+      this.notifier.markDirty()
+    }
+    this.publishAssistantEntry(stop)
   }
 
   /**
