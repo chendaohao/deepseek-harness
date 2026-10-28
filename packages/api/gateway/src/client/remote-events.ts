@@ -59,11 +59,62 @@ type RemoteEventReplyOutcome =
 /** Private end-of-chain marker that cannot collide with a JSON listener result. */
 const REMOTE_EVENT_NEXT = Symbol('api-gateway.remote-event.next')
 
+/**
+ * Times one listener's decided outcome is posted.
+ *
+ * The first post is the listener's own reply. The retry covers the ordinary
+ * phone case: the leg dies exactly as the user's answer leaves the page, so the
+ * first post lands on a socket that is already being replaced.
+ */
+const RESULT_DELIVERY_ATTEMPTS = 2
+
+/** Pause before the retried post (ms), long enough for a replacement leg to answer. */
+const RESULT_DELIVERY_RETRY_MS = 250
+
+/** Deadline of one result post (ms); a hung leg must not hold a decided outcome open. */
+const RESULT_DELIVERY_DEADLINE_MS = 15_000
+
+/**
+ * Decisions kept for a later delivery, in retention order.
+ *
+ * An entry leaves when the Host accepts it or finishes that event itself, so the
+ * bound only protects a Host that never settles one event from retaining
+ * decisions forever.
+ */
+const UNDELIVERED_LIMIT = 64
+
+/**
+ * Refused results, in a row, before the generation ends.
+ *
+ * A refusal is the Host's own answer to a post, so the reply carrier works and
+ * the failure is state this Client cannot repair — the delivery row is gone or
+ * the event settled elsewhere. Nothing else in the generation reacts to it, so
+ * this is the bound at which replacing the carrier is the only remaining
+ * recovery.
+ */
+const RESULT_REFUSAL_LIMIT = 8
+
+/** What one post achieved: the Host holds it, refused it, or it is still unposted. */
+type ResultDelivery = 'accepted' | 'refused' | 'kept'
+
 /** Own Cordis registrations, generation pumping, waterfall dispatch, and HTTP replies. */
 export class ClientRemoteEvents {
   private readonly eventPrefix = `internal/api-gateway/remote-event/${randomUUID()}/`
   private readonly unregisterGeneration: () => void
   private activeGeneration: Promise<void> | undefined
+  /**
+   * Outcomes a listener already decided but the Host has not accepted.
+   *
+   * A generation can end between the decision and its reply — the page resumes,
+   * the socket is recycled, the leg stalls — and the next generation's stream
+   * re-delivers the same pending event. Deciding it again would ask the human
+   * for an answer they already gave, so the decision travels with the event id.
+   */
+  private readonly undelivered = new Map<string, RemoteEventResult>()
+  /** Posts still on their way after the generation that asked for them ended. */
+  private readonly deliveries = new Set<Promise<void>>()
+  /** Cancels work that outlives one generation, so disposal still ends a decided outcome's retry. */
+  private readonly disposal = new AbortController()
 
   /**
    * @param ownerCtx - Client Gateway root used for Agent Context resolution.
@@ -100,7 +151,10 @@ export class ClientRemoteEvents {
   /** Withdraw the generation source and wait for active listener work to quiesce. */
   async dispose(): Promise<void> {
     this.unregisterGeneration()
+    this.disposal.abort(new Error('client api: Remote events disposed'))
+    this.undelivered.clear()
     await Promise.allSettled([this.activeGeneration])
+    await Promise.allSettled([...this.deliveries])
   }
 
   /** Track the current generation so plugin disposal waits for listener work to stop. */
@@ -125,6 +179,9 @@ export class ClientRemoteEvents {
     ready: (host: ConnectionHostInfo) => void,
   ): Promise<void> {
     let clientId: RemoteEventClientId | undefined
+    let undeliverable = 0
+    /** The failure this generation ends with, when its own Result handling named one. */
+    let deliveryFailure: Error | undefined
     const failed = new AbortController()
     const generationSignal = AbortSignal.any([signal, failed.signal])
     const active = new Map<string, AbortController>()
@@ -134,6 +191,42 @@ export class ClientRemoteEvents {
       REMOTE_EVENT_STREAM_PAYLOAD,
       generationSignal,
     )
+    /**
+     * Count one decided outcome this generation could not hand over.
+     *
+     * Only a refused post raises the count. A refusal means the reply carrier
+     * works and the Host stated its own verdict on that event, so nothing in
+     * this generation reacts to it; enough of them in a row end the generation
+     * and let Connection replace the carrier. A transport failure is already
+     * handled inside {@link postResult}, which retains the outcome for another
+     * delivery, so recycling on top of it would only cancel the other streams.
+     * @param accepted - whether the Host took the outcome.
+     */
+    const undeliveredOutcome = (accepted: boolean): void => {
+      if (accepted) {
+        undeliverable = 0
+        return
+      }
+      undeliverable += 1
+      if (undeliverable >= RESULT_REFUSAL_LIMIT) {
+        endGeneration(new Error('client api: Remote event results were refused'))
+      }
+    }
+    /**
+     * End this generation with one failure of its own.
+     *
+     * A result post outlives its generation, so it reports here instead of
+     * throwing into a caller that has already returned.
+     * @param error - the failure the generation ends with.
+     */
+    const endGeneration = (error: unknown): void => {
+      // The first failure is the one worth reporting: a result post that fails
+      // because this generation is already ending is a consequence, not a cause.
+      /* v8 ignore next -- the only path that ends a generation twice comes from its own abort. */
+      if (deliveryFailure !== undefined) return
+      deliveryFailure = error instanceof Error ? error : new Error('client api: Remote event delivery failed', { cause: error })
+      failed.abort(deliveryFailure)
+    }
     let streamFailed = false
     let streamError: unknown
     try {
@@ -146,6 +239,10 @@ export class ClientRemoteEvents {
         }
         const frame = parseRemoteEventFrame(value)
         if (frame.type === 'cancel') {
+          // An undelivered decision settles here instead: the Host finished the
+          // event without it, and a later delivery of the same id must not
+          // decide another event that happens to reuse the id.
+          this.undelivered.delete(frame.eventId)
           active.get(frame.eventId)?.abort(new Error('client api: Remote event was cancelled by the Host'))
           continue
         }
@@ -154,12 +251,31 @@ export class ClientRemoteEvents {
           continue
         }
         const controller = new AbortController()
+        const pending = this.undelivered.get(frame.eventId)
+        if (pending !== undefined) {
+          // This generation re-delivered an event whose outcome is already
+          // decided: post that outcome again instead of asking the listener a
+          // second time. The replacement client id is the only new field, and
+          // the Host holds no delivery row for it yet, so this is the same first
+          // reply the lost generation never managed to send.
+          this.track(this.repostResult({ ...pending, clientId }), frame.eventId, active, endGeneration)
+          continue
+        }
         active.set(frame.eventId, controller)
         const deliverySignal = AbortSignal.any([generationSignal, controller.signal])
-        const task = this.answer(frame, clientId, deliverySignal)
-          .catch((error: unknown) => {
-            if (!deliverySignal.aborted) failed.abort(error)
+        const task = this.decide(frame, clientId, deliverySignal)
+          .then((decided) => {
+            // A decision is made once the listener returns it, and from here on
+            // it is the answer: a post that cannot complete must not become a
+            // second question. The post therefore runs outside this generation's
+            // `tasks` — the reconnect that would interrupt it is exactly the loss
+            // it recovers from. Its release travels with it, so the invocation
+            // Context outlives the generation that resolved it.
+            if (decided === undefined) return
+            this.retainUndelivered(decided.result)
+            this.track(this.postDecided(decided, undeliveredOutcome), frame.eventId, active, endGeneration)
           })
+          .catch(endGeneration)
           .finally(() => {
             active.delete(frame.eventId)
             tasks.delete(task)
@@ -175,19 +291,29 @@ export class ClientRemoteEvents {
       }
       await Promise.allSettled(tasks)
     }
-    if (failed.signal.aborted) {
-      throw toError(failed.signal.reason, 'client api: Remote event result delivery failed')
-    }
+    if (deliveryFailure !== undefined) throw deliveryFailure
     if (signal.aborted) return
     if (streamFailed) throw streamError
     throw new Error('client api: forwarded Remote event stream ended unexpectedly')
   }
 
-  private async answer(
+  /**
+   * Ask this Client's listener chain for one outcome.
+   *
+   * The caller owns the returned release: an invocation-owned Context stays
+   * alive until the outcome has been posted, exactly as it did when the post
+   * lived inside this method.
+   * @param frame - forwarded invocation.
+   * @param clientId - Client id of the delivering generation stream.
+   * @param signal - generation lifetime of this delivery.
+   * @returns the decided wire result and its release, or undefined when there is
+   *   nothing to post.
+   */
+  private async decide(
     frame: RemoteEventInvocationFrame,
     clientId: RemoteEventClientId,
     signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<{ readonly result: RemoteEventResult; readonly release: () => void } | undefined> {
     const adapter = this.ownerCtx.typert.contexts.getClient('agent')
     let resolved: Context | TypertOwnedValue<Context> | undefined
     try {
@@ -196,6 +322,8 @@ export class ClientRemoteEvents {
       this.reportError(frame.event, error)
     }
     const owned = isTypertOwnedValue(resolved) ? resolved : undefined
+    const release = (): void => { owned?.[Symbol.dispose]() }
+    let handed = false
     try {
       const target = isTypertOwnedValue(resolved) ? resolved.value : resolved
       let outcome: RemoteEventReplyOutcome = { kind: 'next' }
@@ -203,28 +331,142 @@ export class ClientRemoteEvents {
         try {
           outcome = await this.dispatchWaterfall(target, frame, signal)
         } catch (error) {
-          if (signal.aborted) return
+          if (signal.aborted) return undefined
           outcome = { kind: 'rejected', error: projectRemoteEventRejection(error) }
         }
       }
-      if (signal.aborted) return
-      const result: RemoteEventResult = {
-        clientId,
-        eventId: frame.eventId,
-        outcome: outcome.kind === 'result' && outcome.value === undefined
-          ? { kind: 'result' }
-          : outcome,
+      if (signal.aborted) return undefined
+      handed = true
+      return {
+        release,
+        result: {
+          clientId,
+          eventId: frame.eventId,
+          outcome: outcome.kind === 'result' && outcome.value === undefined
+            ? { kind: 'result' }
+            : outcome,
+        },
       }
-      const response = await this.connection.rpc.call(
-        '/api',
-        REMOTE_EVENT_RESULT_ENDPOINT,
-        { args: result },
-        signal,
-      )
-      if (!response.ok) throw new Error(response.error.message)
     } finally {
-      owned?.[Symbol.dispose]()
+      // The caller takes the release over only with a decided outcome; every
+      // other exit releases here, so no invocation Context outlives its delivery.
+      if (!handed) release()
     }
+  }
+
+  /**
+   * Post one decided outcome and settle what the outcome says about this Client.
+   * @param decided - the decided outcome and the release its caller owns.
+   * @param undeliveredOutcome - the delivering generation's refusal counter.
+   */
+  private async postDecided(
+    decided: { readonly result: RemoteEventResult; readonly release: () => void },
+    undeliveredOutcome: (accepted: boolean) => void,
+  ): Promise<void> {
+    try {
+      const delivery = await this.postResult(decided.result)
+      if (delivery === 'kept') return
+      this.settleUndelivered(decided.result.eventId)
+      undeliveredOutcome(delivery === 'accepted')
+    } finally {
+      decided.release()
+    }
+  }
+
+  /**
+   * Re-post a decision this generation was handed again.
+   * @param result - retained outcome re-addressed to this generation's client id.
+   */
+  private async repostResult(result: RemoteEventResult): Promise<void> {
+    const delivery = await this.postResult(result)
+    if (delivery === 'kept') return
+    this.settleUndelivered(result.eventId)
+  }
+
+  /**
+   * Track a result post that outlives the generation asking for it.
+   *
+   * The post is deliberately not part of the generation's `tasks`: its own
+   * lifetime is the plugin's, and waiting for it would hold the very reconnect
+   * that supersedes it. Disposal still waits, so no post is left in flight after
+   * the plugin is gone.
+   * @param post - the post to track.
+   * @param eventId - event whose delivery the post answers.
+   * @param active - the generation's in-flight controllers.
+   * @param failed - reports a failure that leaves the generation unsound; a
+   *   decided outcome's post contains everything else.
+   */
+  private track(
+    post: Promise<void>,
+    eventId: string,
+    active: Map<string, AbortController>,
+    failed: (error: unknown) => void,
+  ): void {
+    const tracked = post
+      .catch(failed)
+      .finally(() => {
+        active.delete(eventId)
+        this.deliveries.delete(tracked)
+      })
+    this.deliveries.add(tracked)
+  }
+
+  /**
+   * Post one decided outcome to the Host, retrying once when the leg is gone.
+   *
+   * The lifetime is deliberately not the generation's: the loss this recovers
+   * from is that generation dying, and the endpoint is a unary call that does
+   * not need the forwarded-event stream to be open. Only the plugin's own
+   * disposal cancels a decided outcome.
+   * @param result - decided outcome carrying the delivering generation's client id.
+   * @returns `accepted` when the Host took the outcome, `refused` when it stated
+   *   its own verdict and repeating the post cannot change it, and `kept` when
+   *   the outcome stays retained for another delivery.
+   */
+  private async postResult(result: RemoteEventResult): Promise<ResultDelivery> {
+    for (let attempt = 1; attempt <= RESULT_DELIVERY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await this.connection.rpc.call(
+          '/api',
+          REMOTE_EVENT_RESULT_ENDPOINT,
+          { args: result },
+          AbortSignal.any([this.disposal.signal, AbortSignal.timeout(RESULT_DELIVERY_DEADLINE_MS)]),
+        )
+        if (response.ok) return 'accepted'
+        // A refusal names this event — the Host settled it without this client,
+        // or the delivery row is gone — so repeating it can only fail the same way.
+        console.error(`client api: Remote event result was refused for ${JSON.stringify(result.eventId)}:`, response.error.message)
+        return 'refused'
+      } catch (error) {
+        if (this.disposal.signal.aborted) return 'kept'
+        if (attempt === RESULT_DELIVERY_ATTEMPTS) {
+          // Retained: the next delivery of this event posts it again, so a page
+          // that stays open keeps its answer.
+          console.error(`client api: Remote event result delivery failed for ${JSON.stringify(result.eventId)}:`, error)
+          return 'kept'
+        }
+        await new Promise((resolve) => { setTimeout(resolve, RESULT_DELIVERY_RETRY_MS) })
+      }
+    }
+    /* v8 ignore next -- the loop returns on every iteration it runs. */
+    return 'kept'
+  }
+
+  /** Keep one decided outcome until the Host accepts it or finishes its event. */
+  private retainUndelivered(result: RemoteEventResult): void {
+    this.undelivered.delete(result.eventId)
+    this.undelivered.set(result.eventId, result)
+    while (this.undelivered.size > UNDELIVERED_LIMIT) {
+      // Retention order is insertion order, so the first key is the oldest
+      // decision; the loop condition guarantees there is one.
+      const oldest = this.undelivered.keys().next().value as string
+      this.undelivered.delete(oldest)
+    }
+  }
+
+  /** Forget a decided outcome the Host now holds. */
+  private settleUndelivered(eventId: string): void {
+    this.undelivered.delete(eventId)
   }
 
   private async dispatchWaterfall(
@@ -334,8 +576,4 @@ function invalidRemoteEventFrame(): never {
 
 function privateEvents(ctx: Context): PrivateEventContext {
   return ctx
-}
-
-function toError(reason: unknown, message: string): Error {
-  return reason instanceof Error ? reason : new Error(message, { cause: reason })
 }

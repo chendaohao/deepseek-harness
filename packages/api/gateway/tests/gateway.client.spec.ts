@@ -1769,17 +1769,147 @@ describe('Client Typert API', () => {
     }
   })
 
-  it('fails the Connection generation when a result RPC is rejected', async () => {
+  it('stops posting a decided outcome once the page is going away', async () => {
+    // The retry outlives a generation but never the plugin: disposal is the one
+    // event after which no post may still be in flight.
+    const call = vi.fn<ConnectionHandle['rpc']['call']>((_channel, _endpoint, _payload, signal) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { reject(new Error('fixture disposed')) }, { once: true })
+      }))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { client, carrier } = await eventBench(call)
+    try {
+      carrier.emit(approvalFrame('event-disposed', 'agent-missing', 'respond'))
+      await vi.waitFor(() => { expect(call).toHaveBeenCalledOnce() })
+      await client.dispose()
+      // The in-flight post was abandoned rather than retried.
+      expect(call).toHaveBeenCalledOnce()
+      expect(consoleError).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('keeps the Connection generation when the Host refuses a result it no longer wants', async () => {
+    // A refusal names the Host's own verdict on that event — it settled the
+    // event without this client, or the delivery row is gone. One refusal is
+    // not carrier evidence, so the page keeps every other logical stream.
     const call = vi.fn<ConnectionHandle['rpc']['call']>().mockResolvedValue({
       ok: false,
       error: { code: 'gateway/internal', message: 'fixture result rejected', details: {} },
     })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const { client, carrier, run } = await eventBench(call)
+    let settled = false
+    void run.done.then(() => { settled = true }, () => { settled = true })
+    try {
+      carrier.emit(approvalFrame('event-result-rejected', 'agent-missing', 'respond'))
+      await vi.waitFor(() => { expect(call).toHaveBeenCalledOnce() })
+      await Promise.resolve()
+      expect(settled).toBe(false)
+    } finally {
+      consoleError.mockRestore()
+      await client.dispose()
+      await run.done
+    }
+  })
 
-    carrier.emit(approvalFrame('event-result-rejected', 'agent-missing', 'respond'))
+  it('ends the generation after enough refused results in a row', async () => {
+    // Refusals are the one result failure nothing else recovers from, so the
+    // bound is what keeps a Host that rejects every reply from leaving the page
+    // with a stream that can never answer anything.
+    const call = vi.fn<ConnectionHandle['rpc']['call']>().mockResolvedValue({
+      ok: false,
+      error: { code: 'gateway/internal', message: 'fixture result rejected', details: {} },
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { client, carrier, run } = await eventBench(call)
+    try {
+      for (let index = 0; index < 8; index += 1) {
+        carrier.emit(approvalFrame(`event-refused-${String(index)}`, 'agent-missing', 'respond'))
+      }
+      await expect(run.done).rejects.toThrow('client api: Remote event results were refused')
+      expect(call).toHaveBeenCalledTimes(8)
+    } finally {
+      consoleError.mockRestore()
+      await client.dispose()
+    }
+  })
 
-    await expect(run.done).rejects.toThrow('fixture result rejected')
-    await client.dispose()
+  it('retries once and keeps the decided outcome when the result transport fails', async () => {
+    // The answer leaves the page on a leg that is dying: the retry is the whole
+    // point, because a decided outcome the Host never received is a question the
+    // user has already answered.
+    const call = vi.fn<ConnectionHandle['rpc']['call']>().mockRejectedValue('fixture transport failure')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { client, carrier, run } = await eventBench(call)
+    let settled = false
+    void run.done.then(() => { settled = true }, () => { settled = true })
+    try {
+      carrier.emit(approvalFrame('event-result-throw', 'agent-missing', 'respond'))
+
+      await vi.waitFor(() => { expect(call).toHaveBeenCalledTimes(2) }, { timeout: 2_000 })
+      await vi.waitFor(() => {
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining('Remote event result delivery failed'),
+          'fixture transport failure',
+        )
+      })
+      expect(settled).toBe(false)
+    } finally {
+      consoleError.mockRestore()
+      await client.dispose()
+      await run.done
+    }
+  })
+
+  it('re-sends an already decided answer instead of asking the listener again', async () => {
+    // The phone returns, the generation that carried the answer dies, and the
+    // next stream re-delivers the same pending event. The user already answered
+    // it: the listener must not run a second time.
+    const call = vi.fn<ConnectionHandle['rpc']['call']>()
+      .mockRejectedValueOnce(new Error('fixture leg gone'))
+      .mockRejectedValueOnce(new Error('fixture leg still gone'))
+      .mockResolvedValue({ ok: true, value: undefined })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { ctx, client, carrier, generation, run } = await eventBench(call)
+    try {
+      const target = ctx.extend()
+      ctx.typert.contexts.registerClient('agent', {
+        identity: candidate => candidate === target ? agentId('agent-redelivered') : undefined,
+        resolve: id => id === 'agent-redelivered' ? target : undefined,
+      })
+      const listener = vi.fn<() => Promise<FixtureApprovalOutcome>>(async () => 'allowed')
+      target.remote.$on('fixture/approval', listener)
+
+      carrier.emit(approvalFrame('event-redelivered', 'agent-redelivered', 'respond'))
+      // Both attempts fail; the decided outcome is retained rather than dropped.
+      await vi.waitFor(() => { expect(call).toHaveBeenCalledTimes(2) }, { timeout: 3_000 })
+
+      run.abort(new Error('fixture generation ended'))
+      await run.done
+
+      const next = generation.start()
+      await next.ready
+      carrier.emit(approvalFrame('event-redelivered', 'agent-redelivered', 'respond'))
+
+      await vi.waitFor(() => { expect(call).toHaveBeenCalledTimes(3) }, { timeout: 3_000 })
+      expect(listener).toHaveBeenCalledOnce()
+      // The re-sent reply names the replacement generation's Client id.
+      const payloads = call.mock.calls.map(argument =>
+        Reflect.get(argument, 2) as { args?: { clientId?: string } } | undefined)
+      expect(payloads[2]?.args).toMatchObject({
+        clientId: expect.any(String) as string,
+        eventId: 'event-redelivered',
+        outcome: { kind: 'result', value: 'allowed' },
+      })
+      expect(new Set(payloads.map(payload => payload?.args?.clientId)).size).toBe(2)
+
+      await client.dispose()
+      await next.done
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('filters scoped waterfall listeners and returns the first claimed result', async () => {
@@ -1999,6 +2129,110 @@ describe('Client Typert API', () => {
     await client.dispose()
   })
 
+  it('drops the oldest decided answer once retention is full', async () => {
+    // Retention is a recovery aid, not a ledger: an undelivered answer waits for
+    // its event to be delivered again, so the table is bounded and the oldest
+    // entry is the one most likely never to come back.
+    const call = vi.fn<ConnectionHandle['rpc']['call']>().mockRejectedValue(new Error('fixture leg gone'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { ctx, client, carrier } = await eventBench(call)
+    const target = ctx.extend()
+    ctx.typert.contexts.registerClient('agent', {
+      identity: candidate => candidate === target ? agentId('agent-bound') : undefined,
+      resolve: id => id === 'agent-bound' ? target : undefined,
+    })
+    const listener = vi.fn<() => Promise<FixtureApprovalOutcome>>(async () => 'allowed')
+    target.remote.$on('fixture/approval', listener)
+    vi.useFakeTimers()
+    try {
+      for (let index = 0; index < 65; index += 1) {
+        carrier.emit(approvalFrame(`event-bound-${String(index)}`, 'agent-bound', 'respond'))
+      }
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(listener).toHaveBeenCalledTimes(65)
+
+      // The oldest answer was evicted, so its event is decided a second time.
+      carrier.emit(approvalFrame('event-bound-0', 'agent-bound', 'respond'))
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(listener).toHaveBeenCalledTimes(66)
+
+      // The newest answer was retained, so its event is re-sent, not re-asked.
+      carrier.emit(approvalFrame('event-bound-64', 'agent-bound', 'respond'))
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(listener).toHaveBeenCalledTimes(66)
+    } finally {
+      vi.useRealTimers()
+      consoleError.mockRestore()
+      await client.dispose()
+    }
+  })
+
+  it('ends the generation when a decided outcome cannot be released', async () => {
+    // An owned Context that fails to release leaves the generation's state
+    // unsound, so the only recovery is replacing it.
+    const { ctx, client, carrier, run } = await eventBench()
+    const target = ctx.extend()
+    ctx.typert.contexts.registerClient('agent', {
+      identity: candidate => candidate === target ? agentId('agent-release') : undefined,
+      resolve: id => id === 'agent-release'
+        ? typertOwnedValue(target, () => { throw new Error('fixture release failed') })
+        : undefined,
+    })
+    target.remote.$on('fixture/approval', async () => 'allowed')
+
+    carrier.emit(approvalFrame('event-release', 'agent-release', 'respond'))
+
+    await expect(run.done).rejects.toThrow('fixture release failed')
+    await client.dispose()
+  })
+
+  it('ends its generation without waiting for a decided answer still in flight', async () => {
+    // The reconnect that interrupts a post is the very loss the post recovers
+    // from, so a hung leg must not delay the generation teardown that replaces
+    // it; disposal is the only thing that waits.
+    const hung = Promise.withResolvers<never>()
+    const call = vi.fn<ConnectionHandle['rpc']['call']>(() => hung.promise)
+    const { ctx, client, carrier, run } = await eventBench(call)
+    const target = ctx.extend()
+    ctx.typert.contexts.registerClient('agent', {
+      identity: candidate => candidate === target ? agentId('agent-in-flight') : undefined,
+      resolve: id => id === 'agent-in-flight' ? target : undefined,
+    })
+    target.remote.$on('fixture/approval', async () => 'allowed')
+
+    carrier.emit(approvalFrame('event-in-flight', 'agent-in-flight', 'respond'))
+    await vi.waitFor(() => { expect(call).toHaveBeenCalledOnce() })
+
+    // The generation ends at once: nothing awaits the unanswered post.
+    run.abort(new Error('fixture generation ended'))
+    await expect(run.done).resolves.toBeUndefined()
+
+    hung.reject(new Error('fixture late post'))
+    await client.dispose()
+  })
+
+  it('names a non-Error failure that ends a generation', async () => {
+    // A decided outcome's post reports through endGeneration, which must always
+    // hand Connection an Error even when what escaped was a bare value.
+    const { ctx, client, carrier, run } = await eventBench()
+    const target = ctx.extend()
+    ctx.typert.contexts.registerClient('agent', {
+      identity: candidate => candidate === target ? agentId('agent-bare-throw') : undefined,
+      resolve: id => id === 'agent-bare-throw'
+        ? typertOwnedValue(target, () => { throw 'fixture bare release failure' })
+        : undefined,
+    })
+    target.remote.$on('fixture/approval', async () => 'allowed')
+
+    carrier.emit(approvalFrame('event-bare-throw', 'agent-bare-throw', 'respond'))
+
+    await expect(run.done).rejects.toMatchObject({
+      message: 'client api: Remote event delivery failed',
+      cause: 'fixture bare release failure',
+    })
+    await client.dispose()
+  })
+
   it('contains a result transport failure after the generation is cancelled', async () => {
     const response = Promise.withResolvers<never>()
     const call = vi.fn<ConnectionHandle['rpc']['call']>(() => response.promise)
@@ -2015,15 +2249,24 @@ describe('Client Typert API', () => {
 
   it('normalizes a non-Error result transport failure', async () => {
     const call = vi.fn<ConnectionHandle['rpc']['call']>().mockRejectedValue('fixture transport failure')
-    const { client, carrier, run } = await eventBench(call)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { client, carrier } = await eventBench(call)
+    try {
+      carrier.emit(approvalFrame('event-result-throw', 'agent-missing', 'respond'))
 
-    carrier.emit(approvalFrame('event-result-throw', 'agent-missing', 'respond'))
-
-    await expect(run.done).rejects.toMatchObject({
-      message: 'client api: Remote event result delivery failed',
-      cause: 'fixture transport failure',
-    })
-    await client.dispose()
+      // Every attempt is reported with the failure's own value, then the decided
+      // outcome waits for the event to be delivered again.
+      await vi.waitFor(() => {
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining('event-result-throw'),
+          'fixture transport failure',
+        )
+      })
+      expect(call).toHaveBeenCalledTimes(2)
+      await client.dispose()
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('keeps the newer generation tracked when an overlapping generation settles', async () => {

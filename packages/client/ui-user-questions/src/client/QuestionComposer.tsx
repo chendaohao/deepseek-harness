@@ -211,11 +211,11 @@ function QuestionFlow({ pending, t, useStore, useQuestionCard, actions }: Questi
   // The answer surface freezes while a submission is in flight, and for good on
   // a review card: its call has already settled.
   const locked = busy !== null || review !== undefined
-  // A waterfall submission is only "sent": the gateway drops an outcome that
-  // arrives after another Client settled the event, without telling anyone.
-  // The draft therefore survives until the projection closes the card, and a
-  // card that flips to continued while a submission is in flight re-arms the
-  // controls so the same draft can go through the Remote path.
+  // A waterfall submission is only "sent": a decided outcome survives a lost
+  // connection, but only the projection proves the Host took it. The draft
+  // therefore survives until the projection closes the card, and a card that
+  // flips to continued while a submission is in flight re-arms the controls so
+  // the same draft can go through the Remote path.
   const sentVia = useRef<'waterfall' | null>(null)
   useEffect(() => {
     if (sentVia.current !== 'waterfall' || card.state !== 'continued') return
