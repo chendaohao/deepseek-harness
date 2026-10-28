@@ -478,7 +478,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Subagent worker-route preference',
     mode: 'core',
     consumers: ['tool-subagent'],
-    note: 'Owns the settings namespace holding the default child route — provider, model, and reasoning effort — that a delegation tool opting into workerRouteSettings reads on every call, so a settings edit reaches the next delegation without rebuilding a tool definition.',
+    note: 'Owns one route-settings namespace and its default child route — provider, model, and reasoning effort — that the delegation row declaring that namespace reads on every call, so a settings edit reaches the next delegation without rebuilding a tool definition.',
   },
   {
     key: 'credentials',

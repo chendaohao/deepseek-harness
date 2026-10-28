@@ -1,14 +1,14 @@
-/** Host-owned default LLM route for delegation children. */
+/** Host-owned default LLM route for one delegation role's settings namespace. */
 
-import type { Volatile } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** User preference sampled by a delegation tool that advertises the setting. */
+    /** The calling row's settings owner, resolved through the shared registry. */
     subagentWorkerRoute: SubagentWorkerRouteConfig
   }
 }
@@ -26,8 +26,13 @@ export interface SubagentWorkerRouteSettings {
   reasoningEffort: ReturnType<typeof ReasoningEffortId>
 }
 
+/** What one route-settings owner exposes to the delegation tool reading it. */
+export type SubagentRouteSettingsOwner = Pick<SubagentWorkerRouteConfig, 'current'>
+
 /** Deployment base for the preference; every field is required. */
 export interface Config {
+  /** Settings namespace this instance owns; must equal its Loader entry id. */
+  namespace: string
   /** Initial provider inherited when the user document does not override it. */
   provider: Volatile<string>
   /** Initial model inherited when the user document does not override it. */
@@ -50,16 +55,21 @@ function assertWorkerRoute(value: SubagentWorkerRouteSettings): void {
 }
 
 /**
- * Singleton settings owner read when a delegation tool resolves its child
- * default route. The route reaches the LLM adapter only through the delegation
- * preflight, which validates the provider, model, and effort together.
+ * One composed row's settings owner, read when a delegation tool resolves its
+ * child default route for the role this row serves. The route reaches the LLM
+ * adapter only through the delegation preflight, which validates the provider,
+ * model, and effort together.
  *
  * A route rewrite is not refused here: a marked child re-reads this setting at
  * every request, so an edit is safe at any point of its life. What owns the
- * refusal is the delegation tool, which knows which of its children are mid-turn.
+ * refusal is the delegation tool row, which knows which of its children are
+ * mid-turn.
  */
 export class SubagentWorkerRouteConfig extends Service {
+  static inject = ['subagentRouteSettings']
+
   static Config = z.object({
+    namespace: z.string().min(1).required(),
     provider: z.string().min(1).required().volatile(),
     model: z.string().min(1).required().volatile(),
     reasoningEffort: z.string().min(1).required().volatile(),
@@ -69,8 +79,15 @@ export class SubagentWorkerRouteConfig extends Service {
     super(ctx, 'subagentWorkerRoute')
   }
 
+  protected [Service.init](): void {
+    // Registration is scoped to this row's fiber, so HMR replacement of one
+    // row takes its own registry entry and write guard with it.
+    const dispose = this.ctx.subagentRouteSettings.register(this.config.namespace, this)
+    this.ctx.effect(() => dispose, 'subagent-worker-route-settings: registry registration')
+  }
+
   /**
-   * Read the current default child route.
+   * Read the current default child route for this row's role.
    * @returns the configured route as a detached value.
    */
   current(): SubagentWorkerRouteSettings {
@@ -84,5 +101,4 @@ export class SubagentWorkerRouteConfig extends Service {
   }
 }
 
-export const name = 'subagent-worker-route-settings'
 export default SubagentWorkerRouteConfig

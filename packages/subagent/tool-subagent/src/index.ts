@@ -35,17 +35,12 @@ import type { DelegationModelRequest } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
 import { SubagentPresetSelection, type PresetSelectionConfig, type PresetSelectionRequest } from './preset-selection.ts'
 import type {} from './model-selection-settings.ts'
-import type SubagentWorkerRouteConfig from './worker-route-settings.ts'
-import {
-  SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE,
-  type SubagentWorkerRouteSettings,
-} from './worker-route-settings.ts'
+import type { SubagentRouteSettingsOwner, SubagentWorkerRouteSettings } from './worker-route-settings.ts'
 import {
   recordSubagentWorkerRoute,
   subagentWorkerRouteMark,
   subagentWorkerRouteProjectionDefinition,
 } from './worker-route-state.ts'
-import { workerRouteWriteRefusal } from './worker-route-guard.ts'
 import {
   subagentModelSelectionProjectionDefinition,
   subagentModelSelectionPolicy,
@@ -80,12 +75,14 @@ export interface Config extends PresetSelectionConfig {
    */
   modelDiscovery?: boolean
   /**
-   * Read the Host `subagent-worker-route` setting as this instance's baseline
+   * Read the named Host route-settings namespace as this instance's baseline
    * child route on every call, so a settings update reaches the next
    * delegation without rebuilding the definition. Configured `agentOptions`
-   * stays as the fallback beneath it.
+   * stays as the fallback beneath it. The namespace must be served by a
+   * composed `subagent-*-route-settings` row (its entry id names the same
+   * namespace); omit the field to keep a fixed configured route.
    */
-  workerRouteSettings?: boolean
+  routeSettingsNamespace?: string | undefined
   /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */
@@ -108,7 +105,7 @@ export const Config: z<Config> = z.object({
   toolName: z.string().default('subagent'),
   modelSelection: z.boolean().default(false),
   modelDiscovery: z.boolean().default(false),
-  workerRouteSettings: z.boolean().default(false),
+  routeSettingsNamespace: (z.string().min(1) as z<string | undefined>).default(undefined),
   // Prevent Schemastery from materializing omitted agentOptions as `{}`.
   agentOptions: z.object({
     provider: z.string(),
@@ -166,7 +163,7 @@ function providerWording(inheritsConversation: boolean): { description: string; 
 
 /**
  * Agents already carrying a worker-route selection installation. A parent can
- * mount several delegation rows with `workerRouteSettings: true`, and each
+ * mount several delegation rows with `routeSettingsNamespace`, and each
  * row's `agent/created` listener would install its own copy — two
  * installations would both append the model-change notice to the child's
  * transcript. The dedupe key is the Agent itself, so the set is shared across
@@ -201,13 +198,18 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // Awaiting registers the marker before any child is announced to this row.
   await ctx.sessionProjections.register(subagentWorkerRouteProjectionDefinition)
 
-  const workerRouteConfig = config.workerRouteSettings === true
-    ? ctx.get('subagentWorkerRoute')
-    : undefined
-  if (config.workerRouteSettings === true && workerRouteConfig === undefined) {
+  // Resolve the row's route owner through the shared registry, so several
+  // role rows can compose side by side without fighting over one service name.
+  const registry = config.routeSettingsNamespace === undefined
+    ? undefined
+    : ctx.get('subagentRouteSettings')
+  const workerRouteConfig = config.routeSettingsNamespace === undefined || registry === undefined
+    ? undefined
+    : registry.resolve(config.routeSettingsNamespace)
+  if (config.routeSettingsNamespace !== undefined && workerRouteConfig === undefined) {
     throw new Error(
-      'tool-subagent: `workerRouteSettings` requires '
-      + '@deepseek-ai/dsh-tool-subagent/worker-route-settings in the Host scope',
+      `tool-subagent: \`routeSettingsNamespace: '${config.routeSettingsNamespace}'\` requires a `
+      + 'route-settings row serving that namespace (its entry id must name it)',
     )
   }
   // Bound rather than captured: the service instance reads through its own
@@ -215,26 +217,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const workerRoute = workerRouteConfig === undefined
     ? undefined
     : (): SubagentWorkerRouteSettings => workerRouteConfig.current()
-  // One guard per composition, on this plugin's own scope: a tool row can hold
-  // a continuable child after the fiber that delegated it is gone, so the
-  // refusal has to outlive the row that started the worker. A deployment
-  // without the settings service has no write path to guard.
-  const settingsService = ctx.get('settings')
-  const guardRegistration = workerRouteConfig !== undefined && settingsService !== undefined
-    ? settingsService.guard(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, () =>
-      workerRouteWriteRefusal(ctx.sessionProjections, ctx.get('agents')?.list() ?? []))
-    : undefined
-  if (guardRegistration !== undefined) {
-    const registration = guardRegistration
-    ctx.effect(() => registration.dispose, 'tool-subagent: worker-route write guard')
-    // The guard predicate is pull-based, so a flip is published from the
-    // transition that causes it: a marked worker entering or leaving
-    // 'running'. This is what lets an open settings page re-enable its
-    // pickers when the worker it waited on settles.
-    ctx.on('agent/status', ({ agent }) => {
-      if (subagentWorkerRouteMark(ctx.sessionProjections, agent.session) !== undefined) registration.refresh()
-    })
-  }
 
   /**
    * Route one marked child's later requests from the current setting. The route
@@ -245,8 +227,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
    * once; across rows, the module-level installation set decides, because two
    * opted-in rows each announce the same resumed child.
    */
-  const installWorkerRouteSelection = (routeConfig: SubagentWorkerRouteConfig, child: Agent): void => {
-    if (subagentWorkerRouteMark(ctx.sessionProjections, child.session) === undefined) return
+  const installWorkerRouteSelection = (routeConfig: SubagentRouteSettingsOwner, child: Agent): void => {
+    // The marker must name THIS row's namespace: without the match a row whose
+    // listener runs first would route a planner or reviewer child to the worker
+    // route. The weak set below only dedupes repeated announcements of the
+    // same child to this row.
+    if (subagentWorkerRouteMark(ctx.sessionProjections, child.session) !== config.routeSettingsNamespace) return
     if (workerRouteSelectionInstalled.has(child)) return
     workerRouteSelectionInstalled.add(child)
     child.ctx.effect(() => installModelSelection(child.ctx), 'tool-subagent: worker-route selection')
@@ -467,14 +453,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           signal: exec.signal,
           delivery: 'parent',
         })
-        if (followsWorkerRoute && workerRouteConfig !== undefined) {
+        if (followsWorkerRoute && workerRouteConfig !== undefined && config.routeSettingsNamespace !== undefined) {
           // The marker is durable so a cold resume reinstalls from it; this
           // live install is what makes the child's NEXT request observe the
           // current setting without waiting for a restart.
           /* v8 ignore next -- a composition without the Agent registry has no local child to route */
           const child = ctx.get('agents')?.get(started.childId)
           if (child !== undefined) {
-            recordSubagentWorkerRoute(ctx.sessionProjections, child.session)
+            recordSubagentWorkerRoute(ctx.sessionProjections, child.session, config.routeSettingsNamespace)
             installWorkerRouteSelection(workerRouteConfig, child)
           }
         }

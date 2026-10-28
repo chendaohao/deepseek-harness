@@ -216,6 +216,7 @@
       "@deepseek-ai/dsh-tool-testkit": ["./packages/test-support/tool-testkit/src/index.ts"],
       "@deepseek-ai/dsh-tools/presentation": ["./packages/core/tools/src/presentation.ts"],
       "@deepseek-ai/dsh-tool-subagent/model-selection-settings": ["./packages/subagent/tool-subagent/src/model-selection-settings.ts"],
+      "@deepseek-ai/dsh-tool-subagent/worker-route-settings": ["./packages/subagent/tool-subagent/src/worker-route-settings.ts"],
       "@deepseek-ai/dsh-user-approval/types": ["./packages/interaction/user-approval/src/types.ts"],
       "@deepseek-ai/dsh-user-questions/types": ["./packages/interaction/user-questions/src/types.ts"],
       "@deepseek-ai/dsh-agent/types": ["./packages/core/agent/src/types.ts"],

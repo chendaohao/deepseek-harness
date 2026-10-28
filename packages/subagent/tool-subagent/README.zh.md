@@ -49,7 +49,7 @@ kind: "package-reference"
 | `modelSelection` | `false` | 公开可选子级路由字段；要求提供方支持 `agentOptions` |
 | `modelDiscovery` | `false` | 注册 `list_subagent_models`；每个工具作用域仅在一个实例上启用 |
 | `modelSelectionSettings` | `false` | 为每个顶层 Session 读取宿主的精确路由授权偏好；常驻 preset 观察匹配 Session，直接 Agent setup 则显式传入其 Session；要求提供方支持 `agentOptions` |
-| `workerRouteSettings` | `false` | 每次调用都读取宿主 `subagent-worker-route` 设置，作为本实例的子级基线路由；由该设置本身路由的子会话会记下这一点，并在之后每次请求重新解析，因此设置改动既不需要重建定义也不需要重启。跟随该设置的工人正在运行时，写入该命名空间会被拒绝。配置的 `agentOptions` 保留为其下方的兜底；要求提供方支持 `agentOptions` |
+| `routeSettingsNamespace` | — | 每次调用都读取指定宿主路由设置命名空间，作为本实例的子级基线路由；由该命名空间路由的子会话会记下这一点，并在之后每次请求重新解析，因此设置改动既不需要重建定义也不需要重启。跟随该设置的子会话正在运行时，写入该命名空间会被拒绝。配置的 `agentOptions` 保留为其下方的兜底；要求组合中存在入口 id 指向同一命名空间的路由设置行，且提供方支持 `agentOptions` |
 | `agentOptions` | — | 配置的子级 `provider`、`model`、适配器所有的 `reasoningEffort` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
 | `agentPreset` | — | 独立子级 preset 的默认 id；要求进程内 spawn |
 | `allowedAgentPresets` | — | 非空 preset-id 白名单，作为模型可选的 `agent_preset` 枚举；与 `agentPreset` 同时配置时必须包含后者 |
@@ -82,7 +82,7 @@ kind: "package-reference"
 
 ### 设置默认子级路由
 
-设置 `workerRouteSettings: true`，即可让宿主设置（而非组合文件）决定每个子 agent 的起始路由。工具随后在每次调用时读取 `subagent-worker-route` 区段——`provider`、`model` 与 `reasoningEffort`——因此一次编辑就能作用于下一次委派，无需重建工具定义，也无需重启进程。该设置中的路由优先于配置的 `agentOptions`，后者保留为从未写入该区段的部署的兜底；面向模型的选择仍然优先于两者。此模式要求后端声明 `agentOptions`。
+设置 `routeSettingsNamespace`，即可让宿主设置（而非组合文件）决定每个子 agent 的起始路由。工具随后在每次调用时读取该命名空间存下的路由——`provider`、`model` 与 `reasoningEffort`——因此一次编辑就能作用于下一次委派，无需重建工具定义，也无需重启进程。该设置中的路由优先于配置的 `agentOptions`，后者保留为从未写入该区段的部署的兜底；面向模型的选择仍然优先于两者。此模式要求后端声明 `agentOptions`。
 
 由该设置本身路由的子会话会记录一个持久化的 `subagent/worker-route` 标记，因此之后每次激活（包含冷恢复）都从该区段重新解析 provider、model 与 reasoningEffort，并在下一次请求上追加常规的模型切换告知。调用中自己指名路由或推理档的子会话保持所指定的值，不留标记；由其他工具行创建的子会话保持创建时的路由。
 
@@ -257,7 +257,7 @@ Delegation depth for `subagent`: current 1, maximum 1, remaining levels 0. Do no
 - **预设选项不含描述**——`agent_preset` 只公开 id 及默认或继承提示。schema 不读取候选预设文档，因此注册不依赖它们的声明顺序。请使用能够表达各候选用途的 id。
 - **预设引用在委派时检查**——Host 挂载和预设内挂载的工具都在启动子级时解析目标。目标可以在工具注册后声明或替换，因此加载工具无法确定后续调用时目标是否可用。拼错或不可用的 id 在被选中前不会被发现；选中它的调用会返回错误。
 - **随附 fork 工具省略模型选择**——其配置保持 `modelSelection` 关闭，以保留对继承前缀的复用；它们继承父级提供方与模型，使复制的对话前缀仍有资格复用 KV Cache。自定义 fork 工具可以启用它，并接受与其他委派工具相同的 Session 授权和适配器校验，且仅当路由变更能保留复用或公开有界重算成本时才应启用。
-- **只有设置本身给出的路由会一直跟随它**——委派时自己指名路由或推理档的子会话保持创建路由，未开启 `workerRouteSettings` 的工具行也不会标记其子会话。早于该标记的读取方会拒绝整份日志，而不是去路由一个它无法重建的子会话。
+- **只有设置本身给出的路由会一直跟随它**——委派时自己指名路由或推理档的子会话保持创建路由，未设置 `routeSettingsNamespace` 的工具行也不会标记其子会话。早于该标记的读取方会拒绝整份日志，而不是去路由一个它无法重建的子会话。
 - **工人路由写入守卫只覆盖设置表单**——它查询 Agent 注册表，因此会在跟随该设置的工人处于请求进行中时拒绝 `update`、`replace` 与 `mutate`，但无法阻止直接编辑 profile patch。
 - **非路由子 agent 策略按实例固定**——另一个 persona、工具过滤器或深度上限需要另一个名称不同的工具；子级角色和工具由所选 Agent Preset 配置。显式 LLM 选择需要 `modelSelection`，并受 Session 授权路由限制，没有启用策略时只允许当前父级路由；提供方必须声明 `agentOptions`——两个进程内提供方和 DSH SDK 会声明该能力，而 ACP、Codex 与 Claude Code 会拒绝它，而不是忽略它。
 

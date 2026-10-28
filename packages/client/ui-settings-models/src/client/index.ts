@@ -23,6 +23,10 @@ import { ModelsSettingsStore } from './store.ts'
 import { createModelsOperations } from './operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
 import { WorkerRouteCatalog, WORKER_ROUTE_SETTINGS_NAMESPACE } from './worker-route.ts'
+
+/** The planner and reviewer role namespaces the page edits alongside the worker one. */
+const PLANNER_ROUTE_SETTINGS_NAMESPACE = 'subagent-planner-route-settings'
+const REVIEWER_ROUTE_SETTINGS_NAMESPACE = 'subagent-reviewer-route-settings'
 import type { WorkerRouteSettings } from './worker-route.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type ModelsKey } from './locales.ts'
 import { Config, ONBOARDING_CONFIG_GLOBAL } from '../onboarding-config.ts'
@@ -91,6 +95,8 @@ export function apply(ctx: ClientContext): void {
   // the Remote namespaces are declared, and the block only receives the handle.
   const workerRouteCatalog = new WorkerRouteCatalog(ctx)
   const workerRouteScope = ctx.configForms.get<WorkerRouteSettings>(WORKER_ROUTE_SETTINGS_NAMESPACE)
+  const plannerRouteScope = ctx.configForms.get<WorkerRouteSettings>(PLANNER_ROUTE_SETTINGS_NAMESPACE)
+  const reviewerRouteScope = ctx.configForms.get<WorkerRouteSettings>(REVIEWER_ROUTE_SETTINGS_NAMESPACE)
   const injected = (): ModelsSectionInjected => ({
     controller,
     hooks: { snapshot: controller.store },
@@ -99,6 +105,16 @@ export function apply(ctx: ClientContext): void {
     t,
     workerRoute: {
       scope: workerRouteScope,
+      catalog: workerRouteCatalog.store,
+      loadCatalog: () => { workerRouteCatalog.load() },
+    },
+    plannerRoute: {
+      scope: plannerRouteScope,
+      catalog: workerRouteCatalog.store,
+      loadCatalog: () => { workerRouteCatalog.load() },
+    },
+    reviewerRoute: {
+      scope: reviewerRouteScope,
       catalog: workerRouteCatalog.store,
       loadCatalog: () => { workerRouteCatalog.load() },
     },

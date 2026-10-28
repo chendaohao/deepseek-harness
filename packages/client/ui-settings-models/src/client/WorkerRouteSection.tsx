@@ -11,20 +11,39 @@ import { useEffect, useId, useSyncExternalStore } from 'react'
 import type { ModelCatalogModel, ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { en } from './locales.ts'
 import type { WorkerRouteCatalogState, WorkerRouteSettings } from './worker-route.ts'
 import styles from './ModelsSection.module.css'
 
-/** Props of {@link WorkerRouteSection}. */
-export interface WorkerRouteSectionProps {
-  /** Reactive handle over the Host worker-route namespace. */
+/** The copy one rendered route block uses. */
+export interface RouteSectionCopy {
+  /** Block heading naming the role. */
+  title: string
+  /** One-line explanation of what the route drives. */
+  intro: string
+  /** Provider picker label. */
+  provider: string
+  /** Model picker label. */
+  model: string
+  /** Reasoning-effort picker label. */
+  effort: string
+  /** Why the controls are disabled while the role runs. */
+  locked: string
+  /** A refused write. */
+  refused: string
+  /** A stale page that reloaded. */
+  conflict: string
+}
+
+/** Props of the shared delegation route block. */
+export interface RouteSectionProps {
+  /** Reactive handle over one role's Host route namespace. */
   scope: ConfigForm<WorkerRouteSettings>
   /** Shared model catalog the pickers are drawn from. */
   catalog: SnapshotStore<WorkerRouteCatalogState>
   /** Ensure the catalog is loaded. */
   loadCatalog: () => void
-  /** Section copy. */
-  t: (key: keyof typeof en) => string
+  /** The role's copy. */
+  copy: RouteSectionCopy
 }
 
 /** The provider group carrying one provider id, if the catalog advertises it. */
@@ -75,7 +94,7 @@ function RouteSelect({ label, value, entries, disabled, onChange }: {
  * @param props - the settings scope, catalog, and copy.
  * @returns the block, or null while the namespace is not exposed to this client.
  */
-export function WorkerRouteSection({ scope, catalog, loadCatalog, t }: WorkerRouteSectionProps) {
+export function DelegationRouteSection({ scope, catalog, loadCatalog, copy }: RouteSectionProps) {
   const state = useSyncExternalStore(
     fn => scope.subscribe(fn),
     () => scope.getSnapshot(),
@@ -103,33 +122,33 @@ export function WorkerRouteSection({ scope, catalog, loadCatalog, t }: WorkerRou
 
   return (
     <section className={styles['section']} aria-labelledby={`${fieldId}-title`}>
-      <h3 id={`${fieldId}-title`} className={styles['title']}>{t('workerRouteTitle')}</h3>
-      <p className={styles['intro']}>{t('workerRouteIntro')}</p>
+      <h3 id={`${fieldId}-title`} className={styles['title']}>{copy.title}</h3>
+      <p className={styles['intro']}>{copy.intro}</p>
       {/* The Host's own refusal reason explains the disabled controls below. */}
-      {locked && <p className={styles['notice']} role="status">{t('workerRouteLocked')}</p>}
+      {locked && <p className={styles['notice']} role="status">{copy.locked}</p>}
       {/* A rejected write must never read as a silent revert. */}
       {state.writeFailure !== undefined && (
         <p className={styles['error']} role="alert">
-          {t(state.writeFailure === 'conflict' ? 'workerRouteConflict' : 'workerRouteRefused')}
+          {state.writeFailure === 'conflict' ? copy.conflict : copy.refused}
         </p>
       )}
       <div className={styles['rows']}>
         <RouteSelect
-          label={t('workerRouteProvider')}
+          label={copy.provider}
           value={value?.provider ?? ''}
           entries={groups}
           disabled={disabled}
           onChange={(next) => { void scope.set('provider', next) }}
         />
         <RouteSelect
-          label={t('workerRouteModel')}
+          label={copy.model}
           value={value?.model ?? ''}
           entries={group?.models ?? []}
           disabled={disabled || group === undefined}
           onChange={(next) => { void scope.set('model', next) }}
         />
         <div className={styles['field']}>
-          <span className={styles['fieldLabel']}>{t('workerRouteEffort')}</span>
+          <span className={styles['fieldLabel']}>{copy.effort}</span>
           {/* The effort vocabulary is adapter-owned. With the catalog loaded the
               known levels are a picker; without it the stored id stays editable
               rather than being dropped by a list that cannot name it. */}
@@ -138,7 +157,7 @@ export function WorkerRouteSection({ scope, catalog, loadCatalog, t }: WorkerRou
               <select
                 className={`${styles['input']} ${styles['selectInput']}`}
                 value={storedEffort}
-                aria-label={t('workerRouteEffort')}
+                aria-label={copy.effort}
                 disabled={disabled}
                 onChange={(event) => { void scope.set('reasoningEffort', event.target.value) }}
               >
@@ -153,7 +172,7 @@ export function WorkerRouteSection({ scope, catalog, loadCatalog, t }: WorkerRou
                 className={styles['input']}
                 type="text"
                 value={value?.reasoningEffort ?? ''}
-                aria-label={t('workerRouteEffort')}
+                aria-label={copy.effort}
                 disabled={disabled}
                 onChange={(event) => { void scope.set('reasoningEffort', event.target.value) }}
               />

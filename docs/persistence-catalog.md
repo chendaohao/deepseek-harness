@@ -1027,7 +1027,7 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../p
  * Records that this Session's LLM route follows the named Host settings
  * namespace instead of the route baked at creation, so every later
  * activation — a cold resume included — re-resolves it. Appended by the
- * delegation tool that opted into `workerRouteSettings`; absence means the
+ * delegation row whose declared namespace matches; absence means the
  * route fixed at creation. Log-only: it carries no `surfaceOp` and never
  * enters model history.
  */

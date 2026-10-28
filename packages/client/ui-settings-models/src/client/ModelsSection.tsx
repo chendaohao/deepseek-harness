@@ -37,7 +37,7 @@ import type { ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
-import { WorkerRouteSection, type WorkerRouteSectionProps } from './WorkerRouteSection.tsx'
+import { PlannerRouteSection, ReviewerRouteSection, WorkerRouteSection, type RoleRouteSectionProps } from './route-sections.tsx'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -55,8 +55,12 @@ export interface ModelsSectionInjected {
   schema: SettingsSchemaOperations
   /** Section copy. */
   t: (key: keyof typeof en) => string
-  /** The delegation worker-route block's bound settings handle and catalog. */
-  workerRoute: Omit<WorkerRouteSectionProps, 't'>
+  /** The delegation route blocks' bound settings handles and catalog, one per role. */
+  workerRoute: Omit<RoleRouteSectionProps, 't'>
+  /** The planner role's route block. */
+  plannerRoute: Omit<RoleRouteSectionProps, 't'>
+  /** The reviewer role's route block. */
+  reviewerRoute: Omit<RoleRouteSectionProps, 't'>
 }
 
 /**
@@ -263,21 +267,22 @@ export function reorderedProviderIds(
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const { controller, useSnapshot, operations, schema, t, workerRoute, renderSlot } = props
+  const { controller, useSnapshot, operations, schema, t, workerRoute, plannerRoute, reviewerRoute, renderSlot } = props
   if (
     controller === undefined || useSnapshot === undefined
     || operations === undefined || schema === undefined || t === undefined || workerRoute === undefined
+    || plannerRoute === undefined || reviewerRoute === undefined
   ) return null
   return (
     <Loaded
-      injected={{ controller, useSnapshot, operations, schema, t, workerRoute }}
+      injected={{ controller, useSnapshot, operations, schema, t, workerRoute, plannerRoute, reviewerRoute }}
       renderSlot={renderSlot}
     />
   )
 }
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
-  const { controller, operations, schema, t, workerRoute } = injected
+  const { controller, operations, schema, t, workerRoute, plannerRoute, reviewerRoute } = injected
   const snapshot = injected.useSnapshot(value => value)
   const state = { ...snapshot, rows: snapshot.rows.map(row => row.entry.provider === 'deepseek-account'
     ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
@@ -992,6 +997,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             : null}
       </div>
       <WorkerRouteSection {...workerRoute} t={t} />
+      <PlannerRouteSection {...plannerRoute} t={t} />
+      <ReviewerRouteSection {...reviewerRoute} t={t} />
       {renderSlot('settings.models.footer', {})}
       <Modal
         open={deleteTarget !== undefined}

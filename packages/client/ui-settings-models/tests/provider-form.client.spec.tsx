@@ -219,6 +219,8 @@ async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
     schema: settingsSchema,
     t,
     workerRoute: stubWorkerRoute(),
+    plannerRoute: stubWorkerRoute(),
+    reviewerRoute: stubWorkerRoute(),
     renderSlot: () => null,
   }
   render(<ModelsSection {...injected} />)
@@ -1003,6 +1005,8 @@ describe('provider rows', () => {
       schema={settingsSchema}
       t={t}
       workerRoute={stubWorkerRoute()}
+      plannerRoute={stubWorkerRoute()}
+      reviewerRoute={stubWorkerRoute()}
       renderSlot={() => null}
     />)
 

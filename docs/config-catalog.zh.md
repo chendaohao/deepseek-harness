@@ -4623,7 +4623,7 @@ export interface Config extends PresetSelectionConfig {
    * delegation without rebuilding the definition. Configured `agentOptions`
    * stays as the fallback beneath it.
    */
-  workerRouteSettings?: boolean
+  routeSettingsNamespace?: string | undefined
   /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */
