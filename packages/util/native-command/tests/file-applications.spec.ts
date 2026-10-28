@@ -165,6 +165,35 @@ it('keeps ascending past a handler whose display name the Shell refuses', async 
   expect(adapter).toContain('    try { handler.GetIconLocation(out source, out index); } catch (Exception) {')
 })
 
+it('selects the Add-Type reference set from the hosting PowerShell major version', async () => {
+  const scripts: string[] = []
+  const run = vi.fn<runner.NativeCommandRunner>(async (_command, args) => {
+    scripts.push(await readFile(args.at(-1)!, 'utf8'))
+    return { stdout: '[]', stderr: '' }
+  })
+  await windowsFileApplications('C:\\work\\a.txt', null, signal, run)
+  const script = scripts[0]!
+  // PowerShell 5.1 compiles against .NET Framework; 7 compiles against .NET, where
+  // System.Drawing forwards its image types and the framework names fail with CS1069.
+  expect(script).toContain(
+    "$references = @('System', 'System.Core', 'System.Drawing')\n"
+    + "if ($PSVersionTable.PSVersion.Major -ge 7) { $references = @('System.Drawing.Common', 'System.Private.Windows.GdiPlus', 'System.Private.Windows.Core', 'System.Drawing.Primitives', 'System.Drawing.Design', 'Microsoft.Win32.Primitives', 'System.Runtime', 'System.Collections') }\n"
+    + 'Add-Type -ReferencedAssemblies $references -TypeDefinition',
+  )
+  // One variable element must bind one assembly: a comma-joined string reached
+  // Add-Type as a single name and failed to load.
+  expect(script).not.toContain("'System, System.Core")
+})
+
+it('runs the adapter in the PowerShell host its caller names', async () => {
+  const pwsh = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+  const run = vi.fn<runner.NativeCommandRunner>(async () => ({ stdout: '[]', stderr: '' }))
+  await windowsFileApplications('C:\\work\\a.txt', null, signal, run, pwsh)
+  expect(run.mock.calls[0]![0]).toBe(pwsh)
+  await windowsFileApplications('C:\\work\\a.txt', null, signal, run)
+  expect(run.mock.calls[1]![0]).toBe('powershell.exe')
+})
+
 it('keeps the complete Windows command line below the CreateProcess limit for long multibyte paths', async () => {
   const run = vi.fn<runner.NativeCommandRunner>(async () => ({ stdout: '[]', stderr: '' }))
   const paths = [
