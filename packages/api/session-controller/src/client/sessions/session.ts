@@ -794,10 +794,12 @@ export class Session implements SessionFace {
     // resumed attempt. The returned rows are the held entries plus that
     // attempt's reconstructed transient rows; the window is deliberately not
     // re-installed with them, because the user is reading it and the durable
-    // settlement reconstructs the attempt's text on its own.
+    // settlement reconstructs the attempt's text on its own — so the prefix is
+    // not expanded at all here.
     this.assistantStream.replace(
       this.eventSource.getSnapshot().entries.filter(entry => entry.type === 'event'),
       assistantStream,
+      false,
     )
     if (projections !== undefined) this.projections.seed(projections)
     for (const entry of entries) {

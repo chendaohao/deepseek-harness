@@ -27,7 +27,8 @@ const EMPTY_BASELINE: SessionAssistantStreamBaseline = { revision: 0 }
 export class SessionAssistantStreamAccumulator {
   private activeAttempt: MutableAttempt | undefined
   private revision = 0
-  private snapshotValue: SessionAssistantStreamBaseline = EMPTY_BASELINE
+  private withStream: SessionAssistantStreamBaseline = EMPTY_BASELINE
+  private metadataOnly: SessionAssistantStreamBaseline = EMPTY_BASELINE
   private dirty = false
 
   /**
@@ -82,21 +83,47 @@ export class SessionAssistantStreamAccumulator {
    * @returns the identity-stable baseline for the latest accepted revision.
    */
   snapshot(): SessionAssistantStreamBaseline {
-    if (!this.dirty) return this.snapshotValue
-    this.snapshotValue = {
-      revision: this.revision,
-      ...this.activeAttempt === undefined ? {} : {
+    return this.materialize(true)
+  }
+
+  /**
+   * Read the reconnect baseline without the accumulated stream.
+   *
+   * A caller that already holds the durable events this attempt preceded can
+   * rebuild the transient prefix from its own log, so the compact copy of that
+   * prefix only costs bytes on the wire and an expansion it cannot use. The
+   * attempt's cursor metadata still lets it accept the frames that follow.
+   * @returns the identity-stable metadata-only baseline for the latest accepted revision.
+   */
+  metadataSnapshot(): SessionAssistantStreamBaseline {
+    return this.materialize(false)
+  }
+
+  private materialize(withStream: boolean): SessionAssistantStreamBaseline {
+    if (!this.dirty) return withStream ? this.withStream : this.metadataOnly
+    const activeAttempt = this.activeAttempt
+    if (activeAttempt === undefined) {
+      this.metadataOnly = { revision: this.revision }
+      this.withStream = this.metadataOnly
+    } else {
+      const attempt: SessionAssistantStreamAttempt = {
+        attemptId: activeAttempt.attemptId,
+        startedAfterSeq: activeAttempt.startedAfterSeq,
+        turn: activeAttempt.turn,
+        step: activeAttempt.step,
+        nextIndex: activeAttempt.nextIndex,
+        stream: [],
+      }
+      this.metadataOnly = { revision: this.revision, activeAttempt: attempt }
+      this.withStream = {
+        revision: this.revision,
         activeAttempt: {
-          attemptId: this.activeAttempt.attemptId,
-          startedAfterSeq: this.activeAttempt.startedAfterSeq,
-          turn: this.activeAttempt.turn,
-          step: this.activeAttempt.step,
-          nextIndex: this.activeAttempt.nextIndex,
-          stream: this.activeAttempt.stream.snapshot() as unknown as readonly JsonValue[],
+          ...attempt,
+          stream: activeAttempt.stream.snapshot() as unknown as readonly JsonValue[],
         },
-      },
+      }
     }
     this.dirty = false
-    return this.snapshotValue
+    return withStream ? this.withStream : this.metadataOnly
   }
 }

@@ -261,9 +261,17 @@ export class SessionHistoryController {
       const page = continued
         ? { events: events.slice(SessionLogOffset(request.afterSeq + 1), events.length), hasMore: true }
         : paginate(events, undefined, request.maxMessages ?? DEFAULT_MAX_MESSAGES, cursor, request.turnWindow)
-      const assistantStream = request.assistantStream === true
-        ? this.assistantStreams.get(target)?.snapshot() ?? { revision: 0 }
-        : undefined
+      // A continuation caller already holds every durable event this log has,
+      // so the compact copy of the live attempt's prefix is content it can
+      // rebuild from what it already has; it costs bytes on the wire and an
+      // expansion at the receiver that a held-window reseed then discards. The
+      // cursor metadata alone lets it accept the frames that follow. An
+      // ordinary opening still carries the whole prefix.
+      const assistantStream = request.assistantStream !== true
+        ? undefined
+        : continued
+          ? this.assistantStreams.get(target)?.metadataSnapshot() ?? { revision: 0 }
+          : this.assistantStreams.get(target)?.snapshot() ?? { revision: 0 }
       // The accumulator snapshot and this watermark are synchronous. Frames
       // through the cut are represented or superseded by that baseline,
       // including larger revisions from a retired Agent; later revision

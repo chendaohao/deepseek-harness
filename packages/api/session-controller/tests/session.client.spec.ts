@@ -965,6 +965,90 @@ describe('remaining branches', () => {
     expect(windowEntries(session).some(entry => entry.type === 'transient')).toBe(true)
   })
 
+  it('accepts post-continuation frames from a metadata-only baseline', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const attempt = LlmAttemptId('s1-metadata-only')
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(10), 1, '问', '答'))))
+    await session.open()
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+
+    // A Host that sends a continuation can omit the compact prefix: the client
+    // already holds the durable events it would describe. The attempt metadata
+    // is what keeps index continuity intact.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
+        revision: 6,
+        activeAttempt: {
+          attemptId: attempt,
+          startedAfterSeq: SessionSeq(15),
+          turn: 2,
+          step: 1,
+          nextIndex: 5,
+          stream: [],
+        },
+      })
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: {
+        type: 'chunk', attemptId: attempt, revision: 7, index: 5, time: 21,
+        chunk: { type: 'text-delta', index: 0, text: '续' },
+      },
+    })
+    await mock.streams.drained(FOLLOW)
+    const transients = windowEntries(session).filter(entry => entry.type === 'transient')
+    expect(transients).toHaveLength(1)
+    expect(transients[0]).toMatchObject({
+      event: { data: { chunk: { type: 'text-delta', text: '续' }, turn: 2, step: 1 } },
+    })
+  })
+
+  it('still expands a prefix from a Host that sends one on a continuation', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const attempt = LlmAttemptId('s1-old-host')
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(10), 1, '问', '答'))))
+    await session.open()
+
+    // Compatibility with a Host that predates metadata-only continuations: the
+    // prefix arrives anyway, and the client's held window must not absorb it.
+    mock.stream(FOLLOW, ([request], stream) => {
+      const opening = followSnapshot({ records: [], hasMore: true }, request as SessionFollowRequest, 15, {
+        revision: 2,
+        activeAttempt: {
+          attemptId: attempt,
+          startedAfterSeq: SessionSeq(15),
+          turn: 2,
+          step: 1,
+          nextIndex: 1,
+          stream: [{ type: 'chunk', time: 20, chunk: { type: 'text-delta', index: 0, text: '流的' } }],
+        },
+      })
+      stream.push({ ...opening, continued: true })
+    })
+    mock.streams.fail(FOLLOW, new RemoteStreamCarrierError('socket recycled'))
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('open') })
+
+    // The continuation reseed must not install the reconstructed prefix into a
+    // window the user is reading, and it must not consume dense indices either.
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+    expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(0)
+    mock.streams.push(FOLLOW, {
+      type: 'assistant-stream',
+      frame: {
+        type: 'chunk', attemptId: attempt, revision: 3, index: 1, time: 21,
+        chunk: { type: 'text-delta', index: 0, text: '续' },
+      },
+    })
+    await mock.streams.drained(FOLLOW)
+    expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(1)
+  })
+
   it('publishes one Host batch as one event-window revision', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     const attempt = LlmAttemptId('s1-batch')
