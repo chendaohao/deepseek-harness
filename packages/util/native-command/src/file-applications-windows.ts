@@ -200,9 +200,14 @@ public static class DshFileAssociations {
     var apps = new List<Application>();
     var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     Visit(path, delegate(IHandler handler) {
-      string id, name;
-      handler.GetName(out id); handler.GetUIName(out name);
-      if (!seen.Add(id)) return;
+      // One registration can be broken on this machine and still answer Next(): a
+      // Qt Creator handler returned E_FAIL from GetUIName alone, which failed the
+      // whole query. A handler that names no identifier is unusable and skipped;
+      // one that only withholds its display name keeps its identifier as the name.
+      string id = null, name = null;
+      try { handler.GetName(out id); } catch (Exception) { return; }
+      try { handler.GetUIName(out name); } catch (Exception) { name = id; }
+      if (String.IsNullOrEmpty(id) || !seen.Add(id)) return;
       apps.Add(new Application { id = id, name = name, icon = IconData(handler, id),
         @default = String.Equals(id, executable, StringComparison.OrdinalIgnoreCase) || String.Equals(id, appId, StringComparison.OrdinalIgnoreCase) });
     });

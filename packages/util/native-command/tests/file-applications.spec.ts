@@ -4,6 +4,7 @@ import { release as osRelease } from 'node:os'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as runner from '../src/runner.ts'
 import { nativeFileApplications, openNativeFileApplication } from '../src/file-applications.ts'
+import { windowsFileApplications } from '../src/file-applications-windows.ts'
 
 const application = { id: '/Applications/Music.app', name: 'Music', default: true, icon: null }
 const signal = new AbortController().signal
@@ -143,6 +144,27 @@ it('encodes Windows query and invocation data separately from native adapter sou
   expect(scripts[1]!).toMatch(/^\uFEFF/)
 })
 
+it('keeps ascending past a handler whose display name the Shell refuses', async () => {
+  const scripts: string[] = []
+  const run = vi.fn<runner.NativeCommandRunner>(async (_command, args) => {
+    scripts.push(await readFile(args.at(-1)!, 'utf8'))
+    return { stdout: '[]', stderr: '' }
+  })
+  await windowsFileApplications('C:\\work\\a.txt', null, signal, run)
+  const adapter = scripts[0]!
+  // One registration can be broken and still answer Next(); a single GetUIName that
+  // returned E_FAIL failed the whole query, so the handler's own calls are guarded:
+  // a refused identifier skips the handler, a refused display name falls back to it.
+  expect(adapter).toContain(
+    '      string id = null, name = null;\n'
+    + '      try { handler.GetName(out id); } catch (Exception) { return; }\n'
+    + '      try { handler.GetUIName(out name); } catch (Exception) { name = id; }\n',
+  )
+  expect(adapter).toContain('      if (String.IsNullOrEmpty(id) || !seen.Add(id)) return;\n')
+  // The icon member already tolerated a handler without a drawable location.
+  expect(adapter).toContain('    try { handler.GetIconLocation(out source, out index); } catch (Exception) {')
+})
+
 it('keeps the complete Windows command line below the CreateProcess limit for long multibyte paths', async () => {
   const run = vi.fn<runner.NativeCommandRunner>(async () => ({ stdout: '[]', stderr: '' }))
   const paths = [
@@ -186,6 +208,8 @@ it('uses production environment and runner defaults for Linux and WSL', async ()
         : command === 'wslpath' ? 'C:\\file.mp3\n' : JSON.stringify([application]), stderr: '',
   }))
   onTestFinished(() => { run.mockRestore() })
-  expect(await nativeFileApplications('/file.mp3', signal, { platform: 'linux', osRelease: 'linux' })).toEqual([])
+  // The desktop-Linux facts name an empty environment: without it the WSL probe falls
+  // back to the ambient one and a WSL developer machine answers through Explorer.
+  expect(await nativeFileApplications('/file.mp3', signal, { platform: 'linux', osRelease: 'linux', env: {} })).toEqual([])
   expect(await nativeFileApplications('/file.mp3', signal, { platform: 'linux', osRelease: 'microsoft', env: {} })).toEqual([application])
 })
