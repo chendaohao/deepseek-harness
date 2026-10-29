@@ -1027,9 +1027,9 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../p
  * Records that this Session's LLM route follows the named Host settings
  * namespace instead of the route baked at creation, so every later
  * activation — a cold resume included — re-resolves it. Appended by the
- * delegation row whose declared namespace matches; absence means the
- * route fixed at creation. Log-only: it carries no `surfaceOp` and never
- * enters model history.
+ * delegation row whose declared namespace matches; absence means the route
+ * fixed at creation. Log-only: it carries no `surfaceOp` and never enters
+ * model history.
  */
 'subagent/worker-route': {
   /** User-settings namespace this Session's route follows. */
@@ -1037,7 +1037,7 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../p
 }
 ```
 
-Source: [`packages/subagent/tool-subagent/src/worker-route-state.ts:19`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+Source: [`packages/subagent/tool-subagent/src/worker-route-state.ts:18`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 ### `system/*`
 
@@ -8212,7 +8212,7 @@ Sources: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/
 
 SHA-256: `78314a75b0160404dc0f554f99261038668b8d12859b10610fd6c41a4355ea6b`
 
-Sources: [`packages/subagent/tool-subagent/src/worker-route-state.ts:19`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+Sources: [`packages/subagent/tool-subagent/src/worker-route-state.ts:18`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 | Property | Presence | Type |
 |---|---|---|

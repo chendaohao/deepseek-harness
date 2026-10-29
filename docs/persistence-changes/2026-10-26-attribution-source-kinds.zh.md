@@ -27,24 +27,24 @@ id: 2026-10-26-attribution-source-kinds
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-10-22-action-card-status"
-    after: "e6a92c7626f9f41c08707a883f4140c146e5626790104fbfda6d39e9a1c11e88"
+    previous: "2026-10-13-liveshare-share-viewer-principal"
+    after: "3916aeafff9134c27337057021a31fff4e00e5cc53bf8661c4bf9c9f4e2b428c"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-10-22-action-card-status"
-    after: "6f493de1eddb72660318a1e2205dba14ab907f520618f9f22be075b099f29f48"
+    previous: "2026-10-13-liveshare-share-viewer-principal"
+    after: "a94f17928bcff2689edabfd9c54be62246849b65b1a4d7e9d6ba75777bdc2a03"
     decision: same-version
   - root: "event:notify-hooks/summary-request"
     previous: "2026-10-13-user-rpc-principal"
-    after: "f85458249354d5999fa2bb9956142542cf11ce8a645593d8f3205f6609853753"
+    after: "b138abc189955de4c965a5a61db127781f66d05be0bb102c8f1530f76b2251ca"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-10-22-action-card-status"
-    after: "eb135c3f7f9177197a30e11e34b19bc78da9196a6fa6d2757d2b28c41b9e2701"
+    previous: "2026-10-13-liveshare-share-viewer-principal"
+    after: "b0a4b3c1adc79af89f1c9876cbf1733f1def987dfea85a36a55ce6d7134a6a2f"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-10-22-action-card-status"
-    after: "67596f5ede354ec7b533fdef4c11e43ab5dfece88bcce30ddea98b8556594e60"
+    previous: "2026-10-13-liveshare-share-viewer-principal"
+    after: "e1054ff5d45a47a9b57570076effe76c465457ec29a8da27b6b5ba3b49361415"
     decision: same-version
 ```
 

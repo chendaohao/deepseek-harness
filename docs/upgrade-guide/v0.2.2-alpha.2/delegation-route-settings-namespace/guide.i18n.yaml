@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-alpha.2/delegation-route-settings-namespace/guide.md
+/:
+  en: 49d72648fe5a9877
+  zh: ad8ff00c25a1fe7d
+/delegation-route-settings-become-namespace-declared:
+  en: c9a5f08bd7a0df57
+  zh: 15fa79ff28242b2f
+/delegation-route-settings-become-namespace-declared/change:
+  en: fda6af1778c704c4
+  zh: 688f49e278936309
+/delegation-route-settings-become-namespace-declared/migration:
+  en: 8f965723c90d847b
+  zh: 4c35c8aaaf48029f

@@ -423,6 +423,33 @@ Host settings owner that records Session authorization before the first model re
 
 Source: [`packages/subagent/tool-subagent/src/model-selection-settings.ts`](../../packages/subagent/tool-subagent/src/model-selection-settings.ts)
 
+<a id="ctxsubagentroutesettings--subagentroutesettingsregistry"></a>
+
+### `ctx.subagentRouteSettings` — `SubagentRouteSettingsRegistry`
+
+Single registry the composed route-settings rows publish into, so three namespace rows never fight over one service name. Each registration is scoped to the registering row and releases its write guard on unregister.
+
+```ts cordis-catalog
+/**
+ * Publish one namespace's route owner and hold its write guard.
+ * @param namespace - settings namespace the owner reads; the guard locks
+ *   exactly this namespace while a child following it runs.
+ * @param owner - the route owner registered for the namespace.
+ * @throws when the namespace already has a live registration.
+ * @returns the disposer the registering row adopts into its own effect.
+ */
+register(namespace: string, owner: SubagentRouteSettingsOwner): () => void
+
+/**
+ * Read the owner registered for one namespace.
+ * @param namespace - settings namespace a delegation row declared.
+ * @returns the owner, or undefined when no composed row serves it.
+ */
+resolve(namespace: string): SubagentRouteSettingsOwner | undefined
+```
+
+Source: [`packages/subagent/tool-subagent/src/route-settings-registry.ts`](../../packages/subagent/tool-subagent/src/route-settings-registry.ts)
+
 <a id="ctxsubagents--subagentruntime"></a>
 
 ### `ctx.subagents` — `SubagentRuntime`
@@ -613,13 +640,13 @@ Source: [`packages/subagent/subagent/src/index.ts`](../../packages/subagent/suba
 
 ### `ctx.subagentWorkerRoute` — `SubagentWorkerRouteConfig`
 
-Singleton settings owner read when a delegation tool resolves its child default route. The route reaches the LLM adapter only through the delegation preflight, which validates the provider, model, and effort together.
+One composed row's settings owner, read when a delegation tool resolves its child default route for the role this row serves. The route reaches the LLM adapter only through the delegation preflight, which validates the provider, model, and effort together.
 
-A route rewrite is not refused here: a marked child re-reads this setting at every request, so an edit is safe at any point of its life. What owns the refusal is the delegation tool, which knows which of its children are mid-turn.
+A route rewrite is not refused here: a marked child re-reads this setting at every request, so an edit is safe at any point of its life. What owns the refusal is the delegation tool row, which knows which of its children are mid-turn.
 
 ```ts cordis-catalog
 /**
- * Read the current default child route.
+ * Read the current default child route for this row's role.
  * @returns the configured route as a detached value.
  */
 current(): SubagentWorkerRouteSettings

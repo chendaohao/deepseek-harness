@@ -473,6 +473,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns the default-off settings namespace that Agent-scoped delegation tools sample when composing a new top-level Session.',
   },
   {
+    key: 'subagentRouteSettings',
+    pkg: 'tool-subagent',
+    title: 'Composed route-settings owners',
+    mode: 'core',
+    consumers: ['tool-subagent'],
+    note: 'Publishes one route owner per composed namespace and holds each namespace\'s write guard, so several delegation rows compose beside each other instead of every row claiming one service name.',
+  },
+  {
     key: 'subagentWorkerRoute',
     pkg: 'tool-subagent',
     title: 'Subagent worker-route preference',
