@@ -101,6 +101,9 @@ export interface TestSessionRemoteDefaults {
   readonly defaultModelSelection: () => AgentModelSelection
   readonly cwd: string
   readonly nativeOpen?: boolean
+  /** Deployment follow-batch policy the controller hands to its continuation follow. */
+  readonly assistantStreamBatchSize?: number
+  readonly assistantStreamBatchDelayMs?: number
   readonly saveDefaultModelSelection?: (selection: AgentModelSelection) => void | Promise<void>
   readonly rememberedEffort?: (provider: string, model: string) => string | undefined
   readonly rememberEffort?: (provider: string, model: string, effort: string) => void | Promise<void>
@@ -316,6 +319,12 @@ async function installControllers(
       {
         ...defaults.nativeOpen === undefined ? {} : { nativeOpen: defaults.nativeOpen },
         ...defaults.listWorkSliceMs === undefined ? {} : { listWorkSliceMs: defaults.listWorkSliceMs },
+        ...defaults.assistantStreamBatchSize === undefined
+          ? {}
+          : { assistantStreamBatchSize: defaults.assistantStreamBatchSize },
+        ...defaults.assistantStreamBatchDelayMs === undefined
+          ? {}
+          : { assistantStreamBatchDelayMs: defaults.assistantStreamBatchDelayMs },
       },
       {
         ...defaults.openPath === undefined ? {} : { openPath: defaults.openPath },

@@ -9,12 +9,13 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { LlmAttemptId, ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionHistoryController } from '../src/history/follow.ts'
+import type { SessionHistoryControllerOptions } from '../src/history/follow.ts'
 import { HistoryController } from '../src/history/controller.ts'
 import { WebController } from '../src/web/controller.ts'
 import type {
   SessionAssistantCursor, SessionFollowFrame, SessionFollowRequest, SessionPage, SessionWireEvent,
 } from '@deepseek-ai/dsh-api-session-controller/types'
-import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
+import { createSessionTestController, createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
 
 type CheckpointSource = Extract<MessageSource, { readonly kind: 'compact-checkpoint' }>
 
@@ -73,9 +74,15 @@ async function harness(): Promise<{ ctx: Context }> {
 }
 
 /** Initialize the independent snapshot owner and Web aggregation for direct journal tests. */
-async function controllers(ctx: Context): Promise<{ history: HistoryController; web: WebController }> {
+async function controllers(
+  ctx: Context,
+  followOptions?: SessionHistoryControllerOptions,
+): Promise<{ history: HistoryController; web: WebController }> {
   const history = new HistoryController(ctx)
-  return { history, web: new WebController(ctx, history, (observation) => { observation[Symbol.dispose]() }) }
+  return {
+    history,
+    web: new WebController(ctx, history, (observation) => { observation[Symbol.dispose]() }, followOptions),
+  }
 }
 
 /** Drain one Session follow until `count` event frames arrive. */
@@ -429,8 +436,52 @@ describe('Session history raw journal', () => {
     }
   })
 
-  it('keeps every chunk single when assistantStreamBatchSize is one', async () => {
+  it('routes a continuation through Web aggregation with the batch policy it was given', async () => {
     const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    session.append('turn/start', { turn: 1 })
+    appendUserText(session, 'prompt')
+    const held = appendAssistantText(session, 'reply', 1).seq
+    // The deployment's own knob reaches the continuation follow through the
+    // production SessionController, so a `1` here must keep every chunk single
+    // rather than leaving the follow on the module default of 64.
+    const controller = await createSessionTestController(ctx, {
+      defaultModelSelection: () => ({ provider: 'fixture', model: 'fixture-model' }),
+      cwd: '/tmp',
+      assistantStreamBatchSize: 1,
+    })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const attemptId = LlmAttemptId('web-continuation-batch-one')
+    const abort = new AbortController()
+    const iterator = controller.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+      afterSeq: held,
+    }, abort.signal)[Symbol.asyncIterator]()
+
+    try {
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: 'snapshot', continued: true },
+      })
+      ctx.emit('agent/assistant-stream', {
+        agent,
+        frame: { type: 'start', attemptId, revision: 1, turn: 1, step: 1 },
+      })
+      await iterator.next()
+      for (const frame of [0, 1, 2].map(index => assistantTextChunk(attemptId, index + 2, index))) {
+        ctx.emit('agent/assistant-stream', { agent, frame })
+        await expect(iterator.next()).resolves.toEqual({
+          done: false,
+          value: { type: 'assistant-stream', frame },
+        })
+      }
+    } finally {
+      await disposeFollow(ctx, iterator, abort)
+    }
+  })
+
+  it('keeps every chunk single when assistantStreamBatchSize is one', async () => {    const { ctx } = await harness()
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const agent = { id: session.id, session, status: 'running', ctx } as Agent
     const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, {
