@@ -12,6 +12,7 @@ import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
@@ -50,7 +51,10 @@ interface RowRoute {
 async function mountRouteRow(ctx: Context, namespace: string, route: RowRoute, isolate: boolean) {
   if (ctx.get('loader') === undefined) await ctx.plugin(Loader)
   ctx.loader.builtins['route-settings-row'] ??= SubagentWorkerRouteConfig
-  const options = {
+  // Typed as the full entry options so the pinned id survives: `create()` takes
+  // `Omit<EntryOptions, 'id'>` and generates an id when one is absent, so a row
+  // that names its own id must reach it as a variable rather than a fresh literal.
+  const options: EntryOptions = {
     id: namespace,
     name: 'cordis:route-settings-row',
     ...isolate ? { isolate: { subagentWorkerRoute: true } } : {},
@@ -87,7 +91,7 @@ async function mountDelegationRow(
 ) {
   if (ctx.get('loader') === undefined) await ctx.plugin(Loader)
   ctx.loader.builtins['delegation-row'] ??= tool
-  const options = {
+  const options: EntryOptions = {
     id: `tool-${toolName}`,
     name: 'cordis:delegation-row',
     config: { provider, toolName, routeSettingsNamespace },
@@ -227,10 +231,11 @@ describe('three route-settings rows compose with the registry', () => {
     const ctx = new Context()
     await ctx.plugin(Loader)
     ctx.loader.builtins['route-settings-registry-module'] = await import('../src/route-settings-registry.ts')
-    const entry = await ctx.loader.create({
+    const options: EntryOptions = {
       id: 'subagent-route-settings-registry',
       name: 'cordis:route-settings-registry-module',
-    })
+    }
+    const entry = await ctx.loader.create(options)
     await ctx.loader.resolve(entry)?.fiber?.await()
     expect(ctx.get('subagentRouteSettings')).toBeDefined()
     expect(ctx.subagentRouteSettings.resolve(NAMESPACES.worker)).toBeUndefined()
@@ -243,11 +248,12 @@ describe('three route-settings rows compose with the registry', () => {
     // No `isolate` means all three rows provide the same `subagentWorkerRoute`
     // symbol: the loader registers the first and the second row's service
     // construction throws before its registry registration runs.
-    const second = ctx.loader.create({
+    const secondOptions: EntryOptions = {
       id: NAMESPACES.planner,
       name: 'cordis:route-settings-row',
       config: { namespace: NAMESPACES.planner, ...ROUTES.planner },
-    })
+    }
+    const second = ctx.loader.create(secondOptions)
     await ctx.loader.await()
     const planner = ctx.loader.resolve(NAMESPACES.planner)
     await expect(planner?.fiber?.await()).rejects.toThrow('has been registered')
