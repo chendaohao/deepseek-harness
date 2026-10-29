@@ -270,6 +270,14 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /** Maximum subsequent Assistant chunks per follow batch; 1 disables batching. */
+  readonly assistantStreamBatchSize?: number
+  /**
+   * Milliseconds a partial Assistant batch may wait for the next chunk before
+   * it is delivered on its own. Bounds streaming latency when a producer is
+   * slower than batch size; the frame count per message is unaffected.
+   */
+  readonly assistantStreamBatchDelayMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->
@@ -4593,7 +4601,7 @@ export interface Config {
 
 - `inject`: `tools` · `subagents` · `systemPrompt` · `sessionProjections`
 - `refs`: [`AgentOptions`](subsystems/core.zh.md)
-- `source`: [`packages/subagent/tool-subagent/src/index.ts:62`](../packages/subagent/tool-subagent/src/index.ts)
+- `source`: [`packages/subagent/tool-subagent/src/index.ts:57`](../packages/subagent/tool-subagent/src/index.ts)
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
@@ -4618,12 +4626,14 @@ export interface Config extends PresetSelectionConfig {
    */
   modelDiscovery?: boolean
   /**
-   * Read the Host `subagent-worker-route` setting as this instance's baseline
+   * Read the named Host route-settings namespace as this instance's baseline
    * child route on every call, so a settings update reaches the next
    * delegation without rebuilding the definition. Configured `agentOptions`
-   * stays as the fallback beneath it.
+   * stays as the fallback beneath it. The namespace must be served by a
+   * composed `subagent-*-route-settings` row (its entry id names the same
+   * namespace); omit the field to keep a fixed configured route.
    */
-  workerRouteSettings?: boolean
+  routeSettingsNamespace?: string | undefined
   /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */

@@ -212,6 +212,7 @@ function validateEntry(value: unknown, file: string, path: string): void {
   }
   recordPlugin(value, file)
   validateMetadata(value, file, path)
+  errors.push(...routeSettingsNamespaceErrors(value, path).map(problem => `${file}${problem}`))
   if (isCordisGroupEntry(value)) {
     for (let index = 0; index < value.config.length; index++) {
       validateEntry(value.config[index], file, `${path}.config[${index}]`)
@@ -243,6 +244,30 @@ function validateEntry(value: unknown, file: string, path: string): void {
 
 function recordPlugin(entry: Record<string, unknown>, file: string): void {
   if (typeof entry.name === 'string') pluginReferences.push({ file, name: entry.name })
+}
+
+/**
+ * A route-settings row serves exactly the namespace its entry id names. The
+ * id is what the Models page edits and what a delegation row's marker must
+ * match, so a row whose config names another namespace would own a setting
+ * nothing reads while the composed one goes unserved.
+ * @param entry - parsed Loader entry.
+ * @param path - rendered entry path for diagnostics.
+ * @returns one diagnostic per violated branch, prefixed with the entry path.
+ */
+export function routeSettingsNamespaceErrors(entry: Record<string, unknown>, path: string): string[] {
+  if (entry.name !== '@deepseek-ai/dsh-tool-subagent/worker-route-settings') return []
+  const config = entry.config
+  if (!isRecord(config)) {
+    return [`${path}: route-settings row requires a config with a namespace`]
+  }
+  if (typeof config.namespace !== 'string' || config.namespace.length === 0) {
+    return [`${path}: route-settings row requires a non-empty \`namespace\``]
+  }
+  if (entry.id !== config.namespace) {
+    return [`${path}: route-settings entry id "${String(entry.id)}" must equal config.namespace "${config.namespace}"`]
+  }
+  return []
 }
 
 function validateAppResolution(): string[] {

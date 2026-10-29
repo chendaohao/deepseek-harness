@@ -23,9 +23,6 @@ export interface SessionPinState {
 }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap {
-    pinned: SessionPinState
-  }
   interface SessionProjectionMap {
     /**
      * The session's current pin state — the latest `session/pin` event's

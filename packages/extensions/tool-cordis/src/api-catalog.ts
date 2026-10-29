@@ -3624,6 +3624,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [],
   },
   {
+    key: 'subagentRouteSettings',
+    summary: 'Single registry the composed route-settings rows publish into, so three namespace rows never fight over one service name.',
+    description: 'Single registry the composed route-settings rows publish into, so three namespace rows never fight over one service name. Each registration is scoped to the registering row and releases its write guard on unregister.',
+    methods: [
+      {
+        signature: 'register(namespace: string, owner: SubagentRouteSettingsOwner): () => void',
+        description: 'Publish one namespace\'s route owner and hold its write guard.',
+        parameters: [{ name: 'namespace', description: 'settings namespace the owner reads; the guard locks exactly this namespace while a child following it runs.' }, { name: 'owner', description: 'the route owner registered for the namespace.' }],
+        returns: 'the disposer the registering row adopts into its own effect.',
+        throws: ['when the namespace already has a live registration.'],
+      },
+      {
+        signature: 'resolve(namespace: string): SubagentRouteSettingsOwner | undefined',
+        description: 'Read the owner registered for one namespace.',
+        parameters: [{ name: 'namespace', description: 'settings namespace a delegation row declared.' }],
+        returns: 'the owner, or undefined when no composed row serves it.',
+      },
+    ],
+  },
+  {
     key: 'subagents',
     summary: 'Named provider registry with managed activations, durable discovery, and local child messaging.',
     description: 'Named provider registry with managed activations, durable discovery, and local child messaging.',
@@ -3729,12 +3749,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'subagentWorkerRoute',
-    summary: 'Singleton settings owner read when a delegation tool resolves its child default route.',
-    description: 'Singleton settings owner read when a delegation tool resolves its child default route. The route reaches the LLM adapter only through the delegation preflight, which validates the provider, model, and effort together.\n\nA route rewrite is not refused here: a marked child re-reads this setting at every request, so an edit is safe at any point of its life. What owns the refusal is the delegation tool, which knows which of its children are mid-turn.',
+    summary: 'One composed row\'s settings owner, read when a delegation tool resolves its child default route for the role this row serves.',
+    description: 'One composed row\'s settings owner, read when a delegation tool resolves its child default route for the role this row serves. The route reaches the LLM adapter only through the delegation preflight, which validates the provider, model, and effort together.\n\nA route rewrite is not refused here: a marked child re-reads this setting at every request, so an edit is safe at any point of its life. What owns the refusal is the delegation tool row, which knows which of its children are mid-turn.',
     methods: [
       {
         signature: 'current(): SubagentWorkerRouteSettings',
-        description: 'Read the current default child route.',
+        description: 'Read the current default child route for this row\'s role.',
         parameters: [],
         returns: 'the configured route as a detached value.',
       },
@@ -9168,6 +9188,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentResult {\n    readonly output: readonly ContentBlock[];\n    readonly budget?: TurnBudgetReport;\n    readonly structured?: unknown;\n    readonly diagnostic?: string;\n    readonly abortCause?: TurnEndCancelCause;\n    readonly stopReason: SubagentStopReason;\n}',
   },
   {
+    name: 'SubagentRouteSettingsOwner',
+    declaration: 'export type SubagentRouteSettingsOwner = Pick<SubagentWorkerRouteConfig, \'current\'>;',
+  },
+  {
     name: 'SubagentRun',
     declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n}',
   },
@@ -9206,6 +9230,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentStopReasonMap',
     declaration: 'export interface SubagentStopReasonMap {\n    completed: \'completed\';\n    aborted: \'aborted\';\n    error: \'error\';\n    \'max-tokens\': \'max-tokens\';\n    refusal: \'refusal\';\n}',
+  },
+  {
+    name: 'SubagentWorkerRouteConfig',
+    declaration: 'export class SubagentWorkerRouteConfig extends Service {\n    static inject;\n    static Config;\n    constructor(ctx: Context, private config: Config);\n    current(): SubagentWorkerRouteSettings;\n}',
   },
   {
     name: 'SubagentWorkerRouteSettings',

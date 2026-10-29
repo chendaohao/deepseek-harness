@@ -1029,9 +1029,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * Records that this Session's LLM route follows the named Host settings
  * namespace instead of the route baked at creation, so every later
  * activation — a cold resume included — re-resolves it. Appended by the
- * delegation tool that opted into `workerRouteSettings`; absence means the
- * route fixed at creation. Log-only: it carries no `surfaceOp` and never
- * enters model history.
+ * delegation row whose declared namespace matches; absence means the route
+ * fixed at creation. Log-only: it carries no `surfaceOp` and never enters
+ * model history.
  */
 'subagent/worker-route': {
   /** User-settings namespace this Session's route follows. */
@@ -1039,7 +1039,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/subagent/tool-subagent/src/worker-route-state.ts:19`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+来源：[`packages/subagent/tool-subagent/src/worker-route-state.ts:18`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 ### `system/*`
 
@@ -8214,7 +8214,7 @@ SHA-256: `9890113e97dd3541787bfe6704f2b223d3a890b5325ca0acae2b0398909b413e`
 
 SHA-256: `78314a75b0160404dc0f554f99261038668b8d12859b10610fd6c41a4355ea6b`
 
-来源：[`packages/subagent/tool-subagent/src/worker-route-state.ts:19`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+来源：[`packages/subagent/tool-subagent/src/worker-route-state.ts:18`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

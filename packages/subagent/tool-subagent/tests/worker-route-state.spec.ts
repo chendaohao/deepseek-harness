@@ -25,8 +25,8 @@ describe('subagent/worker-route marker', () => {
     const session = Session.create(SessionId('marked-child'))
     expect(subagentWorkerRouteMark(ctx.sessionProjections, session)).toBeUndefined()
 
-    recordSubagentWorkerRoute(ctx.sessionProjections, session)
-    recordSubagentWorkerRoute(ctx.sessionProjections, session)
+    recordSubagentWorkerRoute(ctx.sessionProjections, session, SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)
+    recordSubagentWorkerRoute(ctx.sessionProjections, session, SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)
 
     expect(session.snapshotEvents().filter(event => event.type === 'subagent/worker-route')).toHaveLength(1)
     expect(subagentWorkerRouteMark(ctx.sessionProjections, session))

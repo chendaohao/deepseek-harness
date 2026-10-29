@@ -24,7 +24,8 @@ import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-a
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 import SubagentWorkerRouteConfig, { SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE } from '../src/worker-route-settings.ts'
-import { workerRouteWriteRefusal } from '../src/worker-route-guard.ts'
+import { subagentRouteWriteRefusal } from '../src/worker-route-guard.ts'
+import { SubagentRouteSettingsRegistry } from '../src/route-settings-registry.ts'
 import * as tool from '../src/index.ts'
 
 const PARENT = SessionId('worker-route-guard-parent')
@@ -61,7 +62,8 @@ async function mountHeldStack(options: { recordRefreshes?: string[] } = {}) {
       guard: (ns: string) => ({ dispose: () => {}, refresh: () => { published.push(ns) } }),
     } as never)
   }
-  await liveConfig(ctx, SubagentWorkerRouteConfig, { provider: 'mock', model: 'model-a', reasoningEffort: 'high' })
+  await ctx.plugin(SubagentRouteSettingsRegistry)
+  await liveConfig(ctx, SubagentWorkerRouteConfig, { namespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, provider: 'mock', model: 'model-a', reasoningEffort: 'high' })
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(JsonlSessionPersistence, { root })
   await mountWorkingDirectoryFixture(ctx)
@@ -72,7 +74,7 @@ async function mountHeldStack(options: { recordRefreshes?: string[] } = {}) {
     ['hang', 'hang', ...Array.from({ length: 6 }, () => textResponse('done'))],
     REASONING,
   ))
-  await ctx.plugin(tool, { provider: 'spawn', workerRouteSettings: true })
+  await ctx.plugin(tool, { provider: 'spawn', routeSettingsNamespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE })
   await ctx.plugin(tool, { provider: 'spawn', toolName: 'subagent-plain' })
   const { agent: parent } = await ctx.agents.create({
     sessionId: PARENT,
@@ -124,12 +126,13 @@ describe('workerRouteWriteRefusal', () => {
 
     // The worker is assembling a request from the current setting, so the route
     // it is about to use must not move under it.
-    expect(workerRouteWriteRefusal(ctx.sessionProjections, ctx.agents.list())).toContain(String(childId))
+    const refusal = subagentRouteWriteRefusal(ctx.sessionProjections, ctx.agents.list(), SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)
+    expect(refusal).toContain(String(childId))
 
     // Settling the worker is the recovery flow: it stays continuable but is no
     // longer in use, so the operator can change the route it will re-read.
     await stopWorker(ctx, childId)
-    expect(workerRouteWriteRefusal(ctx.sessionProjections, ctx.agents.list())).toBeUndefined()
+    expect(subagentRouteWriteRefusal(ctx.sessionProjections, ctx.agents.list(), SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)).toBeUndefined()
     await ctx.fiber.dispose()
   }, TEST_TIMEOUT_MS)
 
@@ -142,12 +145,13 @@ describe('workerRouteWriteRefusal', () => {
     await waitForStatus(ctx, following, 'running')
     await waitForStatus(ctx, plain, 'running')
 
-    expect(workerRouteWriteRefusal(ctx.sessionProjections, ctx.agents.list())).toContain(String(following))
+    const refusal = subagentRouteWriteRefusal(ctx.sessionProjections, ctx.agents.list(), SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)
+    expect(refusal).toContain(String(following))
     await stopWorker(ctx, following)
 
     // Only the row that opted in holds the route; the plain worker still runs.
     await waitForStatus(ctx, plain, 'running')
-    expect(workerRouteWriteRefusal(ctx.sessionProjections, ctx.agents.list())).toBeUndefined()
+    expect(subagentRouteWriteRefusal(ctx.sessionProjections, ctx.agents.list(), SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)).toBeUndefined()
     await ctx.fiber.dispose()
   }, TEST_TIMEOUT_MS)
 

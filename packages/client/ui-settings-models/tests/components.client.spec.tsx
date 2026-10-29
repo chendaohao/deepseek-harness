@@ -335,6 +335,8 @@ async function mountFace(
     schema: settingsSchema,
     t,
     workerRoute: stubWorkerRoute(),
+    plannerRoute: stubWorkerRoute(),
+    reviewerRoute: stubWorkerRoute(),
     renderSlot: renderSlot as unknown as ModelsSectionProps['renderSlot'],
   }
   const view = render(<ModelsSection {...injected} />)
@@ -406,6 +408,8 @@ describe('ModelsSection', () => {
         schema={settingsSchema}
         t={t}
         workerRoute={stubWorkerRoute()}
+        plannerRoute={stubWorkerRoute()}
+        reviewerRoute={stubWorkerRoute()}
         renderSlot={() => null}
       />)
       expect(screen.getByRole('heading', { name: en.title })).toBeTruthy()
@@ -768,6 +772,8 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       t={t}
       workerRoute={stubWorkerRoute()}
+      plannerRoute={stubWorkerRoute()}
+      reviewerRoute={stubWorkerRoute()}
       renderSlot={() => null}
     />)
 
@@ -794,6 +800,8 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       t={t}
       workerRoute={stubWorkerRoute()}
+      plannerRoute={stubWorkerRoute()}
+      reviewerRoute={stubWorkerRoute()}
       renderSlot={() => null}
     />)
     // Now a row with an Edit button, not an open card.
@@ -1611,6 +1619,8 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       t={t}
       workerRoute={stubWorkerRoute()}
+      plannerRoute={stubWorkerRoute()}
+      reviewerRoute={stubWorkerRoute()}
       renderSlot={() => null}
     />)
     const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
@@ -1735,6 +1745,8 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       t={t}
       workerRoute={stubWorkerRoute()}
+      plannerRoute={stubWorkerRoute()}
+      reviewerRoute={stubWorkerRoute()}
       renderSlot={() => null}
     />)
     expect(screen.getByText(/directory down/)).toBeTruthy()
@@ -1759,6 +1771,8 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       t={t}
       workerRoute={stubWorkerRoute()}
+      plannerRoute={stubWorkerRoute()}
+      reviewerRoute={stubWorkerRoute()}
       renderSlot={() => null}
     />)
     expect(screen.getByText(en.readOnly)).toBeTruthy()
@@ -2105,6 +2119,8 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       t={t}
       workerRoute={stubWorkerRoute()}
+      plannerRoute={stubWorkerRoute()}
+      reviewerRoute={stubWorkerRoute()}
       renderSlot={() => null}
     />)
     await screen.findByText('DeepSeek')

@@ -15,7 +15,49 @@ import {
   metadataExpressionErrors,
   packageTestFixtureDependencyErrors,
   packageTestPluginDependencyErrors,
+  routeSettingsNamespaceErrors,
 } from './verify-cordis-config.ts'
+
+describe('verify-cordis-config route-settings namespace pairing', () => {
+  it('accepts a row whose entry id equals its namespace', () => {
+    const problems = routeSettingsNamespaceErrors(
+      { id: 'subagent-worker-route-settings', name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings', config: { namespace: 'subagent-worker-route-settings' } },
+      '[0]',
+    )
+    expect(problems).toEqual([])
+  })
+
+  it('accepts an unrelated plugin row without a config', () => {
+    const problems = routeSettingsNamespaceErrors({ id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash' }, '[0]')
+    expect(problems).toEqual([])
+  })
+
+  it('rejects a route-settings row without a config', () => {
+    const problems = routeSettingsNamespaceErrors(
+      { id: 'subagent-worker-route-settings', name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings' },
+      '[3]',
+    )
+    expect(problems).toEqual(['[3]: route-settings row requires a config with a namespace'])
+  })
+
+  it('rejects an empty namespace', () => {
+    const problems = routeSettingsNamespaceErrors(
+      { id: 'subagent-worker-route-settings', name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings', config: { namespace: '' } },
+      '[3].insert[1]',
+    )
+    expect(problems).toEqual(['[3].insert[1]: route-settings row requires a non-empty `namespace`'])
+  })
+
+  it('rejects an entry id that differs from its namespace', () => {
+    const problems = routeSettingsNamespaceErrors(
+      { id: 'subagent-worker-route-settings', name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings', config: { namespace: 'other-namespace' } },
+      '[0]',
+    )
+    expect(problems).toEqual([
+      '[0]: route-settings entry id "subagent-worker-route-settings" must equal config.namespace "other-namespace"',
+    ])
+  })
+})
 
 describe('verify-cordis-config metadata expressions', () => {
   it('accepts a disabled !!js expression', () => {

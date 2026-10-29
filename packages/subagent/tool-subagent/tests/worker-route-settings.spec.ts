@@ -14,10 +14,12 @@ import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import { MockAdapter } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 import SubagentWorkerRouteConfig from '../src/worker-route-settings.ts'
+import { SubagentRouteSettingsRegistry } from '../src/route-settings-registry.ts'
 import * as tool from '../src/index.ts'
 import * as mock from './scripted-provider.ts'
 
-const COMPOSED_ROUTE = { provider: 'alpha', model: 'composed-model', reasoningEffort: 'low' }
+const WORKER_NS = 'subagent-worker-route-settings'
+const COMPOSED_ROUTE = { namespace: WORKER_NS, provider: 'alpha', model: 'composed-model', reasoningEffort: 'low' }
 
 /** Reasoning efforts the registered `alpha` adapter advertises. */
 const REASONING = {
@@ -35,6 +37,7 @@ const REASONING = {
  */
 async function boot(config: tool.Config, onStart?: (request: SubagentStartRequest) => void) {
   const ctx = new Context()
+  await ctx.plugin(SubagentRouteSettingsRegistry)
   const live = await liveConfig(ctx, SubagentWorkerRouteConfig, COMPOSED_ROUTE)
   // Brings up LLM, sessions, projections, systemPrompt, tools, and the Agent registry.
   await mountAgentLoopTestDependencies(ctx)
@@ -69,27 +72,32 @@ async function delegate(ctx: Context, agent: Awaited<ReturnType<typeof createAge
   })
 }
 
+const PLAIN_ROUTE = { provider: 'alpha', model: 'composed-model', reasoningEffort: 'low' }
+
 describe('SubagentWorkerRouteConfig', () => {
   it('uses the composed base without a settings provider', async () => {
     const ctx = new Context()
+    await ctx.plugin(SubagentRouteSettingsRegistry)
     await ctx.plugin(SubagentWorkerRouteConfig, COMPOSED_ROUTE)
 
-    expect(ctx.subagentWorkerRoute.current()).toEqual(COMPOSED_ROUTE)
+    expect(ctx.subagentWorkerRoute.current()).toEqual(PLAIN_ROUTE)
     await ctx.fiber.dispose()
   })
 
   it('follows the validated user layer over the composed base', async () => {
     const ctx = new Context()
+    await ctx.plugin(SubagentRouteSettingsRegistry)
     const live = await liveConfig(ctx, SubagentWorkerRouteConfig, COMPOSED_ROUTE)
 
-    expect(ctx.subagentWorkerRoute.current()).toEqual(COMPOSED_ROUTE)
+    expect(ctx.subagentWorkerRoute.current()).toEqual(PLAIN_ROUTE)
     await live.update({ model: 'user-model' })
-    expect(ctx.subagentWorkerRoute.current()).toEqual({ ...COMPOSED_ROUTE, model: 'user-model' })
+    expect(ctx.subagentWorkerRoute.current()).toEqual({ ...PLAIN_ROUTE, model: 'user-model' })
     await ctx.fiber.dispose()
   })
 
   it('rejects an empty route field', async () => {
     const ctx = new Context()
+    await ctx.plugin(SubagentRouteSettingsRegistry)
     const live = await liveConfig(ctx, SubagentWorkerRouteConfig, COMPOSED_ROUTE)
 
     await expect(live.update({ model: '' })).rejects.toThrow('$.model')
@@ -102,6 +110,7 @@ describe('SubagentWorkerRouteConfig', () => {
     // outside the schema sets it, so the read is what must stay loud.
     const ctx = new Context()
     const service = new SubagentWorkerRouteConfig(ctx, {
+      namespace: WORKER_NS,
       provider: { get: () => 'alpha' },
       model: { get: () => '' },
       reasoningEffort: { get: () => 'low' },
@@ -116,8 +125,9 @@ describe('SubagentWorkerRouteConfig', () => {
     await mountAgentLoopTestDependencies(ctx)
     await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
-    const fiber = ctx.plugin(tool, { provider: 'mock', workerRouteSettings: true })
-    await expect(fiber).rejects.toThrow('workerRouteSettings')
+    await ctx.plugin(SubagentRouteSettingsRegistry)
+    const fiber = ctx.plugin(tool, { provider: 'mock', routeSettingsNamespace: 'subagent-worker-route-settings' })
+    await expect(fiber).rejects.toThrow('route-settings row')
     await ctx.fiber.dispose()
   })
 })
@@ -125,9 +135,22 @@ describe('SubagentWorkerRouteConfig', () => {
 describe('SubagentWorkerRouteConfig mounting', () => {
   it('mounts without a settings service', async () => {
     const ctx = new Context()
+    await ctx.plugin(SubagentRouteSettingsRegistry)
     await ctx.plugin(SubagentWorkerRouteConfig, COMPOSED_ROUTE)
 
-    expect(ctx.subagentWorkerRoute.current()).toEqual(COMPOSED_ROUTE)
+    expect(ctx.subagentWorkerRoute.current()).toEqual(PLAIN_ROUTE)
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses a second row on the same namespace', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentRouteSettingsRegistry)
+    await ctx.plugin(SubagentWorkerRouteConfig, COMPOSED_ROUTE)
+    // A second row on one namespace fails loud: the service name collides
+    // before the registry check, and either way the deployment must not
+    // silently keep one row serving a namespace another row also declares.
+    const second = ctx.plugin(SubagentWorkerRouteConfig, COMPOSED_ROUTE)
+    await expect(second).rejects.toThrow('has been registered')
     await ctx.fiber.dispose()
   })
 })
@@ -138,7 +161,7 @@ describe('worker route settings reach the delegated child', () => {
     const { ctx, live } = await boot(
       {
         provider: 'mock',
-        workerRouteSettings: true,
+        routeSettingsNamespace: WORKER_NS,
         agentOptions: { provider: 'composed', model: 'composed-model', reasoningEffort: ReasoningEffortId('low') },
       },
       (request) => { starts.push(request) },
@@ -158,7 +181,7 @@ describe('worker route settings reach the delegated child', () => {
 
   it('honors a settings update before the next delegation without remounting the definition', async () => {
     const starts: SubagentStartRequest[] = []
-    const { ctx, live } = await boot({ provider: 'mock', workerRouteSettings: true }, (request) => { starts.push(request) })
+    const { ctx, live } = await boot({ provider: 'mock', routeSettingsNamespace: WORKER_NS }, (request) => { starts.push(request) })
     const agent = await createAgent(ctx, 'worker-route-live')
 
     await delegate(ctx, agent)
@@ -195,6 +218,7 @@ describe('worker route settings reach the delegated child', () => {
     // resolve the service across that boundary.
     const starts: SubagentStartRequest[] = []
     const ctx = new Context()
+    await ctx.plugin(SubagentRouteSettingsRegistry)
     const live = await liveConfig(ctx, SubagentWorkerRouteConfig, COMPOSED_ROUTE)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
@@ -206,7 +230,7 @@ describe('worker route settings reach the delegated child', () => {
     await preset.ctx.plugin({
       name: 'scoped-tool-row',
       inject: tool.inject,
-      apply(groupCtx: Context) { tool.apply(groupCtx, { provider: 'mock', workerRouteSettings: true }) },
+      apply(groupCtx: Context) { tool.apply(groupCtx, { provider: 'mock', routeSettingsNamespace: WORKER_NS }) },
     })
     await live.update({ model: 'scoped-model' })
     const handle = await ctx.agents.create({

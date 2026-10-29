@@ -58,16 +58,55 @@
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
-    # Host-owned default route for delegation children. The Models settings page
-    # edits this namespace; a delegation tool that opts in with
-    # `workerRouteSettings: true` reads it per call. The base values are the
-    # deployment fallback the user's stored route overrides.
+    # Shared registry the route-settings rows below publish into. Without it
+    # every row's `static inject = ['subagentRouteSettings']` stays pending and
+    # the three role routes silently disappear.
+    - id: subagent-route-settings-registry
+      name: '@deepseek-ai/dsh-tool-subagent/route-settings-registry'
+
+    # Host-owned default route per delegation role. The Models settings page
+    # edits each namespace; a delegation tool row reads its declared namespace
+    # per call via `routeSettingsNamespace`. Each entry id must equal its
+    # `config.namespace` — verify-cordis-config enforces the pairing. The base
+    # values are the deployment fallback the user's stored route overrides.
+    # `isolate` gives each row its own `subagentWorkerRoute` service realm so
+    # three same-named services compose side by side; consumers resolve rows
+    # through the registry above, not the per-row service name.
     - id: subagent-worker-route-settings
       name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
+      isolate:
+        subagentWorkerRoute: true
       config:
+        namespace: subagent-worker-route-settings
         provider: workbuddy
         model: deepseek-v4.1-flash
         reasoningEffort: max
+
+    # Planner role: plan authoring runs on its own model family. `glm-5.3` is
+    # the deployment's catalog entry on the same workbuddy route, distinct from
+    # the worker's DeepSeek family; the user's stored route overrides it.
+    - id: subagent-planner-route-settings
+      name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
+      isolate:
+        subagentWorkerRoute: true
+      config:
+        namespace: subagent-planner-route-settings
+        provider: workbuddy
+        model: glm-5.3
+        reasoningEffort: high
+
+    # Reviewer role: plan and delivery reviews run on a third route.
+    # `kimi-k3.1-pro` is the deployment's catalog entry on the same workbuddy
+    # route, a third model family; the user's stored route overrides it.
+    - id: subagent-reviewer-route-settings
+      name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
+      isolate:
+        subagentWorkerRoute: true
+      config:
+        namespace: subagent-reviewer-route-settings
+        provider: workbuddy
+        model: kimi-k3.1-pro
+        reasoningEffort: high
 
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'

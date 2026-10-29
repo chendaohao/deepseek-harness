@@ -1,10 +1,9 @@
-/** Durable marker that one delegation child's route follows the Host worker-route setting. */
+/** Durable marker that one delegation child's route follows a named Host settings namespace. */
 
 import { z as zod } from 'zod'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import { SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE } from './worker-route-settings.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -12,21 +11,14 @@ declare module '@deepseek-ai/dsh-session/types' {
      * Records that this Session's LLM route follows the named Host settings
      * namespace instead of the route baked at creation, so every later
      * activation — a cold resume included — re-resolves it. Appended by the
-     * delegation tool that opted into `workerRouteSettings`; absence means the
-     * route fixed at creation. Log-only: it carries no `surfaceOp` and never
-     * enters model history.
+     * delegation row whose declared namespace matches; absence means the route
+     * fixed at creation. Log-only: it carries no `surfaceOp` and never enters
+     * model history.
      */
     'subagent/worker-route': {
       /** User-settings namespace this Session's route follows. */
       namespace: string
     }
-  }
-}
-
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap {
-    /** Settings namespace this Session's route follows, or null without the marker. */
-    subagentWorkerRoute: string | null
   }
 }
 
@@ -64,15 +56,18 @@ export function subagentWorkerRouteMark(
 
 /**
  * Append the marker once, so a later activation of this child re-resolves its
- * route from the Host setting rather than the route it was created with. The
- * caller records it only for a child whose effective route is that setting's own.
+ * route from the Host setting rather than the route it was created with.
  * @param projections - registry that owns the marker projection.
  * @param session - child session receiving the marker.
+ * @param namespace - settings namespace the delegating row serves; recorded
+ *   verbatim so the installing row can be told apart from every other row.
  */
 export function recordSubagentWorkerRoute(
   projections: Pick<SessionProjectionRegistry, 'stateOf'>,
   session: Session,
+  namespace: string,
 ): void {
   if (subagentWorkerRouteMark(projections, session) !== undefined) return
-  session.append('subagent/worker-route', { namespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE })
+  if (namespace.length === 0) throw new Error('subagent/worker-route requires a non-empty namespace')
+  session.append('subagent/worker-route', { namespace })
 }

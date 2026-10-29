@@ -23,7 +23,8 @@ import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-direc
 import { loadStoredSession } from '../../subagent/tests/persistence-helpers.ts'
 import { TestSessionQuery } from '../../subagent/tests/test-session-query.ts'
 import SubagentModelSelectionConfig from '../src/model-selection-settings.ts'
-import SubagentWorkerRouteConfig from '../src/worker-route-settings.ts'
+import SubagentWorkerRouteConfig, { SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE } from '../src/worker-route-settings.ts'
+import { SubagentRouteSettingsRegistry } from '../src/route-settings-registry.ts'
 import * as tool from '../src/index.ts'
 
 const PARENT = SessionId('worker-route-parent')
@@ -62,7 +63,11 @@ async function mountStack(
   withModelSelection = false,
 ): Promise<Stack> {
   const ctx = new Context()
-  const live = await liveConfig(ctx, SubagentWorkerRouteConfig, route)
+  await ctx.plugin(SubagentRouteSettingsRegistry)
+  const live = await liveConfig(ctx, SubagentWorkerRouteConfig, {
+    namespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE,
+    ...route,
+  })
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(JsonlSessionPersistence, { root })
   await mountWorkingDirectoryFixture(ctx)
@@ -87,12 +92,12 @@ async function mountStack(
  */
 async function installTool(ctx: Context, parent?: Agent, withModelSelection = false): Promise<void> {
   if (!withModelSelection) {
-    await ctx.plugin(tool, { provider: 'spawn', workerRouteSettings: true })
+    await ctx.plugin(tool, { provider: 'spawn', routeSettingsNamespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE })
     return
   }
   if (parent === undefined) throw new Error('model-selection installation requires its parent Agent')
   const fiber = parent.ctx.inject(tool.inject, (runtimeCtx) => {
-    tool.apply(runtimeCtx, { provider: 'spawn', workerRouteSettings: true, modelSelection: true })
+    tool.apply(runtimeCtx, { provider: 'spawn', routeSettingsNamespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, modelSelection: true })
   })
   await fiber.await()
 }
@@ -232,8 +237,8 @@ describe('worker-route re-resolution', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-worker-route-two-rows-'))
     roots.push(root)
     const { ctx, adapter, live } = await mountStack(root, { provider: 'mock', model: 'model-a', reasoningEffort: 'high' })
-    await ctx.plugin(tool, { provider: 'spawn', workerRouteSettings: true })
-    await ctx.plugin(tool, { provider: 'spawn', workerRouteSettings: true, toolName: 'subagent-second' })
+    await ctx.plugin(tool, { provider: 'spawn', routeSettingsNamespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE })
+    await ctx.plugin(tool, { provider: 'spawn', routeSettingsNamespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, toolName: 'subagent-second' })
     const parent = await createParent(ctx)
     const childId = await delegate(ctx, parent)
     await vi.waitFor(() => { expect(ctx.agents.get(childId)).toBeUndefined() }, { timeout: 10_000 })

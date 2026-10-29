@@ -8,6 +8,7 @@ import { addressId, rejectNotFound } from '../history.ts'
 import { EventListener, ListenerBuffer } from '../history/listener.ts'
 import { history, projections, resolveHistoryRequest, validateObservationAddress } from '../history/controller.ts'
 import { SessionHistoryController } from '../history/follow.ts'
+import type { SessionHistoryControllerOptions } from '../history/follow.ts'
 import type { SessionFollowFrame, SessionFollowRequest } from '../types.ts'
 
 /** Combines opening data and consumes transformed listener output from one queue. */
@@ -17,6 +18,7 @@ export class WebController {
    * @param ctx - Host context carrying Session queries and identity projections.
    * @param historyController - passive reading and listener construction.
    * @param promote - background activation requested before an opening snapshot is delivered.
+   * @param followOptions - live-follow batching the continuation controller applies.
    */
   private readonly continuationFollow: SessionHistoryController
   private readonly controllerCtx: Context
@@ -25,9 +27,14 @@ export class WebController {
     ctx: Context,
     private readonly historyController: HistoryController,
     private readonly promote: (observation: SessionObservation) => void,
+    followOptions: SessionHistoryControllerOptions = {},
   ) {
     this.controllerCtx = ctx
-    this.continuationFollow = new SessionHistoryController(ctx, (observation: SessionObservation) => { this.promote(observation) })
+    this.continuationFollow = new SessionHistoryController(
+      ctx,
+      (observation: SessionObservation) => { this.promote(observation) },
+      followOptions,
+    )
   }
 
   /**
