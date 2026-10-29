@@ -209,7 +209,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.routeSettingsNamespace !== undefined && workerRouteConfig === undefined) {
     throw new Error(
       `tool-subagent: \`routeSettingsNamespace: '${config.routeSettingsNamespace}'\` requires a `
-      + 'route-settings row serving that namespace (its entry id must name it)',
+      + 'route-settings row serving that namespace (its entry id must name it), or a mounted '
+      + '`subagentRouteSettings` registry when that row itself is absent',
     )
   }
   // Bound rather than captured: the service instance reads through its own

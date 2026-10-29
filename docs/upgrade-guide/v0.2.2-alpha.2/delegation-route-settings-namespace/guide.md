@@ -10,7 +10,9 @@ Deployments that mount a delegation tool with `workerRouteSettings: true`, and d
 
 1. In the delegation tool row, replace `workerRouteSettings: true` with `routeSettingsNamespace: <namespace>`.
 2. In the settings row, add `namespace: <entry-id>`. The entry id and the namespace must be equal; `verify-cordis-config` fails the composition when they diverge.
-3. For a planner or reviewer role, add a matching `subagent-planner-route-settings` / `subagent-reviewer-route-settings` row and declare the same namespace on the delegation row that serves that role. A child's durable `subagent/worker-route` marker names the namespace, so installs stay exact: a worker-row listener never routes a planner child to the worker route.
+3. Mount the shared registry once, before any settings row: `- id: subagent-route-settings-registry` with `name: '@deepseek-ai/dsh-tool-subagent/route-settings-registry'`. Every settings row injects `subagentRouteSettings`; without this row a settings row stays pending and its route silently disappears.
+4. Give every settings row its own `isolate` realm for the per-row service name so same-named rows compose: `isolate: { subagentWorkerRoute: true }`. Consumers reach rows through the registry, not through that service name.
+5. For a planner or reviewer role, add a matching `subagent-planner-route-settings` / `subagent-reviewer-route-settings` row and declare the same namespace on the delegation row that serves that role. A child's durable `subagent/worker-route` marker names the namespace, so installs stay exact: a worker-row listener never routes a planner child to the worker route.
 
 ## 3. What stays true
 

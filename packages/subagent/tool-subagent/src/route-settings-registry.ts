@@ -58,15 +58,18 @@ export class SubagentRouteSettingsRegistry extends Service {
       // transition that causes it: a marked child entering or leaving
       // 'running'. The listener lives on the root context because agent
       // contexts chain there, not through the registering row's fiber scope;
-      // one listener per namespace survives repeated registrations.
+      // one listener per namespace survives repeated registrations. The
+      // effect ties it to this registry service's own fiber, so disposing the
+      // registry removes every listener it installed and a re-mount starts
+      // from a fresh set instead of accumulating them.
       const root = this.ctx.root
       if (!this.listened.has(namespace)) {
         this.listened.add(namespace)
-        root.on('agent/status', ({ agent }) => {
+        this.ctx.effect(() => root.on('agent/status', ({ agent }) => {
           const registration = this.registrations.get(namespace)
           if (registration === undefined) return
           if (subagentWorkerRouteMark(root.sessionProjections, agent.session) === namespace) registration.guard?.refresh()
-        })
+        }), 'subagent-route-settings-registry: settle-refresh listener')
       }
     }
     return () => {
@@ -89,3 +92,5 @@ export class SubagentRouteSettingsRegistry extends Service {
 
 /** Plugin identity: the Service class doubles as the plugin; mounting it publishes the registry. */
 export const name = 'subagent-route-settings-registry'
+
+export default SubagentRouteSettingsRegistry

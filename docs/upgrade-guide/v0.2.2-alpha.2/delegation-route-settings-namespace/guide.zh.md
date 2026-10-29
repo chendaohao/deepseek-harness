@@ -10,7 +10,9 @@
 
 1. 委派工具行：把 `workerRouteSettings: true` 换成 `routeSettingsNamespace: <namespace>`。
 2. 设置行：加上 `namespace: <entry-id>`。entry id 与 namespace 必须相等；不一致时 `verify-cordis-config` 会让组合响亮失败。
-3. 若要 planner 或 reviewer 角色，添加对应的 `subagent-planner-route-settings` / `subagent-reviewer-route-settings` 行，并在服务该角色的委派行上声明同一命名空间。子会话的持久化 `subagent/worker-route` 标记记录命名空间，安装因此保持精确：worker 行的监听器绝不会把 planner 子会话路由到 worker 路由。
+3. 在所有设置行之前挂载一次共享注册表：`- id: subagent-route-settings-registry`，`name: '@deepseek-ai/dsh-tool-subagent/route-settings-registry'`。每个设置行都注入 `subagentRouteSettings`；缺少这一行时设置行会停在 pending，其路由静默消失。
+4. 为每个设置行的服务名各给一个 `isolate` 领域，使同名行能够并列组合：`isolate: { subagentWorkerRoute: true }`。消费者经由注册表取行，不经过该服务名。
+5. 若要 planner 或 reviewer 角色，添加对应的 `subagent-planner-route-settings` / `subagent-reviewer-route-settings` 行，并在服务该角色的委派行上声明同一命名空间。子会话的持久化 `subagent/worker-route` 标记记录命名空间，安装因此保持精确：worker 行的监听器绝不会把 planner 子会话路由到 worker 路由。
 
 ## 3. 什么保持不变
 

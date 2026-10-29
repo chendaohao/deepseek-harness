@@ -22,13 +22,6 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap {
-    /** Settings namespace this Session's route follows, or null without the marker. */
-    subagentWorkerRoute: string | null
-  }
-}
-
 const workerRouteNamespaceSchema: zod.ZodType<string | null> = zod.string().min(1).nullable()
 
 /** Host-only projection of the durable worker-route marker. */

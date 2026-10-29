@@ -26,6 +26,10 @@
       "types": "./lib/types/worker-route-settings.d.ts",
       "default": "./lib/worker-route-settings.js"
     },
+    "./route-settings-registry": {
+      "types": "./lib/types/route-settings-registry.d.ts",
+      "default": "./lib/route-settings-registry.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
@@ -37,6 +41,7 @@
     "lib/index.js",
     "lib/model-selection-settings.js",
     "lib/worker-route-settings.js",
+    "lib/route-settings-registry.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
