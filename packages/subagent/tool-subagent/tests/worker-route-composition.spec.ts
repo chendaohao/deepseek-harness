@@ -14,6 +14,7 @@ import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 import { loadStoredSession } from '../../subagent/tests/persistence-helpers.ts'
@@ -230,6 +231,10 @@ describe('three route-settings rows compose with the registry', () => {
     // that same normalization without needing the package to be installed.
     const ctx = new Context()
     await ctx.plugin(Loader)
+    // The registry's write guard reads the durable worker-route marker, so its
+    // own row activates only behind the projection registry — the same order
+    // the base bundle installs them in.
+    await ctx.plugin(SessionProjectionRegistry)
     ctx.loader.builtins['route-settings-registry-module'] = await import('../src/route-settings-registry.ts')
     const options: EntryOptions = {
       id: 'subagent-route-settings-registry',

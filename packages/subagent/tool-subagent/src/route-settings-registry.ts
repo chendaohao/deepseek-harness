@@ -27,6 +27,13 @@ interface RouteRegistration {
  * scoped to the registering row and releases its write guard on unregister.
  */
 export class SubagentRouteSettingsRegistry extends Service {
+  // The write guard reads the durable worker-route marker on every evaluation,
+  // so the projection registry is a dependency of this row, not of the guard's
+  // caller. Declaring it keeps the read strict; reading `ctx.sessionProjections`
+  // without it throws inside the guard, which the settings service surfaces as
+  // a failed `describe()` for every namespace at once.
+  static inject = ['sessionProjections']
+
   private registrations = new Map<string, RouteRegistration>()
   /** Namespaces whose settle-publish listener is installed on the root context. */
   private listened = new Set<string>()
@@ -68,7 +75,7 @@ export class SubagentRouteSettingsRegistry extends Service {
         this.ctx.effect(() => root.on('agent/status', ({ agent }) => {
           const registration = this.registrations.get(namespace)
           if (registration === undefined) return
-          if (subagentWorkerRouteMark(root.sessionProjections, agent.session) === namespace) registration.guard?.refresh()
+          if (subagentWorkerRouteMark(this.ctx.sessionProjections, agent.session) === namespace) registration.guard?.refresh()
         }), 'subagent-route-settings-registry: settle-refresh listener')
       }
     }

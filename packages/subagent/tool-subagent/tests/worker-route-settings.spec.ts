@@ -8,6 +8,7 @@ import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
@@ -77,6 +78,7 @@ const PLAIN_ROUTE = { provider: 'alpha', model: 'composed-model', reasoningEffor
 describe('SubagentWorkerRouteConfig', () => {
   it('uses the composed base without a settings provider', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRouteSettingsRegistry)
     await ctx.plugin(SubagentWorkerRouteConfig, COMPOSED_ROUTE)
 
@@ -86,6 +88,7 @@ describe('SubagentWorkerRouteConfig', () => {
 
   it('follows the validated user layer over the composed base', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRouteSettingsRegistry)
     const live = await liveConfig(ctx, SubagentWorkerRouteConfig, COMPOSED_ROUTE)
 
@@ -97,6 +100,7 @@ describe('SubagentWorkerRouteConfig', () => {
 
   it('rejects an empty route field', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRouteSettingsRegistry)
     const live = await liveConfig(ctx, SubagentWorkerRouteConfig, COMPOSED_ROUTE)
 
@@ -135,6 +139,7 @@ describe('SubagentWorkerRouteConfig', () => {
 describe('SubagentWorkerRouteConfig mounting', () => {
   it('mounts without a settings service', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRouteSettingsRegistry)
     await ctx.plugin(SubagentWorkerRouteConfig, COMPOSED_ROUTE)
 
@@ -144,6 +149,7 @@ describe('SubagentWorkerRouteConfig mounting', () => {
 
   it('refuses a second row on the same namespace', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRouteSettingsRegistry)
     await ctx.plugin(SubagentWorkerRouteConfig, COMPOSED_ROUTE)
     // A second row on one namespace fails loud: the service name collides

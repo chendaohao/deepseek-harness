@@ -18,6 +18,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -177,4 +178,36 @@ describe('workerRouteWriteRefusal', () => {
     expect(refreshes).toHaveLength(afterFollowingSettled)
     await ctx.fiber.dispose()
   }, TEST_TIMEOUT_MS)
+})
+
+describe('registry dependency on the projection registry', () => {
+  it('withholds the guard predicate until the projection registry is available', async () => {
+    const ctx = new Context()
+    const predicates: Array<() => string | undefined> = []
+    ctx.provide('settings', {
+      guard: (_ns: string, predicate: () => string | undefined) => {
+        predicates.push(predicate)
+        return { dispose: () => {}, refresh: () => {} }
+      },
+    } as never)
+
+    // The predicate reads the durable worker-route marker, so handing it to the
+    // settings service before `sessionProjections` resolves would make every
+    // `describe()` — the whole models page, not just this namespace — throw.
+    const fiber = ctx.plugin(SubagentRouteSettingsRegistry)
+    expect(ctx.get('subagentRouteSettings')).toBeUndefined()
+    expect(predicates).toHaveLength(0)
+
+    await ctx.plugin(SessionProjectionRegistry)
+    await vi.waitFor(() => { expect(ctx.get('subagentRouteSettings')).toBeDefined() })
+    await fiber.await()
+    // `settings.guard` runs when a route row registers, so the captured
+    // predicate must evaluate against the live registry instead of throwing.
+    await ctx.plugin(SubagentWorkerRouteConfig, {
+      namespace: SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, provider: 'mock', model: 'model-a', reasoningEffort: 'high',
+    })
+    expect(predicates).toHaveLength(1)
+    expect(predicates[0]?.()).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
 })
