@@ -40,7 +40,7 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ openInAppEnvironment: createLaunchEnvironmentSnapshot([{ source: 'process', values: { SSH_CONNECTION: '10.0.0.2 55000 10.0.0.9 22' } }]) })
     await mkdir(join(scaffold.workspaceCwd, 'folder'))
-    await scaffold.ctx.workspaceRegistry.create(join(scaffold.workspaceCwd, 'folder'), 'Menu workspace')
+    await scaffold.ctx.workspaceRegistry.create(join(scaffold.workspaceCwd, 'folder'))
     await writeFile(join(scaffold.workspaceCwd, 'first.txt'), 'FIRST\nSECOND\nTHIRD\n')
     await writeFile(join(scaffold.workspaceCwd, 'second.txt'), 'SECOND FILE\n')
     await writeFile(join(scaffold.workspaceCwd, 'original.gif'), GIF)
@@ -167,7 +167,7 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
 
   it('shares Workspace menus and keeps folder gestures independent from expansion', async () => {
     onTestFailed(() => saveFailureShot(page, 'context-menus-workspace'))
-    const workspace = page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'Menu workspace' })
+    const workspace = page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'folder' })
     const expanded = await workspace.getAttribute('aria-expanded')
     await workspace.click({ button: 'right' })
     const menu = page.getByRole('menu')

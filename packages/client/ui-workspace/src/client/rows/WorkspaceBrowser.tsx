@@ -737,11 +737,11 @@ function SessionTree({
  */
 function PinnedSection({
   list, rowState, useSessionStatus, useSessionAccess, usePanelInfo, open, onSessionRenameRequest, renderSlot,
-  revealSessionId, onSessionRevealed, pinnedExpanded, setPinnedExpanded, t,
+  revealSessionId, onSessionRevealed, pinnedExpanded, setPinnedExpanded, openSessionMenu, useContextMenuTarget, useContextMenu, t,
 }: Pick<
   SessionTreeProps,
   | 'useSessionStatus' | 'useSessionAccess' | 'open' | 'onSessionRenameRequest' | 'usePanelInfo' | 'renderSlot'
-  | 'rowState' | 'revealSessionId' | 'onSessionRevealed' | 't'
+  | 'rowState' | 'revealSessionId' | 'onSessionRevealed' | 'openSessionMenu' | 'useContextMenuTarget' | 'useContextMenu' | 't'
 > & {
   /** Always-mounted Session list snapshot. */
   list: SessionListState
@@ -804,6 +804,8 @@ function PinnedSection({
           onOpen={open}
           onRenameRequest={onSessionRenameRequest}
           renderSlot={renderSlot}
+          openSessionMenu={openSessionMenu} useContextMenu={useContextMenu}
+          useContextMenuTarget={useContextMenuTarget}
           onReveal={node.id === revealSessionId
             ? () => { onSessionRevealed(node.id) }
             : undefined}
@@ -1394,6 +1396,9 @@ export function WorkspaceBrowser({
           onSessionRevealed={acknowledgeSessionReveal}
           pinnedExpanded={pinnedExpanded}
           setPinnedExpanded={actions.setPinnedExpanded}
+          openSessionMenu={openSessionMenu}
+          useContextMenu={useContextMenu}
+          useContextMenuTarget={useContextMenuTarget}
           t={t}
         />
       )}
