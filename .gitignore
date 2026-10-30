@@ -55,3 +55,6 @@ apps/mobile/
 
 # fork-local working notes (tracked by origin/master until 2026-10-28)
 TODO.md
+
+# Generated company-signed CUA release record.
+/packages/experimental/cua-macos/cua-helper.json
