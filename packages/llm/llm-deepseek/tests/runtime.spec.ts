@@ -1330,8 +1330,8 @@ describe('DeepSeekAdapter against a mock server', () => {
       })
   })
 
-  it('reports a per-request effort failure before I/O when thinking is disabled', async () => {
-    const server = await mockServer([])
+  it('normalizes a per-request effort to the declared default before I/O when thinking is disabled', async () => {
+    const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, { thinking: 'disabled' })
 
     const result = await assemble(ctx, {
@@ -1342,11 +1342,12 @@ describe('DeepSeekAdapter against a mock server', () => {
         source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       })],
     })
-    expect(result.finish).toMatchObject({
-      kind: 'error',
-      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
-    })
-    expect(server.requests).toHaveLength(0)
+    // The route declares off-only reasoning with the default `off`, so the
+    // unsupported explicit effort normalizes to it instead of failing.
+    expect(result.finish).toMatchObject({ kind: 'stop' })
+    expect(server.requests).toHaveLength(1)
+    expect(server.requests[0]).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
   })
 
   it.each(['high', 'max'])(
