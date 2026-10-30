@@ -1331,7 +1331,7 @@ describe('DeepSeekAdapter against a mock server', () => {
   })
 
   it('normalizes a per-request effort to the declared default before I/O when thinking is disabled', async () => {
-    const server = await mockServer([{ events: textEvents }])
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url, { thinking: 'disabled' })
 
     const result = await assemble(ctx, {
