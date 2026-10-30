@@ -305,7 +305,11 @@ describe('AppFrame normal width concessions', () => {
     const { frame, instance, sidebarOwner, getByTestId, unmount } = mountFrame()
     act(() => { instance.actions.setSidebar(360); instance.actions.toggleSidebar() })
     const sidebar = getByTestId('sidebar-content')
-    expect(tracks(frame)[0]).toBe(360)
+    // The re-expanded narrow sidebar floats (overlay): the grid keeps the rail
+    // and stores the preference; the stored 360 re-emerges where the tests
+    // below read the store or a non-overlay geometry.
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-sidebar-overlay')).toBe(true)
     fireEvent.transitionEnd(frame, { propertyName: 'grid-template-columns' })
     act(() => { foldedLandscape.set(true) })
     expect(tracks(frame)).toEqual([475.5, 0])
@@ -324,9 +328,9 @@ describe('AppFrame normal width concessions', () => {
     expect(tracks(frame)[0]).toBe(475.5)
     fireEvent.transitionEnd(frame, { propertyName: 'grid-template-columns' })
     act(() => { foldedLandscape.set(false) })
-    expect(tracks(frame)[0]).toBe(360)
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
     expect(frame.dataset.animating).toBe('true')
-    expect(frame.querySelector('[data-side="sidebar"]')).not.toBeNull()
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
     expect(instance.getSnapshot().layoutInfo.sidebar).toBe(360)
     unmount()
   })
@@ -435,7 +439,7 @@ describe('AppFrame normal width concessions', () => {
     expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
     expect(frame.hasAttribute('data-sidebar-overlay')).toBe(true)
-    expect(slotCalls.findLast(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
+    expect(slotCalls.findLast(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280, drawer: false })
     expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
     act(() => { instance.actions.toggleSidebar() })
     expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])

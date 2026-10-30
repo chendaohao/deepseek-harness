@@ -46,7 +46,10 @@ describe('FilesBody', () => {
     vi.stubGlobal('matchMedia', () => viewport)
     onTestFinished(() => { vi.unstubAllGlobals() })
     const { view, script, instance, tabActions } = mountBody()
-    expect(viewport.addEventListener).not.toHaveBeenCalled()
+    // The fork's touch-input hygiene keeps one (hover: none) listener per mounted
+    // Tooltip; the page's reload Tooltip is the only one here.
+    expect(viewport.addEventListener).toHaveBeenCalledTimes(1)
+    expect(viewport.addEventListener).toHaveBeenCalledWith('change', expect.any(Function))
     await act(() => script.watches.ready(ROOT))
     const page = view.container.querySelector('[data-files-page]')!
     const header = page.firstElementChild!

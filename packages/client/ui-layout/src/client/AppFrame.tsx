@@ -185,7 +185,9 @@ export function AppFrame({
   // Narrow overlays: on phones the expanded sidebar floats above the
   // full-width center (with a click-away backdrop) instead of squeezing it
   // past usability — the grid keeps the collapsed rail plus the whole center.
-  const overlaySidebar = narrow && !sidebarCollapsed
+  // A centered sidebar (folded landscape) already keeps the center at its
+  // midpoint, so the overlay concession does not apply there.
+  const overlaySidebar = narrow && !centeredSidebar && !sidebarCollapsed
   // Desktop reopen controls occupy the frame's shell.leading seat (macOS) or
   // the Windows caption row; neither platform keeps an icon rail.
   const darwin = document.documentElement.dataset.platform === 'darwin'
@@ -284,7 +286,7 @@ export function AppFrame({
     : cols.sidebar
   const sidebar = useMemo(() => renderSlot('sidebar', {
     collapsed: sidebarCollapsed,
-    width: overlaySidebar ? SIDEBAR_DEFAULT : sidebarWidth,
+    width: overlaySidebar && !drawer ? SIDEBAR_DEFAULT : sidebarWidth,
     drawer,
   }), [renderSlot, sidebarCollapsed, overlaySidebar, sidebarWidth, drawer])
   const main = useMemo(() => (
