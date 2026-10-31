@@ -1172,9 +1172,12 @@ describe('LlmRuntime', () => {
     await expect(ctx.llm.prepareCall({ provider: 'route', model: 'model' }, undefined, () => {
       throw failure
     })).rejects.toBe(failure)
-    await expect(ctx.llm.prepareCall({ provider: 'route', model: 'model' }, undefined, () => ({
+    // The fork normalizes an unsupported configured effort instead of rejecting:
+    // with no declared reasoning the request dispatches without the effort.
+    const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'model' }, undefined, () => ({
       reasoningEffort: ReasoningEffortId('unsupported'),
-    }))).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    }))
+    expect(prepared.config).not.toHaveProperty('reasoningEffort')
     expect(adapter.lastOptions).toBeUndefined()
   })
 

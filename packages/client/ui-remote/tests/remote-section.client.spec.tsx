@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 /** Remote-control settings page: initial state fetch, live events, and the device roster. */
+import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RemoteSettingsSection, type RemoteSettingsSectionProps } from '../src/client/RemoteSettingsSection.tsx'
@@ -18,6 +19,7 @@ const t: RemoteSettingsSectionProps['t'] = key => (en as Record<string, string>)
 const unusedHook = (() => { throw new Error('unused by remote panel components') }) as never
 const kit = {
   close: () => {},
+  useContextMenu: contextMenuHook(),
   useRemoteAccess: () => true,
   useAccess: () => true,
   useSessionAccess: () => true,
