@@ -398,24 +398,28 @@ export function apply(ctx: Context, config: Config): void {
       }
       return
     }
-    // Summary mode: the summary is generated inside the boundary — the session
-    // is live and the turn's messages are complete — and the Stop hooks then
-    // run detached so sending never delays the boundary.
-    const summary = await generateTurnSummary(ctx, agent, turn, summaryControls,
-      AbortSignal.any([detached.signal, AbortSignal.timeout(summaryControls.timeoutMs)]))
-      .catch((error: unknown) => {
-        ctx.logger.warn(`notify-hooks: turn summary failed: ${String(error)}`)
-        return undefined
-      })
-    const payload = summary === undefined ? stopPayload(agent) : { ...stopPayload(agent), summary }
-    detached.track(runPoint('Stop', '', payload, { agent, signal: detached.signal })
-      .then((merged) => {
-        if (merged.decision === 'deny') {
-          const text = merged.reason ?? 'continue: blocked by Stop hook'
-          agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
-        }
-      })
-      .catch((error: unknown) => { ctx.logger.warn(`notify-hooks: Stop hook failed: ${String(error)}`) }))
+    // Summary mode: the auxiliary request never holds the boundary open, because
+    // turn/end — and with it the Client's running indicator — must not wait for a
+    // second model call. The turn's messages are complete in this frame, so the
+    // request input is framed synchronously and the request record lands inside
+    // the turn; the request, its result record, and the Stop hooks that consume
+    // its text then run detached.
+    const controls = summaryControls
+    const input = extractTurnInput(agent.session.deriveMessages(), controls.maxInputChars)
+    const requestSignal = AbortSignal.any([detached.signal, AbortSignal.timeout(controls.timeoutMs)])
+    detached.track((async () => {
+      const summary = await generateTurnSummary(ctx, agent, input, turn, controls, requestSignal)
+        .catch((error: unknown) => {
+          ctx.logger.warn(`notify-hooks: turn summary failed: ${String(error)}`)
+          return undefined
+        })
+      const payload = summary === undefined ? stopPayload(agent) : { ...stopPayload(agent), summary }
+      const merged = await runPoint('Stop', '', payload, { agent, signal: detached.signal })
+      if (merged.decision === 'deny') {
+        const text = merged.reason ?? 'continue: blocked by Stop hook'
+        agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
+      }
+    })().catch((error: unknown) => { ctx.logger.warn(`notify-hooks: Stop hook failed: ${String(error)}`) }))
   })
 
   // SubagentStart may inject child context; SubagentStop only observes. Both
@@ -561,24 +565,26 @@ function terminalFinish(finish: FinishReason): NotifyHooksSummaryResultEventData
 
 /**
  * Generate one turn summary with the configured route, recording the exact
- * request before dispatch and the assembled response after the stream
- * settles. The session stays live for the whole call, so both events land
- * inside the turn they belong to.
+ * request before dispatch and the assembled response once the stream settles.
+ * The caller frames the request input at the stopping boundary, so the request
+ * record lands inside the turn it belongs to; the call itself runs detached,
+ * and its result record may therefore be appended after that turn's `turn/end`.
  * @param ctx - context exposing the optional LLM service.
  * @param agent - the stopping agent whose session receives the log events.
+ * @param input - request input framed at the stopping boundary, or undefined when the turn has nothing to summarize.
  * @param turn - the turn number the summary belongs to.
  * @param controls - resolved summary controls.
  * @param signal - cancellation covering route preparation and the stream.
- * @returns the summary text, or undefined when the turn has nothing to summarize or no llm service is registered.
+ * @returns the summary text, or undefined when there is no input or no llm service is registered.
  */
 async function generateTurnSummary(
   ctx: Context,
   agent: Agent,
+  input: string | undefined,
   turn: number,
   controls: ResolvedSummary,
   signal: AbortSignal,
 ): Promise<string | undefined> {
-  const input = extractTurnInput(agent.session.deriveMessages(), controls.maxInputChars)
   if (input === undefined) return undefined
   const llm = ctx.get('llm')
   if (llm === undefined) return undefined

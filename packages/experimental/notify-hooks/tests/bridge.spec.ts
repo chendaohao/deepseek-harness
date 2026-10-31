@@ -74,6 +74,22 @@ async function harnessWithFiber(
   return { ctx, hooks }
 }
 
+/**
+ * Read one captured payload once it is complete. The hook's shell redirect
+ * creates the file before `cat` finishes copying, so a reader that trusts
+ * existence can observe an empty file.
+ * @param path - file the hook's redirect writes.
+ * @returns the parsed payload, or undefined while it is absent or incomplete.
+ */
+function parseCaptured(path: string): unknown {
+  if (!existsSync(path)) return undefined
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
 function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
   return agent.whenIdle()
 }
@@ -503,18 +519,8 @@ describe('notify-hooks bridge — Stop turn summary', () => {
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'please do the thing' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
-    // The Stop hook runs detached, so poll for its observable effect. The
-    // redirect creates the file before `cat` finishes copying, so existence
-    // alone can observe an empty file: wait for content that parses.
-    await waitFor(() => {
-      if (!existsSync(payloadPath)) return false
-      try {
-        JSON.parse(readFileSync(payloadPath, 'utf8'))
-        return true
-      } catch {
-        return false
-      }
-    })
+    // The Stop hook runs detached, so poll for its observable effect.
+    await waitFor(() => parseCaptured(payloadPath) !== undefined)
 
     const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
     expect(payload.hook_event_name).toBe('Stop')
@@ -531,6 +537,33 @@ describe('notify-hooks bridge — Stop turn summary', () => {
     expect(result?.type === 'notify-hooks/summary-result' && result.data.finish).toBe('stop')
   })
 
+  it('the turn boundary never waits for the summary request', async () => {
+    const dir = writeConfig({ Stop: [{ hooks: [{ type: 'command', command: 'true' }] }] })
+    const adapter = new MockAdapter([textResponse('done')])
+    // A summary stream that never settles: a boundary awaiting it would leave
+    // `whenIdle` pending forever. Disposing the bridge aborts it.
+    const summaryAdapter = new MockAdapter(['hang'])
+    const { ctx, hooks } = await harnessWithFiber(dir, adapter, undefined, {
+      summary: { provider: 'mock-summary', model: 'mock', timeoutMs: 60_000 },
+    })
+    ctx.llm.registerAdapter(['mock-summary'], summaryAdapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    const timedOut = Symbol('timed out')
+    const settled = await Promise.race([
+      agent.whenIdle().then(() => 'idle' as const),
+      new Promise<typeof timedOut>(resolve => setTimeout(() => { resolve(timedOut) }, 5000)),
+    ])
+    expect(settled).toBe('idle')
+
+    const log = events(agent)
+    expect(log.some(e => e.type === 'turn/end')).toBe(true)
+    // The framed request is recorded inside the turn; its outcome is not awaited.
+    expect(log.some(e => e.type === 'notify-hooks/summary-request')).toBe(true)
+    expect(log.some(e => e.type === 'notify-hooks/summary-result')).toBe(false)
+    await hooks.dispose()
+  })
+
   it('without summary config the Stop payload carries no summary', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-nosummary-'))
     dirs.push(dir)
@@ -545,7 +578,9 @@ describe('notify-hooks bridge — Stop turn summary', () => {
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
-    await waitFor(() => existsSync(payloadPath))
+    // The redirect creates the file before `cat` finishes copying, so existence
+    // alone can observe an empty file: wait for content that parses.
+    await waitFor(() => parseCaptured(payloadPath) !== undefined)
 
     const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
     expect(payload.hook_event_name).toBe('Stop')
@@ -569,7 +604,7 @@ describe('notify-hooks bridge — Stop turn summary', () => {
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
-    await waitFor(() => existsSync(payloadPath))
+    await waitFor(() => parseCaptured(payloadPath) !== undefined)
 
     const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
     expect(payload.hook_event_name).toBe('Stop')

@@ -96,7 +96,7 @@ Add a `summary` group to the config and the bridge writes a model-generated summ
 | `maxInputChars` | `20,000` | Character cap on the extracted task/result input |
 | `timeoutMs` | `60,000` | End-to-end deadline for the summary request |
 
-With the group present, `Stop` behaves differently in two ways. The summary is generated inside the turn boundary — the session is live and the turn's messages are complete — and the `Stop` hooks then run detached, so sending never delays the boundary. A hook that blocks still forces continuation, through a new turn. A summary request that fails (no `llm` service, an unroutable provider, a timeout) is logged and skipped: the `Stop` hooks still run, without a `summary` field. Each request and response is recorded in the session log as `notify-hooks/summary-request` and `notify-hooks/summary-result`.
+With the group present, `Stop` behaves differently in two ways. The turn's request input is framed at the stopping boundary — the session is live and the turn's messages are complete — and the request, the `Stop` hooks that consume its text, and the sending all run detached, so no part of the summary path holds the boundary open: `turn/end` commits as soon as the answer lands, and a Client stops showing the turn as running then. A hook that blocks still forces continuation, through a new turn. A summary request that fails (no `llm` service, an unroutable provider, a timeout) is logged and skipped: the `Stop` hooks still run, without a `summary` field. Each request and response is recorded in the session log as `notify-hooks/summary-request` and `notify-hooks/summary-result`; the request lands inside its turn, while the result can land after that turn closed.
 
 -----
 
