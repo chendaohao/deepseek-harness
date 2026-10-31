@@ -2716,6 +2716,79 @@ importers:
         specifier: workspace:~
         version: link:../../../vendor/cordis
 
+  packages/bundle/crew:
+    dependencies:
+      '@deepseek-ai/dsh-agent-instructions':
+        specifier: workspace:*
+        version: link:../../context/agent-instructions
+      '@deepseek-ai/dsh-agent-preset':
+        specifier: workspace:*
+        version: link:../../preset/agent-preset
+      '@deepseek-ai/dsh-command-compact':
+        specifier: workspace:*
+        version: link:../../compaction/command-compact
+      '@deepseek-ai/dsh-command-goal':
+        specifier: workspace:*
+        version: link:../../goal/command-goal
+      '@deepseek-ai/dsh-compaction-basic':
+        specifier: workspace:*
+        version: link:../../compaction/compaction-basic
+      '@deepseek-ai/dsh-compaction-tool-result-pruner':
+        specifier: workspace:*
+        version: link:../../compaction/compaction-tool-result-pruner
+      '@deepseek-ai/dsh-persona':
+        specifier: workspace:*
+        version: link:../../preset/persona
+      '@deepseek-ai/dsh-plan-mode':
+        specifier: workspace:*
+        version: link:../../plan/plan-mode
+      '@deepseek-ai/dsh-skill-filesystem':
+        specifier: workspace:*
+        version: link:../../skill/skill-filesystem
+      '@deepseek-ai/dsh-tool-ask-user':
+        specifier: workspace:*
+        version: link:../../interaction/tool-ask-user
+      '@deepseek-ai/dsh-tool-bash':
+        specifier: workspace:*
+        version: link:../../shell/tool-bash
+      '@deepseek-ai/dsh-tool-fs':
+        specifier: workspace:*
+        version: link:../../fs/tool-fs
+      '@deepseek-ai/dsh-tool-fs-search':
+        specifier: workspace:*
+        version: link:../../fs/tool-fs-search
+      '@deepseek-ai/dsh-tool-goal':
+        specifier: workspace:*
+        version: link:../../goal/tool-goal
+      '@deepseek-ai/dsh-tool-jobs':
+        specifier: workspace:*
+        version: link:../../jobs/tool-jobs
+      '@deepseek-ai/dsh-tool-present':
+        specifier: workspace:*
+        version: link:../../deliverables/tool-present
+      '@deepseek-ai/dsh-tool-pwsh':
+        specifier: workspace:*
+        version: link:../../shell/tool-pwsh
+      '@deepseek-ai/dsh-tool-skill':
+        specifier: workspace:*
+        version: link:../../skill/tool-skill
+      '@deepseek-ai/dsh-tool-subagent':
+        specifier: workspace:*
+        version: link:../../subagent/tool-subagent
+      '@deepseek-ai/dsh-tool-subagent-control':
+        specifier: workspace:*
+        version: link:../../subagent/tool-subagent-control
+      '@deepseek-ai/dsh-tool-todo':
+        specifier: workspace:*
+        version: link:../../todo/tool-todo
+      '@deepseek-ai/dsh-tool-web':
+        specifier: workspace:*
+        version: link:../../web/tool-web
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
   packages/bundle/headless:
     dependencies:
       '@deepseek-ai/dsh-brand':
@@ -14446,15 +14519,15 @@ importers:
       '@deepseek-ai/dsh-subagent':
         specifier: workspace:*
         version: link:../../subagent/subagent
-      '@deepseek-ai/dsh-tool-testkit':
-        specifier: workspace:*
-        version: link:../../test-support/tool-testkit
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt
       '@deepseek-ai/dsh-tool-executor-ptc':
         specifier: workspace:*
         version: link:../../core/tool-executor-ptc
+      '@deepseek-ai/dsh-tool-testkit':
+        specifier: workspace:*
+        version: link:../../test-support/tool-testkit
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools
