@@ -44,10 +44,12 @@ export {
   RECENT_LIMIT,
   readRecentModels,
   writeRecentModel,
+  removeRecentModel,
+  restoreRecentModel,
   modelMatchesQuery,
   useRecentModels,
 } from './recent-models.ts'
-export type { RecentModel } from './recent-models.ts'
+export type { RecentModel, RecentRemoval } from './recent-models.ts'
 export {
   PROVIDER_ORDER_KEY,
   readProviderOrder,

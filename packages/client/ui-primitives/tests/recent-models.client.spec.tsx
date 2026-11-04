@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -6,6 +7,8 @@ import {
   RECENT_MODELS_KEY,
   modelMatchesQuery,
   readRecentModels,
+  removeRecentModel,
+  restoreRecentModel,
   useRecentModels,
   writeRecentModel,
 } from '../src/recent-models.ts'
@@ -133,12 +136,15 @@ describe('modelMatchesQuery', () => {
 
 describe('useRecentModels', () => {
   function Harness() {
-    const { recent, record } = useRecentModels()
+    const { recent, record, forget, restore } = useRecentModels()
+    const [removal, setRemoval] = useState<ReturnType<typeof forget>>(undefined)
     return (
       <div>
         <span data-testid="count">{recent.length}</span>
         {recent.map(item => <span key={`${item.provider}/${item.model}`} data-testid="entry">{`${item.provider}/${item.model}`}</span>)}
         <button type="button" onClick={() => { record({ provider: 'c', model: 'm3' }) }}>record</button>
+        <button type="button" onClick={() => { setRemoval(forget({ provider: 'a', model: 'm1' })) }}>forget</button>
+        <button type="button" onClick={() => { if (removal !== undefined) { restore(removal); setRemoval(undefined) } }}>restore</button>
       </div>
     )
   }
@@ -159,5 +165,89 @@ describe('useRecentModels', () => {
     expect(Array.from(screen.getAllByTestId('entry')).map(node => node.textContent))
       .toEqual(['c/m3', 'a/m1'])
     expect(readRecentModels()[0]).toEqual({ provider: 'c', model: 'm3' })
+  })
+
+  it('removes a route and puts it back on undo', () => {
+    seed([{ provider: 'a', model: 'm1' }, { provider: 'b', model: 'm2' }])
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'forget' }))
+    expect(Array.from(screen.getAllByTestId('entry')).map(node => node.textContent)).toEqual(['b/m2'])
+    expect(readRecentModels()).toEqual([{ provider: 'b', model: 'm2' }])
+    fireEvent.click(screen.getByRole('button', { name: 'restore' }))
+    expect(Array.from(screen.getAllByTestId('entry')).map(node => node.textContent)).toEqual(['a/m1', 'b/m2'])
+  })
+})
+
+describe('removeRecentModel', () => {
+  it('takes one route off without disturbing the others', () => {
+    seed([
+      { provider: 'a', model: 'm1' },
+      { provider: 'b', model: 'm2' },
+      { provider: 'c', model: 'm3' },
+    ])
+    expect(removeRecentModel({ provider: 'b', model: 'm2' })).toEqual({
+      selection: { provider: 'b', model: 'm2' }, index: 1,
+    })
+    expect(readRecentModels()).toEqual([
+      { provider: 'a', model: 'm1' },
+      { provider: 'c', model: 'm3' },
+    ])
+  })
+
+  it('reports nothing for a route the list does not hold', () => {
+    seed([{ provider: 'a', model: 'm1' }])
+    expect(removeRecentModel({ provider: 'b', model: 'm2' })).toBeUndefined()
+    expect(readRecentModels()).toEqual([{ provider: 'a', model: 'm1' }])
+  })
+
+  it('succeeds when storage refuses the write', () => {
+    seed([{ provider: 'a', model: 'm1' }])
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+    try {
+      expect(() => { removeRecentModel({ provider: 'a', model: 'm1' }) }).not.toThrow()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+describe('restoreRecentModel', () => {
+  it('puts the route back at the position it held', () => {
+    seed([
+      { provider: 'a', model: 'm1' },
+      { provider: 'b', model: 'm2' },
+      { provider: 'c', model: 'm3' },
+    ])
+    const removal = removeRecentModel({ provider: 'b', model: 'm2' })!
+    restoreRecentModel(removal)
+    expect(readRecentModels()).toEqual([
+      { provider: 'a', model: 'm1' },
+      { provider: 'b', model: 'm2' },
+      { provider: 'c', model: 'm3' },
+    ])
+  })
+
+  it('lands last when the list shrank past the remembered position', () => {
+    seed([
+      { provider: 'a', model: 'm1' },
+      { provider: 'b', model: 'm2' },
+    ])
+    restoreRecentModel({ selection: { provider: 'b', model: 'm2' }, index: 4 })
+    expect(readRecentModels().at(-1)).toEqual({ provider: 'b', model: 'm2' })
+  })
+
+  it('does not duplicate a route that came back through a later pick', () => {
+    seed([{ provider: 'a', model: 'm1' }])
+    restoreRecentModel({ selection: { provider: 'a', model: 'm1' }, index: 0 })
+    expect(readRecentModels()).toEqual([{ provider: 'a', model: 'm1' }])
+  })
+
+  it('succeeds when storage refuses the write', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+    try {
+      expect(() => { restoreRecentModel({ selection: { provider: 'a', model: 'm1' }, index: 0 }) }).not.toThrow()
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

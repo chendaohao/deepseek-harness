@@ -264,6 +264,16 @@
   overflow-y: auto;
 }
 
+/* Recently used rows own the long-press gesture (removal). The browser's own
+   long-press affordance — text selection, the context menu, and the callout on
+   iOS — would compete with it, so the section opts out of all three. Catalog
+   rows keep the platform behavior. */
+[data-recent-model] {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 /* Provider header toggle: MenuGroup owns the sticky heading and its padding,
    so the button only fills that heading and can collapse its own group. */
 .groupToggle {
