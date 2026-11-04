@@ -49,20 +49,65 @@ export function readRecentModels(): RecentModel[] {
 }
 
 /**
+ * Persist a bounded list, most-recent first. A storage failure (private mode)
+ * is non-fatal: the caller's in-memory state still reflects the change.
+ * @param entries - the complete list to store.
+ */
+function persistRecentModels(entries: readonly RecentModel[]): void {
+  try {
+    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify(entries.slice(0, RECENT_LIMIT)))
+  } catch {
+    // Private-mode storage failures are non-fatal; the session keeps its choice.
+  }
+}
+
+/**
  * Record one selection as the most recent; duplicate routes move to the front
- * and the list is capped at {@link RECENT_LIMIT}. A storage failure (private
- * mode) is non-fatal — the in-memory state already reflects the selection.
+ * and the list is capped at {@link RECENT_LIMIT}.
  * @param selection - the route to promote.
  */
 export function writeRecentModel(selection: RecentModel): void {
-  try {
-    const deduped = readRecentModels().filter(
-      item => item.provider !== selection.provider || item.model !== selection.model,
-    )
-    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify([selection, ...deduped].slice(0, RECENT_LIMIT)))
-  } catch {
-    // Private-mode storage failures are non-fatal; the session keeps the selection.
-  }
+  const deduped = readRecentModels().filter(
+    item => item.provider !== selection.provider || item.model !== selection.model,
+  )
+  persistRecentModels([selection, ...deduped])
+}
+
+/** One route taken off the list, with where it sat so it can go back there. */
+export interface RecentRemoval {
+  /** The route that left the list. */
+  readonly selection: RecentModel
+  /** Zero-based position it occupied before removal. */
+  readonly index: number
+}
+
+/**
+ * Take one route off the persisted list, leaving every other entry in place.
+ * @param selection - the route to forget.
+ * @returns where it sat, for {@link restoreRecentModel}; undefined when the
+ * list did not hold it.
+ */
+export function removeRecentModel(selection: RecentModel): RecentRemoval | undefined {
+  const current = readRecentModels()
+  const index = current.findIndex(
+    item => item.provider === selection.provider && item.model === selection.model,
+  )
+  if (index === -1) return undefined
+  persistRecentModels(current.filter((_item, at) => at !== index))
+  return { selection, index }
+}
+
+/**
+ * Put a removed route back where it was. A route already present is not
+ * duplicated, and a position past the current end lands last.
+ * @param removal - the record {@link removeRecentModel} returned.
+ */
+export function restoreRecentModel(removal: RecentRemoval): void {
+  const rest = readRecentModels().filter(
+    item => item.provider !== removal.selection.provider || item.model !== removal.selection.model,
+  )
+  const at = Math.min(removal.index, rest.length)
+  persistRecentModels([...rest.slice(0, at), removal.selection, ...rest.slice(at)])
 }
 
 /**
@@ -87,15 +132,31 @@ export function modelMatchesQuery(
 }
 
 /**
- * React binding over {@link readRecentModels} / {@link writeRecentModel}.
- * @returns the current recent list and a `record` action that persists and
- * re-reads it.
+ * React binding over {@link readRecentModels} / {@link writeRecentModel} /
+ * {@link removeRecentModel}. Each action persists first, then re-reads, so the
+ * hook never renders a list the device did not store.
+ * @returns the current recent list plus `record` (promote one route), `forget`
+ * (take one off, returning where it sat), and `restore` (put one back).
  */
-export function useRecentModels(): { recent: RecentModel[]; record: (selection: RecentModel) => void } {
+export function useRecentModels(): {
+  recent: RecentModel[]
+  record: (selection: RecentModel) => void
+  forget: (selection: RecentModel) => RecentRemoval | undefined
+  restore: (removal: RecentRemoval) => void
+} {
   const [recent, setRecent] = useState<RecentModel[]>(() => readRecentModels())
   const record = useCallback((selection: RecentModel): void => {
     writeRecentModel(selection)
     setRecent(readRecentModels())
   }, [])
-  return { recent, record }
+  const forget = useCallback((selection: RecentModel): RecentRemoval | undefined => {
+    const removal = removeRecentModel(selection)
+    setRecent(readRecentModels())
+    return removal
+  }, [])
+  const restore = useCallback((removal: RecentRemoval): void => {
+    restoreRecentModel(removal)
+    setRecent(readRecentModels())
+  }, [])
+  return { recent, record, forget, restore }
 }

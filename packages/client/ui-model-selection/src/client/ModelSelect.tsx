@@ -22,7 +22,9 @@
  * alignment score, then catalog order. A pinned recently-used section
  * re-offers the last picks the current catalog still advertises, and provider
  * groups follow the per-device order the Models settings page persists;
- * search, recent, collapse, and that order all live in this seat. Returning to
+ * search, recent, collapse, and that order all live in this seat. A recently
+ * used row leaves the list on a right click, a long press, or the ContextMenu
+ * key, announced by a composer toast carrying undo. Returning to
  * the root pane hands focus back to the cell that opened it. Data and
  * submission ride the same per-session ModelDirectory as the /model popup;
  * exact-model reasoning metadata and the selected effort come from the Host
@@ -51,6 +53,7 @@ import {
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelLabelOwner, ModelSelectInjected } from './slots.ts'
 import { orderModelProviders } from './provider-order.ts'
+import { useRowGesture } from './long-press-row.ts'
 import css from './ModelSelect.module.css'
 
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
@@ -90,7 +93,7 @@ export function ModelSelect(
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const [selectionFocus, setSelectionFocus] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const { recent, record } = useRecentModels()
+  const { recent, record, forget, restore } = useRecentModels()
   // The provider order the Models settings page persists, re-read on open so a
   // drag there is what this menu shows next.
   const [providerOrder, setProviderOrder] = useState<readonly string[]>(() => readProviderOrder())
@@ -99,7 +102,16 @@ export function ModelSelect(
   // instead, so the strip renders only while the latest failure-capable
   // action was a load.
   const lastActionRef = useRef<'load' | 'select'>('load')
-  const [toast, setToast] = useState<{ seq: number; text: string } | null>(null)
+  /**
+   * Transient composer banner: a failure report, or a removal whose action puts
+   * the route back. The action is resolved here rather than at the toast, so a
+   * later removal cannot make an older banner restore the wrong route.
+   */
+  const [toast, setToast] = useState<{
+    seq: number
+    text: string
+    actions?: readonly { label: string; onClick: () => void }[]
+  } | null>(null)
   const toastSeq = useRef(0)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -267,6 +279,48 @@ export function ModelSelect(
       rowRefs.current[activeModelIndex]?.scrollIntoView({ block: 'nearest' })
     }
   }, [open, pane, activeModelIndex, visibleModels])
+
+  /**
+   * Take one recently used route off the list and announce it with an undo.
+   * A removed row that holds the keyboard leaves it on the body, which reads
+   * to this component as a blur outside the menu and closes the card — so a
+   * surviving row takes the keyboard first. That row is keyed by its route, so
+   * the node focused here is the node React keeps.
+   * @param row - the row element the gesture landed on.
+   */
+  const forgetRecent = (row: HTMLElement): void => {
+    const index = rowRefs.current.indexOf(row as HTMLButtonElement)
+    // 0..recentChoices.length-1 are the recent rows; a catalog row keeps its
+    // place, so the gesture must not act on one.
+    if (index < 0 || index >= recentChoices.length) return
+    const choice = recentChoices[index]
+    if (choice === undefined) return
+    const focusHeld = row.contains(document.activeElement)
+    const removal = forget({ provider: choice.group.id, model: choice.model.id })
+    if (removal === undefined) return
+    // The flattened list is short by one from here on: the row below the
+    // removed one, else the one above, else the trigger when the section held
+    // the only row. Rows carry `:focus-visible` styling, so a pointer-driven
+    // focus move shows no ring while a keyboard one keeps it.
+    const neighbour = rowRefs.current[index + 1] ?? rowRefs.current[index - 1]
+    if (focusHeld) {
+      if (neighbour != null) {
+        neighbour.focus({ preventScroll: true })
+        setHighlightedIndex(index)
+      } else {
+        triggerRef.current?.focus()
+      }
+    } else {
+      setHighlightedIndex(null)
+    }
+    toastSeq.current += 1
+    setToast({
+      seq: toastSeq.current,
+      text: t('recent.removed', { model: choice.model.name }),
+      actions: [{ label: t('recent.undo'), onClick: () => { restore(removal); setToast(null) } }],
+    })
+  }
+  const recentGesture = useRowGesture('[data-recent-model]', forgetRecent)
 
   if (!available) return null
 
@@ -471,6 +525,7 @@ export function ModelSelect(
     })
   }
 
+
   const waiting = currentChoice === undefined && state.status === 'loading'
   const modelLabel = waiting
     ? t('trigger.loading')
@@ -555,6 +610,8 @@ export function ModelSelect(
    * @param group - the owning provider group.
    * @param model - the row's model.
    * @param secondary - provider name to show when the row sits outside its own group.
+   * @param removable - whether the row sits in the recently used section, where
+   *   the row gesture takes it off the list.
    * @returns the row button, carrying the highlighted state search navigation reads.
    */
   const renderModelRow = (
@@ -562,6 +619,7 @@ export function ModelSelect(
     group: ProviderRef,
     model: ModelLabelOwner['model'],
     secondary?: string,
+    removable = false,
   ) => {
     const selected = state.current?.provider === group.id && state.current.model === model.id
     return (
@@ -574,6 +632,7 @@ export function ModelSelect(
         tabIndex={showSearch ? -1 : 0}
         onFocus={() => { setHighlightedIndex(index) }}
         data-highlighted={index === activeModelIndex ? '' : undefined}
+        data-recent-model={removable ? '' : undefined}
         className={clsx(
           css.option, css.modelOption, selected && css.selected, index === activeModelIndex && css.optionActive,
         )}
@@ -735,11 +794,12 @@ export function ModelSelect(
                 role="menu"
                 aria-label={t('menu.model')}
                 hidden={rankedGroups.length === 0}
+                {...recentGesture}
               >
                 {recentChoices.length > 0 && (
                   <MenuGroup key="recent" label={t('recent.title')}>
                     {recentChoices.map((choice, at) =>
-                      renderModelRow(at, choice.group, choice.model, providerLabel(choice.group)))}
+                      renderModelRow(at, choice.group, choice.model, providerLabel(choice.group), true))}
                   </MenuGroup>
                 )}
                 {rankedGroups.map((group, groupIndex) => {
@@ -830,6 +890,7 @@ export function ModelSelect(
           text={toast.text}
           icon={<IconWarningOutlineRegular />}
           anchor={rootRef.current?.closest<HTMLElement>('[data-composer-card]') ?? null}
+          {...toast.actions === undefined ? {} : { actions: toast.actions }}
           onDone={() => { setToast(null) }}
         />
       )}

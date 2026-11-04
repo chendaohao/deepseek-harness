@@ -11,6 +11,7 @@ import type { ComponentProps } from 'react'
 import type { OwnerOf } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
 import { ModelSelect } from '../src/client/ModelSelect.tsx'
+import { LONG_PRESS_MS } from '../src/client/long-press-row.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 
@@ -524,6 +525,17 @@ const searchGroups = [
   { ...multiGroups[1]!, models: [...multiGroups[1]!.models, { id: 'claude-haiku', name: 'Claude Haiku' }] },
 ]
 
+/**
+ * Dispatch one pointer event. jsdom has no `PointerEvent`, so a `MouseEvent`
+ * carries the coordinates and the pointer type is defined onto it — the shape
+ * React's delegated listener reads.
+ */
+function press(target: Element, type: string, pointerType: string, x: number, y: number): void {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y })
+  Object.defineProperty(event, 'pointerType', { value: pointerType })
+  fireEvent(target, event)
+}
+
 /** Open the trigger and drill into the model pane. */
 function openModelPane(groups: ModelDirectoryState['groups'] = state().groups) {
   const directory = createSnapshotStore<ModelDirectoryState>(state({ groups }))
@@ -603,6 +615,113 @@ describe('ModelSelect search, recently used, and collapse', () => {
       expect(select).toHaveBeenCalled()
       expect(readRecentModels()[0]).toEqual({ provider: 'anthropic', model: 'claude-opus' })
     })
+  })
+
+  it('takes a recently used row off the list on a right click, with undo', () => {
+    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify([
+      { provider: 'anthropic', model: 'claude-opus' },
+      { provider: 'anthropic', model: 'claude-sonnet' },
+    ]))
+    openModelPane(searchGroups)
+    const recent = () => within(screen.getByRole('group', { name: '最近使用' })).getAllByRole('menuitemradio')
+    expect(recent().map(row => row.textContent)).toEqual(['Claude OpusAnthropic', 'Claude SonnetAnthropic'])
+    fireEvent.contextMenu(recent()[0]!)
+    expect(recent().map(row => row.textContent)).toEqual(['Claude SonnetAnthropic'])
+    expect(readRecentModels()).toEqual([{ provider: 'anthropic', model: 'claude-sonnet' }])
+    // The catalog row for the removed route stays put.
+    expect(screen.getAllByRole('menuitemradio').some(row => row.textContent === 'Claude Opus')).toBe(true)
+    // The banner keeps the removal reachable rather than final.
+    expect(screen.getByRole('alert').textContent).toContain('已从最近使用中移除 Claude Opus')
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }))
+    expect(recent().map(row => row.textContent)).toEqual(['Claude OpusAnthropic', 'Claude SonnetAnthropic'])
+    expect(readRecentModels()).toEqual([
+      { provider: 'anthropic', model: 'claude-opus' },
+      { provider: 'anthropic', model: 'claude-sonnet' },
+    ])
+  })
+
+  it('leaves catalog rows alone on a right click', () => {
+    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify([{ provider: 'anthropic', model: 'claude-opus' }]))
+    openModelPane(searchGroups)
+    const catalogRow = screen.getAllByRole('menuitemradio').find(row => row.textContent === 'DeepSeek-V4-Flash')!
+    fireEvent.contextMenu(catalogRow)
+    expect(screen.getByRole('group', { name: '最近使用' })).toBeTruthy()
+    expect(readRecentModels()).toEqual([{ provider: 'anthropic', model: 'claude-opus' }])
+    expect(screen.queryByRole('alert')).toBeNull()
+    // The menu keeps the keyboard: the row it held was not one the gesture acts on.
+    expect(screen.getByRole('menu', { name: /模型/ })).toBeTruthy()
+  })
+
+  it('takes the row off on a touch long press, and ignores a scroll that starts on one', () => {
+    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify([
+      { provider: 'anthropic', model: 'claude-opus' },
+      { provider: 'anthropic', model: 'claude-sonnet' },
+    ]))
+    openModelPane(searchGroups)
+    // Only the hold uses timers; the menu itself opened on real ones.
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    const recent = () => within(screen.getByRole('group', { name: '最近使用' })).getAllByRole('menuitemradio')
+    // A hold that turns into a scroll never fires.
+    press(recent()[0]!, 'pointerdown', 'touch', 10, 10)
+    press(recent()[0]!, 'pointermove', 'touch', 10, 40)
+    act(() => { vi.advanceTimersByTime(LONG_PRESS_MS + 50) })
+    expect(recent()).toHaveLength(2)
+    // A steady hold does.
+    press(recent()[0]!, 'pointerdown', 'touch', 10, 10)
+    act(() => { vi.advanceTimersByTime(LONG_PRESS_MS + 50) })
+    expect(readRecentModels()).toEqual([{ provider: 'anthropic', model: 'claude-sonnet' }])
+    // Android reports that same press as a context menu; the fired hold owns it.
+    fireEvent.contextMenu(recent()[0]!)
+    expect(readRecentModels()).toEqual([{ provider: 'anthropic', model: 'claude-sonnet' }])
+    // The release's click must not select whichever row now sits under the finger.
+    fireEvent.click(recent()[0]!)
+    expect(readRecentModels()).toEqual([{ provider: 'anthropic', model: 'claude-sonnet' }])
+    expect(screen.getByRole('menu', { name: /模型/ })).toBeTruthy()
+    // A fresh press owns its own activation, so the window does not swallow it.
+    press(recent()[0]!, 'pointerdown', 'mouse', 10, 10)
+    fireEvent.contextMenu(recent()[0]!)
+    expect(readRecentModels()).toEqual([])
+  })
+
+  it('leaves a mouse press on a recent row alone, so the context menu owns it', () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify([{ provider: 'anthropic', model: 'claude-opus' }]))
+    openModelPane(searchGroups)
+    const row = within(screen.getByRole('group', { name: '最近使用' })).getAllByRole('menuitemradio')[0]!
+    press(row, 'pointerdown', 'mouse', 10, 10)
+    act(() => { vi.advanceTimersByTime(LONG_PRESS_MS + 50) })
+    expect(readRecentModels()).toEqual([{ provider: 'anthropic', model: 'claude-opus' }])
+  })
+
+  it('keeps the menu open and hands the keyboard to the next row after a keyboard removal', () => {
+    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify([
+      { provider: 'anthropic', model: 'claude-opus' },
+      { provider: 'anthropic', model: 'claude-sonnet' },
+    ]))
+    openModelPane(searchGroups)
+    const recent = () => within(screen.getByRole('group', { name: '最近使用' })).getAllByRole('menuitemradio')
+    const first = recent()[0]!
+    first.focus()
+    // The ContextMenu key and Shift+F10 both reach the browser as this event.
+    fireEvent.contextMenu(first)
+    const rows = recent()
+    expect(rows.map(row => row.textContent)).toEqual(['Claude SonnetAnthropic'])
+    expect(document.activeElement).toBe(rows[0])
+    expect(screen.getByRole('menu', { name: /模型/ })).toBeTruthy()
+  })
+
+  it('empties the section when its last row goes and keeps the keyboard in the menu', () => {
+    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify([{ provider: 'anthropic', model: 'claude-opus' }]))
+    openModelPane(searchGroups)
+    const row = within(screen.getByRole('group', { name: '最近使用' })).getAllByRole('menuitemradio')[0]!
+    row.focus()
+    fireEvent.contextMenu(row)
+    expect(screen.queryByRole('group', { name: '最近使用' })).toBeNull()
+    // The catalog row below took the keyboard, so the menu stays open.
+    expect(document.activeElement?.textContent).toBe('DeepSeek-V4-Flash')
+    expect(screen.getByRole('menu', { name: /模型/ })).toBeTruthy()
   })
 
   it('orders provider groups by the per-device order the settings page records', () => {

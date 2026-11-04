@@ -34,6 +34,8 @@ export const zh = {
   'search.empty': '没有匹配的模型。',
   'empty.models': '暂无可用模型',
   'recent.title': '最近使用',
+  'recent.removed': '已从最近使用中移除 {model}',
+  'recent.undo': '撤销',
   'empty.efforts': '当前模型未提供推理等级。',
 } satisfies Record<string, string>
 
@@ -66,6 +68,8 @@ export const en = {
   'search.empty': 'No matching models.',
   'empty.models': 'No models available.',
   'recent.title': 'Recently used',
+  'recent.removed': 'Removed {model} from recently used',
+  'recent.undo': 'Undo',
   'empty.efforts': 'This model provides no reasoning effort levels.',
 } satisfies Record<ModelKey, string>
 
@@ -96,6 +100,8 @@ export const ja = {
   'empty.efforts': 'このモデルには推論強度の設定がありません。',
   'effort.normalized': 'このモデルは選択した強度に対応していません。{effort} に戻しました',
   'recent.title': '最近使用したもの',
+  'recent.removed': '最近使用したものから {model} を削除しました',
+  'recent.undo': '元に戻す',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -125,6 +131,8 @@ export const es = {
   'empty.efforts': 'Este modelo no proporciona niveles de esfuerzo de razonamiento.',
   'effort.normalized': 'Este modelo no admite el esfuerzo elegido; se usó {effort}',
   'recent.title': 'Usados recientemente',
+  'recent.removed': 'Se quitó {model} de los usados recientemente',
+  'recent.undo': 'Deshacer',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -154,6 +162,8 @@ export const fr = {
   'empty.efforts': 'Ce modèle ne fournit aucun niveau d’effort de raisonnement.',
   'effort.normalized': 'Ce modèle ne prend pas en charge l\'effort choisi ; retour à {effort}',
   'recent.title': 'Utilisés récemment',
+  'recent.removed': '{model} retiré des utilisés récemment',
+  'recent.undo': 'Annuler',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -183,6 +193,8 @@ export const de = {
   'empty.efforts': 'Dieses Modell liefert keine Argumentationsaufwandsstufen.',
   'effort.normalized': 'Dieses Modell unterstützt den gewählten Aufwand nicht; auf {effort} zurückgefallen',
   'recent.title': 'Zuletzt verwendet',
+  'recent.removed': '{model} aus „Zuletzt verwendet“ entfernt',
+  'recent.undo': 'Rückgängig',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -212,6 +224,8 @@ export const ru = {
   'empty.efforts': 'Эта модель не обеспечивает обоснования уровней усилий.',
   'effort.normalized': 'Эта модель не поддерживает выбранный уровень усилий; использован {effort}',
   'recent.title': 'Недавно использованные',
+  'recent.removed': '{model} удалён из недавно использованных',
+  'recent.undo': 'Отменить',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -241,4 +255,6 @@ export const pt = {
   'empty.efforts': 'Este modelo não fornece níveis de esforço de raciocínio.',
   'effort.normalized': 'Este modelo não suporta o esforço escolhido; usado {effort}',
   'recent.title': 'Usados recentemente',
+  'recent.removed': '{model} removido dos usados recentemente',
+  'recent.undo': 'Desfazer',
 } satisfies Record<keyof typeof en, string>
