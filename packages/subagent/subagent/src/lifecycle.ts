@@ -15,10 +15,71 @@ import { renderThrown } from '@deepseek-ai/dsh-util-values'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TurnEndCancelCause } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRunEndInfo, SubagentRunInfo, TurnBudgetReport } from './types.ts'
- *
- * The service owns this closure because scoped dispatch keys its carrier by the
- * exact service instance, whose own context filter composes into the carrier;
- * a narrowed stand-in would silently change scope filtering.
+
+/**
+ * How one Activation's residency epoch ended, as both the terminal lifecycle
+ * edge and the manager's own parent delivery report it.
+ */
+export interface ActivationTerminal {
+  /** Why this epoch's last ordinary turn ended, or `error` when teardown failed. */
+  readonly stopReason: SubagentResult['stopReason']
+  /** The epoch's final assistant content, absent when it produced none or failed. */
+  readonly output?: readonly ContentBlock[]
+  /**
+   * How the epoch's last consumed turn spent its output budget, absent when it
+   * ran no turn. A delegating model cannot read the child's transcript, so a
+   * child that burned its ceiling on a single reasoning block is otherwise
+   * indistinguishable from one that ran out of context — and a re-delegation
+   * based on the wrong diagnosis repeats the same death.
+   *
+   * Consumed by the parent's settlement notice, not published on the
+   * `subagent/end` edge: {@link ActivationObserver.settle} forwards only the
+   * stop reason and final output. A listener can already route on
+   * `stopReason === 'max-tokens'`; publishing this report there would widen the
+   * event for a consumer that does not exist.
+   */
+  readonly budget?: TurnBudgetReport
+  /**
+   * Failure detail for a `stopReason: 'error'` epoch — the child's own recorded
+   * failure, or a cold fold of it. A parent that reads only "failed before it
+   * finished" cannot tell an upstream queue rejection from an exhausted quota or
+   * a broken transport, and re-delegates with the wrong constraint.
+   */
+  readonly diagnostic?: string
+  /**
+   * Who cancelled the epoch's last consumed turn, absent for any other ending.
+   * Carried to the parent's settlement notice so a person who typed into the
+   * child's own session is not mistaken for the delegating side's own stop.
+   */
+  readonly abortCause?: TurnEndCancelCause
+}
+
+/**
+ * Lifecycle observer for one Activation's residency epoch, so continuable
+ * children emit the same start/end pair as the managed execution. Package-private:
+ * the continuation manager is the only consumer, and its call ordering is an
+ * in-package contract rather than a published extension point.
+ */
+export interface ActivationObserver {
+  /**
+   * Publish the start edge once the epoch is resident.
+   * @param child - the resident local Agent, or undefined for an external execution.
+   */
+  start(child?: Agent): void
+  /**
+   * Publish the terminal edge exactly once, pairing this epoch's {@link start},
+   * after the disposal outcome is known. Called only for a resident epoch: a
+   * failure before residency publishes no edge, because inventing one would
+   * report a lifecycle the child never had.
+   * @param result - the captured result, with teardown failures applied.
+   */
+  settle(result: SubagentResult): void
+}
+
+/**
+ * The contained lifecycle-edge publisher. Scoped dispatch keys its carrier by
+ * the exact service instance, whose own context filter composes into the
+ * carrier; a narrowed stand-in would silently change scope filtering.
  */
 export type LifecycleEmitter = {
   (name: 'subagent/start', info: SubagentRunInfo, parent: Agent): void

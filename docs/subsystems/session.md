@@ -1070,6 +1070,26 @@ Types: [SessionId](core.md) · [SessionSearchRequest](session-query.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 
+<a id="ctxsessionlogdeepseek--sessionlogdeepseekservice"></a>
+
+### `ctx.sessionLogDeepSeek` — `SessionLogDeepSeekService`
+
+Incremental Session-log contributor with caller-owned upload exclusions.
+
+```ts cordis-catalog
+/**
+ * Exclude matching requests before reading or preparing their log contribution.
+ * Any matching rule suppresses both the field and its acceptance callback. With
+ * no matching rules, normal upload eligibility applies. A throwing rule fails
+ * this contribution; the request-extension registry omits it and reports the error.
+ * @param exclude - synchronous, side-effect-free predicate; `true` skips this upload.
+ * @returns effect disposer that removes this registration when called or when the caller unloads.
+ */
+registerExclusion(exclude: SessionLogUploadExclusion): () => Promise<void>
+```
+
+Source: [`packages/session/session-log-deepseek/src/index.ts`](../../packages/session/session-log-deepseek/src/index.ts)
+
 <a id="ctxsessionpin--sessionpinservice"></a>
 
 ### `ctx.sessionPin` — `SessionPinService`
@@ -1097,26 +1117,6 @@ get(session: Session): SessionPinSnapshot | undefined
 ```
 
 Source: [`packages/session/session-pin/src/index.ts`](../../packages/session/session-pin/src/index.ts)
-
-<a id="ctxsessionlogdeepseek--sessionlogdeepseekservice"></a>
-
-### `ctx.sessionLogDeepSeek` — `SessionLogDeepSeekService`
-
-Incremental Session-log contributor with caller-owned upload exclusions.
-
-```ts cordis-catalog
-/**
- * Exclude matching requests before reading or preparing their log contribution.
- * Any matching rule suppresses both the field and its acceptance callback. With
- * no matching rules, normal upload eligibility applies. A throwing rule fails
- * this contribution; the request-extension registry omits it and reports the error.
- * @param exclude - synchronous, side-effect-free predicate; `true` skips this upload.
- * @returns effect disposer that removes this registration when called or when the caller unloads.
- */
-registerExclusion(exclude: SessionLogUploadExclusion): () => Promise<void>
-```
-
-Source: [`packages/session/session-log-deepseek/src/index.ts`](../../packages/session/session-log-deepseek/src/index.ts)
 
 <a id="ctxsessions--sessionstore"></a>
 

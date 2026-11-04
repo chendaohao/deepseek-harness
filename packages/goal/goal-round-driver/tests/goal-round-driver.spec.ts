@@ -1463,7 +1463,6 @@ describe('subagent-wait backoff', () => {
       },
       liveChild: async () => await ctx.agents.create({
         sessionId: SessionId(`goal-child-${Math.random()}`),
-        parentAgent: agent,
         meta: { parentSession: agent.id, origin: 'subagent' },
         agentOptions: { provider: 'mock', model: 'mock' },
       }),
@@ -1827,7 +1826,6 @@ describe('settled-child re-drive', () => {
   async function childOf(ctx: Context, parent: AgentHandle, name: string): Promise<AgentHandle> {
     return await ctx.agents.create({
       sessionId: SessionId(name),
-      parentAgent: parent.agent,
       meta: { parentSession: parent.agent.id, origin: 'subagent' },
       agentOptions: { provider: 'mock', model: 'mock' },
     })

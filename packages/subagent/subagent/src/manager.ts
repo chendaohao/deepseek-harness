@@ -32,7 +32,7 @@ import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor
 import type { SubagentDescriptorData } from './descriptor.ts'
 import { establishCatalogChild, establishExternalCatalogChild } from './catalog.ts'
 import { SubagentError } from './error.ts'
-import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
+import type { ActivationTerminal } from './lifecycle.ts'
 import type { LifecycleEmitter } from './lifecycle.ts'
 import type { SubagentIdentityProjection } from './projection-types.ts'
 import { SubagentRunId } from './types.ts'
@@ -483,18 +483,31 @@ export class SubagentManager {
    */
   async sendMessage(sender: Agent, targetId: SessionId, content: ContentBlock[], options: SubagentSendMessageOptions): Promise<MessageId> {
     options.signal.throwIfAborted()
-    const root = this.rootOf(sender)
     if (sender.id === targetId) throw new SubagentError('send_message requires another agent in the subagent tree', 'UNAUTHORIZED')
-    this.assertAdmitting(sender)
     const senderActivation = this.resident.get(sender.id)
     // A resident continuable child addressing its direct parent uses the parent
     // handoff: a resident parent gets the message live, and a parent that left
     // while the child kept running reads the stored log on its next activation.
+    // Checked before the tree-wide admission assert and rootOf: the handoff
+    // exists precisely for a sender whose root Agent may no longer be resident,
+    // so its admission reads the sender's own epoch state instead.
     if (senderActivation?.kind === 'local'
       && senderActivation.handle.agent === sender
       && senderActivation.ancestors.at(-1) === targetId) {
+      options.signal.throwIfAborted()
+      if (this.draining) {
+        throw new SubagentError('subagents are draining; the operation was not admitted', 'DRAINING')
+      }
+      if (senderActivation.closing !== undefined) {
+        throw new SubagentError(`subagent "${sender.id}" is closing`, 'ACTIVATION_CLOSING')
+      }
+      // The handoff delivers to the receiving root's own inbox: its model must
+      // accept the image, exactly as a member-to-root send through the tree does.
+      if (contentHasImage(content)) await this.assertImageCapable(senderActivation.root, options.signal)
       return this.sendToParent(senderActivation, sender, content)
     }
+    this.assertAdmitting(sender)
+    const root = this.rootOf(sender)
     const message = createAgentMessage(sender, content)
     const activation = this.resident.get(sender.id)
     return this.deliverToMember(root, targetId, [...message.content], {
@@ -787,6 +800,7 @@ export class SubagentManager {
       resource = {
         kind: 'local',
         handle,
+        creator: create?.parent ?? this.ctx.agents.get(inputs.ancestors.at(-1) ?? handle.agent.id) ?? handle.agent,
         outputStart: handle.agent.session.seq,
         structured,
         failureAt: undefined,
@@ -1191,6 +1205,12 @@ export class SubagentManager {
       this.assertAdmitting(root)
       options.signal.throwIfAborted()
       const result = await this.locks.run(childId, async () => {
+        // The root named by a cold-resumed lineage may name a session whose
+        // exact Agent was replaced by a same-id resume; only the live entry
+        // may admit work into its tree.
+        if (this.ctx.agents.get(root.id) !== root) {
+          throw new SubagentError(`subagent tree root "${root.id}" is not the live agent`, 'UNAUTHORIZED')
+        }
         if (childId === root.id) {
           if (contentHasImage(content)) await this.assertImageCapable(root, options.signal)
           options.signal.throwIfAborted()
@@ -1218,6 +1238,56 @@ export class SubagentManager {
       if ('messageId' in result) return result.messageId
       await Promise.allSettled([result.closing])
     }
+  }
+
+  /**
+   * Deliver one resident continuable child's message to its direct parent,
+   * storing it against the parent's log when no parent Agent is resident.
+   */
+  private async sendToParent(
+    activation: LocalActivation,
+    sender: Agent,
+    content: ContentBlock[],
+  ): Promise<MessageId> {
+    /* v8 ignore next 6 -- only synchronous re-entrant teardown can open this
+     * transaction between exact-agent authorization and this no-await span. */
+    if (activation.closing !== undefined) {
+      throw new SubagentError(
+        `subagent "${sender.id}" activation is being disposed; the message was not delivered`,
+        'ACTIVATION_CLOSING',
+      )
+    }
+    const message = createAgentMessage(sender, content)
+    const parentId = activation.ancestors.at(-1) as SessionId
+    const parent = this.ctx.agents.get(parentId)
+    if (parent !== undefined && parent !== activation.creator) {
+      // A same-id resume is a distinct exact Agent: the epoch's recorded creator
+      // is gone, and a replacement must not receive this child's message as if
+      // it had been the one that started it.
+      throw new SubagentError('direct parent is not live; the message was not delivered', 'PARENT_UNAVAILABLE', {
+        cause: new SubagentError(`subagent creator "${parentId}" was replaced`, 'UNAUTHORIZED'),
+      })
+    }
+    if (parent !== undefined) {
+      this.sendAgentMessage(parent, message)
+      activation.omitClosingText = true
+      return message.id
+    }
+    // The parent left while the child kept running: its next activation reads
+    // the stored log, so the message cannot vanish with the missing Agent. The
+    // settlement notice still omits the closing text, which this message carries.
+    activation.omitClosingText = true
+    try {
+      const outcome = await appendUnattendedMessage(this.ctx, parentId, message)
+      if (outcome === 'stored') return message.id
+      reportUnattendedHandoff(this.ctx, parentId, outcome)
+    } catch (error: unknown) {
+      reportUnattendedHandoff(this.ctx, parentId, { rejected: error })
+    }
+    throw new SubagentError(
+      'direct parent is not live; the message was not delivered',
+      'PARENT_UNAVAILABLE',
+    )
   }
 
   /** Send one Agent message while translating only the target's own rejection. */

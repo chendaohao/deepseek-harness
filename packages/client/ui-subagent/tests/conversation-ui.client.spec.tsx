@@ -1146,8 +1146,9 @@ describe('SubagentHeaderLineage', () => {
       }])),
     })} />)
 
-    // Four rows, two of them running: the trigger names the running count.
-    hoverCatalog(screen.getByRole('button', { name: '2 个子智能体，正在运行' }))
+    // Four rows, two of them running: the trigger names the total; the running
+    // count reaches the reader through the trigger's describedby span.
+    hoverCatalog(screen.getByRole('button', { name: '4 个子智能体' }))
 
     const labels = screen.getAllByRole('treeitem').map(row => row.textContent)
     // Active rows rise to the top in their own relative order; inactive rows

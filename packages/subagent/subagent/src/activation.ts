@@ -68,6 +68,11 @@ export type ActivationResource =
   | {
     readonly kind: 'local'
     readonly handle: AgentHandle
+    /**
+     * The exact creator Agent this epoch was materialized under, so a parent
+     * handoff can tell the live creator from a later same-id replacement.
+     */
+    readonly creator: Agent
     readonly outputStart: SessionLogOffset
     readonly structured: StructuredAttachment | undefined
     /** Latest live failure not superseded by a later committed turn ending. */

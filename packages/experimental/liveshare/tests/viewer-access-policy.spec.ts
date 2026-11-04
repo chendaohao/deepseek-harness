@@ -337,7 +337,7 @@ describe('share reader access policy', () => {
       { resource: session('source'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt'].sort() },
       // The reader's own fork carries the source grant's fork verb, and is the only Session it may rename.
       { resource: session('own-child'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt',
-        'session/rename'].sort() },
+        'session/rename', 'session/setPin'].sort() },
       // A revoked fork stays readable, so the page states it as read-only rather than unknown.
       { resource: session('revoked-child'), actions: [...reads].sort() },
       { resource: workspace('shared-ws'), actions: ['workspace/follow'] },
@@ -362,10 +362,10 @@ describe('share reader access policy', () => {
     expect(await sourceActions({ allowsFork: false })).toEqual([...SESSION_READS, 'session/cancel', 'session/prompt'].sort())
     const { grants } = await fixture({ mode: 'view' })
     expect(grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'own-child')?.actions)
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/rename'].sort())
-    // The switch removes the child's fork alone: the child role and its rename stay in the snapshot.
+      .toEqual([...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/rename', 'session/setPin'].sort())
+    // The switch removes the child's fork alone: the child role, its rename, and its pin stay in the snapshot.
     expect(await childActions({ allowsFork: false }))
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/rename'].sort())
+      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/rename', 'session/setPin'].sort())
   })
 })
 
@@ -381,6 +381,7 @@ describe('derived policy actions', () => {
       'session/cancel',
       'session/fork',
       'session/rename',
+      'session/setPin',
       'fileUploads/upload',
     ])
     expect([...POLICY_DECIDED_ACTIONS].sort()).toEqual([...roleActions].sort())

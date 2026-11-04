@@ -64,7 +64,8 @@ describe('AgentRegistry', () => {
     expect(ctx.agents.turnBoundaryOf(session)).toMatchObject({ openTurnStartSeq: null, lastTurn: 3 })
     const row = ctx.sessionProjections.checkpoint(session).turnBoundary
     expect(row).toBeDefined()
-    expect(row?.lastTurnEnd).toEqual({ kind: 'completed', seq: 2 })
+    expect((row?.val as { lastTurnEnd: { kind: string; seq: number } }).lastTurnEnd)
+      .toEqual({ kind: 'completed', seq: 2 })
     await fiber.dispose()
     session.append('turn/start', { turn: 4 })
     // The released unit keeps its last row and folds no event after the unload.

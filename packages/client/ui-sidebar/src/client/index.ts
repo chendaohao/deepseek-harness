@@ -10,12 +10,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the Session root standard-props merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-<<<<<<< HEAD
-import type { SidebarPanelMetadata, SidebarRootInjected } from './contract/slots.ts'
-import { createPanelFoldStore } from './panel-fold.ts'
-=======
 import type { SidebarPanelMetadata, SidebarRootInjected, SidebarSectionInjected } from './contract/slots.ts'
->>>>>>> upstream/master
+import { createPanelFoldStore } from './panel-fold.ts'
 import { createPanelPins } from './panel-pins.ts'
 import { HeaderLeadingControls } from './HeaderLeadingControls.tsx'
 import { SidebarRoot } from './SidebarRoot.tsx'

@@ -177,7 +177,7 @@ const VIEWER_SOURCE_WRITE_ROLE: RemoteAccessRole<'session'> = {
 const VIEWER_CHILD_ROLE: RemoteAccessRole<'session'> = {
   name: 'liveshare:viewer-child',
   resource: 'session',
-  actions: ['session/prompt', 'session/cancel', 'session/rename'],
+  actions: ['session/prompt', 'session/cancel', 'session/rename', 'session/setPin'],
 }
 
 /** Following one Workspace that holds a Session the reader can see. */

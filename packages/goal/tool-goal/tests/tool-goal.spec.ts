@@ -441,9 +441,12 @@ describe('goal tool execution authority', () => {
   })
 
   it('denies delegation-report completion to a non-root agent', async () => {
-    const { ctx, root } = await harness()
-    const child = stubAgent('goal-tool-delegating-child')
-    ctx.agents.enter(child.agent, root.agent)
+    const { ctx } = await harness()
+    // Upstream's root test reads the session origin (the live-lineage rework removed the
+    // owner argument from enter), so the child is non-root through its own header.
+    const child = stubAgent('goal-tool-delegating-child',
+      ctx.sessions.create(SessionId('goal-tool-delegating-child'), { meta: { origin: 'subagent' } }), ctx)
+    ctx.agents.enter(child.agent)
     await ctx.agents.announce(child.agent, 'startup')
     openTurn(child, {
       kind: 'subagent-settled',

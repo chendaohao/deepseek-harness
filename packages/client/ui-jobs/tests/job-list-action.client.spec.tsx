@@ -20,7 +20,16 @@ beforeEach(() => {
     disconnect(): void {}
   }
   vi.stubGlobal('ResizeObserver', TooltipObserver)
-  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+  // Wide, hover-capable posture by default: the placement specs assert anchored
+  // coordinates and hover-opened menus. The narrow-posture test installs its own
+  // window.matchMedia below.
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+    // Wide and hover-capable; only the width breakpoint flips, and the
+    // narrow-posture test installs its own window.matchMedia below.
+    matches: query.includes('max-width: 640px') === false,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })))
 })
 
 beforeEach(() => {

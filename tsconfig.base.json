@@ -620,6 +620,7 @@
       "@deepseek-ai/dsh-user-approval": ["./packages/interaction/user-approval/src"],
       "@deepseek-ai/dsh-user-questions": ["./packages/interaction/user-questions/src"],
       "@deepseek-ai/dsh-web": ["./packages/web/web/src"],
+      "@deepseek-ai/dsh-web/types": ["./packages/web/web/src/types.ts"],
       "@deepseek-ai/dsh-web-app": ["./packages/bundle/web-app/src"],
       "@deepseek-ai/dsh-web-deepseek-api": ["./packages/web/web-deepseek-api/src"],
       "@deepseek-ai/dsh-web-fetch-http": ["./packages/web/web-fetch-http/src"],

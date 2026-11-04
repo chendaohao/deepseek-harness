@@ -44,21 +44,20 @@ function parentWithRoute(
 describe('requestedAgentOptions', () => {
   const PARENT = { provider: 'alpha', model: 'parent-model', reasoningEffort: ReasoningEffortId('high') }
 
-  it('inherits an effort-only override over the parent route when nothing is configured', () => {
-    // No configured layer at all: the override names only an effort, so the
-    // function still has to produce a route rather than dropping the effort.
-    expect(requestedAgentOptions(PARENT, undefined, { reasoning_effort: 'low' }, true)).toEqual({
-      reasoningEffort: 'low',
-    })
+  it('requires a complete explicit route for an effort override', () => {
+    // An effort without provider and model has no route to resolve against:
+    // the caller names all three or none (upstream's explicit-route contract).
+    expect(() => requestedAgentOptions(undefined, { reasoning_effort: 'low' }, true, undefined, PARENT))
+      .toThrow('child LLM `reasoning_effort` requires both `provider` and `model`')
   })
 
-  it('clears a configured effort when the request changes the route', () => {
+  it('applies a complete explicit route over the configured layer', () => {
     const configured = { provider: 'alpha', model: 'configured-model', reasoningEffort: ReasoningEffortId('high'), maxTokens: 321 }
 
-    // The route moves and no effort is named, so the configured effort — which
-    // belongs to the old model — is dropped while the rest of the layer stays.
-    expect(requestedAgentOptions(PARENT, configured, { provider: 'alpha', model: 'other-model' }, true))
-      .toEqual({ provider: 'alpha', model: 'other-model', maxTokens: 321 })
+    // A recorded Session policy admits the new route; the named effort rides it.
+    expect(requestedAgentOptions(configured, { provider: 'alpha', model: 'other-model', reasoning_effort: 'low' }, true,
+      { routes: [{ provider: 'alpha', model: 'other-model' }] }, PARENT))
+      .toEqual({ provider: 'alpha', model: 'other-model', reasoningEffort: ReasoningEffortId('low'), maxTokens: 321 })
   })
 })
 

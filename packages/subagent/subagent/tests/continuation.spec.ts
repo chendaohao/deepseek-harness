@@ -1116,7 +1116,13 @@ describe('target-only Queue residency routing', () => {
       await waitNoActivation(ctx, leaf.childId)
       expect(ctx.agents.get(creator.childId)).toBeUndefined()
       const loaded = await loadStoredSession(ctx.sessionPersistence, creator.childId)
-      expect(userTexts(loaded.events)).toEqual(['child task', 'again'])
+      // The resumed creator's own stored log replays its unattended deliveries:
+      // the leaf's settlement notice rides the same log as the queued prompt.
+      expect(userTexts(loaded.events)).toEqual([
+        'child task', 'again',
+        expect.stringMatching(/^Background subagent \S+ finished and will do no further work/),
+        'Its closing message:', 'leaf',
+      ])
     } finally {
       releaseCreator.resolve(undefined)
       releaseLeaf.resolve(undefined)
@@ -2246,7 +2252,7 @@ describe('continuable review regressions', () => {
     const ends: SubagentRunEndInfo[] = []
     ctx.on('subagent/end', (info) => { ends.push(info) })
     const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
-    await queuePrompt(ctx, parent, started.childId, message('parked behind the failure'))
+    await queuePrompt(ctx, started.childId, message('parked behind the failure'))
     try {
       await expect(started.result).resolves.toMatchObject({ stopReason: 'error' })
       await waitNoActivation(ctx, started.childId)
@@ -2948,7 +2954,7 @@ describe('continuable adjacent-Agent delivery', () => {
 
     await expect(ctx.subagents.sendMessage(child, parent.id, message('cannot arrive'), {
       signal: testSignal,
-    })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    })).rejects.toMatchObject({ code: 'PARENT_UNAVAILABLE' })
 
     getSpy.mockRestore()
     releaseChild.resolve(undefined)
@@ -2972,7 +2978,7 @@ describe('continuable adjacent-Agent delivery', () => {
 
     await expect(ctx.subagents.sendMessage(child, parent.id, message('cannot arrive'), {
       signal: testSignal,
-    })).rejects.toBe(rejection)
+    })).rejects.toMatchObject({ code: 'PARENT_UNAVAILABLE', cause: rejection })
 
     releaseChild.resolve(undefined)
     await waitNoActivation(ctx, started.childId)
@@ -4403,7 +4409,7 @@ describe('settlement reconciliation after a lost settlement', () => {
       expect(adapter.requests.filter(request => request.sessionId === parent.id)).toHaveLength(1)
     })
 
-    await queuePrompt(ctx, parent, started.childId, message('second task'))
+    await queuePrompt(ctx, started.childId, message('second task'))
     await vi.waitFor(() => {
       expect(adapter.requests.filter(request => request.sessionId === started.childId)).toHaveLength(2)
     })

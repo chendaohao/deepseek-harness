@@ -29,7 +29,6 @@ import {
   hasDelegationModelRequest,
   preflightChildLlmRoute,
   requestedAgentOptions,
-  assertAllowedModelSelection,
 } from './model-selection.ts'
 import type { DelegationModelRequest } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'

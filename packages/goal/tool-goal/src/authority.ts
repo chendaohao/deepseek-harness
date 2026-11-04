@@ -92,7 +92,10 @@ function hasDirectHumanInput(ctx: Context, execution: GoalToolExecution): boolea
  * authority: declaring a persistent blockage is a judgment the human owns.
  */
 function hasDelegationReport(ctx: Context, execution: GoalToolExecution): boolean {
-  if (!ctx.agents.roots().includes(execution.agent)) return false
+  // Top-level in the same terms hasDirectHumanInput uses: registered here and
+  // not a subagent-origin session, so a resumed fork still reads as a root.
+  if (ctx.agents.get(execution.agent.id) !== execution.agent
+    || execution.agent.session.header.origin === 'subagent') return false
   return someOpenTurnEvent(execution, (event) => {
     if (event.type !== 'user/message') return false
     // The subagent seam declares both kinds through MessageSourceMap merging;
