@@ -1,11 +1,17 @@
 # Crew presets: one commander and three delegation roles, each with its own
 # model route.
 #
-# This layer inserts four `@deepseek-ai/dsh-agent-preset` declarations and
-# nothing else. It depends on the Web surface's host plane: the
-# `agent-preset` registry, the `subagentRouteSettings` registry, and the three
-# `subagent-*-route-settings` rows all come from `dsh-web-app`, so a profile
-# selects this bundle after that one.
+# This layer inserts the three role route-settings rows and four
+# `@deepseek-ai/dsh-agent-preset` declarations. It depends on the Web surface's
+# host plane: the `agent-preset` registry and the `subagentRouteSettings`
+# registry both come from `dsh-web-app`, so a profile selects this bundle after
+# that one.
+#
+# The three `subagent-*-route-settings` rows live here rather than in
+# `dsh-web-app` because they serve a setting only these presets read: a web
+# deployment without this bundle has no crew role, so the Models page must show
+# no crew-route block. A client that receives no namespace for a form renders
+# nothing for it, which is what makes the block follow this bundle.
 #
 # Stage one of the four-role plan, and what it deliberately does NOT claim:
 # the three delegation rows are siblings. A commander can skip planning or
@@ -23,6 +29,54 @@
 # `tool-subagent` stopped accepting as a `toolFilter` config on 2026-10-09.
 
 - insert:
+    # ── role routes ──────────────────────────────────────────────────────────
+    #
+    # One Host-owned default route per delegation role. A delegation row reads
+    # its declared namespace per call via `routeSettingsNamespace`, and the
+    # Models page edits the same namespace: the block names the role, and its
+    # pickers come from the Host model catalog. Each entry id must equal its
+    # `config.namespace` — verify-cordis-config enforces the pairing. The base
+    # values are the deployment fallback the user's stored route overrides.
+    # `isolate` gives each row its own `subagentWorkerRoute` service realm so
+    # three same-named services compose side by side; delegation rows resolve
+    # them through `dsh-web-app`'s `subagent-route-settings-registry`, not the
+    # per-row service name.
+    - id: subagent-worker-route-settings
+      name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
+      isolate:
+        subagentWorkerRoute: true
+      config:
+        namespace: subagent-worker-route-settings
+        provider: workbuddy
+        model: deepseek-v4.1-flash
+        reasoningEffort: max
+
+    # Planner role: plan authoring runs on its own model family. `glm-5.3` is
+    # the deployment's catalog entry on the same workbuddy route, distinct from
+    # the worker's DeepSeek family; the user's stored route overrides it.
+    - id: subagent-planner-route-settings
+      name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
+      isolate:
+        subagentWorkerRoute: true
+      config:
+        namespace: subagent-planner-route-settings
+        provider: workbuddy
+        model: glm-5.3
+        reasoningEffort: high
+
+    # Reviewer role: plan and delivery reviews run on a third route.
+    # `kimi-k3.1-pro` is the deployment's catalog entry on the same workbuddy
+    # route, a third model family; the user's stored route overrides it.
+    - id: subagent-reviewer-route-settings
+      name: '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
+      isolate:
+        subagentWorkerRoute: true
+      config:
+        namespace: subagent-reviewer-route-settings
+        provider: workbuddy
+        model: kimi-k3.1-pro
+        reasoningEffort: high
+
     # ── the commander ────────────────────────────────────────────────────────
     #
     # The one preset a person selects. Its job is coordination: read the
@@ -182,9 +236,9 @@
           # delegation. What each row establishes is that its role resolves its
           # OWN model route:
           #
-          # - `routeSettingsNamespace` names a namespace served by a
-          #   `subagent-*-route-settings` row in `dsh-web-app`. Its entry id must
-          #   equal the namespace, which `verify-cordis-config` checks. A
+          # - `routeSettingsNamespace` names a namespace served by one of the
+          #   `subagent-*-route-settings` rows this bundle inserts. Its entry id
+          #   must equal the namespace, which `verify-cordis-config` checks. A
           #   namespace with no serving row makes this row refuse to load, so a
           #   typo fails loudly instead of silently routing to another role.
           # - `agentPreset` points at the role preset above. The child's persona

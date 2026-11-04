@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-04-crew-route-settings-follow-the-bundle.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-04-crew-route-settings-follow-the-bundle.md
+/agent-note-the-crew-route-settings-block-follows-the-crew-bundle:
+  en: bc0ac425e32dd64b
+  zh: f0ce1ec03c441802
+/agent-note-the-crew-route-settings-block-follows-the-crew-bundle/problem:
+  en: d5c85314049c5ad3
+  zh: 02925204d615ac2b
+/agent-note-the-crew-route-settings-block-follows-the-crew-bundle/decision:
+  en: b56085e01b2fd001
+  zh: fbb65e37379806b4
+/agent-note-the-crew-route-settings-block-follows-the-crew-bundle/alternatives-considered:
+  en: a9be6a206b525354
+  zh: 9d249c29250ddf0e
+/agent-note-the-crew-route-settings-block-follows-the-crew-bundle/consequences:
+  en: 937f52e044e023fb
+  zh: a425cf4d4f38ed9e

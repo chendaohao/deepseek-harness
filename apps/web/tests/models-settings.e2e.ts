@@ -39,7 +39,6 @@ const DECLARED_EDIT_EXPECTED = join(SNAPSHOT_DIR, 'declared-edit.expected.md')
 const MODEL_PICKER_EXPECTED = join(SNAPSHOT_DIR, 'model-picker.expected.md')
 const NATIVE_DELETE_EXPECTED = join(SNAPSHOT_DIR, 'native-delete.expected.md')
 const DELETE_EXPECTED = join(SNAPSHOT_DIR, 'delete.expected.md')
-const WORKER_ROUTE_EXPECTED = join(SNAPSHOT_DIR, 'worker-route.expected.md')
 const MODE = webSnapshotMode()
 
 describe('web e2e: Models settings page configures a dormant provider', () => {
@@ -849,25 +848,23 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('edits the delegation worker route from the Models page', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-worker-route'))
+  it('shows no crew-route block without the crew bundle', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-no-crew-routes'))
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
     await dialog.getByRole('button', { name: '模型' }).click()
     await dialog.getByText('填入各提供商的 API 密钥即可使用其模型。').waitFor({ timeout: 10_000 })
 
-    // The block reads the Host `subagent-worker-route` namespace, whose
-    // composition base is the deployment fallback the user's route overrides.
-    const block = dialog.locator('section[aria-labelledby]')
-    await block.waitFor({ timeout: 10_000 })
+    // The three role route rows belong to `dsh-crew`, which this scaffold does
+    // not select: no crew route namespace is served, so the block draws nothing
+    // and the page keeps its provider rows only.
     await expect.poll(
-      async () => block.getByLabel('工人提供方').inputValue(),
+      async () => dialog.getByText('编队路由', { exact: true }).count(),
       { timeout: 10_000 },
-    ).toBe('workbuddy')
-
-    const snapshot = await captureStableAria(page, '[role="dialog"] section[aria-labelledby]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(WORKER_ROUTE_EXPECTED, snapshot, MODE)
+    ).toBe(0)
+    expect(await dialog.getByLabel('工人提供方').count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
@@ -876,7 +873,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
       'delete.expected.md', 'empty.expected.md', 'model-picker.expected.md',
       'native-delete.expected.md', 'native-keyless.expected.md', 'catalog-inputs.expected.md',
       'mobile-collapsed.expected.md', 'mobile-expanded.expected.md',
-      'refreshing.expected.md', 'image-only.expected.md', 'worker-route.expected.md',
+      'refreshing.expected.md', 'image-only.expected.md',
     ])
   })
 })

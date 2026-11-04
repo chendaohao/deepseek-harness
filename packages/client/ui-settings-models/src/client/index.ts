@@ -22,12 +22,10 @@ import type { DeepSeekOnboardingInjected } from './DeepSeekOnboardingDialog.tsx'
 import { ModelsSettingsStore } from './store.ts'
 import { createModelsOperations } from './operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
-import { WorkerRouteCatalog, WORKER_ROUTE_SETTINGS_NAMESPACE } from './worker-route.ts'
+import { RouteCatalog } from './route-settings.ts'
+import { CREW_ROLES, type CrewRoute } from './crew-routes.ts'
 
-/** The planner and reviewer role namespaces the page edits alongside the worker one. */
-const PLANNER_ROUTE_SETTINGS_NAMESPACE = 'subagent-planner-route-settings'
-const REVIEWER_ROUTE_SETTINGS_NAMESPACE = 'subagent-reviewer-route-settings'
-import type { WorkerRouteSettings } from './worker-route.ts'
+import type { RouteSettings } from './route-settings.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type ModelsKey } from './locales.ts'
 import { Config, ONBOARDING_CONFIG_GLOBAL } from '../onboarding-config.ts'
 
@@ -93,30 +91,25 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS) as ModelsSectionInjected['t']
   // The worker route is its own Host namespace: the page gets it here, where
   // the Remote namespaces are declared, and the block only receives the handle.
-  const workerRouteCatalog = new WorkerRouteCatalog(ctx)
-  const workerRouteScope = ctx.configForms.get<WorkerRouteSettings>(WORKER_ROUTE_SETTINGS_NAMESPACE)
-  const plannerRouteScope = ctx.configForms.get<WorkerRouteSettings>(PLANNER_ROUTE_SETTINGS_NAMESPACE)
-  const reviewerRouteScope = ctx.configForms.get<WorkerRouteSettings>(REVIEWER_ROUTE_SETTINGS_NAMESPACE)
+  const crewRouteCatalog = new RouteCatalog(ctx)
+  // One settings handle per role, from the one table that names the roles. A
+  // namespace the Host does not serve answers 'unavailable', so the block draws
+  // no row for it; the handles are created up front because the table is fixed.
+  const crewRoutes: readonly CrewRoute[] = CREW_ROLES.map(role => ({
+    namespace: role.namespace,
+    nameKey: role.nameKey,
+    scope: ctx.configForms.get<RouteSettings>(role.namespace),
+  }))
   const injected = (): ModelsSectionInjected => ({
     controller,
     hooks: { snapshot: controller.store },
     operations,
     schema,
     t,
-    workerRoute: {
-      scope: workerRouteScope,
-      catalog: workerRouteCatalog.store,
-      loadCatalog: () => { workerRouteCatalog.load() },
-    },
-    plannerRoute: {
-      scope: plannerRouteScope,
-      catalog: workerRouteCatalog.store,
-      loadCatalog: () => { workerRouteCatalog.load() },
-    },
-    reviewerRoute: {
-      scope: reviewerRouteScope,
-      catalog: workerRouteCatalog.store,
-      loadCatalog: () => { workerRouteCatalog.load() },
+    crewRoutes: {
+      routes: crewRoutes,
+      catalog: crewRouteCatalog.store,
+      loadCatalog: () => { crewRouteCatalog.load() },
     },
   })
   const deepSeekOnboardingInjected = (): DeepSeekOnboardingInjected => ({
@@ -141,7 +134,7 @@ export function apply(ctx: ClientContext): void {
       ctx.remote.$on('credentials/reference-updated', refreshModels),
       ctx.remote.$on('llm/adapters-updated', refreshModels),
       ctx.on('connection/reset', refreshModels),
-      ctx.on('connection/reset', () => { workerRouteCatalog.reset() }),
+      ctx.on('connection/reset', () => { crewRouteCatalog.reset() }),
     ]
     return () => {
       for (const dispose of disposers) dispose()

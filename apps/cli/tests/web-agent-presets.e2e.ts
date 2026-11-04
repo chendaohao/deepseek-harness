@@ -23,10 +23,17 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-tool-subagent/worker-route-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { bundlePatchPaths, composeEntries } from '@deepseek-ai/dsh-app-boot'
 import { createPluginProfile } from '../../desktop/src/project-manager.ts'
 /** Profile entry ids whose volatile fields these scenarios edit through Settings. */
 const SETTINGS_NAMESPACE = 'agent-preset-registry'
+/** The role route namespaces only the crew bundle serves. */
+const CREW_ROUTE_NAMESPACES: readonly SettingsNamespace[] = ([
+  SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE,
+  'subagent-planner-route-settings',
+  'subagent-reviewer-route-settings',
+] as readonly string[]) as readonly SettingsNamespace[]
 const SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE = 'subagent-model-selection-settings'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { ToolCallId, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -45,6 +52,7 @@ const BASE_PATCH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_BUNDLE = join(REPO_ROOT, 'packages/bundle/web-app')
 const WEB_PATCHES = bundlePatchPaths(WEB_BUNDLE, (JSON.parse(readFileSync(join(WEB_BUNDLE, 'package.json'), 'utf8')) as { dsh: { bundle: { patch: string[] } } }).dsh.bundle)
 const webPatches = (label: string): PatchOptions[] => WEB_PATCHES.flatMap(file => loadOverlayPatches(label, file))
+const CREW_BUNDLE_DIR = join(REPO_ROOT, 'packages/bundle/crew')
 const CODEX_PACKAGE_DIR = join(REPO_ROOT, 'packages/subagent/subagent-codex')
 const CLAUDE_CODE_PACKAGE_DIR = join(REPO_ROOT, 'packages/subagent/subagent-claude-code')
 /** The installation anchor whose dependency surface the runtime resolution mirrors. */
@@ -356,16 +364,16 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('registers the delegation worker route as a writable host setting', async () => {
-    const descriptor = ctx.settings.describe().find(candidate => candidate.ns === SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)
-    expect(descriptor).toBeDefined()
-    // The composition base is the deployment fallback the user's stored route overrides.
-    expect(descriptor?.base).toEqual({ provider: 'workbuddy', model: 'deepseek-v4.1-flash', reasoningEffort: 'max' })
-
-    await ctx.settings.update(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, { model: 'deepseek-v4-pro' })
-    const stored = ctx.settings.describe().find(candidate => candidate.ns === SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE)
-    expect(stored?.value).toMatchObject({ provider: 'workbuddy', model: 'deepseek-v4-pro', reasoningEffort: 'max' })
-    await ctx.settings.update(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, { model: 'deepseek-v4.1-flash' })
+  it('serves no delegation route namespace without the crew bundle', () => {
+    // The three role rows belong to dsh-crew: a web deployment that selects no
+    // crew bundle has no crew role, so the Models page must have no crew-route
+    // block to draw. The block renders nothing for a namespace the Host does
+    // not serve, so the serve set is the whole gate.
+    const served = new Set(ctx.settings.describe().map(candidate => candidate.ns))
+    for (const namespace of CREW_ROUTE_NAMESPACES) expect(served.has(namespace)).toBe(false)
+    // The registry itself stays on the host plane so a deployment can mount its
+    // own role rows; only the shipped role rows moved.
+    expect(ctx.get('subagentRouteSettings')).toBeDefined()
   })
 
   it.each(['standard', 'ptc'] as const)('retains delegation tools after repeated preset round trips ending in %s', async (target) => {
@@ -1166,6 +1174,56 @@ describe('a session keeps the preset it was created with', () => {
       // session runs, so naming anything else is a caller error rather than a
       // switch.
       expect(handle.agent.session.header.agentPreset).toBe('minimal')
+    } finally {
+      await handle.dispose()
+    }
+  })
+})
+
+describe('the crew bundle owns the role route settings', () => {
+  let crew: Context
+  let crewHome: string
+  beforeAll(async () => {
+    crewHome = await mkdtemp(join(tmpdir(), 'dsh-web-presets-crew-'))
+    crew = await bootWeb(crewHome, [], [CREW_BUNDLE_DIR], [
+      '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-crew',
+    ])
+  }, 120_000)
+  afterAll(async () => {
+    await crew?.fiber.dispose()
+    await rm(crewHome, { recursive: true, force: true })
+  })
+
+  it('serves every role route as a writable host setting', async () => {
+    const baseOf = (namespace: SettingsNamespace): unknown =>
+      crew.settings.describe().find(candidate => candidate.ns === namespace)?.base
+    // Each row's composition base is the deployment fallback the stored route
+    // overrides; the Models page renders one role row per served namespace.
+    expect(baseOf(CREW_ROUTE_NAMESPACES[0]!))
+      .toEqual({ provider: 'workbuddy', model: 'deepseek-v4.1-flash', reasoningEffort: 'max' })
+    expect(baseOf(CREW_ROUTE_NAMESPACES[1]!))
+      .toEqual({ provider: 'workbuddy', model: 'glm-5.3', reasoningEffort: 'high' })
+    expect(baseOf(CREW_ROUTE_NAMESPACES[2]!))
+      .toEqual({ provider: 'workbuddy', model: 'kimi-k3.1-pro', reasoningEffort: 'high' })
+
+    await crew.settings.update(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, { model: 'deepseek-v4-pro' })
+    const stored = crew.settings.describe().find(candidate => candidate.ns === CREW_ROUTE_NAMESPACES[0])
+    expect(stored?.value).toMatchObject({ provider: 'workbuddy', model: 'deepseek-v4-pro', reasoningEffort: 'max' })
+    await crew.settings.update(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, { model: 'deepseek-v4.1-flash' })
+  })
+
+  it('routes each delegation role from its own namespace', async () => {
+    // The three rows register into the one registry rather than fighting over a
+    // service name, and each delegation tool row resolved its own owner at load.
+    const members = crew.get('subagentRouteSettings')
+    expect(members).toBeDefined()
+    const handle = await crew.agents.create({
+      sessionId: SessionId(`crew-route-${randomUUID()}`),
+      setup: owner => crew.agentPresets.mount(owner, 'crew').then(() => undefined),
+    })
+    try {
+      // Three separately routed delegation tools, one per role preset.
+      expect(toolNames(crew, handle.agent)).toEqual(expect.arrayContaining(['worker', 'planner', 'reviewer']))
     } finally {
       await handle.dispose()
     }

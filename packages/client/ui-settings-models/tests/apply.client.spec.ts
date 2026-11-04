@@ -9,6 +9,7 @@ import { remoteDefaultResponses } from '@deepseek-ai/dsh-client-test-runtime/src
 import { ok, RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject, refreshIfLoaded } from '@deepseek-ai/dsh-client-ui-settings-models/client'
+import { CREW_ROLES } from '../src/client/crew-routes.ts'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
 import type { IndexInjection, WebServer } from '@deepseek-ai/dsh-host-webserver'
@@ -163,18 +164,28 @@ describe('ui-settings-models apply', () => {
     expect(after.slots.entries('settings.section')).toHaveLength(1)
   })
 
-  it('the injected worker-route handle loads the catalog through the page plugin', async () => {
+  it('the injected crew-route face loads the catalog through the page plugin', async () => {
     const b = await bench()
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const injected = b.slots.entries('settings.section')[0]!.inject as object as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
-    const workerRoute = injected().workerRoute
-    expect(workerRoute.catalog.getSnapshot()).toEqual({ value: null, status: 'idle' })
+    const crewRoutes = injected().crewRoutes
+    expect(crewRoutes.catalog.getSnapshot()).toEqual({ value: null, status: 'idle' })
     // The callback is the page plugin's own catalog loader, not a stub: the
     // model catalog remote answers this call and the store publishes it.
-    workerRoute.loadCatalog()
-    await vi.waitFor(() => { expect(workerRoute.catalog.getSnapshot().status).toBe('ready') })
-    expect(workerRoute.catalog.getSnapshot().value?.default).toEqual({ provider: 'alpha', model: 'm' })
+    crewRoutes.loadCatalog()
+    await vi.waitFor(() => { expect(crewRoutes.catalog.getSnapshot().status).toBe('ready') })
+    expect(crewRoutes.catalog.getSnapshot().value?.default).toEqual({ provider: 'alpha', model: 'm' })
+  })
+
+  it('hands the page one route handle per entry of the role table', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const injected = b.slots.entries('settings.section')[0]!.inject as object as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
+    // The table is the page's only role source: adding a role there adds a row,
+    // and nothing in the injection names a role.
+    expect(injected().crewRoutes.routes.map(route => route.namespace)).toEqual(CREW_ROLES.map(role => role.namespace))
   })
 
   it('the label thunk follows the active locale without re-registration', async () => {

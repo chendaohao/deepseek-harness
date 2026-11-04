@@ -323,6 +323,44 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Crew route rows: one role per row, its three pickers side by side. The
+   row keeps its own heading and notices, so a locked or rejected write lands
+   beside the role it concerns instead of at the block's foot. */
+.crewRows {
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.crewRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.crewRole {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.crewFields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* Three pickers do not fit side by side on a phone; the row stacks rather than
+   squeezing each control below its usable width. */
+@media (max-width: 560px) {
+  .crewFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .field {
   display: flex;
   flex-direction: column;

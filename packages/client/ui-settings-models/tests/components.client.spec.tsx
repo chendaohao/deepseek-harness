@@ -14,7 +14,7 @@ import {
   ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
-import { stubWorkerRoute } from './worker-route-stub.client.ts'
+import { stubCrewRoutes } from './crew-route-stub.client.ts'
 import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
 import type { ProviderEditorProps } from '../src/client/ProviderEditor.tsx'
 import {
@@ -130,6 +130,21 @@ function wireNamespaces(): SettingsNamespaceView[] {
       schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as JsonValue,
       value: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
       user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
+      autoGenerate: true, applies: 'live',
+      secrets: [],
+      revision: 0,
+    },
+    {
+      // The crew worker route: the page draws its block only for a namespace the
+      // Host serves, so this fixture decides whether the stub block renders.
+      ns: 'subagent-worker-route-settings',
+      schema: JSON.parse(JSON.stringify(Schema.object({
+        provider: Schema.string(),
+        model: Schema.string(),
+        reasoningEffort: Schema.string(),
+      }).toJSON())) as JsonValue,
+      value: { provider: 'workbuddy', model: 'deepseek-v4.1-flash', reasoningEffort: 'max' },
+      base: { provider: 'workbuddy', model: 'deepseek-v4.1-flash', reasoningEffort: 'max' },
       autoGenerate: true, applies: 'live',
       secrets: [],
       revision: 0,
@@ -334,9 +349,7 @@ async function mountFace(
     operations: operationsWith(face),
     schema: settingsSchema,
     t,
-    workerRoute: stubWorkerRoute(),
-    plannerRoute: stubWorkerRoute(),
-    reviewerRoute: stubWorkerRoute(),
+    crewRoutes: stubCrewRoutes(),
     renderSlot: renderSlot as unknown as ModelsSectionProps['renderSlot'],
   }
   const view = render(<ModelsSection {...injected} />)
@@ -407,9 +420,7 @@ describe('ModelsSection', () => {
         operations={operationsWith(face)}
         schema={settingsSchema}
         t={t}
-        workerRoute={stubWorkerRoute()}
-        plannerRoute={stubWorkerRoute()}
-        reviewerRoute={stubWorkerRoute()}
+        crewRoutes={stubCrewRoutes()}
         renderSlot={() => null}
       />)
       expect(screen.getByRole('heading', { name: en.title })).toBeTruthy()
@@ -771,9 +782,7 @@ describe('ModelsSection', () => {
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
-      workerRoute={stubWorkerRoute()}
-      plannerRoute={stubWorkerRoute()}
-      reviewerRoute={stubWorkerRoute()}
+      crewRoutes={stubCrewRoutes()}
       renderSlot={() => null}
     />)
 
@@ -799,9 +808,7 @@ describe('ModelsSection', () => {
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
-      workerRoute={stubWorkerRoute()}
-      plannerRoute={stubWorkerRoute()}
-      reviewerRoute={stubWorkerRoute()}
+      crewRoutes={stubCrewRoutes()}
       renderSlot={() => null}
     />)
     // Now a row with an Edit button, not an open card.
@@ -1618,9 +1625,7 @@ describe('ModelsSection', () => {
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
-      workerRoute={stubWorkerRoute()}
-      plannerRoute={stubWorkerRoute()}
-      reviewerRoute={stubWorkerRoute()}
+      crewRoutes={stubCrewRoutes()}
       renderSlot={() => null}
     />)
     const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
@@ -1744,9 +1749,7 @@ describe('ModelsSection', () => {
       operations={operationsWith(face.face)}
       schema={settingsSchema}
       t={t}
-      workerRoute={stubWorkerRoute()}
-      plannerRoute={stubWorkerRoute()}
-      reviewerRoute={stubWorkerRoute()}
+      crewRoutes={stubCrewRoutes()}
       renderSlot={() => null}
     />)
     expect(screen.getByText(/directory down/)).toBeTruthy()
@@ -1770,9 +1773,7 @@ describe('ModelsSection', () => {
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
-      workerRoute={stubWorkerRoute()}
-      plannerRoute={stubWorkerRoute()}
-      reviewerRoute={stubWorkerRoute()}
+      crewRoutes={stubCrewRoutes()}
       renderSlot={() => null}
     />)
     expect(screen.getByText(en.readOnly)).toBeTruthy()
@@ -2118,18 +2119,17 @@ describe('ModelsSection', () => {
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
-      workerRoute={stubWorkerRoute()}
-      plannerRoute={stubWorkerRoute()}
-      reviewerRoute={stubWorkerRoute()}
+      crewRoutes={stubCrewRoutes()}
       renderSlot={() => null}
     />)
     await screen.findByText('DeepSeek')
   })
 
-  it('leaves the worker route open while the Host admits a write', async () => {
+  it('leaves the crew route open while the Host admits a write', async () => {
     await mountSection()
 
-    expect(screen.getByLabelText<HTMLSelectElement>(en.workerRouteProvider).disabled).toBe(false)
+    expect(screen.getByLabelText<HTMLSelectElement>(en.crewRouteProvider.replace('{role}', en.crewRoleWorker)).disabled)
+      .toBe(false)
     expect(screen.queryByRole('status')).toBeNull()
   })
 

@@ -1,22 +1,14 @@
 /**
- * Worker-route settings slice for the Models page: the default LLM route an
- * opted-in delegation tool gives its children, plus the model catalog the
- * route's provider, model, and reasoning-effort pickers are drawn from.
+ * The model catalog the crew-route pickers are drawn from, plus the route value
+ * those pickers edit. The routes themselves are named by `./crew-routes.ts`.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
-/**
- * Settings namespace owned by the Host worker-route settings plugin. Spelled
- * here rather than imported: a client package must not depend on a Host
- * package, and the namespace is the profile entry id that mounts it.
- */
-export const WORKER_ROUTE_SETTINGS_NAMESPACE = 'subagent-worker-route-settings'
-
 /** Stored default child route, mirroring the Host section. */
-export interface WorkerRouteSettings {
+export interface RouteSettings {
   /** Registered LLM provider id for the child. */
   provider: string
   /** Provider-owned exact model id for the child. */
@@ -26,7 +18,7 @@ export interface WorkerRouteSettings {
 }
 
 /** Observable lifecycle of the shared model catalog. */
-export interface WorkerRouteCatalogState {
+export interface RouteCatalogState {
   /** Loaded catalog, or null before the first accepted load. */
   value: ModelCatalog | null
   /** Load lifecycle; `error` keeps the last accepted value cleared. */
@@ -40,9 +32,9 @@ export interface WorkerRouteCatalogState {
  * composer's model menu reads, so the picker offers exactly the routes the
  * Host can serve rather than a client-owned vocabulary.
  */
-export class WorkerRouteCatalog {
+export class RouteCatalog {
   /** Current catalog value and load lifecycle. */
-  readonly store: SnapshotStore<WorkerRouteCatalogState> = createSnapshotStore({
+  readonly store: SnapshotStore<RouteCatalogState> = createSnapshotStore({
     value: null,
     status: 'idle',
   })

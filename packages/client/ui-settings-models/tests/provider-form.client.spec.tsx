@@ -9,7 +9,7 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ModelsSection, providerCopy } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
-import { stubWorkerRoute } from './worker-route-stub.client.ts'
+import { stubCrewRoutes } from './crew-route-stub.client.ts'
 import { CustomProviderCard } from '../src/client/CustomProviderCard.tsx'
 import { formatCapacity, parseCapacity } from '../src/client/DeepSeekModelsEditor.tsx'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
@@ -218,9 +218,7 @@ async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
     operations: operationsWith(scripted.face),
     schema: settingsSchema,
     t,
-    workerRoute: stubWorkerRoute(),
-    plannerRoute: stubWorkerRoute(),
-    reviewerRoute: stubWorkerRoute(),
+    crewRoutes: stubCrewRoutes(),
     renderSlot: () => null,
   }
   render(<ModelsSection {...injected} />)
@@ -1004,9 +1002,7 @@ describe('provider rows', () => {
       operations={operationsWith(scripted.face)}
       schema={settingsSchema}
       t={t}
-      workerRoute={stubWorkerRoute()}
-      plannerRoute={stubWorkerRoute()}
-      reviewerRoute={stubWorkerRoute()}
+      crewRoutes={stubCrewRoutes()}
       renderSlot={() => null}
     />)
 
