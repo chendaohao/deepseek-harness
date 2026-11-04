@@ -50,6 +50,7 @@ worktrees/
 native/system/test/bin/
 .codegraph/
 .omc/
+.workbuddy/
 apps/mobile/
 *.tgz
 
