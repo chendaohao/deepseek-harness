@@ -492,8 +492,18 @@
    strip open over the title and put Archive one mis-tap away. Touch keeps
    only the menu trigger; every verb stays reachable inside the menu. */
 @media (hover: none) {
-  .quickAction {
+  /* A pinned row's Unpin stays visible without hover (its contract, and the
+     hover-none block above already lays it out); the strip's other verbs
+     remain reachable inside the row menu. */
+  .quickAction:not(.pinnedAction) {
     display: none;
+  }
+
+  /* The visible Unpin joins the touch-target rule below: its 24px box would
+     offset the row's More button 20px against the workspace rows' 44px pair. */
+  .quickAction.pinnedAction {
+    min-width: var(--dsh-mobile-touch-target, 44px);
+    min-height: var(--dsh-mobile-touch-target, 44px);
   }
 }
 
