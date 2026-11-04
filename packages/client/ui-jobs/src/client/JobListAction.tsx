@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { JobsSnapshot, JobView, ObservedJob } from '@deepseek-ai/dsh-api-job-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   IconChevronDownOutlineRegular, IconLayersOutlineRegular, IconStopFillRegular, MenuSurface, StateDot, TerminalBlock, Tooltip,
-  useAnchoredPosition, useDismissOnOutsidePointer,
+  useDismissOnOutsidePointer,
   type StateDotState, type TerminalBlockLabels,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -48,43 +48,8 @@ export type JobListActionProps =
 /** Stable empty list so a session with no jobs keeps one array identity. */
 const NO_JOBS: readonly JobView[] = []
 
-/** Minimum gap kept between the popover and the viewport edges (the Menu primitive's portal margin). */
-const VIEWPORT_MARGIN = 12
-
-/** Distance between the trigger's bottom edge and the popover. */
-const MENU_GAP = 5
-
-/**
- * Breakpoint where the stylesheet owns the popover's placement and pins it to
- * the viewport center; keep in sync with the module CSS.
- */
-const NARROW_VIEWPORT_QUERY = '(max-width: 640px)'
-
-/** Unplaced list: hidden but laid out so the first placement measures real dimensions. */
-const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
-
 /** Keyboard-reachable controls inside the list, in document order. */
 const FOCUSABLE = 'button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])'
-
-/**
- * Whether the viewport is at or below {@link NARROW_VIEWPORT_QUERY}, tracking a
- * crossing resize so the two placement postures swap live.
- * @returns true while the stylesheet owns the popover's placement.
- */
-function useNarrowViewport(): boolean {
-  const [narrow, setNarrow] = useState(() => typeof window.matchMedia === 'function'
-    && window.matchMedia(NARROW_VIEWPORT_QUERY).matches)
-  useEffect(() => {
-    // jsdom (the unit lane) implements no matchMedia; the wide posture stands.
-    if (typeof window.matchMedia !== 'function') return
-    const query = window.matchMedia(NARROW_VIEWPORT_QUERY)
-    const update = (): void => { setNarrow(query.matches) }
-    update()
-    query.addEventListener('change', update)
-    return () => { query.removeEventListener('change', update) }
-  }, [])
-  return narrow
-}
 
 /** How long an armed kill waits for its confirming press before disarming. */
 const KILL_ARM_MS = 3_000
@@ -442,22 +407,7 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
   // Timers belong to this mounted session and cannot survive a disappearing trigger.
   useEffect(() => cancelHover, [cancelHover, sessionId, hasJobs])
 
-  // The popover portals to the document body: the session header sits in a
-  // clipping column that the right sidebar borders or overlaps, so an in-place
-  // popover is cut off or covered there.
-  // Below the narrow breakpoint the stylesheet owns placement, pinning the
-  // popover to the viewport center; an inline offset would outrank that
-  // `left: 50%` and push it off-center, so the hook is fed the closed state
-  // there and the list renders with no inline coordinates at all.
-  const narrow = useNarrowViewport()
-  const anchorPlacement = useAnchoredPosition({
-    open: open && !narrow,
-    anchorRef: rootRef,
-    panelRef: menuRef,
-    gap: MENU_GAP,
-    margin: VIEWPORT_MARGIN,
-  })
-  const menuStyle = narrow ? undefined : anchorPlacement ?? MEASURE_STYLE
+  const anchorName = `--dsh-jobs-${useId().replaceAll(':', '')}`
   useDismissOnOutsidePointer(rootRef, open, changeOpen, menuRef)
   // Hover does not move focus; Escape must also work from the rest of the page.
   useEffect(() => {
@@ -615,7 +565,7 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
   )
 
   return (
-    <div ref={rootRef} className={css.root} onKeyDown={onKeyDown}>
+    <div ref={rootRef} style={{ anchorName }} onKeyDown={onKeyDown}>
       <Tooltip label={countLabel} disabled={open} delayMs={500} portal side="bottom">
         <button
           ref={triggerRef}
@@ -647,7 +597,7 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
           <MenuSurface
             ref={menuRef}
             className={css.menu}
-            style={menuStyle}
+            style={{ positionAnchor: anchorName }}
             onPointerEnter={hoverEnter}
             onPointerLeave={hoverLeave}
             onPointerDownCapture={() => { changeOpen(true) }}

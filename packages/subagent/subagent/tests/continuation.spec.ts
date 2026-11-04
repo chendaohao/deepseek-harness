@@ -29,7 +29,7 @@ import type { SubagentRunEndInfo, SubagentRunInfo } from '../src/index.ts'
 import type { SubagentPromptRequestId } from '../src/control-types.ts'
 import * as activationResults from '../src/activation.ts'
 import { requireLocalActivation } from '../src/activation.ts'
-import { SUBAGENT_CATALOG_VERSION, establishCatalogChild, establishExternalCatalogChild } from '../src/catalog.ts'
+import { establishCatalogChild, establishExternalCatalogChild } from '../src/catalog.ts'
 import { TestSessionQuery } from './test-session-query.ts'
 import { loadStoredSession } from './persistence-helpers.ts'
 import {
@@ -2924,7 +2924,7 @@ describe('continuable adjacent-Agent delivery', () => {
       senderSessionId: started.childId,
     })
     expect(delivered?.content).toEqual([
-      { type: 'text', text: `Agent ${started.childId} sent a message: ` },
+      { type: 'text', text: `Agent ${started.name} sent a message: ` },
       { type: 'text', text: 'an explicit message' },
     ])
 
@@ -3010,7 +3010,7 @@ describe('continuable settlement delivery', () => {
       await leaf.result
       const notice = settlementNotices(creatorAgent).find(item => item.sender === leaf.childId)!
       expect(notice.text).toBe(
-        `Background subagent ${leaf.childId} finished and will do no further work unless you send it more.\n`
+        `Background subagent ${leaf.name} finished and will do no further work unless you send it more.\n`
         + (target === 'parent'
           ? 'It sent you a message just before finishing, so its closing message is omitted.'
           : 'Its closing message:\nleaf answer'),
@@ -3032,11 +3032,11 @@ describe('continuable settlement delivery', () => {
     const notice = settlementNotices(parent)[0]!
     expect(notice.sender).toBe(started.childId)
     expect(notice.text).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.\nIts closing message:\nthe answer`,
+      `Background subagent ${started.name} finished and will do no further work unless you send it more.\nIts closing message:\nthe answer`,
     )
     // The collapsed row states the outcome without the child's content.
     expect(notice.summary).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.`,
+      `Background subagent ${started.name} finished and will do no further work unless you send it more.`,
     )
   })
 
@@ -3058,7 +3058,7 @@ describe('continuable settlement delivery', () => {
     // message, is left out.
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.\n`
+      `Background subagent ${started.name} finished and will do no further work unless you send it more.\n`
       + 'It sent you a message just before finishing, so its closing message is omitted.',
     )
   })
@@ -3088,7 +3088,7 @@ describe('continuable settlement delivery', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.\nIts closing message:\nthe answer`,
+      `Background subagent ${started.name} finished and will do no further work unless you send it more.\nIts closing message:\nthe answer`,
     )
   })
 
@@ -3127,7 +3127,7 @@ describe('continuable settlement delivery', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.\nIts closing message:\nthe answer`,
+      `Background subagent ${started.name} finished and will do no further work unless you send it more.\nIts closing message:\nthe answer`,
     )
   })
 
@@ -3144,7 +3144,7 @@ describe('continuable settlement delivery', () => {
       const parentId = /You are a subagent delegated by agent \\"([^\\]+)\\"/.exec(history)![1]!
       const calls = order.map(name => name === 'noop'
         ? { id: ToolCallId('n1'), name, arguments: '{}' }
-        : { id: ToolCallId('s1'), name, arguments: JSON.stringify({ agent_id: parentId, message: 'interim' }) })
+        : { id: ToolCallId('s1'), name, arguments: JSON.stringify({ agent: parentId, message: 'interim' }) })
       return [
         ...calls.flatMap((call, index): StreamChunk[] => [
           { type: 'block-start', index, blockType: 'tool-call' },
@@ -3172,7 +3172,7 @@ describe('continuable settlement delivery', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.\n${ending}`,
+      `Background subagent ${started.name} finished and will do no further work unless you send it more.\n${ending}`,
     )
   })
 
@@ -3183,7 +3183,7 @@ describe('continuable settlement delivery', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} hit its output token limit before it finished.\nIts closing message:\nhalf an ans`,
+      `Background subagent ${started.name} hit its output token limit before it finished.\nIts closing message:\nhalf an ans`,
     )
   })
 
@@ -3201,7 +3201,7 @@ describe('continuable settlement delivery', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} declined the task.\nIt left no closing message.`,
+      `Background subagent ${started.name} declined the task.\nIt left no closing message.`,
     )
   })
 
@@ -3231,7 +3231,7 @@ describe('continuable settlement delivery', () => {
     const child = await loadStoredSession(ctx.sessionPersistence, started.childId)
     expect(hasUserText(child.events, 'second task')).toBe(false)
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} failed before it finished.\nIts closing message:\nthe answer`
+      `Background subagent ${started.name} failed before it finished.\nIts closing message:\nthe answer`
       // The failure detail rides the notice so the parent can tell a policy
       // rejection from an upstream one without reading the child's transcript.
       // A code that carried no information is not rendered beside the message.
@@ -3255,7 +3255,7 @@ describe('continuable settlement delivery', () => {
     // line "ran out of room" invites re-delegation with the wrong constraint —
     // the exact misdiagnosis that killed a whole three-worker crew.
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} hit its output token limit before it finished.`
+      `Background subagent ${started.name} hit its output token limit before it finished.`
       + '\nIt left no closing message.'
       + '\nIt ended turn max-tokens with 122,686 characters of reasoning in one block and no visible output; '
       + 'the constraint that stopped it was output budget, not the size of the task.',
@@ -3293,7 +3293,7 @@ describe('continuable settlement delivery', () => {
     // task had finished.
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.\nIts closing message:\nthe answer`,
+      `Background subagent ${started.name} was stopped before it finished.\nIts closing message:\nthe answer`,
     )
   })
 
@@ -3319,7 +3319,7 @@ describe('continuable settlement delivery', () => {
     // that genuinely finished with no output.
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.\nIt left no closing message.`,
+      `Background subagent ${started.name} was stopped before it finished.\nIt left no closing message.`,
     )
   })
 
@@ -3345,7 +3345,7 @@ describe('continuable settlement delivery', () => {
 
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.\nIt left no closing message.`,
+      `Background subagent ${started.name} was stopped before it finished.\nIt left no closing message.`,
     )
   })
 
@@ -3382,7 +3382,7 @@ describe('continuable settlement delivery', () => {
     expect(hasUserText(child.session.snapshotEvents(), 'never runs')).toBe(false)
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.\nIts closing message:\nthe answer`,
+      `Background subagent ${started.name} was stopped before it finished.\nIts closing message:\nthe answer`,
     )
   })
 
@@ -3404,7 +3404,7 @@ describe('continuable settlement delivery', () => {
     await waitNoActivation(ctx, started.childId)
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.\nIts closing message:\nthe answer`,
+      `Background subagent ${started.name} finished and will do no further work unless you send it more.\nIts closing message:\nthe answer`,
     )
     await expect(started.result).resolves.toMatchObject({ stopReason: 'completed' })
     await expect(started.dispose()).rejects.toThrow('scope unwind failed')
@@ -3480,7 +3480,7 @@ describe('continuable settlement delivery', () => {
     // message when that parent is disposed next is pinned by the test below.
     expect(settlementNotices(parent)).toHaveLength(1)
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.\nIt left no closing message.`,
+      `Background subagent ${started.name} was stopped before it finished.\nIt left no closing message.`,
     )
     expect(parent.session.snapshotEvents().some(event => event.type === 'agent/inbox/spliced')).toBe(true)
     expect(parent.session.snapshotEvents().some(event => event.type === 'turn/start')).toBe(false)
@@ -3604,7 +3604,7 @@ describe('continuable settlement delivery', () => {
     expect(relayed).toHaveLength(1)
     expect(relayed[0]!.id).toBe(messageId)
     expect(relayed[0]!.content).toEqual([
-      { type: 'text', text: `Agent ${started.childId} sent a message: ` },
+      { type: 'text', text: `Agent ${started.name} sent a message: ` },
       { type: 'text', text: 'carry this over' },
     ])
 
@@ -4438,7 +4438,7 @@ describe('settlement reconciliation after a lost settlement', () => {
       { chunks: textResponse('parent ack two') },
     ])
     const { ctx, parent } = await setupWith(adapter)
-    const { childId } = await orphanMidTurn(ctx, parent, adapter, gates)
+    await orphanMidTurn(ctx, parent, adapter, gates)
 
     await subagentManager(ctx).reconcileResumedParent(parent)
 
@@ -4446,7 +4446,7 @@ describe('settlement reconciliation after a lost settlement', () => {
     expect(settlementNotices(parent)[1]!.text).toBe(
       // The reconciliation fold keeps the recorded cancel cause, so the parent
       // learns nobody typed into the child's session.
-      `Background subagent ${childId} was stopped before it finished, when its runtime was disposed.`
+      'Background subagent agent-1 was stopped before it finished, when its runtime was disposed.'
       + '\nIt left no closing message.',
     )
   })
@@ -4460,7 +4460,7 @@ describe('settlement reconciliation after a lost settlement', () => {
     const child = ctx.sessions.create(childId)
     child.append('turn/start', { turn: 1 })
     await ctx.sessions.flush(child)
-    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Died mid-turn' })
+    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Died mid-turn' }, 'agent-1')
 
     await subagentManager(ctx).reconcileResumedParent(parent)
 
@@ -4479,7 +4479,7 @@ describe('settlement reconciliation after a lost settlement', () => {
     child.append('turn/start', { turn: 1 })
     child.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     await ctx.sessions.flush(child)
-    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Cancelled then lost' })
+    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Cancelled then lost' }, 'agent-1')
 
     await subagentManager(ctx).reconcileResumedParent(parent)
 
@@ -4575,7 +4575,7 @@ describe('settlement reconciliation after a lost settlement', () => {
     const childId = SessionId('never-ran-child')
     const child = ctx.sessions.create(childId)
     await ctx.sessions.flush(child)
-    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Never started' })
+    establishCatalogChild(parent.session, child.header, { mode: 'continuable', label: 'Never started' }, 'agent-1')
 
     // The catalog names a child with no own event to account for: there is no
     // epoch to report and no last event a notice could be measured against.
@@ -4638,9 +4638,11 @@ describe('settlement reconciliation after a lost settlement', () => {
     const { ctx, parent } = await setup([textResponse('the answer')])
     // An external execution has no local Session to read, and a one-shot child
     // was never resumable: neither can be settled into the parent's log.
-    establishExternalCatalogChild(parent.session, SessionId('external-child'), 'External work')
+    establishExternalCatalogChild(parent.session, SessionId('external-child'), 'External work', 'agent-1')
+    // One-shot entries predate names: v0 records them, and reconciliation
+    // must still leave them alone.
     parent.session.append('subagent/catalog', {
-      version: SUBAGENT_CATALOG_VERSION,
+      version: 0,
       childId: SessionId('one-shot-child'),
       childCreatedAt: Date.now(),
       mode: 'one-shot',

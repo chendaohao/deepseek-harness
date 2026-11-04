@@ -141,7 +141,8 @@ async function runSpawnedDelegation(ctx: Context, parent: Agent, toolName: strin
     agent: parent,
   })
   if (result.isError) throw new Error(`delegation failed: ${JSON.stringify(result.error)}`)
-  return (result.value as { subagentId: SessionId }).subagentId
+  const { name } = result.value as { kind: 'activation'; name: string }
+  return ctx.subagents.resolveName(parent, name, new AbortController().signal)
 }
 
 describe('three route-settings rows compose with the registry', () => {

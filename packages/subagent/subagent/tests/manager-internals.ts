@@ -51,6 +51,7 @@ export function bindSubagentActivation(
     provider: 'fixture',
     root,
     ancestors,
+    path: undefined,
     releaseSlot() {},
     handle: { agent: child, async dispose() {} },
     // The exact epoch creator, per the manager's own materialization: the

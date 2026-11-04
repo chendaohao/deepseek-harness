@@ -125,7 +125,8 @@ async function delegate(
     agent: parent,
   })
   if (result.isError) throw new Error(`delegation failed: ${JSON.stringify(result.error)} ${JSON.stringify(result.content)}`)
-  return (result.value as { subagentId: SessionId }).subagentId
+  const { name } = result.value as { kind: 'activation'; name: string }
+  return ctx.subagents.resolveName(parent, name, new AbortController().signal)
 }
 
 /** Requests the scripted adapter served for one exact Session, in order. */

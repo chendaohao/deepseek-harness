@@ -18,6 +18,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { TestSessionQuery } from '../../subagent/tests/test-session-query.ts'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -69,6 +70,7 @@ async function mountHeldStack(options: { recordRefreshes?: string[] } = {}) {
   await ctx.plugin(JsonlSessionPersistence, { root })
   await mountWorkingDirectoryFixture(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(TestSessionQuery)
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(
@@ -99,7 +101,8 @@ async function delegate(
     agent: parent,
   })
   if (result.isError) throw new Error(`delegation failed: ${JSON.stringify(result.error)} ${JSON.stringify(result.content)}`)
-  return (result.value as { subagentId: SessionId }).subagentId
+  const { name } = result.value as { kind: 'activation'; name: string }
+  return ctx.subagents.resolveName(parent, name, new AbortController().signal)
 }
 
 /** Wait until one child Agent reports the named liveness. */

@@ -352,14 +352,18 @@ describe('released event and payload inventory', () => {
     for (const version of [2, 3]) {
       expect(() => restoreV0ToV1(v0Header, [descriptor(version)]), String(version)).not.toThrow()
     }
-    // Version 1 predates the first release tag and lacks `mode`, and a version
-    // no writer emitted must not be guessed into the current vocabulary.
-    for (const version of [1, 4]) {
-      expect(() => restoreV0ToV1(v0Header, [descriptor(version)]), String(version))
-        .toThrow(SessionFormatUnsupportedMigrationError)
-      expect(() => restoreV0ToV1(v0Header, [descriptor(version)]), String(version))
-        .toThrow(new RegExp(`uses unsupported descriptor version ${String(version)}`))
-    }
+    // A version no writer emitted must not be guessed into the current
+    // vocabulary. Version 1 predates the first release tag and lacks `mode`,
+    // so a v1 writer's descriptor carrying `mode` is malformed first — the
+    // member check rejects it before any version admission runs.
+    expect(() => restoreV0ToV1(v0Header, [descriptor(1)]), '1')
+      .toThrow(/unexpected member "mode"/)
+    expect(() => restoreV0ToV1(v0Header, [descriptor(1)]), '1')
+      .not.toThrow(/unsupported descriptor version/)
+    expect(() => restoreV0ToV1(v0Header, [descriptor(4)]), '4')
+      .toThrow(SessionFormatUnsupportedMigrationError)
+    expect(() => restoreV0ToV1(v0Header, [descriptor(4)]), '4')
+      .toThrow(new RegExp('uses unsupported descriptor version 4'))
   })
 
   it('exercises each released test validation policy', () => {

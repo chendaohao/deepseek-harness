@@ -35,7 +35,7 @@
  * the host restores any remembered effort for it; the effort pane marks its
  * picks explicit.
  */
-import { MenuGroup, MenuSurface, observeStickyMenuGroups, useAnchoredPosition } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MenuGroup, MenuSurface, observeStickyMenuGroups } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
   type CSSProperties, type KeyboardEvent, type FocusEvent,
@@ -68,9 +68,6 @@ interface ProviderRef {
   readonly id: string
   readonly name: string
 }
-
-/** Unplaced portal card: hidden but laid out at a fixed origin so offsetWidth/offsetHeight are real (Menu primitive's measure pass). */
-const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
 
 /**
  * Render the composer model seat.
@@ -109,22 +106,15 @@ export function ModelSelect(
   const searchRef = useRef<HTMLInputElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const groupsRef = useRef<HTMLDivElement | null>(null)
-  const menuPos = useAnchoredPosition({
-    open: open && available,
-    anchorRef: triggerRef,
-    panelRef: menuRef,
-    side: 'top',
-    align: 'end',
-    gap: 8,
-    margin: 12,
-    layoutKey: pane,
-  })
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
   // Row refs addressed by highlight index. `itemRefs` cannot serve: the
   // collapsible group headings register there too, so its positions and the
   // flattened row indices diverge.
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([])
   const id = useId()
+  const anchorStyle: CSSProperties & Record<'--dsh-model-anchor', string> = {
+    '--dsh-model-anchor': `--dsh-model-${id.replaceAll(':', '')}`,
+  }
 
   const accountProviderName = t('provider.account')
   // The account route leads and the official one follows until the Models
@@ -624,6 +614,7 @@ export function ModelSelect(
         ref={triggerRef}
         type="button"
         className={css.trigger}
+        style={anchorStyle}
         aria-label={triggerAria}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -659,7 +650,7 @@ export function ModelSelect(
           ref={menuRef}
           id={`${id}-menu`}
           className={css.menu}
-          style={menuPos ?? MEASURE_STYLE}
+          style={anchorStyle}
           role={pane === 'model' ? 'group' : 'menu'}
           aria-label={t('menu.aria')}
           aria-busy={state.status === 'loading' || busy}

@@ -58,16 +58,18 @@ function agentMessageSource(sender: Agent): AgentMessageSource {
 /**
  * Build the model-visible and durable representation of one Agent message.
  * @param sender - exact live Agent that authored the message.
+ * @param senderName - the sender's model-facing name in its subagent tree.
  * @param content - model-visible message blocks supplied by the sender.
  * @returns the durable user-message representation delivered to the recipient.
  */
 export function createAgentMessage(
   sender: Agent,
+  senderName: string,
   content: ContentBlock[],
 ): ReturnType<typeof createUserMessage> {
   return createUserMessage({
     content: [
-      { type: 'text' as const, text: `Agent ${sender.id} sent a message: ` },
+      { type: 'text' as const, text: `Agent ${senderName} sent a message: ` },
       ...content,
     ],
     source: agentMessageSource(sender),
@@ -97,13 +99,13 @@ export function withResultDeliveryGuidance(
 /**
  * One line telling a parent that a background child is finished and why, in
  * the parent's own task vocabulary.
- * @param childId - the durable child the parent knows by id.
+ * @param childName - the model-facing name the parent knows the child by.
  * @param terminal - the recorded terminal state; `abortCause` refines `aborted`.
  * @param continuable - whether the child accepts a later message.
  * @returns the model-facing opening line of the settlement notice.
  */
-function settlementSummary(childId: SessionId, terminal: ActivationTerminal, continuable: boolean): string {
-  const subject = `Background subagent ${childId}`
+function settlementSummary(childName: string, terminal: ActivationTerminal, continuable: boolean): string {
+  const subject = `Background subagent ${childName}`
   switch (terminal.stopReason) {
     case 'completed':
       return continuable
@@ -163,7 +165,8 @@ function budgetDiagnosis(budget: TurnBudgetReport): string | undefined {
 
 /**
  * Build the runtime-owned settlement notice from the child's nonempty closing text.
- * @param childId - durable child session id named in the notice.
+ * @param childId - durable child session id recorded as the sender.
+ * @param childName - model-facing child name used in the notice text.
  * @param terminal - recorded terminal state for the settled Activation.
  * @param continuable - whether the child can accept another task.
  * @param omitClosingText - replace the closing text when the child's last action
@@ -172,11 +175,12 @@ function budgetDiagnosis(budget: TurnBudgetReport): string | undefined {
  */
 export function createSettlementMessage(
   childId: SessionId,
+  childName: string,
   terminal: SubagentResult,
   continuable = true,
   omitClosingText = false,
 ): ReturnType<typeof createUserMessage> {
-  const summary = settlementSummary(childId, terminal, continuable)
+  const summary = settlementSummary(childName, terminal, continuable)
   // Parent providers receive this notice as a user message and may reject
   // nontext assistant blocks. Keep this conversion local so SDK/UI consumers
   // retain the complete child output.

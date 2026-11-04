@@ -166,7 +166,7 @@ describe('effortFor', () => {
   })
 
   it('keeps the stored effort when the model advertises none or is unknown', () => {
-    expect(effortFor(CATALOG.groups[1].models[0], 'max')).toBe('max')
+    expect(effortFor(CATALOG.groups[1]!.models[0]!, 'max')).toBe('max')
     expect(effortFor(undefined, 'max')).toBe('max')
   })
 })
