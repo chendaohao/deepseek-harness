@@ -4,6 +4,7 @@
   - button "Global panels" [expanded]
   - button "Plugins"
   - button "Automation tasks"
+  - button "Unpin Automation tasks from sidebar"
   - button "More"
 - text: Workspaces
 - button "Search sessions"

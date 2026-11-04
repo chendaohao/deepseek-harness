@@ -12,8 +12,8 @@ import type {
   SessionFormatHeader,
   SessionFormatJsonValue,
 } from '@deepseek-ai/dsh-session-format'
-import { isReleasedSubagentDescriptorVersion, RELEASED_V0_EVENT_DISPOSITIONS } from './dispositions.ts'
-import { assertReleasedPayloadSemantics } from './payload-validation.ts'
+import { RELEASED_V0_EVENT_DISPOSITIONS } from './dispositions.ts'
+import { assertReleasedPayloadSemantics, SUBAGENT_DESCRIPTOR_VERSIONS } from './payload-validation.ts'
 import { assertReleasedV0Keys, releasedV0Record } from './validation-helpers.ts'
 
 const HEADER_REQUIRED = ['version', 'id', 'createdAt', 'isSeeded', 'delegationDepth'] as const
@@ -195,7 +195,7 @@ export function assertReleasedEventPayload(event: SessionFormatEvent, version: 0
     )
   }
   const data = releasedV0Record(event.data, `${event.type} ${event.seq} data`)
-  if (event.type === 'subagent/descriptor' && !isReleasedSubagentDescriptorVersion(data['version'])) {
+  if (event.type === 'subagent/descriptor' && !SUBAGENT_DESCRIPTOR_VERSIONS.some(known => known === data['version'])) {
     const descriptorVersion = sessionFormatCount(data['version'], `${event.type} ${event.seq} version`)
     if (version === 0) {
       throw new SessionFormatUnsupportedMigrationError(

@@ -89,3 +89,8 @@
 - id: goal-round-driver
   config:
     roundIntervalMs: 0
+
+# The recorded tool catalog includes the optional patch tool.
+- id: tool-fs
+  config:
+    applyPatch: true

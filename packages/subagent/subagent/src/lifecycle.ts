@@ -1,21 +1,19 @@
 /**
- * Lifecycle-edge publication for managed subagent activations.
+ * Contained lifecycle notifications for subagents.
  *
- * Public event payloads live in `./types.ts`; the package-private observer
- * retains only the identity shared by each start/end pair.
+ * The service owns scoped dispatch and listener containment; the manager
+ * supplies event payloads from each activation.
  *
  * @module @deepseek-ai/dsh-subagent/lifecycle
  */
 
-import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, LlmFailure } from '@deepseek-ai/dsh-llm'
 import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import { renderThrown } from '@deepseek-ai/dsh-util-values'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TurnEndCancelCause } from '@deepseek-ai/dsh-session'
-import { SubagentRunId } from './types.ts'
 import type { SubagentResult, SubagentRunEndInfo, SubagentRunInfo, TurnBudgetReport } from './types.ts'
 
 /**
@@ -56,11 +54,10 @@ export interface ActivationTerminal {
   readonly abortCause?: TurnEndCancelCause
 }
 
-
 /**
  * Lifecycle observer for one Activation's residency epoch, so continuable
- * children emit the same start/end pair as the managed execution. Package-private: the
- * continuation manager is the only consumer, and its call ordering is an
+ * children emit the same start/end pair as the managed execution. Package-private:
+ * the continuation manager is the only consumer, and its call ordering is an
  * in-package contract rather than a published extension point.
  */
 export interface ActivationObserver {
@@ -80,13 +77,9 @@ export interface ActivationObserver {
 }
 
 /**
- * Publish one lifecycle edge with per-listener exception containment. Run edges
- * carry the delegating parent that keys scoped dispatch; provider removal has no
- * parent carrier and reaches listeners unscoped.
- *
- * The service owns this closure because scoped dispatch keys its carrier by the
- * exact service instance, whose own context filter composes into the carrier;
- * a narrowed stand-in would silently change scope filtering.
+ * The contained lifecycle-edge publisher. Scoped dispatch keys its carrier by
+ * the exact service instance, whose own context filter composes into the
+ * carrier; a narrowed stand-in would silently change scope filtering.
  */
 export type LifecycleEmitter = {
   (name: 'subagent/start', info: SubagentRunInfo, parent: Agent): void
@@ -100,8 +93,8 @@ export type LifecycleEmitter = {
  * returned promise is logged without starving peer listeners, changing the run,
  * or — for provider removal, which fires from a disposer — breaking teardown.
  * @param ctx - the service's own context, owning dispatch and the logger.
- * @param carrier - resolve the scoped dispatch carrier for one delegating parent.
- * @returns the emitter both observers and the provider registry publish through.
+ * @param carrier - resolve the scoped dispatch carrier for one subagent tree root.
+ * @returns the emitter the manager and provider registry publish through.
  */
 export function createLifecycleEmitter(
   ctx: Context,
@@ -125,36 +118,6 @@ export function createLifecycleEmitter(
         ctx.logger.warn(`subagent: ${name} listener threw: ${renderThrown(error)}`)
       }
     }
-  }
-}
-
-/**
- * Build the observer for one local or external activation's residency epoch. Creation failure before residency emits no lifecycle edge.
- * @param emit - the contained lifecycle emitter.
- * @param provider - the provider name recorded in the durable descriptor.
- * @param childId - the durable child session id.
- * @param parent - the exact live direct parent keying scoped dispatch.
- * @returns the observer whose edges this epoch publishes.
- */
-export function createActivationObserver(
-  emit: LifecycleEmitter,
-  provider: string,
-  childId: SessionId,
-  parent: Agent,
-): ActivationObserver {
-  const identity = { runId: SubagentRunId(randomUUID()), provider, id: childId, local: false }
-  return {
-    start: (child?: Agent): void => {
-      identity.local = child !== undefined
-      emit('subagent/start', identity, parent)
-    },
-    settle: ({ stopReason, output }: SubagentResult): void => {
-      emit('subagent/end', {
-        ...identity,
-        stopReason,
-        ...output.length === 0 ? {} : { lastAssistantMessage: output },
-      }, parent)
-    },
   }
 }
 

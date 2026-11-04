@@ -53,6 +53,7 @@ Every package lives in exactly one group; new packages join existing groups, and
 | [`context/`](context/README.md) | Model-visible request context: workspace instructions, time context, references |
 | [`codegraph/`](codegraph/README.md) | CodeGraph integration: checklist + MCP server |
 | [`subagent/`](subagent/README.md) | Subagent capability family: provider-registry contract and model-facing delegation tools |
+| [`team/`](team/README.md) | Team coordination: shared task boards and model-facing task tools |
 | [`jobs/`](jobs/README.md) | Generic background-job runtime and model-facing job control tools |
 | [`experimental/`](experimental/README.md) | Capabilities under evaluation; [status and support policy](experimental/README.md#status) |
 | [`workflow/`](workflow/README.md) | Workflow seam, PTC process engine, and the model-facing `workflow` tool |

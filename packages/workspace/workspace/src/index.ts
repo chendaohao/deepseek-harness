@@ -279,14 +279,16 @@ export class WorkspaceRegistry extends Service {
    * A newly created workspace is prepended to the durable registry order.
    * Different canonical paths may share a display title.
    * @param path - Existing directory to own, in a fully qualified path spelling.
+   * @param title - Optional display title; the directory's own final segment is
+   *   the default, resolved at first registration.
    * @returns the existing or newly durable workspace.
    */
-  async create(path: string): Promise<Workspace> {
+  async create(path: string, title?: string): Promise<Workspace> {
     const canonical = await realpathNormalize(path)
     if (!(await stat(canonical)).isDirectory()) {
       throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`)
     }
-    return await this.enqueueOperation(() => this.createCanonical(canonical))
+    return await this.enqueueOperation(() => this.createCanonical(canonical, title))
   }
 
   /**

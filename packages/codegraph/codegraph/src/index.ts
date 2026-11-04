@@ -26,6 +26,7 @@ import {
   startConnection,
   type ConnectionHandle,
 } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { McpStatusCell } from '@deepseek-ai/dsh-mcp-client/src/status.ts'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { codegraphChecklistFrame } from './checklist.ts'
 
@@ -162,9 +163,11 @@ export function apply(ctx: Context, config: Config): void {
       env: {},
       cwd: '',
       toolCallTimeoutMs: resolved.toolCallTimeoutMs,
+      closeTimeoutMs: 5000,
+      expandTemplates: false,
       failOnStartupError: false,
     }
-    const handle = startConnection(ctx, stdioConfig, resolveReconnectPolicy(undefined, 'codegraph'))
+    const handle = startConnection(ctx, stdioConfig, resolveReconnectPolicy(undefined, 'codegraph'), new McpStatusCell(() => {}))
     connection = handle
     void handle.ready.then((outcome: { error?: unknown }) => {
       if (outcome.error !== undefined) {
