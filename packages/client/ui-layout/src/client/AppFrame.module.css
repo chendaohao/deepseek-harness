@@ -390,8 +390,11 @@
 /* Narrow overlay: a floating sidebar rides an absolute layer above the
    full-width center, with a click-away backdrop below it. The grid tracks
    stay at their collapsed geometry; the panel is a sibling overlay, not a
-   track occupant. */
-.frame[data-sidebar-overlay] .sidebarCol {
+   track occupant. On a phone the drawer form is also live (below the drawer
+   breakpoint), and its mask (z 70) sits between the two z values below: this
+   rule must not apply there, or the mask paints over the drawer and swallows
+   every tap inside it. */
+.frame[data-sidebar-overlay]:not([data-sidebar-drawer]) .sidebarCol {
   position: absolute;
   top: 0;
   bottom: 0;

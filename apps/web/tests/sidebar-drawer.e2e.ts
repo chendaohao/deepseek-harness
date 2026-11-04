@@ -251,6 +251,13 @@ it('overlays the conversation and closes after navigation without losing its sid
       const drawer = page.getByRole('dialog', { name: 'Navigation', exact: true })
       await drawer.waitFor()
       await assertMaskFade(frame, 0, 1)
+      // The drawer form (this width) outranks the narrow overlay form: the
+      // overlay rule's z 30 would put the column under the mask's z 70, and
+      // every tap inside the drawer would hit the mask first.
+      expect(await frame.evaluate(el => el.hasAttribute('data-sidebar-overlay'))).toBe(true)
+      const columnZ = await page.locator('[class*="sidebarCol"]').first()
+        .evaluate(el => Number(getComputedStyle(el).zIndex))
+      expect(columnZ).toBeGreaterThan(70)
       await expect.poll(() => main.boundingBox()).toEqual(closed)
       expect(closed?.width).toBe(390)
       expect(await main.evaluate(el => el.closest('[inert]') !== null)).toBe(true)
