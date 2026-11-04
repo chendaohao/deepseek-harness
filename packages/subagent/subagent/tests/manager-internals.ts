@@ -53,6 +53,9 @@ export function bindSubagentActivation(
     ancestors,
     releaseSlot() {},
     handle: { agent: child, async dispose() {} },
+    // The exact epoch creator, per the manager's own materialization: the
+    // ancestor chain ends with the creator, and the live instance is captured.
+    creator: ancestors.at(-1) === child.id ? child : root,
     outputStart: child.session.seq,
     structured: undefined,
     failureAt: undefined,
