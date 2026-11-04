@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-crew",
   "description": "The crew agent presets as a profile bundle: a commander that delegates to worker, planner, and reviewer roles, each with its own model route",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-alpha.3",
   "publishConfig": {
     "access": "public"
   },
