@@ -31,11 +31,15 @@
   flex: none;
 }
 
-/* First sacrifice when the title row (the enclosing inline-size container)
-   runs out of width: the preset is passive chrome, so it yields before any
-   interactive header action loses its label. */
+/* The preset is passive chrome, so it sheds its name before any interactive
+   header action loses its label: the label narrows to the icon-only form,
+   whose full name and description stay on the title attribute. */
 @container (max-width: 540px) {
   .label {
+    padding: 0 4px;
+  }
+
+  .name {
     display: none;
   }
 }

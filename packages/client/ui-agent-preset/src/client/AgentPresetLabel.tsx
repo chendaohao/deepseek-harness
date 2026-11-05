@@ -11,7 +11,7 @@
 import { useEffect } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconAgentPresetOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconAgentPresetOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls the ui-conversation SlotMap merge (the header actions).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
@@ -59,10 +59,18 @@ export function AgentPresetLabel({
 
   const option = options.find(entry => entry.id === preset)
   const text = option === undefined ? undefined : presetDisplayText(option, t)
+  const explanation = text?.description ?? t('headerHint')
   return (
-    <span className={css.label} title={text?.description ?? t('headerHint')}>
-      <IconAgentPresetOutlineRegular size={14} className={css.icon} />
-      {text?.name ?? preset}
-    </span>
+    // openOnClick keeps the name and description reachable on touch devices,
+    // where the native title attribute never shows and the icon-only form
+    // carries no name (responsive UI: supplementary explanations tap-to-show).
+    <Tooltip label={explanation} portal openOnClick side="bottom">
+      {/* The narrow form hides the name, so the accessible name rides the
+          label itself; tabIndex keeps the explanation reachable by focus. */}
+      <span className={css.label} role="img" aria-label={text?.name ?? preset} tabIndex={0}>
+        <IconAgentPresetOutlineRegular size={14} className={css.icon} />
+        <span className={css.name}>{text?.name ?? preset}</span>
+      </span>
+    </Tooltip>
   )
 }

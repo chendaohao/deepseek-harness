@@ -391,13 +391,15 @@ describe('the session-header label', () => {
     await waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
     // A control here would promise a switch the host refuses outright.
     expect(screen.queryByRole('button')).toBeNull()
-    expect(screen.getByTitle(en.presetStandardDescription).textContent).toBe(en.presetStandardName)
+    expect(screen.getByText(en.presetStandardName)).toBeTruthy()
+    expect(screen.getByRole('img', { name: en.presetStandardName })).toBeTruthy()
   })
 
   it('falls back to the id, and to the generic hint, when metadata is absent', () => {
     renderLabel({ blank: true, projectionValues: { agentPreset: 'mine' } })
 
-    expect(screen.getByTitle(en.headerHint).textContent).toBe('mine')
+    expect(screen.getByRole('img', { name: 'mine' })).toBeTruthy()
+    expect(screen.getByText('mine')).toBeTruthy()
   })
 
   it('shows the id until the roster resolves it', () => {
@@ -408,7 +410,42 @@ describe('the session-header label', () => {
 
     // The session's own summary is the authority on which preset it runs; the
     // roster only supplies the display name, and its arrival is a later frame.
-    expect(screen.getByTitle(en.headerHint).textContent).toBe('standard')
+    expect(screen.getByRole('img', { name: 'standard' })).toBeTruthy()
+  })
+
+  it('pins the description open on tap, the only way a touch device can read it', () => {
+    // The bubble paints only after ResizeObserver reports its size, and
+    // getByRole skips a visibility:hidden node, so the double delivers one.
+    class BubbleObserver implements ResizeObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element): void {
+        const size = { inlineSize: 120, blockSize: 40 }
+        this.callback([{
+          target, contentRect: new DOMRect(0, 0, size.inlineSize, size.blockSize),
+          borderBoxSize: [size], contentBoxSize: [size], devicePixelContentBoxSize: [size],
+        }], this)
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', BubbleObserver)
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: false, addEventListener: () => {}, removeEventListener: () => {},
+    })))
+    try {
+      renderLabel({
+        blank: false,
+        projectionValues: { agentPreset: 'standard' },
+      })
+
+      // The native title attribute never shows on touch; the pinned bubble is
+      // the mobile-readable explanation (responsive UI: tap-to-show).
+      expect(screen.queryByRole('tooltip')).toBeNull()
+      fireEvent.click(screen.getByRole('img', { name: en.presetStandardName }))
+      expect(screen.getByRole('tooltip').textContent).toBe(en.presetStandardDescription)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('renders nothing, and reads no roster, when the session records no preset', async () => {
