@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-A preset can add plugin rows and shadow same-named ones, but nothing in a preset removes a global tool. A reviewer preset that declares only `read` and `write` still carries the deployment's shell, MCP filesystem editors, task board, and every other host-global tool, and its persona has to ask the model to ignore them. This package closes that gap. Mounted as the first row of a preset, it restricts that preset scope's view of the global catalog to the names the declaration keeps, and every Agent composed under the preset inherits the restriction. The host's own agents keep the full catalog.
+A preset can add plugin rows and shadow same-named ones, but nothing in a preset removes a global tool. A reviewer preset that declares only `read` and `write` still carries the deployment's shell, MCP filesystem editors, task board, and every other host-global tool, and its persona has to ask the model to ignore them. This package closes it. Mounted as the first row of a preset, it restricts that preset scope's view of the global catalog to the names the declaration keeps, and every Agent composed under the preset inherits the restriction. The host's own agents keep the full catalog.
 
 ## Table of Contents
 
