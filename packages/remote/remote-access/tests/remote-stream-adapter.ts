@@ -13,5 +13,5 @@ export type {
   RemoteStreamFailureMapper,
   RemoteStreamOpener,
 } from '../../../api/gateway/src/stream-server.ts'
-export { createRemoteProxy } from '../src/proxy.ts'
+export { createRemoteProxy, internals } from '../src/proxy.ts'
 export type { RemoteProxyHandle } from '../src/proxy.ts'

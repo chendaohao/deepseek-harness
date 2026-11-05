@@ -23,6 +23,7 @@ import WebSocket from 'ws'
 import {
   RemoteStreamMuxServer,
   createRemoteProxy,
+  internals as proxyInternals,
   type RemoteProxyHandle,
   type RemoteStreamFailureMapper,
   type RemoteStreamOpener,
@@ -47,6 +48,8 @@ export interface Variant {
   readonly gateway: HopCompression
   /** Proxy compression, matching `websocketCompression` on `RemoteAccess`. */
   readonly proxy: HopCompression
+  /** zlib level on the remote-facing hop; only meaningful when `proxy` is `deflate`. */
+  readonly level: number
 }
 
 /** Published measurement of one fresh-process sample. */
@@ -271,6 +274,9 @@ export async function measure(variant: Variant): Promise<RemoteStreamSample> {
       gateway!.listen(0, '127.0.0.1', () => { gateway!.off('error', reject); resolve() })
     })
     const gatewayPort = (gateway.address() as AddressInfo).port
+    // The level is a test hook rather than configuration, so the sample sets it
+    // before the proxy builds its server options.
+    proxyInternals.deflateLevel = variant.level
     proxy = await createRemoteProxy({
       targetPort: gatewayPort,
       policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
@@ -419,11 +425,13 @@ function validate(streams: ScriptedStreams, items: ReadonlyMap<string, readonly 
 }
 
 if (import.meta.main) {
-  const [gatewayCompression, proxyCompression, sampleIndex] = process.argv.slice(2)
+  const [gatewayCompression, proxyCompression, levelText, sampleIndex] = process.argv.slice(2)
+  const level = Number(levelText)
   if ((gatewayCompression !== 'deflate' && gatewayCompression !== 'none')
-    || (proxyCompression !== 'deflate' && proxyCompression !== 'none')) {
-    throw new Error('usage: remote-stream.worker.js <deflate|none> <deflate|none> <sample-index>')
+    || (proxyCompression !== 'deflate' && proxyCompression !== 'none')
+    || !Number.isInteger(level) || level < 0 || level > 9) {
+    throw new Error('usage: remote-stream.worker.ts <deflate|none> <deflate|none> <0-9> <sample-index>')
   }
-  const sample = await measure({ gateway: gatewayCompression, proxy: proxyCompression })
+  const sample = await measure({ gateway: gatewayCompression, proxy: proxyCompression, level })
   process.stdout.write(JSON.stringify({ sampleIndex, ...sample }) + '\n')
 }
