@@ -14,8 +14,15 @@ export type { ScopeLayer } from './store.ts'
 /** An opaque, identity-compared scope key. */
 export type ScopeKey = object
 
-/** Context tag written by {@link createScope}. */
-const kScope = Symbol('dsh.scope')
+/**
+ * Context tag written by {@link createScope}.
+ *
+ * Registered with `Symbol.for` because the tag is read across module copies: a
+ * preset row loaded from built `lib/` and a host running from `src/` each hold
+ * their own module instance, and a per-instance `Symbol()` would make the two
+ * disagree about whether a context carries a scope.
+ */
+const kScope = Symbol.for('dsh.scope')
 
 declare const ScopedBrand: unique symbol
 
