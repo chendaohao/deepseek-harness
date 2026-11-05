@@ -56,6 +56,8 @@ afterEach(async () => {
   proxyInternals.backlogMaxBytes = savedInternals.backlogMaxBytes
   proxyInternals.reauthorizeIntervalMs = savedInternals.reauthorizeIntervalMs
   proxyInternals.pongMissMax = savedInternals.pongMissMax
+  proxyInternals.deflateLevel = savedInternals.deflateLevel
+  proxyInternals.hostHopDeflate = savedInternals.hostHopDeflate
   await proxy?.close()
   proxy = undefined
   if (target !== undefined) {
@@ -424,6 +426,34 @@ describe('WebSocket relaying', () => {
     // Upstream does not: an offer here would make the target negotiate, and the
     // relay's dial is the only place that offer can come from.
     expect(upgradeRequestHeaders?.['sec-websocket-extensions']).toBeUndefined()
+  })
+
+  it('re-offers the extension on the Host-facing dial when the diagnostic hook enables it', async () => {
+    for (const client of wss?.clients ?? []) client.terminate()
+    await new Promise<void>((resolve) => { wss?.close(() => { resolve() }) })
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0, perMessageDeflate: { threshold: 0 } })
+    await new Promise<void>((resolve) => { wss!.once('listening', resolve) })
+    echoPort = (wss.address() as AddressInfo).port
+    const payload = JSON.stringify({ type: 'snapshot', text: 'remote-access-'.repeat(8_192) })
+    wss.on('connection', (socket, request) => {
+      upgradeRequestHeaders = request.headers
+      socket.send(payload)
+    })
+    await proxy?.close()
+    // The transport diagnostic measures the replaced dual-hop topology by
+    // restoring this hop; without it both arms would be the shipped relay, which
+    // is why the first version of that diagnostic could not reproduce its result.
+    proxyInternals.hostHopDeflate = true
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+    })
+
+    const frame = await readFirstFrame(proxy.port)
+    expect(frame.payloadBytes).toBeLessThan(Buffer.byteLength(payload))
+    // The offer is the only thing this hook changes, and it is what a compressing
+    // target negotiates on, so its presence on the dial proves the hook took effect.
+    expect(upgradeRequestHeaders?.['sec-websocket-extensions']).toContain('permessage-deflate')
   })
 
   it('forwards the visitor cookie on the upstream dial so the fence authenticates the upgrade', async () => {

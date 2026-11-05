@@ -50,6 +50,13 @@ export interface Variant {
   readonly proxy: HopCompression
   /** zlib level on the remote-facing hop; only meaningful when `proxy` is `deflate`. */
   readonly level: number
+  /**
+   * Whether the Host-facing dial negotiates compression.
+   *
+   * The proxy ships `false`; a sample measuring the replaced dual-hop topology
+   * turns it back on so both arms of the comparison are the same production code.
+   */
+  readonly hostHop: HopCompression
 }
 
 /** Published measurement of one fresh-process sample. */
@@ -274,9 +281,12 @@ export async function measure(variant: Variant): Promise<RemoteStreamSample> {
       gateway!.listen(0, '127.0.0.1', () => { gateway!.off('error', reject); resolve() })
     })
     const gatewayPort = (gateway.address() as AddressInfo).port
-    // The level is a test hook rather than configuration, so the sample sets it
-    // before the proxy builds its server options.
+    // Both are test hooks rather than configuration, so the sample sets them
+    // before the proxy builds its server options. Without the Host-hop switch the
+    // "legacy" arm would measure the same shipped relay as the candidate: the
+    // dial's `perMessageDeflate: false` is what decides that hop, not the Gateway.
     proxyInternals.deflateLevel = variant.level
+    proxyInternals.hostHopDeflate = variant.hostHop === 'deflate'
     proxy = await createRemoteProxy({
       targetPort: gatewayPort,
       policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
@@ -425,13 +435,14 @@ function validate(streams: ScriptedStreams, items: ReadonlyMap<string, readonly 
 }
 
 if (import.meta.main) {
-  const [gatewayCompression, proxyCompression, levelText, sampleIndex] = process.argv.slice(2)
+  const [gatewayCompression, proxyCompression, levelText, hostHop, sampleIndex] = process.argv.slice(2)
   const level = Number(levelText)
   if ((gatewayCompression !== 'deflate' && gatewayCompression !== 'none')
     || (proxyCompression !== 'deflate' && proxyCompression !== 'none')
+    || (hostHop !== 'deflate' && hostHop !== 'none')
     || !Number.isInteger(level) || level < 0 || level > 9) {
-    throw new Error('usage: remote-stream.worker.ts <deflate|none> <deflate|none> <0-9> <sample-index>')
+    throw new Error('usage: remote-stream.worker.ts <deflate|none> <deflate|none> <0-9> <deflate|none> <sample-index>')
   }
-  const sample = await measure({ gateway: gatewayCompression, proxy: proxyCompression, level })
+  const sample = await measure({ gateway: gatewayCompression, proxy: proxyCompression, level, hostHop })
   process.stdout.write(JSON.stringify({ sampleIndex, ...sample }) + '\n')
 }

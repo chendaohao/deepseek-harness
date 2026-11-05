@@ -6,17 +6,17 @@
   en: 2cd0c7350464c6d6
   zh: f038ea8bef72bc8f
 /agent-note-measure-before-removing-loopback-websocket-compression/problem:
-  en: 45744bfdfc93eac9
-  zh: 5e88b195a320cabf
+  en: cb90d01d8643fcad
+  zh: 0a205499647b8d7e
 /agent-note-measure-before-removing-loopback-websocket-compression/decision:
-  en: f51a15e3adbe4c42
-  zh: ed5ecfcd76c511db
+  en: 791002c717fb1501
+  zh: 35bb61cd07308e01
 /agent-note-measure-before-removing-loopback-websocket-compression/decision/measurement-that-decided-it:
-  en: 9bdd5429bf93021e
-  zh: d33143152199ae6f
+  en: 59e5dcbd564a0398
+  zh: 3cd2f8c5954d84e1
 /agent-note-measure-before-removing-loopback-websocket-compression/decision/reference-measurement:
-  en: fafa152fb4da5f3a
-  zh: 4401604787904d81
+  en: 384107fb67d6e031
+  zh: fb9193ffed6d8960
 /agent-note-measure-before-removing-loopback-websocket-compression/decision/lane-report-only-not-a-gate:
   en: e8a4be4bd0ad968a
   zh: 7835b827a61da683
@@ -27,11 +27,11 @@
   en: 9109084b2244a300
   zh: 56f858f673661e0e
 /agent-note-measure-before-removing-loopback-websocket-compression/consequences:
-  en: 830f33d41b4fec77
-  zh: 1e12d8899f555eab
+  en: 64880bf027e3533a
+  zh: f6eda7669121672c
 /agent-note-measure-before-removing-loopback-websocket-compression/scope-and-existing-decisions:
   en: c9dde6f26124c434
   zh: bd64cf87ec634a27
 /agent-note-measure-before-removing-loopback-websocket-compression/alternatives-considered:
-  en: 7484e16c2e4fce62
+  en: 1a7d1225c8e31e59
   zh: 8bc0c9d406016221

@@ -74,11 +74,22 @@ const WS_DEFLATE_MIN_BYTES = 1_024
 /**
  * Compression level the remote-facing hop negotiates.
  *
- * No measurement compares it with any other level on this hop's frame shapes, so
- * this is a starting point rather than a tuned value. It is a test hook rather
- * than configuration because no deployment has asked for a different trade-off.
+ * Level 1 was measured against this value on this hop and rejected: the CPU
+ * difference sat inside the noise floor while the remote wire bytes rose 11.25%
+ * in every sample. That rules level 1 out on bytes; it does not establish 4 as
+ * the CPU optimum. It stays a test hook rather than configuration because no
+ * deployment has asked for a different trade-off.
  */
 const WS_DEFLATE_LEVEL = 4
+/**
+ * Whether the Host-facing dial negotiates compression.
+ *
+ * The shipped value is `false`: that hop's peer is the local Web server, and
+ * deflating a large downlink payload twice cost far more CPU than it saved
+ * before the tunnel. The diagnostic sets it to `true` so it can still measure
+ * the dual-hop topology this change replaced; nothing else does.
+ */
+const HOST_HOP_DEFLATE = false
 
 /**
  * Per-message compression settings for the remote-facing hop.
@@ -109,6 +120,8 @@ export const internals = {
   pongMissMax: PONG_MISS_MAX,
   /** zlib level the remote-facing hop negotiates. */
   deflateLevel: WS_DEFLATE_LEVEL,
+  /** Whether the Host-facing dial negotiates compression; `false` in production. */
+  hostHopDeflate: HOST_HOP_DEFLATE,
 }
 
 /** Byte length of one ws message payload. */
@@ -259,8 +272,8 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
       const upstream = new WebSocket('ws://' + targetHost + ':' + String(targetPort) + (req.url ?? ''), {
         // A socket with no extension sends every frame uncompressed regardless of
         // its per-frame `compress` argument, so the relay's existing decisions
-        // stay correct on this leg.
-        perMessageDeflate: false,
+        // stay correct on this leg. Only the diagnostic turns compression back on.
+        perMessageDeflate: internals.hostHopDeflate ? deflateOptions(internals.deflateLevel) : false,
         // The webserver's browser-auth fence authenticates the upstream
         // upgrade by cookie. Relay the visitor's Cookie header so a tunneled
         // upgrade passes it exactly like the relayed HTTP requests do; an

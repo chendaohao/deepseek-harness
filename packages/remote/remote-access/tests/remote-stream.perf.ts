@@ -4,8 +4,12 @@
  * Threshold-free. Each sample is one fresh child process that runs the real
  * `RemoteStreamMuxServer`, the real `createRemoteProxy`, and a `ws` client over
  * loopback, then reports whole-path process CPU, wall time, frame gaps, and the
- * bytes the client read. Variants A and B are run interleaved with an A/A control
- * so the report can state a noise floor instead of comparing two single numbers.
+ * bytes the client read. Variants are run interleaved with an A/A control so the
+ * report can state a noise floor instead of comparing two single numbers.
+ *
+ * The `topology` mode restores compression on the Host-facing dial through the
+ * relay's test hook, because the shipped dial declines it and a Gateway-only
+ * switch would measure the shipped relay on both arms.
  *
  * Both measured classes are unexported, so the worker resolves source through
  * `remote-stream-adapter.ts`; the report says so rather than claiming published
@@ -30,11 +34,11 @@ const SAMPLE_TIMEOUT_MS = 180_000
 
 const VARIANTS = {
   /** Legacy topology: both hops negotiate permessage-deflate. */
-  A: { gateway: 'deflate', proxy: 'deflate', level: 4 },
+  A: { gateway: 'deflate', proxy: 'deflate', level: 4, hostHop: 'deflate' },
   /** Shipped topology: the Host-facing hop sends plaintext, the remote-facing hop keeps level 4. */
-  B: { gateway: 'none', proxy: 'deflate', level: 4 },
+  B: { gateway: 'none', proxy: 'deflate', level: 4, hostHop: 'none' },
   /** Shipped topology with a cheaper zlib level on the remote-facing hop. */
-  C: { gateway: 'none', proxy: 'deflate', level: 1 },
+  C: { gateway: 'none', proxy: 'deflate', level: 1, hostHop: 'none' },
 } as const satisfies Record<string, Variant>
 
 type VariantKey = keyof typeof VARIANTS
@@ -65,7 +69,7 @@ function runSample(variant: VariantKey, sampleIndex: number): Run {
   const child = spawnSync(
     process.execPath,
     ['--import', 'tsx/esm', join(import.meta.dirname, 'remote-stream.worker.ts'),
-      configuration.gateway, configuration.proxy, String(configuration.level), String(sampleIndex)],
+      configuration.gateway, configuration.proxy, String(configuration.level), configuration.hostHop, String(sampleIndex)],
     {
       encoding: 'utf8',
       timeout: SAMPLE_TIMEOUT_MS,
@@ -189,7 +193,7 @@ const report = {
   },
   clock: 'Timer starts after every handshake and the uplink drain; stops after the client validated every downlink payload. Process CPU is RUSAGE_SELF, so it includes libuv thread-pool zlib work in the same process.',
   memory: 'Peak RSS is cumulative from process start and includes fixture construction; retained RSS is read while the socket, payloads, and scripted streams are still reachable. No retained-memory budget.',
-  exclusions: 'cloudflared, public-network latency, model generation, Assistant batching, Client fold, browser paint, and the interface-bound Host topology. Both measured classes resolve from source: neither is a published export.',
+  exclusions: 'cloudflared, public-network latency, model generation, Assistant batching, Client fold, and browser paint. Both measured classes resolve from source: neither is a published export. This workload says nothing about where the Host-facing hop goes: an interface-bound dial was measured separately with interface counters and stayed on lo (8 MiB moved 8,400,318 bytes on lo, under 1.1 KB on the interface, equal to an idle 3-second window).',
   noiseFloor: {
     method: 'Largest absolute CPU-median difference between two disjoint halves of the control samples.',
     cpuPercent: noiseFloorPercent,

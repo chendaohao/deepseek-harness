@@ -28,6 +28,8 @@ export const UPLINK_SMALL_BYTES = 64 * 1024
 export const SMALL_FRAME_COUNT = 20
 /** Characters in one small downlink frame. */
 export const SMALL_FRAME_CHARS = 256
+/** Records appended between encoder calls: one encode per record costs ~27 s for this frame. */
+const RECORDS_PER_ENCODE = 64
 /** Logical stream the diagnostic opens on the mux. */
 export const STREAM_ID = 'remote-stream-diagnostic'
 
@@ -41,21 +43,17 @@ export type DownlinkKind = 'opening' | 'answer' | 'small'
 export function openingPayload(): string {
   const records: { seq: number; role: string; text: string }[] = []
   const text = 'session-replay-record-'
+  // Encode only every RECORDS_PER_ENCODE records: each record costs about 90
+  // bytes, so encoding once per record would serialize the whole array 16,000
+  // times and spend ~27 s building a fixture the timed interval never sees.
+  const width = (): number => JSON.stringify({ type: 'snapshot', records }).length
   for (let index = 0; ; index += 1) {
-    // Stop once the encoded frame reaches OPENING_BYTES: measuring the encoder
-    // against a target size keeps the constant meaningful even though JSON
-    // escaping makes per-record width uneven.
-    if (JSON.stringify({ type: 'snapshot', records }).length >= OPENING_BYTES) break
     records.push({
       seq: index,
       role: index % 3 === 0 ? 'assistant' : 'user',
       text: text + String(index % 97).padStart(2, '0'),
     })
-    // Each record costs roughly 90 bytes; grow in a batch so the encoder is not
-    // called once per record.
-    if (index !== 0 && index % 64 === 63) {
-      if (JSON.stringify({ type: 'snapshot', records }).length + 64 * 90 >= OPENING_BYTES) break
-    }
+    if (index % RECORDS_PER_ENCODE === RECORDS_PER_ENCODE - 1 && width() >= OPENING_BYTES) break
   }
   return JSON.stringify({ type: 'snapshot', records })
 }
