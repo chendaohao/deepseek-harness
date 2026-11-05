@@ -53,11 +53,13 @@ const MAX_MISSED_HEARTBEATS = 2
 const LIVENESS_FRAME = JSON.stringify({ type: 'liveness' } satisfies RemoteStreamServerMessage)
 
 /**
- * Per-message deflate window for the mux. Every logical stream shares one
- * physical socket, and a history-bearing opening frame runs to hundreds of
- * kilobytes of repetitive JSON (a 1,395 KB Session snapshot measured 255 KB
- * gzipped), so the window is the largest zlib offers rather than the 32 KB
- * default that would repeatedly restart the dictionary mid-frame.
+ * Negotiated deflate window for the mux, recorded rather than applied.
+ *
+ * `ws` builds both zlib streams with `{ ...zlibOptions, windowBits }` and takes
+ * `windowBits` from the negotiated `*_max_window_bits` parameter, so this literal
+ * never reaches zlib. 15 bits is also `Z_DEFAULT_WINDOWBITS`, i.e. the 32 KB
+ * window a connection gets when neither side constrains it; declaring it here
+ * only records that the mux asks for nothing smaller.
  */
 const MUX_DEFLATE_WINDOW_BITS = 15
 
@@ -94,10 +96,11 @@ export class RemoteStreamMuxServer {
     this.heartbeatIntervalMs = options.heartbeatIntervalMs
     this.streamInboxBytes = options.streamInboxBytes
     this.compression = options.compression
-    // `ws` ignores its own `threshold` option while context takeover is enabled,
-    // so the mux decides per frame in send(). The fork keeps the full 32 KB
-    // deflate window: a history-bearing opening frame is highly repetitive JSON,
-    // and the default 15-bit window would restart the dictionary mid-frame.
+    // `ws` reads its own `threshold` option only when a `*_no_context_takeover`
+    // parameter was negotiated, so under the default context takeover the mux
+    // decides per frame in send(). Context takeover keeps one 32 KB dictionary
+    // across frames, which is what makes a history-bearing opening frame
+    // compress well; no window option here changes that.
     this.server = new WebSocketServer({
       noServer: true,
       perMessageDeflate: options.compression

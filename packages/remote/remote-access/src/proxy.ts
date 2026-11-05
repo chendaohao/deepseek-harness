@@ -51,22 +51,28 @@ const WS_BACKLOG_MAX_BYTES = 128 * 1024 * 1024
 const REAUTHORIZE_INTERVAL_MS = 30_000
 /** Consecutive relayed pings a downstream leg may leave unanswered before the pair is closed. */
 const PONG_MISS_MAX = 3
-/** Deflate window shared with the Gateway mux for repetitive history JSON. */
+/**
+ * Negotiated deflate window for the remote-facing hop.
+ *
+ * This literal never reaches zlib: `ws` builds both streams with
+ * `{ ...zlibOptions, windowBits }`, taking `windowBits` from the negotiated
+ * `*_max_window_bits` parameter and falling back to `Z_DEFAULT_WINDOWBITS`. It is
+ * kept as documentation of the negotiated value, not as a tunable.
+ */
 const WS_DEFLATE_WINDOW_BITS = 15
 /**
  * Smallest relayed message worth deflating, in bytes.
  *
- * `perMessageDeflate.threshold` does not decide this: `ws` accepts the option
- * and never reads it, so a socket created with compression deflates every
- * message it sends. A streamed reply is a long run of small JSON frames, and
- * each one would pay a deflate call plus a 7-bit block header on top of a
- * payload that barely shrinks. Relaying decides per frame instead, at the size
- * where deflate starts to win.
+ * The `perMessageDeflate.threshold` option does not decide this: `ws` reads that
+ * option only when a `*_no_context_takeover` parameter was negotiated, so under
+ * the default context takeover it is inert. A streamed reply is a long run of
+ * small JSON frames, and each one would pay a deflate call plus a block header on
+ * top of a payload that barely shrinks. The relay decides per frame instead, at
+ * the size where deflate starts to win.
  */
 const WS_DEFLATE_MIN_BYTES = 1_024
-/** Per-message compression settings applied independently to both relay hops. */
+/** Per-message compression settings for the remote-facing hop. */
 const WS_DEFLATE_OPTIONS = {
-  threshold: WS_DEFLATE_MIN_BYTES,
   zlibDeflateOptions: { level: 4, windowBits: WS_DEFLATE_WINDOW_BITS },
   zlibInflateOptions: { windowBits: WS_DEFLATE_WINDOW_BITS },
 } as const
@@ -121,7 +127,14 @@ export interface RemoteProxyOptions {
   targetHost?: string
   /** The access policy every request and upgrade passes through. */
   policy: AccessPolicy
-  /** Per-message compression negotiated independently on both relay hops. @default 'deflate' */
+  /**
+   * Per-message compression on the remote-facing hop.
+   *
+   * The Host-facing hop never compresses: its peer is the local Web server, and a
+   * measurement of the full remote path showed the second deflate/inflate pair
+   * cost far more CPU than it saved bytes before the tunnel.
+   * @default 'deflate'
+   */
   readonly websocketCompression?: 'none' | 'deflate'
 }
 
@@ -134,8 +147,11 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
   const { targetPort, targetHost = '127.0.0.1', policy, websocketCompression = 'deflate' } = options
   const upstreamSockets = new Set<Duplex>()
   const upstreamClients = new Set<WebSocket>()
-  const perMessageDeflate = websocketCompression === 'deflate' ? WS_DEFLATE_OPTIONS : false
-  const wss = new WebSocketServer({ noServer: true, maxPayload: internals.maxPayload, perMessageDeflate })
+  // Only the visitor's leg compresses. The Host-facing dial declines the
+  // extension, so a large downlink payload is inflated once rather than
+  // deflated twice: the first hop carries no public-network bytes to save.
+  const downstreamCompression = websocketCompression === 'deflate' ? WS_DEFLATE_OPTIONS : false
+  const wss = new WebSocketServer({ noServer: true, maxPayload: internals.maxPayload, perMessageDeflate: downstreamCompression })
 
   const handle = (req: IncomingMessage, res: ServerResponse): void => {
     /* v8 ignore next -- node:http always sets url on server requests */
@@ -221,7 +237,10 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
     wss.handleUpgrade(req, socket, head, (downstream) => {
       /* v8 ignore next -- node:http always sets url on server upgrade requests */
       const upstream = new WebSocket('ws://' + targetHost + ':' + String(targetPort) + (req.url ?? ''), {
-        perMessageDeflate,
+        // A socket with no extension sends every frame uncompressed regardless of
+        // its per-frame `compress` argument, so the relay's existing decisions
+        // stay correct on this leg.
+        perMessageDeflate: false,
         // The webserver's browser-auth fence authenticates the upstream
         // upgrade by cookie. Relay the visitor's Cookie header so a tunneled
         // upgrade passes it exactly like the relayed HTTP requests do; an

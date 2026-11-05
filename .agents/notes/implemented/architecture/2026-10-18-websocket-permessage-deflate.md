@@ -6,7 +6,7 @@ English | [中文](2026-10-18-websocket-permessage-deflate.zh.md)
 
 ## Problem
 
-The Web GUI carries every live Remote stream over one physical WebSocket, `/api/remote.mux`: model token deltas, session events, tool output, terminal output, and the `$events` fan-out. The mux itself is the implemented [Remote duplex stream](2026-09-19-remote-duplex-stream.md) design; this note adds one transport option to it. The Host's HTTP surface already exposes `compression: 'none' | 'gzip'`; before this option the WebSocket had no equivalent, so the link stayed uncompressed.
+The Web GUI carries every live Remote stream over one physical WebSocket, `/api/remote.mux`: model token deltas, session events, tool output, terminal output, and the `$events` fan-out. The mux itself is the implemented [Remote duplex stream](2026-09-19-remote-duplex-stream.md) design; this note adds one transport option to it. The Host's HTTP surface already exposes `compression: 'auto' | 'br' | 'gzip' | 'none'`; before this option the WebSocket had no equivalent, so the link stayed uncompressed.
 
 Over a tunnel, a reverse proxy, or an admitted public URL, the large JSON frames — session replay, long tool output, terminal scrollback — spend bandwidth the protocol can already reclaim. Browsers offer `permessage-deflate` in the upgrade handshake without asking, so the missing half was the server's.
 
@@ -17,7 +17,8 @@ The Gateway Config adds `websocketCompression: 'none' | 'deflate'`, defaulting t
 | Option | Value | Why |
 |---|---|---|
 | Frame compression threshold | `1024` characters of the JSON text, decided in the mux send path | `ws` ignores its `threshold` option while context takeover is enabled ([upstream 41ae5631](https://github.com/websockets/ws/commit/41ae5631)), so the mux passes `compress` per frame; frames below 1,024 characters (most token-level `item` frames) stay uncompressed and out of the zlib pool |
-| `perMessageDeflate.zlibDeflateOptions.level` | `1` | Interactive frames value latency over ratio; the HTTP gzip default in this repository is also `1` |
+| `perMessageDeflate.zlibDeflateOptions.level` | `4` on zlib's 0–9 scale | No measurement compares it against another level, so the value is a starting point rather than a tuned one |
+| `perMessageDeflate.zlibDeflateOptions.windowBits` / `zlibInflateOptions.windowBits` | Inert | `ws` builds both streams as `{ ...zlibDeflateOptions, windowBits }` with `windowBits` taken from the negotiated `*_max_window_bits` parameter, so an option literal is always overwritten. The effective window is 15 bits only because that is `zlib.Z_DEFAULT_WINDOWBITS` and no `*MaxWindowBits` option is set; a deployment that wants the default stated explicitly sets `serverMaxWindowBits`/`clientMaxWindowBits` instead. |
 | Context takeover | `ws` default (enabled both ways) | Best ratio for repetitive JSON; no per-message dictionary rebuild |
 
 The mux constructor takes one options object carrying `heartbeatIntervalMs`, `streamInboxBytes`, and `compression`, because the Gateway resolves the config vocabulary and `stream-server.ts` does not learn `'none' | 'deflate'`.
@@ -63,9 +64,13 @@ Compression reclaims the bandwidth of large JSON frames over a tunnel, a reverse
 
 **Per-connection memory.** Each negotiated connection holds a deflate and an inflate context for its lifetime. One socket per browser tab keeps this proportional to open tabs; an implementation that expects many idle tabs should measure before enabling by default.
 
-**No benefit over loopback.** The common local deployment gains nothing but CPU, which is why the field exists; the default is chosen for remote and tunneled use.
+**No benefit over loopback.** The common local deployment gains nothing but CPU, which is why the field exists; the default is chosen for remote and tunneled use. Measured on the remote-access relay, a second deflate/inflate pair for a hop that carries no public-network bytes cost 33% of whole-path CPU for zero change in the bytes the client receives, so that hop stopped negotiating the extension (see the [Host-hop compression decision](2026-11-05-remote-websocket-loopback-compression.md)). The Gateway's own downlink to a direct client is unaffected: there the bytes do leave the machine.
 
-**Unmeasured default.** The `'deflate'` default rests on the HTTP gzip precedent and on remote deployments, not on an on/off byte-and-latency comparison. Record that comparison when one is run and revisit the default if local overhead proves visible.
+**Unmeasured default.** The `'deflate'` default rests on the HTTP compression precedent and on remote deployments, not on an on/off byte-and-latency comparison. Record that comparison when one is run and revisit the default if local overhead proves visible.
+
+**Unmeasured level.** Nothing picks `4` over another level: the value came with the first compression change and no comparison has been recorded since. Lower levels are far cheaper per frame on this socket's frame shapes, so a level change is a live candidate — but only the shipped user path can price it, because an isolated `zlib` call omits the socket, relay, and browser work that dominate a streamed reply. Any such change carries its own measurement of CPU, compressed bytes, and end-to-end latency together.
+
+The [Host-hop compression decision](2026-11-05-remote-websocket-loopback-compression.md) owns the remote-access proxy topology and the level comparison that remains outstanding; it does not change the Gateway behavior recorded here.
 
 **Weakened write liveness.** A compressed downlink write completes when `ws` has deflated and written it, not when the TCP peer acknowledges data, so continuous compressed downlink traffic counts as buffered activity and delays missed-heartbeat termination. The heartbeat rule and its code are unchanged.
 

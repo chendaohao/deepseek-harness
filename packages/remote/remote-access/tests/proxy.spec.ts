@@ -348,7 +348,7 @@ describe('WebSocket relaying', () => {
     expect(frames[1]).toMatchObject({ compressed: true, binary: true })
   })
 
-  it('negotiates deflate and reduces a large repetitive downlink frame', async () => {
+  it('negotiates deflate on the visitor leg and reduces a large repetitive downlink frame', async () => {
     for (const client of wss?.clients ?? []) client.terminate()
     await new Promise<void>((resolve) => { wss?.close(() => { resolve() }) })
     wss = new WebSocketServer({ host: '127.0.0.1', port: 0, perMessageDeflate: { threshold: 0 } })
@@ -398,6 +398,32 @@ describe('WebSocket relaying', () => {
     expect(frame.handshake.toLowerCase()).not.toContain('sec-websocket-extensions')
     expect(frame.compressed).toBe(false)
     expect(frame.payloadBytes).toBe(Buffer.byteLength(payload))
+  })
+
+  it('declines the extension on the Host-facing dial while still compressing the visitor leg', async () => {
+    for (const client of wss?.clients ?? []) client.terminate()
+    await new Promise<void>((resolve) => { wss?.close(() => { resolve() }) })
+    // The target accepts compression so a relay that still offered the extension
+    // would negotiate it, which makes the offer itself observable.
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0, perMessageDeflate: { threshold: 0 } })
+    await new Promise<void>((resolve) => { wss!.once('listening', resolve) })
+    echoPort = (wss.address() as AddressInfo).port
+    const payload = JSON.stringify({ type: 'snapshot', text: 'remote-access-'.repeat(8_192) })
+    wss.on('connection', (socket) => { socket.send(payload) })
+    await proxy?.close()
+    proxy = await createRemoteProxy({
+      targetPort: echoPort,
+      policy: { authorize: () => ({ admitted: true }), handlePairing: () => false },
+    })
+
+    const frame = await readFirstFrame(proxy.port)
+    // Downstream still negotiates: the remote client is the one whose bandwidth matters.
+    expect(frame.handshake.toLowerCase()).toContain('sec-websocket-extensions: permessage-deflate')
+    expect(frame.compressed).toBe(true)
+    expect(frame.payloadBytes).toBeLessThan(Buffer.byteLength(payload))
+    // Upstream does not: an offer here would make the target negotiate, and the
+    // relay's dial is the only place that offer can come from.
+    expect(upgradeRequestHeaders?.['sec-websocket-extensions']).toBeUndefined()
   })
 
   it('forwards the visitor cookie on the upstream dial so the fence authenticates the upgrade', async () => {
