@@ -1,0 +1,61 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/preset/preset-tool-mask/README.md
+/:
+  en: 1d9cacca4ae4a8f0
+  zh: 5af677a1aa2b474c
+/deepseek-ai-dsh-preset-tool-mask:
+  en: 962d13b07875e33a
+  zh: af6bc9973b3e03d0
+/deepseek-ai-dsh-preset-tool-mask/summary:
+  en: cf8242e59cf86f53
+  zh: b879a7343cde8dcc
+/deepseek-ai-dsh-preset-tool-mask/table-of-contents:
+  en: b563e4ec4727d0de
+  zh: 26c01be6f3c34831
+/deepseek-ai-dsh-preset-tool-mask/use-this-package:
+  en: a8d3004745015db6
+  zh: fb36cf1068ff9147
+/deepseek-ai-dsh-preset-tool-mask/use-this-package/when-to-choose-it:
+  en: 1f42f9749b6acc6e
+  zh: a83226c35880e736
+/deepseek-ai-dsh-preset-tool-mask/use-this-package/declaring-the-mask:
+  en: 60b775d3de585adf
+  zh: e9b89106e7d1dd86
+/deepseek-ai-dsh-preset-tool-mask/use-this-package/what-you-get:
+  en: 27f8ebde2745c488
+  zh: e76b1ee236b948b6
+/deepseek-ai-dsh-preset-tool-mask/understand-the-implementation:
+  en: ee4615a04fa6503d
+  zh: ee2c5fb2204a43cf
+/deepseek-ai-dsh-preset-tool-mask/understand-the-implementation/design-philosophy:
+  en: 253bbb31e1081f2d
+  zh: 5fec69596a5ff784
+/deepseek-ai-dsh-preset-tool-mask/understand-the-implementation/source-map:
+  en: 2608fb47c9ae729f
+  zh: e792118a330208d4
+/deepseek-ai-dsh-preset-tool-mask/further-exploration:
+  en: 5d37dc165374b520
+  zh: 1371dc5710a1b3f2
+/deepseek-ai-dsh-preset-tool-mask/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-preset-tool-mask/model-experience/narrowed-tool-catalog:
+  en: 6d01aeb081514668
+  zh: a7d203f51289925b
+/deepseek-ai-dsh-preset-tool-mask/model-experience/narrowed-tool-catalog/what-the-model-sees:
+  en: cd6a302fe95ccd46
+  zh: 5badc1ec92023f87
+/deepseek-ai-dsh-preset-tool-mask/model-experience/narrowed-tool-catalog/token-effect:
+  en: 56fdcdeb54c6f4a4
+  zh: 039232887ded37a3
+/deepseek-ai-dsh-preset-tool-mask/model-experience/narrowed-tool-catalog/kv-cache-effect:
+  en: a940a5f543b0d222
+  zh: 36700432981ff12f
+/deepseek-ai-dsh-preset-tool-mask/known-limitations-and-deferred-work:
+  en: 20396a1e55e3e8b4
+  zh: b18b33d480f89e4a
+/deepseek-ai-dsh-preset-tool-mask/known-limitations-and-deferred-work/dev-note:
+  en: 07adfcbc24b4110e
+  zh: 6ec243675efb908c

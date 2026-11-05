@@ -21,6 +21,7 @@ export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolic
   'packages/computer-use/computer-use': { category: 'optional', reason: 'Service definition used by explicitly selected computer providers.' },
   'packages/codegraph/codegraph': { category: 'optional', reason: 'Scoped CodeGraph checklist and MCP server, mounted only where the deployment has indexed the workspace.' },
   'packages/guard/compile-serialization': { category: 'optional', reason: 'Ships disabled in the base bundle; an overlay enables it where concurrent agents share one checkout.' },
+  'packages/preset/preset-tool-mask': { category: 'optional', reason: 'Mounted by a role preset that must not hold the host catalog; a profile without such a preset never loads it.' },
   'packages/lsp/lsp': { category: 'optional', reason: 'Service definition for deployment-configured language servers.' },
   'packages/lsp/lsp-stdio': { category: 'optional', reason: 'Requires an explicit server list and language-server executables.' },
   'packages/lsp/tool-lsp': { category: 'optional', reason: 'Model tools selected together with a configured LSP provider.' },

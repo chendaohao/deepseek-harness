@@ -65,7 +65,11 @@ kind: "package-bundle"
 <a id="model-experience"></a>
 ## 模型体验
 
-指挥者看到三个委派工具——`worker`、`planner`、`reviewer`——以及控制行提供的 `send_message`、`list_agents`、`interrupt_agent`。每个角色子会话看到自己预设的工具集，以及一段写明边界的 persona：规划者写方案、审核者判方案，两者都不声称自己改代码。
+### 指挥者与角色的工具目录
+
+#### 模型看到什么
+
+指挥者看到三个委派工具——`worker`、`planner`、`reviewer`——以及控制行提供的 `send_message`、`list_agents`、`interrupt_agent`，再加上它的 `preset-tool-mask` 行所保留的宿主工具。每个角色子会话看到自己预设的工具集，同样经过收窄，以及一段写明边界的 persona：规划者写方案、审核者判方案，两者都不声称自己改代码。审核者的目录里根本没有文件编辑器和任务板写入工具，因此「除报告之外不写文件」是组合本身的性质，而不是要模型自觉遵守的请求。
 
 #### Token 影响
 
@@ -77,6 +81,8 @@ kind: "package-bundle"
 
 ## 已知限制与延期工作
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **三个角色是并列的，不是门禁。** 指挥者可以跳过规划或审核，直接派 worker。方案 PASS 与交付 PASS 的绑定、方案变化后摘要失效、以及让门禁可执行的证据清单，属于另一份交付。
-- **角色的「只读」边界是削减，不是限制。** 预设的行只覆盖同名全局工具行，不会移除其余全局工具：规划者与审核者仍继承 `bash`、`write` 以及任何已挂载的 MCP 文件编辑工具。要真正执行该边界，需要在子会话 scope 上调用 `tools.restrict()`，而 `tool-subagent` 已不再接受 `toolFilter` 配置。
+- **角色的「只读」边界由掩码行执行，而不是由行省略执行。** 每个预设的第一行是 `preset-tool-mask`，它在该预设作用域上调用 `tools.restrict()`，把继承来的全局工具收窄到声明保留的名字；规划者与审核者因此拿不到 `bash` 之外的写工具、MCP 文件编辑器与任务板写入工具。掩码是派生而非硬编码的，所以部署多挂一个插件时也会被一并收窄。`tool-subagent` 自 2026-10-09 起不再接受 `toolFilter`，掩码正是替代它的位置。
 - **角色预设会出现在预设列表里。** 注册表没有隐藏标记，因此新建会话时 `crew-worker`、`crew-planner`、`crew-reviewer` 与 `crew` 并列出现；它们的名称与 `order` 标明只用于挂载。

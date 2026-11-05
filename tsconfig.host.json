@@ -572,6 +572,7 @@
     { "path": "./packages/preset/agent-preset-registry" },
     { "path": "./packages/preset/agent-preset" },
     { "path": "./packages/preset/persona" },
+    { "path": "./packages/preset/preset-tool-mask" },
     { "path": "./packages/guard/max-tokens-recovery" },
     { "path": "./packages/guard/repeat-tool-reminder" },
     { "path": "./packages/guard/compile-serialization" },

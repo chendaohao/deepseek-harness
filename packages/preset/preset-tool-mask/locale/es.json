@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Ámbito de herramientas del preset",
+    "description": "Limita un preset de rol a las herramientas del host que declara."
+  }
+}

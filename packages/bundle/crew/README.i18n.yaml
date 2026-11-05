@@ -21,14 +21,20 @@
   en: 2888c6424121ccc1
   zh: f17bfdc4c4f08574
 /deepseek-ai-dsh-crew/model-experience:
-  en: a5b4dda70200d12a
-  zh: 51a573ea6d18740e
-/deepseek-ai-dsh-crew/model-experience/token-effect:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-crew/model-experience/commander-and-role-catalogs:
+  en: 1176ec36ecbbe1de
+  zh: 1bc7d3dd4edc9746
+/deepseek-ai-dsh-crew/model-experience/commander-and-role-catalogs/what-the-model-sees:
+  en: 066400c6c708eec7
+  zh: fc33b22a581a24e6
+/deepseek-ai-dsh-crew/model-experience/commander-and-role-catalogs/token-effect:
   en: b6c3f251271eafb9
   zh: 63ed59452f95ec2a
-/deepseek-ai-dsh-crew/model-experience/kv-cache-effect:
+/deepseek-ai-dsh-crew/model-experience/commander-and-role-catalogs/kv-cache-effect:
   en: 9fe853f9eea9d78d
   zh: 81be8a667152fd53
 /deepseek-ai-dsh-crew/known-limitations-and-deferred-work:
-  en: 9194e71fa108dac1
-  zh: f27ef03e9841f756
+  en: 6b5de1c0ba51713e
+  zh: eb6b48a9e39dadaf

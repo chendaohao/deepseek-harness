@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Portée des outils du preset",
+    "description": "Limite un preset de rôle aux outils de l'hôte qu'il déclare."
+  }
+}

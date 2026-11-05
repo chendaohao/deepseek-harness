@@ -65,7 +65,11 @@ Each role preset is mounted only by its delegation row. The commander's `delegat
 <a id="model-experience"></a>
 ## Model Experience
 
-The commander sees three delegation tools — `worker`, `planner`, and `reviewer` — plus `send_message`, `list_agents`, and `interrupt_agent` from the control row. Each role child sees its own preset's tool set and a persona stating its boundary: the planner writes a plan, the reviewer judges one, neither claims to change code.
+### Commander and role catalogs
+
+#### What the model sees
+
+The commander sees three delegation tools — `worker`, `planner`, and `reviewer` — plus `send_message`, `list_agents`, and `interrupt_agent` from the control row, and only the host tools its `preset-tool-mask` row keeps. Each role child sees its own preset's tool set, narrowed the same way, and a persona stating its boundary: the planner writes a plan, the reviewer judges one, neither claims to change code. The reviewer's catalog does not carry a filesystem editor or a task-board writer at all, so its "write nothing except the report" rule is a property of the composition rather than a request the model has to honour.
 
 #### Token effect
 
@@ -78,5 +82,5 @@ A role child's tool catalog is fixed by its preset, so repeated requests in one 
 ## Known Limitations and Deferred Work
 
 - **The roles are siblings, not a gate.** A commander can skip planning or review and delegate straight to a worker. The plan PASS and delivery PASS binding, the digest invalidation when a plan changes, and the evidence manifest that make a gate enforceable are a separate delivery.
-- **A role's "read-only" boundary is a reduction, not a restriction.** A preset's rows shadow same-named global tool rows without removing the rest: the planner and reviewer still inherit host-global tools such as `bash`, `write`, and any mounted MCP filesystem editor. Enforcing the boundary needs `tools.restrict()` on the child scope, which `tool-subagent` no longer accepts as a `toolFilter` config.
+- **A role's "read-only" boundary is enforced by a mask row, not by omitted rows.** Each preset opens with `preset-tool-mask`, which calls `tools.restrict()` on that preset's scope and narrows the inherited global catalog to the names the declaration keeps; the planner and reviewer therefore do not get the MCP filesystem editors or the task-board writers. The mask is derived rather than hardcoded, so a deployment mounting an extra plugin narrows that too. `tool-subagent` stopped accepting `toolFilter` on 2026-10-09; the mask is the place that takes over.
 - **The role presets appear in the preset roster.** The registry has no hidden flag, so `crew-worker`, `crew-planner`, and `crew-reviewer` are offered alongside `crew` when creating a session; their names and `order` values mark them as mounted-only.

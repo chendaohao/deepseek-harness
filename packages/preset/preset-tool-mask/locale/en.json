@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Preset tool scope",
+    "description": "Limit a role preset to the host tools it declares."
+  }
+}

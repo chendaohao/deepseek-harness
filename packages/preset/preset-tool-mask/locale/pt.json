@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Escopo de ferramentas do preset",
+    "description": "Limita um preset de papel às ferramentas do host que ele declara."
+  }
+}
