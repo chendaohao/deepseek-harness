@@ -20,12 +20,15 @@
 /agent-note-measure-before-removing-loopback-websocket-compression/decision/lane-report-only-not-a-gate:
   en: e8a4be4bd0ad968a
   zh: 7835b827a61da683
+/agent-note-measure-before-removing-loopback-websocket-compression/decision/the-level-is-a-test-hook-not-configuration:
+  en: b4cdac3a5ef7b760
+  zh: f494d056a3fbe58e
 /agent-note-measure-before-removing-loopback-websocket-compression/decision/inert-constants-corrected-in-the-same-change:
   en: 9109084b2244a300
   zh: 56f858f673661e0e
 /agent-note-measure-before-removing-loopback-websocket-compression/consequences:
-  en: 5116842c0e07293b
-  zh: 436f45a9e21c93b5
+  en: 830f33d41b4fec77
+  zh: 1e12d8899f555eab
 /agent-note-measure-before-removing-loopback-websocket-compression/scope-and-existing-decisions:
   en: c9dde6f26124c434
   zh: bd64cf87ec634a27

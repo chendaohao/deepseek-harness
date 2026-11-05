@@ -29,10 +29,12 @@ const SAMPLES = 7
 const SAMPLE_TIMEOUT_MS = 180_000
 
 const VARIANTS = {
-  /** Current topology: both hops negotiate permessage-deflate. */
-  A: { gateway: 'deflate', proxy: 'deflate' },
-  /** Stage 2's target: the Host-facing hop sends plaintext, the remote-facing hop keeps compression. */
-  B: { gateway: 'none', proxy: 'deflate' },
+  /** Legacy topology: both hops negotiate permessage-deflate. */
+  A: { gateway: 'deflate', proxy: 'deflate', level: 4 },
+  /** Shipped topology: the Host-facing hop sends plaintext, the remote-facing hop keeps level 4. */
+  B: { gateway: 'none', proxy: 'deflate', level: 4 },
+  /** Shipped topology with a cheaper zlib level on the remote-facing hop. */
+  C: { gateway: 'none', proxy: 'deflate', level: 1 },
 } as const satisfies Record<string, Variant>
 
 type VariantKey = keyof typeof VARIANTS
@@ -63,7 +65,7 @@ function runSample(variant: VariantKey, sampleIndex: number): Run {
   const child = spawnSync(
     process.execPath,
     ['--import', 'tsx/esm', join(import.meta.dirname, 'remote-stream.worker.ts'),
-      configuration.gateway, configuration.proxy, String(sampleIndex)],
+      configuration.gateway, configuration.proxy, String(configuration.level), String(sampleIndex)],
     {
       encoding: 'utf8',
       timeout: SAMPLE_TIMEOUT_MS,
@@ -113,16 +115,43 @@ function changePercent(baseline: number, candidate: number): number {
 }
 
 /**
- * Interleaved schedule: A/A controls and A/B pairs alternate so drift affects
- * both variants, and no variant owns a contiguous stretch of the run.
+ * Which comparison to run.
+ *
+ * `topology` re-checks the shipped change against the legacy dual-hop path;
+ * `level` compares zlib levels on the settled topology. They are separate runs
+ * because a level difference is far smaller than the topology difference, and
+ * interleaving all three would bury it.
  */
-const SCHEDULE: readonly VariantKey[] = ['A', 'A', 'B', 'B', 'A', 'A', 'B', 'B', 'A', 'A', 'B', 'B', 'A', 'B']
+type Mode = 'topology' | 'level'
+
+/**
+ * Interleaved schedule per mode: control and candidate pairs alternate so drift
+ * affects both, and no variant owns a contiguous stretch.
+ */
+const SCHEDULES: Readonly<Record<Mode, readonly VariantKey[]>> = {
+  topology: ['A', 'A', 'B', 'B', 'A', 'A', 'B', 'B', 'A', 'A', 'B', 'B', 'A', 'B'],
+  level: ['B', 'B', 'C', 'C', 'B', 'B', 'C', 'C', 'B', 'B', 'C', 'C', 'B', 'C'],
+}
+
+/** Which variant is the control and which is the candidate, per mode. */
+const PAIR: Readonly<Record<Mode, { readonly control: VariantKey; readonly candidate: VariantKey }>> = {
+  topology: { control: 'A', candidate: 'B' },
+  level: { control: 'B', candidate: 'C' },
+}
+
+const modeArgument = process.argv[2] ?? 'topology'
+if (modeArgument !== 'topology' && modeArgument !== 'level') {
+  throw new Error('usage: remote-stream.perf.ts [topology|level]')
+}
+const mode: Mode = modeArgument
+const SCHEDULE = SCHEDULES[mode]
+const { control, candidate } = PAIR[mode]
 
 // One discarded sample first: the opening children pay for the module cache and
 // the OS file cache, and that cost lands entirely on whichever variant runs
 // first. Every published sample is therefore a warm-process measurement.
 process.stderr.write('warmup\n')
-runSample('A', -1)
+runSample(control, -1)
 
 const runs: Run[] = []
 for (const [index, variant] of SCHEDULE.entries()) {
@@ -131,19 +160,20 @@ for (const [index, variant] of SCHEDULE.entries()) {
 }
 
 const of = (variant: VariantKey): Run[] => runs.filter(run => run.slot === variant)
-const a = of('A')
-const b = of('B')
-// The A/A floor: the largest absolute CPU difference between two A medians drawn
-// from disjoint halves of the A samples. Any A-versus-B difference inside it is
-// indistinguishable from run-to-run drift on this machine.
-const aFirst = a.slice(0, Math.floor(a.length / 2))
-const aSecond = a.slice(Math.floor(a.length / 2))
+const baseline = of(control)
+const treatment = of(candidate)
+// The noise floor: the largest absolute CPU-median difference between two
+// disjoint halves of the control samples. Any control-versus-candidate
+// difference inside it is indistinguishable from run-to-run drift here.
+const firstHalf = baseline.slice(0, Math.floor(baseline.length / 2))
+const secondHalf = baseline.slice(Math.floor(baseline.length / 2))
 const noiseFloorPercent = Math.max(
-  Math.abs(changePercent(summarize(aFirst, run => run.cpuMs).median, summarize(aSecond, run => run.cpuMs).median)),
-  Math.abs(changePercent(summarize(aSecond, run => run.cpuMs).median, summarize(aFirst, run => run.cpuMs).median)),
+  Math.abs(changePercent(summarize(firstHalf, run => run.cpuMs).median, summarize(secondHalf, run => run.cpuMs).median)),
+  Math.abs(changePercent(summarize(secondHalf, run => run.cpuMs).median, summarize(firstHalf, run => run.cpuMs).median)),
 )
 
 const report = {
+  mode,
   revision: spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim(),
   node: process.version,
   platform: platform(),
@@ -161,35 +191,42 @@ const report = {
   memory: 'Peak RSS is cumulative from process start and includes fixture construction; retained RSS is read while the socket, payloads, and scripted streams are still reachable. No retained-memory budget.',
   exclusions: 'cloudflared, public-network latency, model generation, Assistant batching, Client fold, browser paint, and the interface-bound Host topology. Both measured classes resolve from source: neither is a published export.',
   noiseFloor: {
-    method: 'Largest absolute CPU-median difference between two disjoint halves of the A samples.',
+    method: 'Largest absolute CPU-median difference between two disjoint halves of the control samples.',
     cpuPercent: noiseFloorPercent,
   },
-  variants: { A: VARIANTS.A, B: VARIANTS.B },
+  variants: { [control]: VARIANTS[control], [candidate]: VARIANTS[candidate] },
   runs,
   summary: {
-    cpuMs: { A: summarize(a, run => run.cpuMs), B: summarize(b, run => run.cpuMs) },
-    wallMs: { A: summarize(a, run => run.wallMs), B: summarize(b, run => run.wallMs) },
-    p95FrameGapMs: { A: summarize(a, run => run.p95FrameGapMs), B: summarize(b, run => run.p95FrameGapMs) },
-    remoteWireBytes: { A: summarize(a, run => run.remoteWireBytes), B: summarize(b, run => run.remoteWireBytes) },
-    peakRssMb: { A: summarize(a, run => run.peakRssMb), B: summarize(b, run => run.peakRssMb) },
+    cpuMs: { [control]: summarize(baseline, run => run.cpuMs), [candidate]: summarize(treatment, run => run.cpuMs) },
+    wallMs: { [control]: summarize(baseline, run => run.wallMs), [candidate]: summarize(treatment, run => run.wallMs) },
+    p95FrameGapMs: {
+      [control]: summarize(baseline, run => run.p95FrameGapMs),
+      [candidate]: summarize(treatment, run => run.p95FrameGapMs),
+    },
+    remoteWireBytes: {
+      [control]: summarize(baseline, run => run.remoteWireBytes),
+      [candidate]: summarize(treatment, run => run.remoteWireBytes),
+    },
+    peakRssMb: { [control]: summarize(baseline, run => run.peakRssMb), [candidate]: summarize(treatment, run => run.peakRssMb) },
   },
 }
 
 const cpuChange = changePercent(
-  summarize(a, run => run.cpuMs).median,
-  summarize(b, run => run.cpuMs).median,
+  summarize(baseline, run => run.cpuMs).median,
+  summarize(treatment, run => run.cpuMs).median,
 )
 const wireChange = changePercent(
-  summarize(a, run => run.remoteWireBytes).median,
-  summarize(b, run => run.remoteWireBytes).median,
+  summarize(baseline, run => run.remoteWireBytes).median,
+  summarize(treatment, run => run.remoteWireBytes).median,
 )
 Object.assign(report, {
   verdict: {
-    cpuChangePercentB: cpuChange,
-    remoteWireChangePercentB: wireChange,
+    control,
+    candidate,
+    cpuChangePercent: cpuChange,
+    remoteWireChangePercent: wireChange,
     exceedsNoiseFloor: Math.abs(cpuChange) > noiseFloorPercent,
     wireBytesEquivalent: Math.abs(wireChange) <= 1,
   },
 })
-
 process.stdout.write(JSON.stringify(report, null, 2) + '\n')

@@ -71,11 +71,29 @@ const WS_DEFLATE_WINDOW_BITS = 15
  * the size where deflate starts to win.
  */
 const WS_DEFLATE_MIN_BYTES = 1_024
-/** Per-message compression settings for the remote-facing hop. */
-const WS_DEFLATE_OPTIONS = {
-  zlibDeflateOptions: { level: 4, windowBits: WS_DEFLATE_WINDOW_BITS },
-  zlibInflateOptions: { windowBits: WS_DEFLATE_WINDOW_BITS },
-} as const
+/**
+ * Compression level the remote-facing hop negotiates.
+ *
+ * No measurement compares it with any other level on this hop's frame shapes, so
+ * this is a starting point rather than a tuned value. It is a test hook rather
+ * than configuration because no deployment has asked for a different trade-off.
+ */
+const WS_DEFLATE_LEVEL = 4
+
+/**
+ * Per-message compression settings for the remote-facing hop.
+ * @param level - zlib level on the 0-9 scale.
+ * @returns the perMessageDeflate options for one server socket.
+ */
+function deflateOptions(level: number): {
+  readonly zlibDeflateOptions: { readonly level: number; readonly windowBits: number }
+  readonly zlibInflateOptions: { readonly windowBits: number }
+} {
+  return {
+    zlibDeflateOptions: { level, windowBits: WS_DEFLATE_WINDOW_BITS },
+    zlibInflateOptions: { windowBits: WS_DEFLATE_WINDOW_BITS },
+  }
+}
 
 /** Test hook: WebSocket relay bounds, overridable so fixture tests need no huge frames. */
 export const internals = {
@@ -89,6 +107,8 @@ export const internals = {
   reauthorizeIntervalMs: REAUTHORIZE_INTERVAL_MS,
   /** Missed-pong threshold that closes a relayed pair. */
   pongMissMax: PONG_MISS_MAX,
+  /** zlib level the remote-facing hop negotiates. */
+  deflateLevel: WS_DEFLATE_LEVEL,
 }
 
 /** Byte length of one ws message payload. */
@@ -150,7 +170,7 @@ export async function createRemoteProxy(options: RemoteProxyOptions): Promise<Re
   // Only the visitor's leg compresses. The Host-facing dial declines the
   // extension, so a large downlink payload is inflated once rather than
   // deflated twice: the first hop carries no public-network bytes to save.
-  const downstreamCompression = websocketCompression === 'deflate' ? WS_DEFLATE_OPTIONS : false
+  const downstreamCompression = websocketCompression === 'deflate' ? deflateOptions(internals.deflateLevel) : false
   const wss = new WebSocketServer({ noServer: true, maxPayload: internals.maxPayload, perMessageDeflate: downstreamCompression })
 
   const handle = (req: IncomingMessage, res: ServerResponse): void => {

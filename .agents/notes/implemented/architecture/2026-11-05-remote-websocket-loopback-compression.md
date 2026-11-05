@@ -84,6 +84,10 @@ No Vitest config lists it, so nothing in `ci-*`, `doc-sync`, or `test:bench` col
 
 Promoting it to a gate would be a separate change: a calibrated budget in `benchmarks/` with a reviewed reference-machine expectation.
 
+### The level is a test hook, not configuration
+
+`WS_DEFLATE_LEVEL` sets the remote-facing hop's zlib level and lives on `internals` beside the relay bounds, because nothing measured justified a configuration field and no deployment asked for one. The diagnostic sets it before constructing the proxy; production never touches it. Adding `deflateLevel` to `RemoteAccess`'s config would make an untuned constant into a promised surface.
+
 ### Inert constants corrected in the same change
 
 `ws` reads `perMessageDeflate.threshold` only when a `*_no_context_takeover` parameter was negotiated, and it always overwrites `windowBits` from the negotiated `*_max_window_bits`. Both literals were therefore documentation that claimed to be configuration. They are now described as what they are, and the relay's own 1,024-byte constant, which does act, is described as the per-frame decision it is.
@@ -96,7 +100,21 @@ Whole-path CPU for a large downlink fell by a third in the measured workload, an
 
 **Interface-bound deployments give up compression on that leg.** A deployment started with a concrete `--host` address now sends the Host-facing hop in plaintext across that interface. There is no per-hop switch: the setting controls the remote-facing hop only. The upgrade guide is the only notice such a deployment receives.
 
-**Level `4` remains unmeasured.** This change says nothing about whether `4` beats `1` on the remote-facing hop. Comparing them is a separate measurement on the topology this change settled, and the Gateway's direct-connection level needs its own direct-mux evidence before it moves.
+**Level `1` was measured on the settled topology and rejected.** Comparing it with `4` on the remote-facing hop alone, seven fresh children each, interleaved `B B C C` with `B` as the control:
+
+| Metric | B (level 4) | C (level 1) | Change |
+|---|---|---|---|
+| Process CPU, median of 7 (ms) | 67.40 | 62.24 | −7.66% |
+| B/B noise floor (CPU median) | 28.94% | | |
+| Remote-facing wire bytes | 121,949 in all 7 samples | 135,672 in all 7 samples | **+11.25%** |
+| P95 frame gap, median (ms) | 2.05 | 1.13 | |
+| Wall time, median (ms) | 65.60 | 63.34 | |
+
+The CPU difference sits inside a 28.94% noise floor, so it is not distinguishable from run-to-run drift on this machine, while the byte cost is exact and unambiguous: level `1` sends 11.25% more bytes to the remote client in every single sample. A cheaper level buys nothing measurable here and taxes the link the compression exists to protect, so `4` stays.
+
+That noise floor is the honest part of the result. This machine could not resolve a CPU difference smaller than about a third, so the measurement rules level `1` out on bytes rather than proving `4` is the CPU optimum. A quieter machine or more samples might find a real CPU saving; it would still have to outbid an 11.25% byte increase on a slow link.
+
+The Gateway's direct-connection level is untouched and needs its own direct-mux evidence before it moves.
 
 **The measurement excludes what it cannot see.** It measures loopback production components, not a phone through a public tunnel, and not the interface-bound topology at all — there the Host-facing hop is a real network hop this workload cannot price. Assistant batching, Client fold, and browser paint are likewise outside it, so it protects none of their latency.
 
