@@ -47,10 +47,14 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-api-gateway": "workspace:*",
+    "@deepseek-ai/dsh-client-connection": "workspace:*",
+    "@deepseek-ai/dsh-deque": "workspace:*",
     "@deepseek-ai/dsh-home-paths": "workspace:*",
     "@deepseek-ai/dsh-host-webserver": "workspace:*",
     "@deepseek-ai/dsh-remote-tunnel": "workspace:*",
     "@deepseek-ai/dsh-shell-env": "workspace:*",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:*",
     "@types/qrcode-terminal": "^0.12.0",
     "@types/ws": "^8.18.0"
   }

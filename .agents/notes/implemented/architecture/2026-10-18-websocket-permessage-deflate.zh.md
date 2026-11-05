@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-Web GUI 的所有实时 Remote 流共用一条物理 WebSocket `/api/remote.mux`：模型 token 增量、session 事件、工具输出、终端输出，以及 `$events` 广播。这条 mux 本身是已实现的 [Remote 双工流](2026-09-19-remote-duplex-stream.zh.md)设计，本 Note 只给它加一个传输选项。Host 的 HTTP 面已经暴露 `compression: 'none' | 'gzip'`；在此选项之前 WebSocket 没有对应能力，链路因此从不压缩。
+Web GUI 的所有实时 Remote 流共用一条物理 WebSocket `/api/remote.mux`：模型 token 增量、session 事件、工具输出、终端输出，以及 `$events` 广播。这条 mux 本身是已实现的 [Remote 双工流](2026-09-19-remote-duplex-stream.zh.md)设计，本 Note 只给它加一个传输选项。Host 的 HTTP 面已经暴露 `compression: 'auto' | 'br' | 'gzip' | 'none'`；在此选项之前 WebSocket 没有对应能力，链路因此从不压缩。
 
 走隧道、反向代理或被接纳的公网地址时，大 JSON 帧——会话回放、长工具输出、终端滚动历史——占掉的带宽协议本来就能省下来。浏览器在升级握手时本来就会主动 offer `permessage-deflate`，缺的只是服务端这一半。
 
@@ -17,7 +17,8 @@ Gateway Config 增加一个字段 `websocketCompression: 'none' | 'deflate'`，�
 | 选项 | 取值 | 理由 |
 |---|---|---|
 | 帧压缩阈值 | `1024` 个 JSON 文本字符，由 mux 在发送路径判定 | `ws` 在开启上下文接管时会忽略自己的 `threshold` 选项（[上游 41ae5631](https://github.com/websockets/ws/commit/41ae5631)），因此 mux 逐帧传入 `compress`；少于 1024 个字符的帧（多数 token 级 `item` 帧）不压缩，也不进入 zlib 线程池 |
-| `perMessageDeflate.zlibDeflateOptions.level` | `1` | 交互帧优先延迟而非压缩率；本仓库 HTTP gzip 默认也是 `1` |
+| `perMessageDeflate.zlibDeflateOptions.level` | zlib 0–9 刻度上的 `4` | 没有任何测量把它与其他级别对比过，因此这个值是起点而非调优结果 |
+| `perMessageDeflate.zlibDeflateOptions.windowBits` / `zlibInflateOptions.windowBits` | 不生效 | `ws` 用 `{ ...zlibDeflateOptions, windowBits }` 构造两条流，其中 `windowBits` 取自协商出的 `*_max_window_bits` 参数，所以写在选项里的字面量总会被覆盖。生效窗口为 15 位，仅仅因为那是 `zlib.Z_DEFAULT_WINDOWBITS` 且未设置任何 `*MaxWindowBits`；要让部署显式声明这个默认值，应设置 `serverMaxWindowBits`/`clientMaxWindowBits`。 |
 | 上下文接管 | `ws` 默认（双向开启） | 重复 JSON 压缩率最好，不必逐帧重建字典 |
 
 mux 构造函数接收一个 options 对象，携带 `heartbeatIntervalMs`、`streamInboxBytes` 与 `compression`，因为配置词汇由 Gateway 解析，`stream-server.ts` 不认识 `'none' | 'deflate'`。
@@ -63,9 +64,13 @@ mux 构造函数接收一个 options 对象，携带 `heartbeatIntervalMs`、`st
 
 **每连接内存。** 每条协商成功的连接在整个生命周期内持有 deflate 与 inflate 一对上下文。每个浏览器标签页一条 socket 时，内存与打开的标签页成正比；如果实现预期大量空闲标签页，应先测量再默认开启。
 
-**loopback 无收益。** 最常见的本地部署只多付 CPU，所以才有这个字段；默认值是为远端与隧道场景选的。
+**loopback 无收益。** 最常见的本地部署只多付 CPU，所以才有这个字段；默认值是为远端与隧道场景选的。在 remote-access 中继上实测：为一条不承载公网字节的 hop 再付一对 deflate/inflate，代价是整链路 33% 的 CPU，而客户端收到的字节毫无变化，因此该 hop 已停止协商该扩展（见 [Host 向一跳压缩决策](2026-11-05-remote-websocket-loopback-compression.zh.md)）。Gateway 面向直连客户端自己的下行不受影响：那里字节确实要离开本机。
 
-**默认值未经测量。** `'deflate'` 这个默认值依据的是 HTTP gzip 的先例与远端场景，不是开/关两态的字节与延迟对比。做过对比后要记录结论，本地开销若明显则重新考虑默认值。
+**默认值未经测量。** `'deflate'` 这个默认值依据的是 HTTP 压缩的先例与远端场景，不是开/关两态的字节与延迟对比。做过对比后要记录结论，本地开销若明显则重新考虑默认值。
+
+**级别未经测量。** 没有依据说明 `4` 优于其他级别：这个值随首次压缩改动一起落地，此后没有记录过任何对比。对这条 socket 的帧形而言，更低的级别每帧便宜得多，所以改级别是一个现行候选——但只有真实用户路径能给它定价，因为孤立的 `zlib` 调用不含主导流式回答的 socket、中继与浏览器开销。任何此类改动都要同时报告 CPU、压缩字节与端到端时延三项测量。
+
+[Host 向一跳压缩决策](2026-11-05-remote-websocket-loopback-compression.zh.md)拥有 remote-access 代理拓扑，以及仍未完成的级别比较；它不改变此处记录的 Gateway 行为。
 
 **写入活性被削弱。** 压缩后的下行写入在 `ws` 完成 deflate 并写出时即完成，而不是等到 TCP 对端确认数据，因此持续压缩下行会把写入计为缓冲活动并推迟心跳超时终止。心跳规则及其代码未改动。
 
