@@ -6,11 +6,11 @@
   en: 0bc2e23413bf72c1
   zh: 5bb252767d0a9fac
 /agent-note-compress-the-remote-stream-websocket-with-permessage-deflate/problem:
-  en: 4b2b62b888cf4735
-  zh: 9d5c1ffce7c253b5
+  en: d64e4d3f874c91d2
+  zh: a510cfb433ca6679
 /agent-note-compress-the-remote-stream-websocket-with-permessage-deflate/decision:
-  en: f0d660d42cd9cfbf
-  zh: a1fff91323e6b213
+  en: b9ac917e78561c58
+  zh: ecd4404c4d0f5959
 /agent-note-compress-the-remote-stream-websocket-with-permessage-deflate/decision/negotiation-and-degradation:
   en: efd339349731b4eb
   zh: d4fafd884b3cfc75
@@ -21,5 +21,5 @@
   en: 1df91aee779c7c51
   zh: b8db98186b21143d
 /agent-note-compress-the-remote-stream-websocket-with-permessage-deflate/consequences:
-  en: b6e6e5fb4dc0f38d
-  zh: fbaa18b8c4b53940
+  en: ee198b2ef1c0c925
+  zh: dd0113a6812eb6aa

@@ -49,7 +49,12 @@ export interface Config {
   enabled: boolean
   /** Rotate the persisted pairing secret and revoke every device before opening the tunnel. */
   resetSecret: boolean
-  /** Per-message compression for both WebSocket relay hops. @default 'deflate' */
+  /**
+   * Per-message compression on the relay's remote-facing WebSocket hop.
+   *
+   * The Host-facing hop never compresses; see `RemoteProxyOptions`.
+   * @default 'deflate'
+   */
   readonly websocketCompression?: 'none' | 'deflate'
 }
 
@@ -59,7 +64,7 @@ export interface Config {
  * instead of every consumer defaulting it again.
  */
 interface ResolvedConfig extends Config {
-  /** Per-message compression for both WebSocket relay hops. @default 'deflate' */
+  /** Per-message compression on the relay's remote-facing WebSocket hop. @default 'deflate' */
   readonly websocketCompression: 'none' | 'deflate'
 }
 

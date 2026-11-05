@@ -18,6 +18,8 @@ English | [中文](2026-08-14-remote-phone-access.zh.md)
 
 **WebSocket compression is negotiated independently on each relay hop.** `websocketCompression` defaults to `deflate`, with the Gateway-compatible 1,024-byte threshold and 15-bit window on both the cloudflared-facing and Host-facing WebSockets; `none` disables both. The proxy terminates each hop rather than forwarding the Gateway extension, so compression is never assumed to continue across Cloudflare's separate browser-facing leg.
 
+The [Host-hop compression decision](../architecture/2026-11-05-remote-websocket-loopback-compression.md) measured that hop and stopped compressing it: the proxy now negotiates `permessage-deflate` only on the remote-facing leg, so downlink frames reaching the client keep their compression while the Host-facing hop carries plaintext.
+
 **Assistant streaming uses bounded batching and explicit overflow recovery.** Each attempt's first chunk remains immediate; later chunks use `assistantStreamBatchSize` (64 by default) and retain every revision and index inside `assistant-stream-batch`. Start/end and durable events flush partial batches. Host follow queues stop admitting at 10,000 durable or Assistant frames, including batch members, and each browser logical-stream inbox has the same frame cap. Overflow is an explicit resynchronization failure, never silent growth or ordinary frame loss.
 
 **Lifecycle and presentation.** The tunnel opens after Loader settlement (the printed pair URL must not precede sibling rows like the `/api` route mounting); a child exit reopens with linear backoff (5 attempts, reset on success) and reprints URL/QR under the new hostname. `DSH_REMOTE_URL` registers through the shell-env seam while a session lives.

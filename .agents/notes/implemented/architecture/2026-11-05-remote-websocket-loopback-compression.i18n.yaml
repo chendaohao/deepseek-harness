@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for 2026-11-05-remote-websocket-loopback-compression.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-05-remote-websocket-loopback-compression.md
+/agent-note-measure-before-removing-loopback-websocket-compression:
+  en: 2cd0c7350464c6d6
+  zh: f038ea8bef72bc8f
+/agent-note-measure-before-removing-loopback-websocket-compression/problem:
+  en: 45744bfdfc93eac9
+  zh: 5e88b195a320cabf
+/agent-note-measure-before-removing-loopback-websocket-compression/decision:
+  en: f51a15e3adbe4c42
+  zh: ed5ecfcd76c511db
+/agent-note-measure-before-removing-loopback-websocket-compression/decision/measurement-that-decided-it:
+  en: 9bdd5429bf93021e
+  zh: d33143152199ae6f
+/agent-note-measure-before-removing-loopback-websocket-compression/decision/reference-measurement:
+  en: fafa152fb4da5f3a
+  zh: 4401604787904d81
+/agent-note-measure-before-removing-loopback-websocket-compression/decision/lane-report-only-not-a-gate:
+  en: e8a4be4bd0ad968a
+  zh: 7835b827a61da683
+/agent-note-measure-before-removing-loopback-websocket-compression/decision/inert-constants-corrected-in-the-same-change:
+  en: 9109084b2244a300
+  zh: 56f858f673661e0e
+/agent-note-measure-before-removing-loopback-websocket-compression/consequences:
+  en: 5116842c0e07293b
+  zh: 436f45a9e21c93b5
+/agent-note-measure-before-removing-loopback-websocket-compression/scope-and-existing-decisions:
+  en: c9dde6f26124c434
+  zh: bd64cf87ec634a27
+/agent-note-measure-before-removing-loopback-websocket-compression/alternatives-considered:
+  en: 7484e16c2e4fce62
+  zh: 8bc0c9d406016221

@@ -18,6 +18,8 @@ Status: implemented
 
 **WebSocket 压缩在每条中继 hop 上独立协商。** `websocketCompression` 默认 `deflate`，在面向 cloudflared 与面向 Host 的两条 WebSocket 上均采用与 Gateway 一致的 1,024 字节阈值和 15 位窗口；`none` 同时关闭两跳。代理终止并重建每条 hop，而不是透传 Gateway 扩展，因此不假设压缩会延续到 Cloudflare 独立的浏览器侧链路。
 
+[Host 向一跳压缩决策](../architecture/2026-11-05-remote-websocket-loopback-compression.zh.md)测量了那一跳并停止压缩它：代理现在只在面向远端的一跳协商 `permessage-deflate`，因此到达客户端的下行帧仍带压缩，而面向 Host 的一跳走明文。
+
 **Assistant 流采用有界合批与显式溢出恢复。** 每个 attempt 的首个 chunk 仍立即发送；后续 chunk 按 `assistantStreamBatchSize`（默认 64）合批，batch 内每个 revision 和 index 都保留。start/end 和 durable 事件先 flush 部分批次。Host follow 队列在 durable 与 Assistant 帧（含 batch 内帧）达到 10,000 后停止接纳，浏览器每条逻辑流 inbox 也采用相同帧数上限。溢出是显式重同步失败，绝不静默增长或当作普通丢帧。
 
 **生命周期与呈现。** 隧道在 Loader 就绪后开启（打印的配对 URL 不能早于 `/api` 路由等兄弟行挂载）；子进程退出后按线性退避重开（最多 5 次，成功即重置），并以新域名重打印 URL/QR。会话存活期间通过 shell-env 接缝注册 `DSH_REMOTE_URL`。
