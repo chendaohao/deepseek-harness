@@ -3,7 +3,7 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/bundle/crew/README.md
 /:
-  en: 1347e638b90abe4b
+  en: f6768a43d04a0e35
   zh: 270640baa316617c
 /deepseek-ai-dsh-crew:
   en: 8f4f98b19cc3ab20
@@ -12,14 +12,14 @@
   en: 16f7b488494fe926
   zh: 879e3a006690e538
 /deepseek-ai-dsh-crew/table-of-contents:
-  en: 3460b3e585e0c020
-  zh: bb83d3d282b286d8
+  en: 76368b6b1da79c80
+  zh: 52384aee991ac542
 /deepseek-ai-dsh-crew/use-this-package:
-  en: 5fbac5a7b2520fed
-  zh: f37a6ce8b627ce3d
+  en: 4c15a20a40b31233
+  zh: 8e073e3027433d42
 /deepseek-ai-dsh-crew/understand-the-implementation:
-  en: 07820513db99019c
-  zh: 730535f450915188
+  en: c04aa026a7c9708a
+  zh: 84a076ffa0a10f99
 /deepseek-ai-dsh-crew/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -27,8 +27,8 @@
   en: 1176ec36ecbbe1de
   zh: 1bc7d3dd4edc9746
 /deepseek-ai-dsh-crew/model-experience/commander-and-role-catalogs/what-the-model-sees:
-  en: 066400c6c708eec7
-  zh: fc33b22a581a24e6
+  en: 5fb48af8d0b5d962
+  zh: 8ecf6231987d5180
 /deepseek-ai-dsh-crew/model-experience/commander-and-role-catalogs/token-effect:
   en: b6c3f251271eafb9
   zh: 63ed59452f95ec2a
@@ -36,5 +36,8 @@
   en: 9fe853f9eea9d78d
   zh: 81be8a667152fd53
 /deepseek-ai-dsh-crew/known-limitations-and-deferred-work:
-  en: 6b5de1c0ba51713e
-  zh: eb6b48a9e39dadaf
+  en: a6ad4b954f3828de
+  zh: 375afd4a9ae2dcda
+/deepseek-ai-dsh-crew/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 27b3d680ef2a4476

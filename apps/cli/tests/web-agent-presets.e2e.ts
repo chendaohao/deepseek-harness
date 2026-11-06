@@ -1,9 +1,11 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { executeModelToolFixture, executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import { subagentModelSelectionProjectionDefinition } from '@deepseek-ai/dsh-tool-subagent/src/model-selection-state.ts'
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -42,12 +44,13 @@ import { ToolCallId, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-compaction-basic'
 import type {} from '@deepseek-ai/dsh-skill'
-import type {} from '@deepseek-ai/dsh-tools'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-token-meter'
 
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+const execFileAsync = promisify(execFile)
 const { boot } = createRequire(import.meta.url)(join(REPO_ROOT, 'packages/boot/app-boot/lib/index.js')) as typeof import('@deepseek-ai/dsh-app-boot')
 /** The shipped Web surface: the dsh-base and dsh-web-app bundle patches over an empty profile. */
 const BASE_PATCH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
@@ -1250,6 +1253,100 @@ describe('the crew bundle owns the role route settings', () => {
     try {
       // Three separately routed delegation tools, one per role preset.
       expect(toolNames(crew, handle.agent)).toEqual(expect.arrayContaining(['worker', 'planner', 'reviewer']))
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('keeps implementation capabilities out of the commander execution scope', async () => {
+    let inheritedWrites = 0
+    const disposeInheritedWrite = crew.tools.register(defineTool({
+      name: 'mcp__filesystem__write_file',
+      description: 'Test inherited filesystem writes.',
+      parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: () => { inheritedWrites++; return Promise.resolve('written') },
+    }))
+    onTestFinished(() => { disposeInheritedWrite() })
+    const handle = await crew.agents.create({
+      sessionId: SessionId(`crew-commander-${randomUUID()}`),
+      setup: owner => crew.agentPresets.mount(owner, 'crew').then(() => undefined),
+    })
+    try {
+      const names = toolNames(crew, handle.agent)
+      expect(names).toEqual(expect.arrayContaining(['worker', 'planner', 'reviewer', 'read', 'crew_git']))
+      expect(names).not.toEqual(expect.arrayContaining([
+        'bash', 'pwsh', 'write', 'edit', 'apply_patch', 'mcp__filesystem__write_file',
+      ]))
+      const calls = [
+        { name: 'write', arguments: { file_path: join(crewHome, 'commander.txt'), content: 'not allowed' } },
+        { name: 'edit', arguments: { file_path: join(crewHome, 'commander.txt'), old_string: 'a', new_string: 'b' } },
+        { name: 'bash', arguments: { command: 'printf not-allowed > commander.txt', description: 'Try direct commander work', workdir: crewHome } },
+        { name: 'mcp__filesystem__write_file', arguments: { path: join(crewHome, 'commander.txt'), content: 'not allowed' } },
+      ]
+      // Repeating every call proves admission has no one-shot delegation unlock.
+      for (const call of [...calls, ...calls]) {
+        const result = await executeModelToolFixture(crew, {
+          callId: ToolCallId(`commander-${randomUUID()}`), ...call,
+          agent: handle.agent, signal: new AbortController().signal,
+        })
+        expect(result).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
+      }
+      expect(inheritedWrites).toBe(0)
+      await expect(readFile(join(crewHome, 'commander.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+      const git = await executeModelToolFixture(crew, {
+        callId: ToolCallId(`commander-git-${randomUUID()}`), name: 'crew_git',
+        arguments: { operation: 'status', args: ['--short'], cwd: REPO_ROOT },
+        agent: handle.agent, signal: new AbortController().signal,
+      })
+      expect(git.isError).toBe(false)
+      if (git.isError) throw new Error('expected the commander Git read to run')
+      expect(git.value).toMatchObject({ operation: 'status', cwd: REPO_ROOT, exitCode: 0 })
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('disables repository-selected filesystem monitor commands on Git reads', async () => {
+    const repository = join(crewHome, 'fsmonitor-repo')
+    await mkdir(repository)
+    await execFileAsync('git', ['init', '--quiet', repository])
+    const hook = join(repository, 'fsmonitor-marker.sh')
+    await writeFile(hook, '#!/bin/sh\nprintf ran > fsmonitor-ran\n')
+    await chmod(hook, 0o755)
+    await execFileAsync('git', ['-C', repository, 'config', 'core.fsmonitor', hook])
+    const handle = await crew.agents.create({
+      sessionId: SessionId(`crew-fsmonitor-${randomUUID()}`),
+      setup: owner => crew.agentPresets.mount(owner, 'crew').then(() => undefined),
+    })
+    try {
+      const result = await executeModelToolFixture(crew, {
+        callId: ToolCallId(`commander-fsmonitor-${randomUUID()}`), name: 'crew_git',
+        arguments: { operation: 'status', args: ['--short'], cwd: repository },
+        agent: handle.agent, signal: new AbortController().signal,
+      })
+      expect(result.isError).toBe(false)
+      await expect(readFile(join(repository, 'fsmonitor-ran'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('retains filesystem writes in the worker execution scope', async () => {
+    const handle = await crew.agents.create({
+      sessionId: SessionId(`crew-worker-${randomUUID()}`),
+      setup: owner => crew.agentPresets.mount(owner, 'crew-worker').then(() => undefined),
+    })
+    const path = join(crewHome, 'worker.txt')
+    try {
+      expect(toolNames(crew, handle.agent)).toEqual(expect.arrayContaining(['bash', 'write', 'edit']))
+      const result = await executeModelToolFixture(crew, {
+        callId: ToolCallId(`worker-${randomUUID()}`), name: 'write',
+        arguments: { file_path: path, content: 'worker wrote this' },
+        agent: handle.agent, signal: new AbortController().signal,
+      })
+      expect(result.isError).toBe(false)
+      expect(await readFile(path, 'utf8')).toBe('worker wrote this')
     } finally {
       await handle.dispose()
     }

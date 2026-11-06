@@ -46,6 +46,7 @@ Load the subagent service, an in-process or remote backend, and this tool; then 
 |---|---|---|
 | `provider` | required | Provider name on `ctx.subagents` (e.g. `spawn`, `fork`, `acp`) |
 | `toolName` | `subagent` | Model-facing tool name; distinct for every loaded instance |
+| `roleDescription` | — | Non-empty role-specific guidance appended to the provider-owned delegation description without replacing its context or lifecycle wording |
 | `modelSelection` | `false` | Expose optional child route fields; requires provider `agentOptions` support |
 | `modelDiscovery` | `false` | Register `list_subagent_models`; enable on one instance per tool scope |
 | `modelSelectionSettings` | `false` | Sample the Host's exact-route authorization preference for each top-level Session; a standing preset observes matching Sessions, while direct Agent setup passes its Session explicitly; requires provider `agentOptions` support |
@@ -114,7 +115,7 @@ The canonical tool result is `{ kind: 'activation', name }`. It contains no exec
 
 ### Context-sensitive wording
 
-The tool's description derives from `provider.inheritsParentContext`: a fresh child gets "it does not see this conversation" wording, a forked child gets "it does not see the current in-flight turn" wording, so the model never restates or omits context that does not exist.
+The tool's description derives from `provider.inheritsParentContext`: a fresh child gets "it does not see this conversation" wording, a forked child gets "it does not see the current in-flight turn" wording, so the model never restates or omits context that does not exist. `roleDescription` appends role-specific task guidance after that provider-owned wording.
 
 ### Source map
 
@@ -158,7 +159,7 @@ The generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek
 
 #### Token effect
 
-Fixed schema cost per parent request, including the optional `name` field; `modelSelection` adds three optional route fields, while preset selection adds one enum parameter and default guidance. Each tool instance adds one schema; visible delegation tools share one short system-prompt section.
+Fixed schema cost per parent request, including the optional `name` field and any configured `roleDescription`; `modelSelection` adds three optional route fields, while preset selection adds one enum parameter and default guidance. Each tool instance adds one schema; visible delegation tools share one short system-prompt section.
 
 #### KV Cache effect
 

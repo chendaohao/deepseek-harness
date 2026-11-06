@@ -4775,6 +4775,11 @@ export interface Config extends PresetSelectionConfig {
    */
   agentOptions?: AgentOptions
   /**
+   * Model-facing role-specific guidance appended to the provider's delegation
+   * description. Keep the provider-owned context and lifecycle facts intact.
+   */
+  roleDescription?: string | undefined
+  /**
    * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
    * or `'provider-managed'` to send no cap. A numeric cap
    * requires the provider's `depthLimit` capability (mount fails loud

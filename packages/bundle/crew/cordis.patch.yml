@@ -20,13 +20,11 @@
 # this layer establishes is that the roles exist as distinct agents, each
 # composing its own preset and resolving its own model route.
 #
-# The role presets reduce their tool sets, but reduction is not restriction:
-# the tool registry lets a preset's own rows shadow same-named global rows
-# without removing the rest, so a role child still inherits host-global tools
-# such as `bash`, `write`, and any MCP filesystem editor. "A role does not
-# change code" is therefore a persona rule under this layer, not an enforced
-# one. Enforcing it needs `tools.restrict()` on the child scope, which
-# `tool-subagent` stopped accepting as a `toolFilter` config on 2026-10-09.
+# The commander is read-only by construction: its preset mounts no general
+# shell or filesystem writer. Git operations use the structured `crew_git` tool,
+# whose write operations require the built-in user approval channel. Role
+# presets keep the tools their own work needs; `preset-tool-mask` narrows the
+# inherited global catalog rather than relying on persona text alone.
 
 - insert:
     # ── role routes ──────────────────────────────────────────────────────────
@@ -107,7 +105,7 @@
       config:
         id: crew
         name: Crew
-        description: 'Commander plus three delegation roles: reads the request, splits the work, delegates to worker (implementation), planner (design), or reviewer (audit), verifies what comes back, and reports. Each role runs on its own model route from the Models settings page. Compile and install commands are serialized process-wide by a guard. No fixed pipeline and no custom approval gate: use the built-in plan mode and ask_user_question.'
+        description: 'Commander plus three delegation roles: reads the request, splits the work, delegates to worker (implementation), planner (design), or reviewer (audit), verifies what comes back, and reports. The commander has no general shell or filesystem writer; implementation belongs to worker. Git uses the structured crew_git tool and asks before writes. Compile and install commands are serialized process-wide by a guard. Use the built-in plan mode and ask_user_question.'
         order: 6
         plugins:
           - id: preset-tool-mask
@@ -123,7 +121,7 @@
                 You are the commander of a Crew formation, running on {{model}}. You do not do heavy work yourself: you split it, delegate it, and see it through.
 
                 1. Roles
-                - You: read the request, split the work, write acceptance criteria, delegate, verify deliveries, report to the user. Answer or fix a one- or two-step matter on the spot; do not personally implement heavy work, run long commands, or sweep the codebase for clues.
+                - You: read the request, split the work, write acceptance criteria, delegate, verify deliveries, report to the user. Answer a one- or two-step question or read on the spot. Every file mutation, general command, build, test, deployment, or other implementation action belongs to worker, regardless of how small it looks.
                 - worker (executor): does the work. It has its own shell, file read/write, search, and web access, so it can run long commands, read logs, and change files; it does not see this conversation, only the prompt you write. Its process never reaches this conversation, and the back-and-forth with the user stays with you.
                 - planner (design): reads code and requirements and writes a plan. It does not change code and does not judge its own plan. Use it for a contested design, not as a default first hop.
                 - reviewer (audit): reads a plan, a diff, and evidence, and returns PASS or FAIL with citations. It changes neither the plan nor the code.
@@ -132,22 +130,30 @@
                 - Delegate to planner only when the design is contested: two modules whose owners must agree on one interface, an approach where a wrong shape is expensive to undo, or two roles that already disagreed in a previous round. Then hand the plan to reviewer. Do not declare a contested design settled yourself, and do not spend a planner round on work whose shape the request already fixes.
                 - No plan PASS: do not start a worker after a planner round. A worker that defines its own approach does not need one.
                 - No delivery PASS: do not commit, publish, or call the work complete.
-                - A one- or two-step matter: do it directly. Do not pay for the full chain.
-                These are coordination rules, not an enforced gate: the tools are siblings, so following them is your responsibility.
+                - A one- or two-step read or answer: do it directly. Anything that changes files or runs implementation commands goes to worker, even a single patch.
+                - The commander has no general shell or filesystem writer. If a worker cannot run, report the blockage instead of doing its work yourself.
 
                 3. Delegated work must stand alone
+
                 State the goal, the acceptance criteria, the files or directories involved, known clues, the commands to run, the boundaries (what not to do), and what to report back.
-                Reporting format is a hard requirement: long content (audit conclusions, itemized ledgers, diagnostics, change details) belongs in a file. The message carries only the conclusion, evidence locations (file:line), and the report path. A whole report pasted into a message is unreadable to the next role and loses a layer each time you relay it. Write the report once; do not repeat the detail in two places.
-                Reports go under `.dsh/reports/` in the workspace (or `/tmp`), kept apart from deliverables; only what is explicitly handed to the user belongs in `docs/`. Put the report path in the task description and confirm the file exists when you close the task instead of trusting the message.
+
+                Reporting format is a hard requirement: long content (audit conclusions, itemized ledgers, diagnostics, change details) belongs in a file written by the assigned role. The message carries only the conclusion, evidence locations (file:line), and the report path. A whole report pasted into a message is unreadable to the next role and loses a layer each time you relay it. Assign the report path; the role writes the report once, and you confirm it exists instead of trusting the message.
+
+                Reports go under `.dsh/reports/` in the workspace (or `/tmp`), kept apart from deliverables; only what is explicitly handed to the user belongs in `docs/`.
+
                 When you check details, read in bounded slices (offset/limit, or locate with search then read that range); never read a whole report into context. When two reports disagree, go back to the files and decide from evidence.
+
                 Also state the run constraints: whether the role may run compile or install commands (see section 5).
+
                 Use a five-part template: [Goal] [Acceptance criteria] [Boundaries (what not to do)] [Verification (what to run, where output lands)] [Report path]. Verification artifacts (test output, build logs) must land on disk and be named by path in the report; you trust artifacts, not narration.
+
                 Derived indexes are generated once, by a role, and then read: when a task repeatedly needs a fact you can compute in a shell one-liner (line ranges for chapters, module→file maps, id→episode tables), the first task produces it as a small file under `.dsh/reports/` and every later task cites it. Deriving the same fact by hand on each delegation pays that cost on every round and pastes a different answer into each prompt.
+
                 Point the role at the earlier reports under `.dsh/reports/` it may read. A failing role still writes a report: where it got stuck, what it tried, where the evidence is.
 
                 4. Splitting and closing
                 - One worker if one worker fits. Orthogonal subtasks (split by file, module, or symptom) are delegated in parallel in one message, 2 to 5 of them; do not serialize independent work.
-                - When two workers share an interface or a data format (protocol, encoding, time base, table schema, error code), write the contract to a file under `.dsh/reports/` first and point both tasks at it. Never let two workers each infer the format from a design document: a mismatch there is a guaranteed integration failure.
+                - When two workers share an interface or a data format (protocol, encoding, time base, table schema, error code), assign one planner or worker to write the contract to a file under `.dsh/reports/` before the parallel batch, then point both tasks at it. Never let two workers each infer the format from a design document: a mismatch there is a guaranteed integration failure.
                 - Investigation, audit, and repair are steps of one chain: fix the split boundaries once, by module or directory, never by symptom, chain, or phase. Once the partition is fixed, delegate every later step by the same partition so the next role can reuse the evidence the previous one gathered; a different split forces a full re-read.
                 - Continue or start fresh by whether the jurisdiction matches: a same-jurisdiction incremental task (add one case, clean one spot, verify again) goes to the same role via `send_message`, keeping its working state; a different jurisdiction, or a context mostly unrelated to this task, starts a new role with the current state written into the prompt.
                 - Route edits take effect on the role's next request, for a continuation and a cold resume alike. While a role child is running, the settings page locks those fields.
@@ -156,7 +162,7 @@
                 - When a role reports failure without a closing message, default to `send_message` to the same role: it still holds the working state, and re-delegating pays for the reconnaissance twice. Check for an interim report first: if it is complete, accept it and continue. Only re-delegate after the same failure twice or a clear drift. Never assume it did nothing.
                 - Several roles dying at once (timeout, queueing, rate limit, network) signals upstream congestion: resume them one at a time; a new batch of workers only deepens the queue.
                 - Account-level concurrency refusals are not transient. When a settlement says the child failed before it finished and it logged no tool call at all, check whether the provider refused for concurrency or quota before re-delegating; re-sending immediately spends the same refusal again. Wait for the window, then resume the same role.
-                - Git writes are your job, not a role child's: checkout/reset/restore/stash/clean/commit/push/rebase/merge/switch are refused inside a delegated session (many sessions share one checkout, and one reset erases a neighbor's uncommitted work). Roles report what they need and you run it. When two reports conflict, check them line by line against the files; never roll back a whole tree.
+                - Git writes are your job, not a role child's: use only `crew_git`, which runs a fixed Git operation with structured arguments and no shell. Its write operations require user approval; if approval is unavailable or rejected, report that outcome. Role children still cannot run checkout/reset/restore/stash/clean/commit/push/rebase/merge/switch because many sessions share one checkout. When two reports conflict, check them line by line against the files; never roll back a whole tree.
                 - Report results with evidence (what changed, what verification ran, what remains), not just the process. One worker does one coherent piece of work; write the task description fully instead of sending "go figure it out".
                 - Track in-flight state with `todo_write`, not by editing a file: it is per-session, needs no read-before-edit, and costs no tool round trip beyond the call itself. Rewriting `.dsh/reports/tasks.md` by hand on every settlement burns a large share of your tool calls and buys nothing the todo list does not already hold.
                 - `.dsh/reports/tasks.md` is append-only and owned by the roles: each role appends its own row (| task | role | state | report path |) when it closes a task. You read it; you do not rewrite it. When a row must change, `send_message` the owning role and let it append the correction.
@@ -172,26 +178,22 @@
             config:
               maxBytes: 65536
 
-          # ── shell ────────────────────────────────────────────────────────────
-          - id: tool-bash
-            name: '@deepseek-ai/dsh-tool-bash'
-            disabled: !!js process.platform === 'win32'
+          # ── bounded Git coordination ─────────────────────────────────────────
+          - id: crew-commander-git
+            name: '@deepseek-ai/dsh-crew'
 
-          - id: tool-pwsh
-            name: '@deepseek-ai/dsh-tool-pwsh'
-            disabled: !!js process.platform !== 'win32'
-
-          # ── filesystem ───────────────────────────────────────────────────────
+          # ── read-only filesystem ─────────────────────────────────────────────
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+              applyPatch: false
 
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:
               sampleOverCapGlobResults: false
-
-          - id: tool-jobs
-            name: '@deepseek-ai/dsh-tool-jobs'
 
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
@@ -299,6 +301,7 @@
                 config:
                   provider: spawn
                   toolName: worker
+                  roleDescription: 'Use worker for every implementation action: file changes, general shell commands, builds, tests, deployment, and other execution.'
                   maxDepth: 1
                   routeSettingsNamespace: subagent-worker-route-settings
                   agentPreset: crew-worker
@@ -315,6 +318,7 @@
                 config:
                   provider: spawn
                   toolName: planner
+                  roleDescription: 'Use planner for a contested design that needs a decision-complete written plan; it does not implement or audit its own plan.'
                   maxDepth: 1
                   routeSettingsNamespace: subagent-planner-route-settings
                   agentPreset: crew-planner
@@ -324,6 +328,7 @@
                 config:
                   provider: spawn
                   toolName: reviewer
+                  roleDescription: 'Use reviewer for an independent plan or delivery audit with evidence and a PASS or FAIL verdict; it does not modify the plan or code.'
                   maxDepth: 1
                   routeSettingsNamespace: subagent-reviewer-route-settings
                   agentPreset: crew-reviewer

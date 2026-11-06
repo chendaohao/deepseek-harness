@@ -17,6 +17,7 @@ kind: "package-bundle"
 - [理解实现](#understand-the-implementation)
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
 -----
 
@@ -52,13 +53,15 @@ kind: "package-bundle"
 
 在角色行下方，**模型组合**选择器可以把这三条路由存成一个名字，之后一次选择就把三条一起写回。一套组合在结果上只有全成或全不成：页面先预检每个角色，若某个角色在写入中途拒绝，就把已经切换过的角色放回它找到它们时的状态。
 
+指挥者没有通用 shell，也没有文件写入或编辑工具。所有实施动作都派给 `worker`，包括单文件补丁和单独一条测试命令。`crew_git` 支持只读操作 `status`、`diff`、`log`、`show`、`ls-files`、`rev-parse`；写操作 `checkout`、`reset`、`restore`、`stash`、`clean`、`commit`、`push`、`rebase`、`merge`、`switch` 需要用户批准。参数是逐条校验选项白名单的字面 argv 值。每次调用都应用 Session 沙箱策略，禁用仓库钩子和文件系统监视器，并且绝不调用 shell 或外部远程助手。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
 <details>
 <summary>实现内部——点击展开</summary>
 
-本包的实质是 [cordis.patch.yml](cordis.patch.yml)，由 `dsh.bundle.patch` 声明；模块本身不提供运行时 API。这一层插入三条 `subagent-*-route-settings` 行、一条 `subagent-route-presets` 行与四条 `@deepseek-ai/dsh-agent-preset` 声明，因此依赖 `dsh-web-app` 组合出的 host 面：Agent 预设注册表与 `subagentRouteSettings` 注册表。路由行放在这里而不是 `dsh-web-app`，所以没有选择编队 bundle 的 web 部署不提供任何编队路由命名空间，模型页也不显示编队路由块；命名空间没有对应的行提供服务时，它的委派行会拒绝加载，而不是悄悄路由到另一个角色。预设行是一个不含运行时行为的设置所有者：它提供选择器要写的那个命名空间，应用一套组合时通过各角色自己的行写入该角色的路由命名空间。
+本包通过 [cordis.patch.yml](cordis.patch.yml) 组合各角色，该文件由 `dsh.bundle.patch` 声明；Host 模块同时导出只供指挥者使用的 `crew_git` 插件。这一层插入三条 `subagent-*-route-settings` 行、一条 `subagent-route-presets` 行与四条 `@deepseek-ai/dsh-agent-preset` 声明，因此依赖 `dsh-web-app` 组合出的 host 面：Agent 预设注册表与 `subagentRouteSettings` 注册表。路由行放在这里而不是 `dsh-web-app`，所以没有选择编队 bundle 的 web 部署不提供任何编队路由命名空间，模型页也不显示编队路由块；命名空间没有对应的行提供服务时，它的委派行会拒绝加载，而不是悄悄路由到另一个角色。预设行是一个不含运行时行为的设置所有者：它提供选择器要写的那个命名空间，应用一套组合时通过各角色自己的行写入该角色的路由命名空间。
 
 每个角色预设只由它自己的委派行挂载。指挥者的 `delegation` 组里有三条 `tool-subagent` 行；`maxDepth: 1` 把链限制在指挥者下一层。`tool-subagent` 自 2026-10-09 起不再接受 `persona` / `toolFilter` 配置，因此角色的人格与工具只来自它 `agentPreset` 指定的预设。
 
@@ -71,7 +74,7 @@ kind: "package-bundle"
 
 #### 模型看到什么
 
-指挥者看到三个委派工具——`worker`、`planner`、`reviewer`——以及控制行提供的 `send_message`、`list_agents`、`interrupt_agent`，再加上它的 `preset-tool-mask` 行所保留的宿主工具。每个角色子会话看到自己预设的工具集，同样经过收窄，以及一段写明边界的 persona：规划者写方案、审核者判方案，两者都不声称自己改代码。审核者的目录里根本没有文件编辑器和任务板写入工具，因此「除报告之外不写文件」是组合本身的性质，而不是要模型自觉遵守的请求。
+指挥者看到三个带角色专用说明的委派工具——`worker`、`planner`、`reviewer`——以及控制行提供的 `send_message`、`list_agents`、`interrupt_agent`。它保留读取、搜索与 `crew_git`，但没有通用 shell 或文件写入工具。每个角色子会话看到自己预设的工具集，同样经过 `preset-tool-mask` 收窄，以及一段写明边界的 persona：规划者写方案、审核者判方案，两者都不声称自己改代码。审核者的目录里根本没有文件编辑器和任务板写入工具，因此「除报告之外不写文件」是组合本身的性质，而不是要模型自觉遵守的请求。
 
 #### Token 影响
 
@@ -86,5 +89,15 @@ kind: "package-bundle"
 <a id="known-limitations-and-deferred-work"></a>
 
 - **三个角色是并列的，不是门禁。** 指挥者可以跳过规划或审核，直接派 worker。方案 PASS 与交付 PASS 的绑定、方案变化后摘要失效、以及让门禁可执行的证据清单，属于另一份交付。
-- **角色的「只读」边界由掩码行执行，而不是由行省略执行。** 每个预设的第一行是 `preset-tool-mask`，它在该预设作用域上调用 `tools.restrict()`，把继承来的全局工具收窄到声明保留的名字；规划者与审核者因此拿不到 `bash` 之外的写工具、MCP 文件编辑器与任务板写入工具。掩码是派生而非硬编码的，所以部署多挂一个插件时也会被一并收窄。`tool-subagent` 自 2026-10-09 起不再接受 `toolFilter`，掩码正是替代它的位置。
+- **角色边界使用不同机制。** 指挥者的预设没有通用 shell 与文件写入行，因此不能直接实施。每个角色预设还以 `preset-tool-mask` 开头，在该预设作用域上调用 `tools.restrict()`，把继承来的全局工具收窄到声明保留的名字。掩码是派生而非硬编码的，所以部署多挂一个插件时也会被一并收窄。规划者与审核者仍保留 shell 行以支持其读取和报告流程；它们的 persona 仍禁止实施与长命令。
 - **角色预设会出现在预设列表里。** 注册表没有隐藏标记，因此新建会话时 `crew-worker`、`crew-planner`、`crew-reviewer` 与 `crew` 并列出现；它们的名称与 `order` 标明只用于挂载。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>供维护者使用的工作上下文——点击展开</summary>
+
+无。
+
+</details>

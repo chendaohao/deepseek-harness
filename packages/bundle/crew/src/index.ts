@@ -1,9 +1,8 @@
 /**
- * The crew presets as a profile bundle. The package's substance is
- * `cordis.patch.yml`, declared by the `dsh.bundle.patch` manifest field and
- * resolved by the profile composer through that field; this module carries no
- * runtime API.
+ * The crew presets as a profile bundle. Its patch composes the roles, and its
+ * module exports the commander-only structured Git plugin.
  * @module @deepseek-ai/dsh-crew
  */
 
-export {}
+export { apply, Config, inject, name } from './git.ts'
+export { CrewGitError } from './git.ts'

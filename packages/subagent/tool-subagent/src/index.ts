@@ -87,6 +87,11 @@ export interface Config extends PresetSelectionConfig {
    */
   agentOptions?: AgentOptions
   /**
+   * Model-facing role-specific guidance appended to the provider's delegation
+   * description. Keep the provider-owned context and lifecycle facts intact.
+   */
+  roleDescription?: string | undefined
+  /**
    * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
    * or `'provider-managed'` to send no cap. A numeric cap
    * requires the provider's `depthLimit` capability (mount fails loud
@@ -102,6 +107,7 @@ export interface Config extends PresetSelectionConfig {
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   toolName: z.string().default('subagent'),
+  roleDescription: (z.string().min(1) as z<string | undefined>).default(undefined),
   modelSelection: z.boolean().default(false),
   modelDiscovery: z.boolean().default(false),
   routeSettingsNamespace: (z.string().min(1) as z<string | undefined>).default(undefined),
@@ -312,6 +318,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const definition = defineTool({
       name: toolName,
       description: wording.description
+        + (config.roleDescription === undefined ? '' : ` ${config.roleDescription}`)
         + ' This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing.'
         + (subagentProvider.prepareContinuable !== undefined
           ? ' Use `send_message` to steer it while running or continue its conversation after it finishes.'

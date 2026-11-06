@@ -112,6 +112,14 @@ describe('dsh-tool-subagent', () => {
     expect(schema!.description).not.toContain('job_output')
   })
 
+  it('appends role guidance without replacing provider-owned delegation wording', async () => {
+    const ctx = await setup({ provider: 'mock', roleDescription: 'Use worker for implementation and verification.' })
+    const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
+    expect(schema?.description).toContain('works in its own context')
+    expect(schema?.description).toContain('Use worker for implementation and verification.')
+    expect(schema?.description).toContain('immediately returns its name')
+  })
+
   it('classifies delegations as concurrency-safe', async () => {
     const ctx = await setup({ provider: 'mock' })
     expect(new ToolExecutionPipeline(ctx).executionMode({

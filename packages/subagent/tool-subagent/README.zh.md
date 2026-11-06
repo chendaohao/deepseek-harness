@@ -46,6 +46,7 @@ kind: "package-reference"
 |---|---|---|
 | `provider` | 必填 | `ctx.subagents` 上的提供方名称（如 `spawn`、`fork`、`acp`） |
 | `toolName` | `subagent` | 面向模型的工具名称；每个已加载实例必须不同 |
+| `roleDescription` | — | 追加到提供方委派描述之后的非空角色专用说明，不替换其上下文与生命周期措辞 |
 | `modelSelection` | `false` | 公开可选子级路由字段；要求提供方支持 `agentOptions` |
 | `modelDiscovery` | `false` | 注册 `list_subagent_models`；每个工具作用域仅在一个实例上启用 |
 | `modelSelectionSettings` | `false` | 为每个顶层 Session 读取宿主的精确路由授权偏好；常驻 preset 观察匹配 Session，直接 Agent setup 则显式传入其 Session；要求提供方支持 `agentOptions` |
@@ -114,7 +115,7 @@ kind: "package-reference"
 
 ### 随上下文变化的措辞
 
-工具描述源自 `provider.inheritsParentContext`：全新子 agent 得到「it does not see this conversation」措辞，fork 子 agent 得到「it does not see the current in-flight turn」措辞，因此模型既不会复述、也不会省略并不存在的上下文。
+工具描述源自 `provider.inheritsParentContext`：全新子 agent 得到「it does not see this conversation」措辞，fork 子 agent 得到「it does not see the current in-flight turn」措辞，因此模型既不会复述、也不会省略并不存在的上下文。`roleDescription` 在这段提供方所有的措辞之后追加角色专用的任务说明。
 
 ### 源码地图
 
@@ -158,7 +159,7 @@ kind: "package-reference"
 
 #### Token 影响
 
-每次父级请求承担固定 schema 成本，其中包括可选的 `name` 字段；`modelSelection` 会增加三个可选路由字段，preset 选择则增加一个枚举参数及默认值引导。每个工具实例增加一份 schema；可见委派工具共享一个简短系统提示词段。
+每次父级请求承担固定 schema 成本，其中包括可选的 `name` 字段与配置的 `roleDescription`；`modelSelection` 会增加三个可选路由字段，preset 选择则增加一个枚举参数及默认值引导。每个工具实例增加一份 schema；可见委派工具共享一个简短系统提示词段。
 
 #### KV Cache 影响
 
