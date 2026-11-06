@@ -12,11 +12,16 @@
  * nothing at all; that is what makes it follow the bundle rather than the page.
  */
 
-import { useEffect, useId, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import type { ModelCatalogModel, ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
 import type { en } from './locales.ts'
 import type { CrewRoute, CrewRouteBlock } from './crew-routes.ts'
 import type { RouteCatalogState, RouteSettings } from './route-settings.ts'
+import {
+  applyRoutes, createServedRouteSet, matchingPreset, newPresetId, removePreset, samePresetRoutes, snapshotRoutes,
+  upsertPreset,
+} from './crew-presets.ts'
+import type { RoutePreset, ServedRouteSet } from './crew-presets.ts'
 import styles from './ModelsSection.module.css'
 
 /** Block copy: page copy plus the role name interpolated into each control. */
@@ -39,6 +44,36 @@ export interface CrewRouteCopy {
   conflict: string
   /** A route the provider or model change reset. */
   reset: string
+  /** Combination picker name. */
+  presetLabel: string
+  /** The picker entry meaning "the current routes are not a saved combination". */
+  presetCustom: string
+  /** Open the naming field for a new combination. */
+  presetSave: string
+  /** Accessible name of the naming field. */
+  presetName: string
+  /** Placeholder of the naming field. */
+  presetNamePlaceholder: string
+  /** Confirm the naming field. */
+  presetConfirm: string
+  /** Dismiss the naming field. */
+  presetDismiss: string
+  /** Delete the currently matching combination. */
+  presetDelete: string
+  /** A stored combination that now describes the served routes. */
+  presetApplied: string
+  /** A stored combination that was just written. */
+  presetSaved: string
+  /** A stored combination that was just dropped. */
+  presetDeleted: string
+  /** A role that holds its route, so nothing was written. */
+  presetLocked: string
+  /** A refused write mid-set, with the roles already written put back. */
+  presetRolledBack: string
+  /** The document or a role handle is not writable. */
+  presetReadOnly: string
+  /** A rejected combination write. */
+  presetRefused: string
 }
 
 /** Props of the crew route block. */
@@ -299,6 +334,198 @@ function CrewRouteRow({ route, catalog, copy, t }: {
 }
 
 /**
+ * The saved-combination row: one picker over the stored sets, plus the controls
+ * that save the current one and delete the matching one.
+ *
+ * The picker's value is derived, not stored: the entry shown is the combination
+ * whose routes the roles currently carry, so a manual edit of any single role
+ * moves the picker back to "custom" without a write of its own.
+ * @param props - the role handles, the preset handle, block copy, and the `t` seat.
+ * @returns the row, or null while the Host serves no preset namespace.
+ */
+function CrewPresetRow({ block, served, copy }: {
+  block: CrewRouteBlock
+  served: ServedRouteSet
+  copy: CrewRouteCopy
+}) {
+  const presets = useSyncExternalStore(
+    fn => block.presets.subscribe(fn),
+    () => block.presets.getSnapshot(),
+  )
+  const [naming, setNaming] = useState(false)
+  const [draftName, setDraftName] = useState('')
+  const [notice, setNotice] = useState<string | undefined>(undefined)
+  const [failure, setFailure] = useState<string | undefined>(undefined)
+  const [busy, setBusy] = useState(false)
+
+  if (presets.status === 'unavailable') return null
+  const stored = presets.value?.presets ?? []
+  const current = matchingPreset(stored, served.routes)
+  const writable = presets.writable && !presets.writeFailure && presets.writeRefusal === undefined
+  const disabled = !writable || served.blocked !== undefined || busy
+
+  /**
+   * Persist one combination list and report what happened.
+   * @param next - the complete list to store.
+   */
+  const writePresets = async (next: readonly RoutePreset[]): Promise<boolean> => {
+    setBusy(true)
+    setFailure(undefined)
+    setNotice(undefined)
+    const accepted = await block.presets.mutate([
+      { op: 'set', path: ['presets'], value: next.map(preset => ({ ...preset, routes: preset.routes.map(route => ({ ...route })) })) },
+    ])
+    setBusy(false)
+    if (!accepted) {
+      setFailure(presets.writeFailure === 'conflict' ? copy.conflict : copy.presetRefused)
+      return false
+    }
+    return true
+  }
+
+  /**
+   * Write one combination's routes into the role namespaces.
+   * @param preset - the combination to apply.
+   */
+  const apply = async (preset: RoutePreset): Promise<void> => {
+    setBusy(true)
+    setFailure(undefined)
+    setNotice(undefined)
+    const outcome = await applyRoutes(block.routes, preset.routes)
+    setBusy(false)
+    if (outcome.kind === 'applied') {
+      setNotice(copy.presetApplied)
+      return
+    }
+    if (outcome.kind === 'rolled-back') {
+      setFailure(copy.presetRolledBack)
+      return
+    }
+    setNotice(outcome.kind === 'locked' ? copy.presetLocked : copy.presetReadOnly)
+  }
+
+  const saveCurrent = async (): Promise<void> => {
+    const name = draftName.trim()
+    if (name.length === 0) return
+    const routes = snapshotRoutes(served.routes)
+    // Saving over the combination these routes already match keeps its identity
+    // (and its place in the list) instead of accumulating duplicates.
+    const existing = current
+    const preset: RoutePreset = existing === undefined
+      ? { id: newPresetId(stored), name, routes }
+      : { id: existing.id, name, routes }
+    // A name-only change still rewrites the stored routes: the user confirmed
+    // "this is the combination now", which is what a save means here.
+    const next = samePresetRoutes(existing?.routes ?? [], routes) && existing?.name === name
+      ? stored
+      : upsertPreset(stored, preset)
+    if (next !== stored && await writePresets(next)) {
+      setNotice(copy.presetSaved)
+      setNaming(false)
+      setDraftName('')
+    }
+  }
+
+  /**
+   * Drop one stored combination.
+   * @param preset - the combination to delete.
+   */
+  const removePresetEntry = async (preset: RoutePreset): Promise<void> => {
+    if (await writePresets(removePreset(stored, preset.id))) setNotice(copy.presetDeleted)
+  }
+
+  return (
+    <div className={styles['crewPresets']}>
+      <div className={styles['crewPresetControls']}>
+        <label className={styles['field']}>
+          <span className={styles['fieldLabel']}>{copy.presetLabel}</span>
+          <select
+            className={`${styles['input']} ${styles['selectInput']}`}
+            aria-label={copy.presetLabel}
+            value={current?.id ?? ''}
+            disabled={disabled}
+            onChange={(event) => {
+              const picked = stored.find(preset => preset.id === event.target.value)
+              if (picked !== undefined) void apply(picked)
+              else setNotice(undefined)
+            }}
+          >
+            <option value="">{copy.presetCustom}</option>
+            {stored.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+          </select>
+        </label>
+        {naming
+          ? (
+            <label className={styles['field']}>
+              <span className={styles['fieldLabel']}>{copy.presetName}</span>
+              <input
+                className={styles['input']}
+                autoFocus
+                type="text"
+                aria-label={copy.presetName}
+                placeholder={copy.presetNamePlaceholder}
+                value={draftName}
+                disabled={busy}
+                onChange={(event) => { setDraftName(event.target.value) }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void saveCurrent()
+                  if (event.key === 'Escape') { setNaming(false); setDraftName('') }
+                }}
+              />
+            </label>
+          )
+          : null}
+        {naming
+          ? (
+            <>
+              <button
+                type="button"
+                className={styles['secondaryButton']}
+                disabled={busy || draftName.trim().length === 0}
+                onClick={() => { void saveCurrent() }}
+              >
+                {copy.presetConfirm}
+              </button>
+              <button
+                type="button"
+                className={styles['secondaryButton']}
+                disabled={busy}
+                onClick={() => { setNaming(false); setDraftName('') }}
+              >
+                {copy.presetDismiss}
+              </button>
+            </>
+          )
+          : (
+            <button
+              type="button"
+              className={styles['secondaryButton']}
+              disabled={disabled || served.routes.length === 0}
+              onClick={() => { setNaming(true); setDraftName(current?.name ?? '') }}
+            >
+              {copy.presetSave}
+            </button>
+          )}
+        {current !== undefined
+          ? (
+            <button
+              type="button"
+              className={styles['dangerButton']}
+              disabled={disabled}
+              onClick={() => { void removePresetEntry(current) }}
+            >
+              {copy.presetDelete}
+            </button>
+          )
+          : null}
+      </div>
+      {failure !== undefined && <p className={styles['error']} role="alert">{failure}</p>}
+      {notice !== undefined && <p className={styles['savedNotice']} role="status">{notice}</p>}
+    </div>
+  )
+}
+
+/**
  * Render the crew route block.
  * @param props - the role rows, the shared catalog, block copy, and the `t` seat.
  * @returns the block, or null while the Host serves none of its namespaces.
@@ -308,6 +535,10 @@ export function CrewRouteSection({ block, copy, t }: CrewRouteSectionProps) {
     fn => block.catalog.subscribe(fn),
     () => block.catalog.getSnapshot(),
   )
+  // One fold over every role handle: the combination row needs them together,
+  // and the blocks's own rows keep reading their own handle.
+  const servedSource = useMemo(() => createServedRouteSet(block.routes), [block.routes])
+  const served = useSyncExternalStore(servedSource.subscribe, servedSource.getSnapshot)
   const fieldId = useId()
 
   useEffect(() => { block.loadCatalog() }, [block.loadCatalog])
@@ -320,6 +551,7 @@ export function CrewRouteSection({ block, copy, t }: CrewRouteSectionProps) {
     <section className={styles['section']} aria-labelledby={`${fieldId}-title`}>
       <h3 id={`${fieldId}-title`} className={styles['title']}>{copy.title}</h3>
       <p className={styles['intro']}>{copy.intro}</p>
+      <CrewPresetRow block={block} served={served} copy={copy} />
       <div className={styles['crewRows']}>
         {block.routes.map(route => (
           <CrewRouteRow key={route.namespace} route={route} catalog={catalog} copy={copy} t={t} />

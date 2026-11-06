@@ -67,6 +67,52 @@ describe('web e2e: the crew-route block follows the crew bundle', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
+  it('saves the three routes as one combination and switches back to them', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-crew-route-presets'))
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    const block = dialog.locator('section').filter({ hasText: '编队路由' })
+    const picker = block.getByLabel('模型组合')
+    // The shipped list is empty, so the only entry is the derived custom one.
+    await expect.poll(async () => picker.locator('option').count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(async () => picker.locator('option').first().textContent(), { timeout: 10_000 })
+      .toBe('自定义（未保存）')
+
+    // Save the current routes under a name, then move one role by hand.
+    await block.getByRole('button', { name: '保存组合' }).click()
+    const name = block.getByLabel('组合名称')
+    await name.fill('回归组合')
+    await block.getByRole('button', { name: '保存', exact: true }).click()
+    await block.getByText('组合已保存。').waitFor({ timeout: 10_000 })
+    await expect.poll(async () => picker.locator('option').count(), { timeout: 10_000 }).toBe(2)
+
+    const workerModel = block.getByLabel('工人模型')
+    const before = await workerModel.inputValue()
+    const options = await workerModel.locator('option').evaluateAll(
+      (nodes, current) => nodes
+        .map(node => (node as HTMLOptionElement).value)
+        .find(value => value !== current),
+      before,
+    )
+    if (options === undefined) return
+    await workerModel.selectOption(options)
+    // A hand edit leaves the custom entry selected: the routes are no longer
+    // the saved combination.
+    await expect.poll(async () => picker.inputValue(), { timeout: 10_000 }).toBe('')
+
+    await picker.selectOption({ label: '回归组合' })
+    await block.getByText('已把这套组合应用到所有角色。').waitFor({ timeout: 10_000 })
+    await expect.poll(async () => workerModel.inputValue(), { timeout: 10_000 }).toBe(before)
+    await expect.poll(async () => picker.inputValue(), { timeout: 10_000 }).toBe('preset-1')
+
+    // Dropping the combination reports the drop, not the save it shares a write
+    // path with; the picker falls back to the derived custom entry.
+    await block.getByRole('button', { name: '删除组合' }).click()
+    await block.getByText('组合已删除。').waitFor({ timeout: 10_000 })
+    await expect.poll(async () => picker.locator('option').count(), { timeout: 10_000 }).toBe(1)
+
+    expect(tripwire.pageErrors).toEqual([])
+  }, 120_000)
+
   it('writes the model and effort with a provider change instead of stranding them', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-crew-route-cascade'))
     const dialog = page.getByRole('dialog', { name: '设置' })

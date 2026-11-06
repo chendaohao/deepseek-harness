@@ -10,6 +10,7 @@ import { CrewRouteSection, effortFor, modelForProvider, roleCopy, type CrewRoute
 import { CREW_ROLES, type CrewRoute } from '../src/client/crew-routes.ts'
 import { servedCrewRoutes } from '../src/client/ModelsSection.tsx'
 import { RouteCatalog } from '../src/client/route-settings.ts'
+import type { RoutePresetsSettings } from '../src/client/crew-presets.ts'
 import type { RouteCatalogState, RouteSettings } from '../src/client/route-settings.ts'
 import { en } from '../src/client/locales.ts'
 
@@ -33,6 +34,21 @@ const COPY: CrewRouteCopy = {
   refused: t('crewRouteRefused'),
   conflict: t('crewRouteConflict'),
   reset: t('crewRouteReset'),
+  presetLabel: t('crewPresetLabel'),
+  presetCustom: t('crewPresetCustom'),
+  presetSave: t('crewPresetSave'),
+  presetName: t('crewPresetName'),
+  presetNamePlaceholder: t('crewPresetNamePlaceholder'),
+  presetConfirm: t('crewPresetConfirm'),
+  presetDismiss: t('crewPresetDismiss'),
+  presetDelete: t('crewPresetDelete'),
+  presetApplied: t('crewPresetApplied'),
+  presetSaved: t('crewPresetSaved'),
+  presetDeleted: t('crewPresetDeleted'),
+  presetLocked: t('crewPresetLocked'),
+  presetRolledBack: t('crewPresetRolledBack'),
+  presetReadOnly: t('crewPresetReadOnly'),
+  presetRefused: t('crewPresetRefused'),
 }
 
 /** The current value of one form control. */
@@ -125,13 +141,39 @@ function roleOverride(
  * @param catalog - the catalog value the pickers read, or null while loading.
  * @returns every role's mutation spy and the catalog loader.
  */
+/** Build a preset handle over one mutable list, recording every queued write. */
+function presetsWith(overrides: Partial<ConfigFormSnapshot<RoutePresetsSettings>> = {}) {
+  const snapshot: ConfigFormSnapshot<RoutePresetsSettings> = {
+    status: 'ready',
+    value: { presets: [] },
+    base: undefined,
+    user: undefined,
+    revision: 1,
+    writable: true,
+    writeRefusal: undefined,
+    writeFailure: undefined,
+    mode: 'host',
+    ...overrides,
+  }
+  const mutate = vi.fn(() => Promise.resolve(true))
+  const scope: ConfigForm<RoutePresetsSettings> = {
+    getSnapshot: () => snapshot,
+    subscribe: () => () => {},
+    mutate,
+    set: () => Promise.resolve(true),
+    unset: () => Promise.resolve(true),
+  }
+  return { scope, mutate }
+}
+
 function mount(
   roles: readonly ReturnType<typeof roleOverride>[] = [roleOverride('crewRoleWorker')],
   catalog: ModelCatalog | null = CATALOG,
+  presets: ConfigForm<RoutePresetsSettings> = presetsWith().scope,
 ) {
   const store = catalogWith(catalog)
   const loadCatalog = vi.fn()
-  const block = { routes: roles.map(role => role.route), catalog: store, loadCatalog }
+  const block = { routes: roles.map(role => role.route), catalog: store, presets, loadCatalog }
   const view = render(<CrewRouteSection block={block} copy={COPY} t={t} />)
   return { roles, loadCatalog, store, view }
 }

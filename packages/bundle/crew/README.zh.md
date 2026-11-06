@@ -50,13 +50,15 @@ kind: "package-bundle"
 
 每条委派行读取自己的路由命名空间，因此三个角色可以跑在三个不同模型上。这些命名空间由本 bundle 提供，所以只有选择了本 bundle 的 profile 才在「设置 > 模型」页显示编队路由块。在其中按工人、规划、审核三行分别设置；改动在该角色的下一次请求生效，续作与冷恢复一样生效。没有存过路由时，该行回退到它的 `agentOptions` 基线，工人行从 `DSH_CREW_PROVIDER`、`DSH_CREW_MODEL`、`DSH_CREW_EFFORT` 读取。
 
+在角色行下方，**模型组合**选择器可以把这三条路由存成一个名字，之后一次选择就把三条一起写回。一套组合在结果上只有全成或全不成：页面先预检每个角色，若某个角色在写入中途拒绝，就把已经切换过的角色放回它找到它们时的状态。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
 <details>
 <summary>实现内部——点击展开</summary>
 
-本包的实质是 [cordis.patch.yml](cordis.patch.yml)，由 `dsh.bundle.patch` 声明；模块本身不提供运行时 API。这一层插入三条 `subagent-*-route-settings` 行与四条 `@deepseek-ai/dsh-agent-preset` 声明，因此依赖 `dsh-web-app` 组合出的 host 面：Agent 预设注册表与 `subagentRouteSettings` 注册表。路由行放在这里而不是 `dsh-web-app`，所以没有选择编队 bundle 的 web 部署不提供任何编队路由命名空间，模型页也不显示编队路由块；命名空间没有对应的行提供服务时，它的委派行会拒绝加载，而不是悄悄路由到另一个角色。
+本包的实质是 [cordis.patch.yml](cordis.patch.yml)，由 `dsh.bundle.patch` 声明；模块本身不提供运行时 API。这一层插入三条 `subagent-*-route-settings` 行、一条 `subagent-route-presets` 行与四条 `@deepseek-ai/dsh-agent-preset` 声明，因此依赖 `dsh-web-app` 组合出的 host 面：Agent 预设注册表与 `subagentRouteSettings` 注册表。路由行放在这里而不是 `dsh-web-app`，所以没有选择编队 bundle 的 web 部署不提供任何编队路由命名空间，模型页也不显示编队路由块；命名空间没有对应的行提供服务时，它的委派行会拒绝加载，而不是悄悄路由到另一个角色。预设行是一个不含运行时行为的设置所有者：它提供选择器要写的那个命名空间，应用一套组合时通过各角色自己的行写入该角色的路由命名空间。
 
 每个角色预设只由它自己的委派行挂载。指挥者的 `delegation` 组里有三条 `tool-subagent` 行；`maxDepth: 1` 把链限制在指挥者下一层。`tool-subagent` 自 2026-10-09 起不再接受 `persona` / `toolFilter` 配置，因此角色的人格与工具只来自它 `agentPreset` 指定的预设。
 

@@ -17,4 +17,5 @@ export default defineConfig([
   entry('lib/types/model-selection-settings.js'),
   entry('lib/types/worker-route-settings.js'),
   entry('lib/types/route-settings-registry.js'),
+  entry('lib/types/route-presets.js'),
 ])

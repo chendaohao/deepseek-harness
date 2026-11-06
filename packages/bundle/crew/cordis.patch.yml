@@ -77,6 +77,24 @@
         model: kimi-k3.1-pro
         reasoningEffort: high
 
+    # ── saved route combinations ─────────────────────────────────────────────
+    #
+    # Named triples of the three routes above, so switching "which models the
+    # formation runs on" is one pick instead of three edits. The row owns no
+    # runtime behavior: it serves the settings namespace the Models page writes,
+    # and applying a preset copies its routes into the role namespaces through
+    # those rows' own settings entries.
+    #
+    # It lives here for the same reason the route rows do — a deployment without
+    # this bundle has no crew role, so its Models page must show no preset
+    # control. The shipped list is empty: which combinations a deployment wants
+    # is a user choice, and a preset the catalog cannot serve would only fail
+    # when applied.
+    - id: subagent-route-presets
+      name: '@deepseek-ai/dsh-tool-subagent/route-presets'
+      config:
+        presets: []
+
     # ── the commander ────────────────────────────────────────────────────────
     #
     # The one preset a person selects. Its job is coordination: read the

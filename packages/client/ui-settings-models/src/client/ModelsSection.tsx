@@ -292,6 +292,21 @@ function crewRouteCopy(t: ModelsSectionInjected['t']): CrewRouteCopy {
     refused: t('crewRouteRefused'),
     conflict: t('crewRouteConflict'),
     reset: t('crewRouteReset'),
+    presetLabel: t('crewPresetLabel'),
+    presetCustom: t('crewPresetCustom'),
+    presetSave: t('crewPresetSave'),
+    presetName: t('crewPresetName'),
+    presetNamePlaceholder: t('crewPresetNamePlaceholder'),
+    presetConfirm: t('crewPresetConfirm'),
+    presetDismiss: t('crewPresetDismiss'),
+    presetDelete: t('crewPresetDelete'),
+    presetApplied: t('crewPresetApplied'),
+    presetSaved: t('crewPresetSaved'),
+    presetDeleted: t('crewPresetDeleted'),
+    presetLocked: t('crewPresetLocked'),
+    presetRolledBack: t('crewPresetRolledBack'),
+    presetReadOnly: t('crewPresetReadOnly'),
+    presetRefused: t('crewPresetRefused'),
   }
 }
 

@@ -24,6 +24,7 @@ import { createModelsOperations } from './operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
 import { RouteCatalog } from './route-settings.ts'
 import { CREW_ROLES, type CrewRoute } from './crew-routes.ts'
+import { SUBAGENT_ROUTE_PRESETS_NAMESPACE, type RoutePresetsSettings } from './crew-presets.ts'
 
 import type { RouteSettings } from './route-settings.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type ModelsKey } from './locales.ts'
@@ -100,6 +101,10 @@ export function apply(ctx: ClientContext): void {
     nameKey: role.nameKey,
     scope: ctx.configForms.get<RouteSettings>(role.namespace),
   }))
+  // The saved-combination list is its own Host namespace. A deployment without
+  // the crew bundle serves neither it nor any role namespace, so the block
+  // hides the picker on the same evidence it hides the rows.
+  const crewPresets = ctx.configForms.get<RoutePresetsSettings>(SUBAGENT_ROUTE_PRESETS_NAMESPACE)
   const injected = (): ModelsSectionInjected => ({
     controller,
     hooks: { snapshot: controller.store },
@@ -109,6 +114,7 @@ export function apply(ctx: ClientContext): void {
     crewRoutes: {
       routes: crewRoutes,
       catalog: crewRouteCatalog.store,
+      presets: crewPresets,
       loadCatalog: () => { crewRouteCatalog.load() },
     },
   })

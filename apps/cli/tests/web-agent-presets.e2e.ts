@@ -34,6 +34,8 @@ const CREW_ROUTE_NAMESPACES: readonly SettingsNamespace[] = ([
   'subagent-planner-route-settings',
   'subagent-reviewer-route-settings',
 ] as readonly string[]) as readonly SettingsNamespace[]
+/** The saved-combination namespace only the crew bundle serves. */
+const CREW_PRESETS_NAMESPACE = 'subagent-route-presets' as SettingsNamespace
 const SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE = 'subagent-model-selection-settings'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { ToolCallId, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -371,6 +373,9 @@ describe('the shipped Web composition', () => {
     // not serve, so the serve set is the whole gate.
     const served = new Set(ctx.settings.describe().map(candidate => candidate.ns))
     for (const namespace of CREW_ROUTE_NAMESPACES) expect(served.has(namespace)).toBe(false)
+    // The combination list is the crew bundle's too: without the bundle the
+    // Models page must show no combination picker either.
+    expect(served.has(CREW_PRESETS_NAMESPACE)).toBe(false)
     // The registry itself stays on the host plane so a deployment can mount its
     // own role rows; only the shipped role rows moved.
     expect(ctx.get('subagentRouteSettings')).toBeDefined()
@@ -1210,6 +1215,27 @@ describe('the crew bundle owns the role route settings', () => {
     const stored = crew.settings.describe().find(candidate => candidate.ns === CREW_ROUTE_NAMESPACES[0])
     expect(stored?.value).toMatchObject({ provider: 'workbuddy', model: 'deepseek-v4-pro', reasoningEffort: 'max' })
     await crew.settings.update(SUBAGENT_WORKER_ROUTE_SETTINGS_NAMESPACE, { model: 'deepseek-v4.1-flash' })
+  })
+
+  it('serves the saved route combinations as a writable host setting', async () => {
+    // The combination list is what the Models page picker writes. The row ships
+    // with an empty list, so the page offers no combination until the user saves
+    // one; a stored combination round-trips through the same namespace.
+    const before = crew.settings.describe().find(candidate => candidate.ns === CREW_PRESETS_NAMESPACE)
+    expect(before?.value).toEqual({ presets: [] })
+    const stored = [{
+      id: 'fast',
+      name: 'Fast',
+      routes: CREW_ROUTE_NAMESPACES.map(namespace => ({
+        namespace,
+        provider: 'workbuddy',
+        model: 'deepseek-v4.1-flash',
+        reasoningEffort: 'high',
+      })),
+    }]
+    await crew.settings.update(CREW_PRESETS_NAMESPACE, { presets: stored })
+    const after = crew.settings.describe().find(candidate => candidate.ns === CREW_PRESETS_NAMESPACE)
+    expect(after?.value).toEqual({ presets: stored })
   })
 
   it('routes each delegation role from its own namespace', async () => {

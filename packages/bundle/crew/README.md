@@ -50,13 +50,15 @@ Select the `crew` preset when creating a session. It appears in the preset roste
 
 Each delegation row reads its own route namespace, so the three roles can run on three different models. This bundle serves those namespaces, so the **Models** settings page shows its crew-route block only in a profile that selects this bundle. Set the routes there under the worker, planner, and reviewer rows; a change reaches a role's next request, including a continuation or a cold resume. With no stored route the row falls back to its `agentOptions` baseline, which the worker row sets from `DSH_CREW_PROVIDER`, `DSH_CREW_MODEL`, and `DSH_CREW_EFFORT`.
 
+Below the rows, the **Model combination** picker saves the three routes under a name and writes all three back on one pick. A combination is all-or-nothing in its outcome: the page preflights every role first and, if a role refuses the write mid-set, puts the roles it already switched back where it found them.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The package's substance is [cordis.patch.yml](cordis.patch.yml), declared by `dsh.bundle.patch`; the module carries no runtime API. The layer inserts the three `subagent-*-route-settings` rows and four `@deepseek-ai/dsh-agent-preset` declarations, so it depends on the host plane `dsh-web-app` composes: the Agent preset registry and the `subagentRouteSettings` registry. The route rows live here, not in `dsh-web-app`, so a web deployment that selects no crew bundle serves no crew route namespace and the Models page shows no crew-route block; a namespace with no serving row makes its delegation row refuse to load rather than silently route to a different role.
+The package's substance is [cordis.patch.yml](cordis.patch.yml), declared by `dsh.bundle.patch`; the module carries no runtime API. The layer inserts the three `subagent-*-route-settings` rows, the `subagent-route-presets` row, and four `@deepseek-ai/dsh-agent-preset` declarations, so it depends on the host plane `dsh-web-app` composes: the Agent preset registry and the `subagentRouteSettings` registry. The route rows live here, not in `dsh-web-app`, so a web deployment that selects no crew bundle serves no crew route namespace and the Models page shows no crew-route block; a namespace with no serving row makes its delegation row refuse to load rather than silently route to a different role. The preset row is a settings owner with no runtime behavior: it serves the namespace the picker writes, and applying a combination writes each role's own route namespace through that role's row.
 
 Each role preset is mounted only by its delegation row. The commander's `delegation` group holds the three `tool-subagent` rows; `maxDepth: 1` bounds the chain at one level below the commander. `tool-subagent` stopped accepting a `persona` or `toolFilter` config on 2026-10-09, so a role's persona and tools come only from the preset named by its `agentPreset`.
 

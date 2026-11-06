@@ -8,6 +8,7 @@
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { RouteCatalogState, RouteSettings } from './route-settings.ts'
+import type { RoutePresetsSettings } from './crew-presets.ts'
 
 /** Locale keys naming one role, resolved through the page's `t` seat. */
 export type CrewRoleNameKey = 'crewRoleWorker' | 'crewRolePlanner' | 'crewRoleReviewer'
@@ -51,6 +52,12 @@ export interface CrewRouteBlock {
   routes: readonly CrewRoute[]
   /** Shared model catalog the pickers are drawn from. */
   catalog: SnapshotStore<RouteCatalogState>
+  /**
+   * Saved route combinations. The Host serves this namespace only while the
+   * crew bundle composes its preset row, so a deployment without it answers
+   * 'unavailable' and the block draws no combination control.
+   */
+  presets: ConfigForm<RoutePresetsSettings>
   /** Ensure the catalog is loaded. */
   loadCatalog: () => void
 }
