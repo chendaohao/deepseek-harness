@@ -16,12 +16,16 @@ function read(text: string, lossy = false): SubprocessOutputRead {
   return { text, nextOffset: Buffer.byteLength(text), lossy }
 }
 
-function handle(outcome: { exitCode: number | null; signal: NodeJS.Signals | null } = { exitCode: 0, signal: null }): SubprocessHandle {
+function handle(
+  outcome: { exitCode: number | null; signal: NodeJS.Signals | null } = { exitCode: 0, signal: null },
+  stdout = 'git stdout\n',
+  stderr = 'git stderr\n',
+): SubprocessHandle {
   return {
     stdin: undefined, stdout: undefined, stderr: undefined, control: undefined,
     collected: {
-      stdout: { readFrom: () => read('git stdout\n') },
-      stderr: { readFrom: () => read('git stderr\n') },
+      stdout: { readFrom: () => read(stdout) },
+      stderr: { readFrom: () => read(stderr) },
     },
     done: Promise.resolve(outcome),
     terminate: () => {},
@@ -29,17 +33,32 @@ function handle(outcome: { exitCode: number | null; signal: NodeJS.Signals | nul
   }
 }
 
+/** The config listing a read enumerates before it starts; answers only that probe. */
+function configListing(keys: readonly string[]): (spec: SubprocessSpawnSpec) => SubprocessHandle | undefined {
+  return spec => spec.argv.includes('config')
+    ? handle({ exitCode: 0, signal: null }, keys.map(key => `${key}\0`).join(''))
+    : undefined
+}
+
+/** Spawn calls that actually ran the requested operation, skipping the config probe. */
+function operationCalls(spawn: ReturnType<typeof vi.fn>) {
+  return spawn.mock.calls.map(entry => entry[0] as SubprocessSpawnSpec).filter(spec => !spec.argv.includes('config'))
+}
+
 async function setup(options: {
   approve?: boolean
   mode?: 'danger-full-access' | 'read-only'
-  onSpawn?: (spec: SubprocessSpawnSpec) => SubprocessHandle
+  onSpawn?: (spec: SubprocessSpawnSpec) => SubprocessHandle | undefined
+  /** Repository configuration keys the read-time probe reports. */
+  configKeys?: readonly string[]
 } = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(NativeToolExecutor)
-  const spawn = vi.fn((spec: SubprocessSpawnSpec) => options.onSpawn?.(spec) ?? handle())
+  const spawn = vi.fn((spec: SubprocessSpawnSpec) => configListing(options.configKeys ?? [])(spec)
+    ?? options.onSpawn?.(spec) ?? handle())
   const confine = vi.fn((argv: readonly string[]) => Promise.resolve({ argv: ['sandboxed-git', ...argv.slice(1)] }))
   ctx.provide('subprocess', { spawn, resolveExecutable: () => Promise.resolve('git') } as never)
   ctx.provide('workingDirectory', { ensure: () => Promise.resolve('/workspace') } as never)
@@ -66,7 +85,7 @@ describe('Crew commander Git tool', () => {
     const { ctx, spawn, request } = await setup({ onSpawn: () => ({ ...handle(), waitForExit }) })
     const result = await call(ctx, { operation: 'diff', args: ['--cached', '--', 'src/index.ts'] })
     expect(result.isError).toBe(false)
-    const spec = spawn.mock.calls[0]?.[0]
+    const spec = operationCalls(spawn)[0]
     expect(spec).toMatchObject({
       argv: [
         'git', '--no-optional-locks', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
@@ -103,7 +122,7 @@ describe('Crew commander Git tool', () => {
     const result = await call(ctx, { operation: 'commit', args: ['--message=reviewed change'] })
     expect(result.isError).toBe(false)
     expect(request).toHaveBeenCalledOnce()
-    expect(spawn.mock.calls[0]?.[0].argv).toEqual(expect.arrayContaining(['commit', '--message=reviewed change']))
+    expect(operationCalls(spawn)[0]?.argv).toEqual(expect.arrayContaining(['commit', '--message=reviewed change']))
   })
 
   it('rejects external remote-helper addresses on push', async () => {
@@ -122,7 +141,7 @@ describe('Crew commander Git tool', () => {
       expect.objectContaining({ mode: 'read-only', workspaceRoot: '/workspace' }),
       expect.any(AbortSignal),
     )
-    expect(spawn.mock.calls[0]?.[0].argv).toEqual(expect.arrayContaining(['sandboxed-git', 'status']))
+    expect(operationCalls(spawn)[0]?.argv).toEqual(expect.arrayContaining(['sandboxed-git', 'status']))
   })
 
   it('waits for the managed process range after caller cancellation', async () => {
@@ -139,7 +158,7 @@ describe('Crew commander Git tool', () => {
       callId: ToolCallId('git-cancel'), name: 'crew_git', arguments: { operation: 'status' },
       agent: { session: {} } as never, signal: controller.signal,
     })
-    await vi.waitFor(() => { expect(spawn).toHaveBeenCalledOnce() })
+    await vi.waitFor(() => { expect(operationCalls(spawn)).toHaveLength(1) })
     controller.abort()
     const result = await pending
     expect(result).toMatchObject({ isError: true, error: { info: { code: 'CREW_GIT_ABORTED' } } })
@@ -227,6 +246,65 @@ describe('Crew commander Git tool', () => {
     const [block] = result.content
     expect(block?.type).toBe('text')
     if (block?.type === 'text') expect(block.text).toContain(`signal ${signal ?? 'unknown'}`)
+  })
+
+  it('blanks every repository program a read could otherwise run', async () => {
+    const { ctx, spawn } = await setup({
+      configKeys: [
+        'user.name',
+        'filter.evil.clean',
+        'filter.evil.smudge',
+        'filter.evil.required',
+        'merge.mine.driver',
+        'diff.helper.textconv',
+        'core.editor',
+        'core.sshcommand',
+        'credential.helper',
+        'credential.https://example.invalid.helper',
+        'gpg.program',
+        'diff.renames',
+      ],
+    })
+    const result = await call(ctx, { operation: 'status', args: ['--short'] })
+    expect(result.isError).toBe(false)
+    const argv = operationCalls(spawn)[0]?.argv ?? []
+    // Every key that names a program is overridden to the empty string ...
+    for (const key of [
+      'filter.evil.clean', 'filter.evil.smudge', 'filter.evil.required', 'merge.mine.driver',
+      'diff.helper.textconv', 'core.editor', 'core.sshcommand', 'credential.helper',
+      'credential.https://example.invalid.helper', 'gpg.program',
+    ]) {
+      expect(argv).toEqual(expect.arrayContaining(['-c', `${key}=`]))
+    }
+    // ... and keys that only carry data are left alone.
+    expect(argv).not.toEqual(expect.arrayContaining(['-c', 'user.name=']))
+    expect(argv).not.toEqual(expect.arrayContaining(['-c', 'diff.renames=']))
+  })
+
+  it('keeps repository filters and drivers for an approved write', async () => {
+    const { ctx, spawn } = await setup({
+      approve: true,
+      configKeys: ['filter.evil.clean', 'merge.mine.driver'],
+    })
+    const result = await call(ctx, { operation: 'checkout', args: ['--', 'tracked.txt'] })
+    expect(result.isError).toBe(false)
+    const argv = operationCalls(spawn)[0]?.argv ?? []
+    expect(argv).toEqual(expect.arrayContaining(['checkout', '--', 'tracked.txt']))
+    // A checkout restores content through the checkout's own filters (Git LFS),
+    // so a write must not neutralize them.
+    expect(argv).not.toEqual(expect.arrayContaining(['-c', 'filter.evil.clean=']))
+    expect(argv).not.toEqual(expect.arrayContaining(['-c', 'merge.mine.driver=']))
+  })
+
+  it('refuses a read when the repository configuration cannot be read', async () => {
+    const { ctx, spawn } = await setup({ configKeys: [] })
+    // The probe reports a Git failure instead of a key listing.
+    spawn.mockImplementation((spec: SubprocessSpawnSpec) => spec.argv.includes('config')
+      ? handle({ exitCode: 128, signal: null }, '', 'fatal: not a git repository')
+      : handle())
+    const result = await call(ctx, { operation: 'status' })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'CREW_GIT_CONFIG_UNREADABLE' } } })
+    expect(operationCalls(spawn)).toHaveLength(0)
   })
 
   it('rejects a process grace that exceeds the timer ceiling at configuration load', () => {

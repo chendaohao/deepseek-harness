@@ -58,6 +58,8 @@ const GIT_ENV: NodeJS.ProcessEnv = {
   GIT_NO_LAZY_FETCH: '1',
   GIT_PAGER: 'cat',
   PAGER: 'cat',
+  // stdin is closed, so an editor prompt would block until the timeout; refuse instead.
+  GIT_EDITOR: 'true',
   LC_ALL: 'C',
 }
 
@@ -113,7 +115,58 @@ function validateArguments(operation: Operation, args: readonly string[]): void 
   }
 }
 
-function outputOf(read: SubprocessOutputRead | undefined, stream: 'stdout' | 'stderr') {
+/**
+ * Keys whose value names a program Git then runs without asking: content
+ * filters, merge drivers, diff helpers, signing programs, the editor, the
+ * transport command, and credential helpers. A checkout writes them into its
+ * own `.git/config`, so a read that trusted them would let a repository run
+ * commands the model never requested.
+ *
+ * Only read operations neutralize them. A write keeps the repository's filters
+ * and merge drivers because a commit and a checkout rely on them — Git LFS
+ * stores pointers and restores content through exactly these — and the approval
+ * pipeline already puts a write's intent in front of the user.
+ */
+const PROGRAM_CONFIG = new RegExp([
+  'filter\\..+\\.(?:clean|smudge|process|required)',
+  'merge\\..+\\.driver',
+  'diff\\..+\\.(?:command|textconv)',
+  'diff\\.external',
+  'core\\.(?:sshcommand|editor|askpass|gitproxy|pager)',
+  'sequence\\.editor',
+  'credential\\.(?:.+?\\.)?helper',
+  'gpg\\.(?:program|ssh\\.program|x509\\.program)',
+  'interactive\\.difffilter',
+  'submodule\\..+\\.update',
+].map(source => `(?:${source})`).join('|'), 'iu')
+
+/**
+ * Turn configured key names into command-local overrides that blank each one.
+ * `-c <key>=` outranks every configuration file and leaves the files, the
+ * index, and their timestamps untouched.
+ * @param keys - configuration key names reported by `git config --list`.
+ * @returns the `-c <key>=` pair list for keys whose value names a program.
+ */
+function programConfigOverrides(keys: readonly string[]): string[] {
+  return keys.filter(key => PROGRAM_CONFIG.test(key)).flatMap(key => ['-c', `${key}=`])
+}
+
+/** One finished Git process, already collected and released. */
+interface GitRun {
+  exitCode: number | null
+  signal: NodeJS.Signals | null
+  stdout: StreamOutput
+  stderr: StreamOutput
+}
+
+/** One stream's collected text plus the facts a truncated or spilled read must keep. */
+interface StreamOutput {
+  text: string
+  truncated: boolean
+  spillPath?: string
+}
+
+function outputOf(read: SubprocessOutputRead | undefined, stream: 'stdout' | 'stderr'): StreamOutput {
   if (read === undefined) throw new CrewGitError(`crew_git received no collected ${stream}`, 'CREW_GIT_FAILED')
   return {
     text: read.text,
@@ -130,6 +183,47 @@ function outputOf(read: SubprocessOutputRead | undefined, stream: 'stdout' | 'st
 export function apply(ctx: Context, config: Config = {}): void {
   const resolved = Config(config) as Required<Config>
   const writes = new Set<string>(WRITE_OPERATIONS)
+
+  /** Run one Git process to completion and release its process range before returning. */
+  async function runGit(argv: readonly string[], cwd: string, signal: AbortSignal, label: string): Promise<GitRun> {
+    let handle: SubprocessHandle
+    try {
+      handle = ctx.subprocess.spawn({
+        argv,
+        cwd,
+        stdio: {
+          stdin: 'ignore',
+          stdout: { maxBytes: resolved.maxOutputBytes },
+          stderr: { maxBytes: resolved.maxOutputBytes },
+        },
+        graceMs: resolved.graceMs,
+        signal,
+        env: { ...GIT_ENV },
+      } satisfies SubprocessSpawnSpec)
+    } catch (error: unknown) {
+      if (signal.aborted) throw new CrewGitError('crew_git was aborted before Git started', 'CREW_GIT_ABORTED', { cause: error })
+      throw new CrewGitError(`crew_git could not start git ${label}`, 'CREW_GIT_START_FAILED', { cause: error })
+    }
+    try {
+      let outcome
+      try {
+        outcome = await handle.done
+      } catch (error: unknown) {
+        throw new CrewGitError(`crew_git git ${label} failed before reporting an outcome`, 'CREW_GIT_FAILED', { cause: error })
+      }
+      if (signal.aborted) throw new CrewGitError('crew_git was aborted before completion', 'CREW_GIT_ABORTED')
+      return {
+        exitCode: outcome.exitCode,
+        signal: outcome.signal,
+        stdout: outputOf(handle.collected.stdout?.readFrom(0), 'stdout'),
+        stderr: outputOf(handle.collected.stderr?.readFrom(0), 'stderr'),
+      }
+    } finally {
+      handle.terminate()
+      await handle.waitForExit()
+    }
+  }
+
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (exec.name !== 'crew_git') return next()
     const operation = operationOf(exec.arguments)
@@ -180,48 +274,32 @@ export function apply(ctx: Context, config: Config = {}): void {
       const cwd = args.cwd ?? await ctx.workingDirectory.ensure(agent, exec.signal)
       const safeReadOptions = ['diff', 'log', 'show'].includes(args.operation) ? ['--no-ext-diff', '--no-textconv'] : []
       const program = await ctx.subprocess.resolveExecutable('git', undefined, exec.signal)
-      const command = [program, ...GIT_PREFIX, args.operation, ...safeReadOptions, ...args.args ?? []]
       const policy: SandboxExecutionPolicy = ctx.sandboxPolicy.resolve({ session: agent.session })
-      const argv = policy.mode === 'danger-full-access'
+      const confine = async (command: readonly string[]): Promise<readonly string[]> => policy.mode === 'danger-full-access'
         ? command
         : (await ctx.sandbox.confine(command, { ...policy, mode: policy.mode }, exec.signal)).argv
-      let handle: SubprocessHandle
-      try {
-        handle = ctx.subprocess.spawn({
-          argv,
-          cwd,
-          stdio: {
-            stdin: 'ignore',
-            stdout: { maxBytes: resolved.maxOutputBytes },
-            stderr: { maxBytes: resolved.maxOutputBytes },
-          },
-          graceMs: resolved.graceMs,
-          signal: exec.signal,
-          env: { ...GIT_ENV },
-        } satisfies SubprocessSpawnSpec)
-      } catch (error: unknown) {
-        if (exec.signal.aborted) throw new CrewGitError('crew_git was aborted before Git started', 'CREW_GIT_ABORTED', { cause: error })
-        throw new CrewGitError(`crew_git could not start git ${args.operation}`, 'CREW_GIT_START_FAILED', { cause: error })
+      // A read must not let the checkout choose a program. Enumerate the keys Git
+      // resolves here, then blank every one that names an executable for this call.
+      let overrides: string[] = []
+      if (!writes.has(args.operation)) {
+        const listing = await runGit(
+          await confine([program, ...GIT_PREFIX, 'config', '--null', '--name-only', '--list']),
+          cwd, exec.signal, 'config',
+        )
+        if (listing.exitCode !== 0) {
+          throw new CrewGitError(`crew_git could not read the Git configuration of ${cwd}`, 'CREW_GIT_CONFIG_UNREADABLE')
+        }
+        overrides = programConfigOverrides(listing.stdout.text.split('\0').filter(name => name.length > 0))
       }
-      try {
-        let outcome
-        try {
-          outcome = await handle.done
-        } catch (error: unknown) {
-          throw new CrewGitError(`crew_git git ${args.operation} failed before reporting an outcome`, 'CREW_GIT_FAILED', { cause: error })
-        }
-        if (exec.signal.aborted) throw new CrewGitError('crew_git was aborted before completion', 'CREW_GIT_ABORTED')
-        return {
-          operation: args.operation,
-          cwd,
-          exitCode: outcome.exitCode,
-          signal: outcome.signal,
-          stdout: outputOf(handle.collected.stdout?.readFrom(0), 'stdout'),
-          stderr: outputOf(handle.collected.stderr?.readFrom(0), 'stderr'),
-        }
-      } finally {
-        handle.terminate()
-        await handle.waitForExit()
+      const argv = await confine([program, ...GIT_PREFIX, ...overrides, args.operation, ...safeReadOptions, ...args.args ?? []])
+      const run = await runGit(argv, cwd, exec.signal, args.operation)
+      return {
+        operation: args.operation,
+        cwd,
+        exitCode: run.exitCode,
+        signal: run.signal,
+        stdout: run.stdout,
+        stderr: run.stderr,
       }
     },
   }))

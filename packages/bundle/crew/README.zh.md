@@ -53,7 +53,9 @@ kind: "package-bundle"
 
 在角色行下方，**模型组合**选择器可以把这三条路由存成一个名字，之后一次选择就把三条一起写回。一套组合在结果上只有全成或全不成：页面先预检每个角色，若某个角色在写入中途拒绝，就把已经切换过的角色放回它找到它们时的状态。
 
-指挥者没有通用 shell，也没有文件写入或编辑工具。所有实施动作都派给 `worker`，包括单文件补丁和单独一条测试命令。`crew_git` 支持只读操作 `status`、`diff`、`log`、`show`、`ls-files`、`rev-parse`；写操作 `checkout`、`reset`、`restore`、`stash`、`clean`、`commit`、`push`、`rebase`、`merge`、`switch` 需要用户批准。参数是逐条校验选项白名单的字面 argv 值。每次调用都应用 Session 沙箱策略，禁用仓库钩子和文件系统监视器，并且绝不调用 shell 或外部远程助手。
+指挥者没有通用 shell，也没有文件写入或编辑工具。所有实施动作都派给 `worker`，包括单文件补丁和单独一条测试命令。`crew_git` 支持只读操作 `status`、`diff`、`log`、`show`、`ls-files`、`rev-parse`；写操作 `checkout`、`reset`、`restore`、`stash`、`clean`、`commit`、`push`、`rebase`、`merge`、`switch` 需要用户批准。参数是逐条校验选项白名单的字面 argv 值。每次调用都应用 Session 沙箱策略，禁用仓库钩子和文件系统监视器，拒绝打开编辑器，并且绝不调用 shell 或外部远程助手。
+
+只读操作另外拒绝仓库自身配置能够执行的任何程序。读取开始前，工具先列出在该仓库生效的 Git 配置键，把其中值指向可执行文件的那些键——内容过滤器、合并驱动器、diff 助手、签名程序、编辑器、传输命令、凭据助手——仅对本次调用覆盖为空串。因此，一个把 `filter.<name>.clean` 写进自己 `.git/config` 的仓库无法通过 `crew_git status` 执行它。配置、index 及其时间戳都不被写入；代价是读取显示的是被过滤文件的存储字节（Git LFS 指针），而非还原后的内容。写操作保留仓库的过滤器与合并驱动器，因为提交和检出依赖它们；用户对写操作的批准就是把这一后果摆在面前。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
