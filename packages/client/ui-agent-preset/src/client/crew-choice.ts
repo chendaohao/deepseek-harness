@@ -15,8 +15,9 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only: pulls the ctx.remote merge into this program.
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only: pulls the ctx.remote merge and the crew formation namespace into
+// this program.
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -45,15 +46,29 @@ interface RouteValues {
   reasoningEffort: string
 }
 
+/** Why a combination could not reach the session. */
+export type CrewChoiceFailure =
+  /** The library no longer stores the staged combination. */
+  | { readonly reason: 'gone' }
+  /** The stored combination omits at least one delegation role. */
+  | { readonly reason: 'incomplete' }
+  /** This deployment mounts no crew formation, so there is nowhere to record it. */
+  | { readonly reason: 'unserved' }
+  /** The Host rejected the routes; its own message is the report. */
+  | { readonly reason: 'host'; readonly message: string }
+
 /** What the combination picker renders. */
 export interface CrewChoiceState {
   /** Every stored combination, in stored order; empty means nothing to pick. */
   options: readonly CrewPresetOption[]
   /** The staged combination id, or the one the picker would open on. */
   selected: string
-  /** Why the last apply failed, or null. */
+  /** The localized report of the last failed apply, or null. */
   error: string | null
 }
+
+/** Turns a failure into the one line this plugin's surfaces show. */
+export type CrewChoiceDescribe = (failure: CrewChoiceFailure) => string
 
 const INITIAL: CrewChoiceState = { options: [], selected: '', error: null }
 
@@ -92,10 +107,17 @@ export class CrewChoiceController {
     private readonly ctx: ClientContext,
     /** The party's combination library, or undefined when the Host serves none. */
     private readonly presets: ConfigForm<PresetsValue> | undefined,
+    /** Localizes a failure into the line every surface reports. */
+    private readonly describe: CrewChoiceDescribe,
   ) {}
 
   /**
-   * Read the stored combinations and open on the last-used one.
+   * Read the stored combinations and stage the one the picker opens on.
+   *
+   * The opened combination is the staged one, so a session started without
+   * touching the picker still records the routes that picker names. Staging
+   * nothing while the control showed a combination is what let a crew session
+   * run the role defaults under a picker that said otherwise.
    * @returns once the snapshot reflects the Host.
    */
   load(): Promise<void> {
@@ -104,7 +126,11 @@ export class CrewChoiceController {
     if (generation !== this.generation || snapshot === undefined) return Promise.resolve()
     const value = snapshot.status === 'ready' ? snapshot.value : undefined
     const options = (value?.presets ?? []).map(preset => ({ id: preset.id, name: preset.name }))
-    this.set({ options, selected: this.staged ?? openingOf(value) ?? '' })
+    // A stage that survived a refresh stays: a stale id is refused by
+    // `applyToSession` rather than silently replaced by the library default.
+    const opening = this.staged ?? openingOf(value)
+    this.staged = opening
+    this.set({ options, selected: opening ?? '' })
     return Promise.resolve()
   }
 
@@ -130,7 +156,7 @@ export class CrewChoiceController {
    * would leave the session without routes and the next session silently
    * inheriting the pick instead.
    * @param sessionId - the blank session that just adopted the crew preset.
-   * @returns a refusal message, or undefined once the routes are recorded.
+   * @returns the localized report, or undefined once the routes are recorded.
    */
   async applyToSession(sessionId: SessionId): Promise<string | undefined> {
     const staged = this.staged
@@ -138,28 +164,39 @@ export class CrewChoiceController {
     const stored = this.stored().find(preset => preset.id === staged)
     if (stored === undefined) {
       this.staged = undefined
-      const error = 'the chosen combination is no longer stored'
-      this.set({ error, selected: '' })
-      return error
+      return this.fail({ reason: 'gone' }, '')
     }
     const routes = routesOf(stored)
-    if (routes === undefined) {
-      const error = 'the chosen combination does not name all three roles'
-      this.set({ error })
-      return error
+    if (routes === undefined) return this.fail({ reason: 'incomplete' })
+    const formation = this.ctx.get('remote.crewFormation') as
+      ClientRemote['crewFormation'] | undefined
+    if (formation === undefined) {
+      // The crew bundle is what mounts this namespace. Reading it through
+      // `ctx.get` rather than `inject` keeps a deployment without that bundle
+      // serving this plugin normally instead of parking it forever.
+      return this.fail({ reason: 'unserved' })
     }
-    const result = await this.ctx.remote.crewFormation.selectRoutes(sessionId, {
+    const result = await formation.selectRoutes(sessionId, {
       presetId: stored.id,
       presetName: stored.name,
       routes,
     })
-    if (!result.ok) {
-      this.set({ error: result.error.message })
-      return result.error.message
-    }
+    if (!result.ok) return this.fail({ reason: 'host', message: result.error.message })
     this.staged = undefined
     this.set({ error: null })
     return undefined
+  }
+
+  /**
+   * Publish one localized failure.
+   * @param failure - what went wrong, in the form the reporter localizes.
+   * @param selected - replacement for the displayed pick, when the entry is gone.
+   * @returns the same localized line, for the caller that reports it.
+   */
+  private fail(failure: CrewChoiceFailure, selected?: string): string {
+    const error = this.describe(failure)
+    this.set(selected === undefined ? { error } : { error, selected })
+    return error
   }
 
   /** The stored combinations behind the current snapshot. */

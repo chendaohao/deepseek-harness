@@ -41,7 +41,7 @@ import type { AgentPresetSeatInjected } from './AgentPresetSeat.tsx'
 import { AgentPresetSection } from './AgentPresetSection.tsx'
 import type { AgentPresetSectionInjected } from './AgentPresetSection.tsx'
 import { AgentPresetSeatController, type AgentPresetStage, type PresetCompanion } from './seat-store.ts'
-import { CREW_ROUTE_PRESETS_NAMESPACE, CrewChoiceController } from './crew-choice.ts'
+import { CREW_ROUTE_PRESETS_NAMESPACE, CrewChoiceController, type CrewChoiceFailure } from './crew-choice.ts'
 import { CrewChoice } from './CrewChoice.tsx'
 import { AgentPresetSectionController } from './section-store.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type AgentPresetSettingsKey } from './locales.ts'
@@ -82,7 +82,20 @@ export function apply(ctx: ClientContext): void {
   const controller = new AgentPresetSettingsController(ctx)
   // The crew bundle serves this namespace only in a profile that selects it, so
   // a deployment without the formation has no handle and the picker stays away.
-  const crewChoice = new CrewChoiceController(ctx, ctx.configForms.get(CREW_ROUTE_PRESETS_NAMESPACE))
+  const crewChoiceCopy = (failure: CrewChoiceFailure): string => {
+    const t = ctx.locale.bind('settings.agentPreset')
+    switch (failure.reason) {
+      case 'gone': return t('crewChoiceGone')
+      case 'incomplete': return t('crewChoiceIncomplete')
+      case 'unserved': return t('crewChoiceUnserved')
+      case 'host': return t('crewChoiceRefused', { reason: failure.message })
+    }
+  }
+  const crewChoice = new CrewChoiceController(
+    ctx,
+    ctx.configForms.get(CREW_ROUTE_PRESETS_NAMESPACE),
+    crewChoiceCopy,
+  )
   const staged: AgentPresetStage = { id: undefined, introduce: false }
   const seats = new WeakMapWithValues<SessionBinding, AgentPresetSeatController>()
   const boundSeatDisposers = new Set<() => Promise<void>>()

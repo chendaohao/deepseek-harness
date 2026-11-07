@@ -323,31 +323,45 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* Saved-combination row: the picker, the save/delete actions, and the notices
-   a switch produces. It sits above the role rows because it rewrites them. */
+/* Combination identity and actions form one group; role routing starts a second
+   group with its own picker and three aligned route fields. */
 .crewPresets {
   margin: 12px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
 }
 
 .crewPresetControls {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) repeat(3, auto);
-  align-items: end;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.crewPresetControls > button {
-  margin-bottom: 1px;
+.crewPresetControls .selectInput,
+.crewRoleEditor .selectInput {
+  max-width: none;
 }
 
-/* On a phone the picker takes its own line and the actions wrap beneath it. */
-@media (max-width: 560px) {
-  .crewPresetControls {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.crewPresetActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.crewPresetDelete {
+  margin-left: auto;
+}
+
+.crewRoleEditor {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.crewRoleEditor .crewFields {
+  grid-column: 1 / -1;
 }
 
 /* Crew route rows: one role per row, its three pickers side by side. The
@@ -380,11 +394,16 @@
   gap: 12px;
 }
 
-/* Three pickers do not fit side by side on a phone; the row stacks rather than
-   squeezing each control below its usable width. */
+/* Form groups stack before their controls become too narrow to use. */
 @media (max-width: 560px) {
+  .crewPresetControls,
+  .crewRoleEditor,
   .crewFields {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .crewPresetDelete {
+    margin-left: 0;
   }
 }
 

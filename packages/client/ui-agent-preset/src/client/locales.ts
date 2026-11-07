@@ -10,6 +10,10 @@ export type AgentPresetSettingsKey =
   | 'seatHint'
   | 'headerHint'
   | 'crewChoiceLabel'
+  | 'crewChoiceGone'
+  | 'crewChoiceIncomplete'
+  | 'crewChoiceUnserved'
+  | 'crewChoiceRefused'
   | 'nav'
   | 'sectionIntro'
   | 'setDefault'
@@ -22,6 +26,8 @@ export type AgentPresetSettingsKey =
   | 'presetMinimalDescription'
   | 'presetCordisName'
   | 'presetCordisDescription'
+  | 'presetCrewName'
+  | 'presetCrewDescription'
   | 'inUse'
   | 'noDescription'
   | 'brokenBadge'
@@ -44,6 +50,10 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   seatHint: 'Choose the agent preset for your new task',
   headerHint: 'The agent preset chosen when this task started',
   crewChoiceLabel: 'Model combination',
+  crewChoiceGone: 'That combination is no longer stored. Pick another one.',
+  crewChoiceIncomplete: 'That combination does not name all three roles. Complete it in Models settings.',
+  crewChoiceUnserved: 'This deployment serves no crew formation, so the combination cannot be applied.',
+  crewChoiceRefused: 'The model combination could not be applied: {reason}',
   nav: 'Agent presets',
 
   setDefault: 'Set as new task default',
@@ -61,6 +71,9 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   presetCordisName: 'Creator mode',
   presetCordisDescription:
     'Customize DSH through conversation. Let the agent write plugins that add features or UI, or combine tools and prompts to create your own mode.',
+  presetCrewName: 'Crew',
+  presetCrewDescription:
+    'Crew pairs a commander with three delegation roles: Worker for implementation, Planner for design, and Reviewer for audit. The commander reads and splits the request, delegates work, verifies deliveries, and reports. It has no general shell or filesystem writer; Worker handles implementation. Git uses the structured crew_git tool and asks before writes. A process-wide guard serializes compile and install commands. Use built-in plan mode and ask_user_question.',
 
   inUse: 'New task default',
 
@@ -90,6 +103,10 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   seatHint: '选择新任务使用的 Agent 预设',
   headerHint: '本任务的 Agent 预设，在任务开始时确定',
   crewChoiceLabel: '模型组合',
+  crewChoiceGone: '该组合已不存在，请重新选择。',
+  crewChoiceIncomplete: '该组合未包含全部三个角色，请到「模型」设置里补全。',
+  crewChoiceUnserved: '当前部署未提供 Crew 编队，无法应用该组合。',
+  crewChoiceRefused: '模型组合未能应用：{reason}',
   nav: 'Agent 预设',
 
   setDefault: '设为新任务默认',
@@ -103,6 +120,8 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetMinimalDescription: 'Agent 使用终端和图片读取工具，并支持上下文压缩，适合测试和对比其基础表现。',
   presetCordisName: '创造模式',
   presetCordisDescription: '用对话定制 DSH：让 Agent 编写插件，添加新功能或界面；也能组合工具和提示词，创建自己的模式。',
+  presetCrewName: 'Crew',
+  presetCrewDescription: 'Crew 由指挥者与三个委派角色组成：工人负责实现，规划者负责设计，审核者负责审核。指挥者读取并拆分请求，委派工作，验证交付并汇报。指挥者没有通用 shell 或文件系统写入工具，实现工作由工人完成。Git 使用结构化的 crew_git 工具，并在写入前询问。编译和安装命令由守卫在进程范围内串行执行。使用内置计划模式和 ask_user_question。',
 
   inUse: '新任务默认',
 
@@ -138,6 +157,10 @@ export const ja = {
   'seatHint': '新しいタスクで使用するエージェントプリセットを選択',
   'headerHint': 'このタスクの開始時に選択されたエージェントプリセット',
   crewChoiceLabel: 'モデルの組み合わせ',
+  crewChoiceGone: 'その組み合わせは保存されていません。別の組み合わせを選んでください。',
+  crewChoiceIncomplete: 'その組み合わせには3つのロールがすべて含まれていません。モデル設定で完成させてください。',
+  crewChoiceUnserved: 'この配置はCrew編成を提供していないため、組み合わせを適用できません。',
+  crewChoiceRefused: 'モデルの組み合わせを適用できませんでした: {reason}',
   'nav': 'エージェントプリセット',
   'setDefault': '新しいタスクの既定に設定',
   'view': '設定を表示',
@@ -149,6 +172,8 @@ export const ja = {
   'presetMinimalDescription': 'エージェントはターミナルと画像読み取りを使用し、コンテキスト圧縮にも対応します。基本的な性能のテストや比較に役立ちます。',
   'presetCordisName': 'クリエイターモード',
   'presetCordisDescription': '会話を通じて DSH をカスタマイズします。機能や UI を追加するプラグインをエージェントに書かせたり、ツールとプロンプトを組み合わせて独自のモードを作成したりできます。',
+  presetCrewName: 'Crew',
+  presetCrewDescription: 'Crewは、コマンダーと3つの委譲ロールで構成されます。実装はワーカー、設計はプランナー、監査はレビュアーが担当します。コマンダーはリクエストの読み取りと分割、作業の委譲、成果物の検証、報告を行います。コマンダーには汎用シェルやファイルシステム書き込み機能がなく、実装はワーカーが行います。Gitには構造化されたcrew_gitツールを使用し、書き込み前に確認します。コンパイルとインストールのコマンドは、ガードによってプロセス全体で直列化されます。組み込みのプランモードとask_user_questionを使用します。',
   'inUse': '新しいタスクの既定',
   'noDescription': '説明はありません。',
   'brokenBadge': '読み込みに失敗',
@@ -172,6 +197,10 @@ export const es = {
   seatHint: 'Elija el agente preestablecido para su nueva tarea',
   headerHint: 'El agente preestablecido elegido cuando comenzó esta tarea',
   crewChoiceLabel: 'Combinación de modelos',
+  crewChoiceGone: 'Esa combinación ya no está guardada. Elija otra.',
+  crewChoiceIncomplete: 'Esa combinación no nombra los tres roles. Complétela en los ajustes de Modelos.',
+  crewChoiceUnserved: 'Esta implementación no ofrece formación de crew, así que la combinación no se puede aplicar.',
+  crewChoiceRefused: 'No se pudo aplicar la combinación de modelos: {reason}',
   nav: 'Ajustes preestablecidos del agente',
 
   setDefault: 'Establecer como nueva tarea predeterminada',
@@ -189,6 +218,9 @@ export const es = {
   presetCordisName: 'Modo creador',
   presetCordisDescription:
     'Personaliza DSH a través de la conversación. Deje que el agente escriba complementos que agreguen funciones o interfaz de usuario, o combine herramientas e indicaciones para crear su propio modo.',
+  presetCrewName: 'Crew',
+  presetCrewDescription:
+    'Crew combina un comandante con tres roles delegados: Trabajador para la implementación, Planificador para el diseño y Revisor para la auditoría. El comandante lee y divide la solicitud, delega el trabajo, verifica las entregas e informa. No dispone de un shell general ni de escritura en el sistema de archivos; Trabajador realiza la implementación. Git usa la herramienta estructurada crew_git y pide confirmación antes de escribir. Un mecanismo de protección serializa los comandos de compilación e instalación en todo el proceso. Usa el modo de plan integrado y ask_user_question.',
 
   inUse: 'Nueva tarea predeterminada',
 
@@ -218,6 +250,10 @@ export const fr = {
   seatHint: "Choisissez le préréglage d'agent pour votre nouvelle tâche",
   headerHint: "Le préréglage d'agent choisi au démarrage de cette tâche",
   crewChoiceLabel: 'Combinaison de modèles',
+  crewChoiceGone: "Cette combinaison n'est plus enregistrée. Choisissez-en une autre.",
+  crewChoiceIncomplete: 'Cette combinaison ne nomme pas les trois rôles. Complétez-la dans les réglages Modèles.',
+  crewChoiceUnserved: 'Ce déploiement ne fournit pas de formation crew, la combinaison ne peut donc pas être appliquée.',
+  crewChoiceRefused: "La combinaison de modèles n'a pas pu être appliquée : {reason}",
   nav: "Préréglages d'agent",
 
   setDefault: 'Définir comme nouvelle tâche par défaut',
@@ -235,6 +271,9 @@ export const fr = {
   presetCordisName: 'Mode Créateur',
   presetCordisDescription:
     "Personnalisez DSH via la conversation. Laissez l'agent écrire des plugins qui ajoutent des fonctionnalités ou une interface utilisateur, ou combinez des outils et des invites pour créer votre propre mode.",
+  presetCrewName: 'Crew',
+  presetCrewDescription:
+    'Crew réunit un commandant et trois rôles délégués : Worker pour l’implémentation, Planificateur pour la conception et Réviseur pour l’audit. Le commandant lit et divise la demande, délègue le travail, vérifie les livrables et rend compte. Il ne dispose ni d’un shell général ni d’un outil d’écriture du système de fichiers ; Worker réalise l’implémentation. Git utilise l’outil structuré crew_git et demande une confirmation avant toute écriture. Un mécanisme de protection sérialise les commandes de compilation et d’installation dans tout le processus. Utilisez le mode Plan intégré et ask_user_question.',
 
   inUse: 'Nouvelle tâche par défaut',
 
@@ -263,7 +302,11 @@ export const de = {
 
   seatHint: 'Wählen Sie die Agentenvoreinstellung für Ihre neue Aufgabe',
   headerHint: 'Die Agentenvoreinstellung, die beim Start dieser Aufgabe ausgewählt wurde',
-  crewChoiceLabel: 'Combinaison de modèles',
+  crewChoiceLabel: 'Kombination der Modelle',
+  crewChoiceGone: 'Diese Kombination wird nicht mehr gespeichert. Wählen Sie eine andere.',
+  crewChoiceIncomplete: 'Diese Kombination benennt nicht alle drei Rollen. Vervollständigen Sie sie in den Modell-Einstellungen.',
+  crewChoiceUnserved: 'Diese Bereitstellung bietet keine Crew-Formation, daher kann die Kombination nicht angewendet werden.',
+  crewChoiceRefused: 'Die Modellkombination konnte nicht angewendet werden: {reason}',
   nav: 'Agentenvoreinstellungen',
 
   setDefault: 'Als Standard für neue Aufgabe festlegen',
@@ -281,6 +324,9 @@ export const de = {
   presetCordisName: 'Erstellermodus',
   presetCordisDescription:
     'Passen Sie DSH durch Gespräche an. Lassen Sie den Agenten Plugins schreiben, die Funktionen oder Benutzeroberflächen hinzufügen, oder kombinieren Sie Tools und Eingabeaufforderungen, um Ihren eigenen Modus zu erstellen.',
+  presetCrewName: 'Crew',
+  presetCrewDescription:
+    'Crew verbindet einen Commander mit drei Delegationsrollen: Worker für die Implementierung, Planer für den Entwurf und Reviewer für die Prüfung. Der Commander liest und zerlegt die Anfrage, delegiert die Arbeit, prüft die Ergebnisse und berichtet. Er hat weder eine allgemeine Shell noch ein Schreibwerkzeug für das Dateisystem; die Implementierung übernimmt Worker. Git verwendet das strukturierte crew_git-Werkzeug und fragt vor Schreibvorgängen nach. Eine Schutzkomponente serialisiert Kompilier- und Installationsbefehle prozessweit. Verwenden Sie den integrierten Planmodus und ask_user_question.',
 
   inUse: 'Neuer Aufgabenstandard',
 
@@ -309,7 +355,11 @@ export const ru = {
 
   seatHint: 'Выберите предустановку агента для вашей новой задачи',
   headerHint: 'Предварительная настройка агента, выбранная при запуске этой задачи',
-  crewChoiceLabel: 'Modellkombination',
+  crewChoiceLabel: 'Комбинация моделей',
+  crewChoiceGone: 'Эта комбинация больше не сохранена. Выберите другую.',
+  crewChoiceIncomplete: 'В этой комбинации указаны не все три роли. Дополните её в настройках моделей.',
+  crewChoiceUnserved: 'Это развёртывание не предоставляет crew-формацию, поэтому комбинацию нельзя применить.',
+  crewChoiceRefused: 'Не удалось применить комбинацию моделей: {reason}',
   nav: 'Настройки агента',
 
   setDefault: 'Установить в качестве новой задачи по умолчанию',
@@ -327,6 +377,9 @@ export const ru = {
   presetCordisName: 'Режим автора',
   presetCordisDescription:
     'Настройте DSH через разговор. Позвольте агенту писать плагины, которые добавляют функции или пользовательский интерфейс, или комбинируйте инструменты и подсказки для создания собственного режима.',
+  presetCrewName: 'Crew',
+  presetCrewDescription:
+    'Crew объединяет командира и три делегированные роли: Воркер для реализации, Планировщик для проектирования и Рецензент для аудита. Командир читает и разделяет запрос, делегирует работу, проверяет результаты и сообщает о них. У него нет общей оболочки или инструмента записи в файловую систему; реализацию выполняет Воркер. Git использует структурированный инструмент crew_git и запрашивает подтверждение перед записью. Защитный механизм сериализует команды компиляции и установки в пределах всего процесса. Используйте встроенный режим плана и ask_user_question.',
 
   inUse: 'Новая задача по умолчанию',
 
@@ -356,6 +409,10 @@ export const pt = {
   seatHint: 'Escolha a predefinição de agente para sua nova tarefa',
   headerHint: 'A predefinição do agente escolhida quando esta tarefa foi iniciada',
   crewChoiceLabel: 'Combinação de modelos',
+  crewChoiceGone: 'Essa combinação não está mais guardada. Escolha outra.',
+  crewChoiceIncomplete: 'Essa combinação não nomeia as três funções. Complete-a nas configurações de Modelos.',
+  crewChoiceUnserved: 'Esta implantação não oferece formação de crew, então a combinação não pode ser aplicada.',
+  crewChoiceRefused: 'Não foi possível aplicar a combinação de modelos: {reason}',
   nav: 'Predefinições de agente',
 
   setDefault: 'Definir como nova tarefa padrão',
@@ -373,6 +430,9 @@ export const pt = {
   presetCordisName: 'Modo criador',
   presetCordisDescription:
     'Personalize DSH por meio de conversa. Deixe o agente escrever plug-ins que adicionem recursos ou UI, ou combine ferramentas e prompts para criar seu próprio modo.',
+  presetCrewName: 'Crew',
+  presetCrewDescription:
+    'Crew reúne um comandante e três funções delegadas: Worker para implementação, Planejador para design e Revisor para auditoria. O comandante lê e divide o pedido, delega o trabalho, verifica as entregas e relata. Ele não tem shell geral nem ferramenta de escrita no sistema de arquivos; Worker realiza a implementação. O Git usa a ferramenta estruturada crew_git e pede confirmação antes de gravar. Um mecanismo de proteção serializa os comandos de compilação e instalação em todo o processo. Use o modo de plano integrado e ask_user_question.',
 
   inUse: 'Novo padrão de tarefa',
 

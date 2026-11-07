@@ -17,7 +17,22 @@ import { en } from '../src/client/locales.ts'
 afterEach(cleanup)
 
 /** Copy lookup over the English dictionary; the component only names its own key. */
-const t = (key: string): string => (en as Record<string, string>)[key] ?? key
+const t = (key: string, params?: Record<string, unknown>): string => {
+  const template = (en as Record<string, string>)[key] ?? key
+  return params === undefined
+    ? template
+    : template.replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? ''))
+}
+
+/** The reporter every controller in this spec is built with. */
+const report = (failure: { reason: string; message?: string }): string => {
+  switch (failure.reason) {
+    case 'gone': return t('crewChoiceGone')
+    case 'incomplete': return t('crewChoiceIncomplete')
+    case 'unserved': return t('crewChoiceUnserved')
+    default: return t('crewChoiceRefused', { reason: failure.message ?? '' })
+  }
+}
 
 const WORKER = 'subagent-worker-route-settings'
 const PLANNER = 'subagent-planner-route-settings'
@@ -53,9 +68,19 @@ function library(value: unknown, overrides: Partial<ConfigFormSnapshot<never>> =
   return scope
 }
 
-/** A client context whose formation Remote answers with `selectRoutes`. */
-function ctxWith(selectRoutes: (...args: unknown[]) => Promise<unknown>) {
-  return { remote: { crewFormation: { selectRoutes } } } as never
+/**
+ * A client context whose formation Remote answers with `selectRoutes`.
+ *
+ * `ctx.get` is the read path the controller uses, because the crew bundle is an
+ * optional deployment: injecting the namespace would park this plugin forever on
+ * a deployment that serves no formation.
+ */
+function ctxWith(selectRoutes: ((...args: unknown[]) => Promise<unknown>) | undefined) {
+  return {
+    get: (name: string) => (name === 'remote.crewFormation' && selectRoutes !== undefined
+      ? { selectRoutes }
+      : undefined),
+  } as never
 }
 
 describe('openingOf', () => {
@@ -97,16 +122,57 @@ describe('CrewChoiceController', () => {
     const controller = new CrewChoiceController(
       ctxWith(() => Promise.resolve({ ok: true, value: true })),
       library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }], lastUsedPresetId: 'a' }),
+      report,
     )
     await controller.load()
     expect(controller.store.getSnapshot().options).toEqual([{ id: 'a', name: 'A' }])
     expect(controller.store.getSnapshot().selected).toBe('a')
   })
 
+  it('stages the combination it opens on, so an untouched picker still applies', async () => {
+    const controller = new CrewChoiceController(
+      ctxWith(() => Promise.resolve({ ok: true, value: true })),
+      library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }, { id: 'b', name: 'B', routes: ROUTES }], lastUsedPresetId: 'b' }),
+      report,
+    )
+    await controller.load()
+    // The picker showed "B"; the session must run "B" without the user
+    // triggering an onChange on a control that already displayed it.
+    expect(controller.stage()).toBe('b')
+  })
+
+  it('keeps a staged pick across a refresh instead of reopening on the library default', async () => {
+    const controller = new CrewChoiceController(
+      ctxWith(() => Promise.resolve({ ok: true, value: true })),
+      library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }, { id: 'b', name: 'B', routes: ROUTES }], lastUsedPresetId: 'a' }),
+      report,
+    )
+    await controller.load()
+    controller.select('b')
+    await controller.load()
+    expect(controller.stage()).toBe('b')
+    expect(controller.store.getSnapshot().selected).toBe('b')
+  })
+
+  it('reports an unserved deployment instead of failing on an undeclarable namespace', async () => {
+    const controller = new CrewChoiceController(
+      ctxWith(undefined),
+      library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }] }),
+      report,
+    )
+    await controller.load()
+    controller.select('a')
+    expect(await controller.applyToSession('session-1' as never)).toBe(t('crewChoiceUnserved'))
+    // The stage survives so a deployment that mounts the formation later, or a
+    // fixed route, can still record it.
+    expect(controller.stage()).toBe('a')
+  })
+
   it('offers nothing when the Host serves no combination namespace', async () => {
     const controller = new CrewChoiceController(
       ctxWith(() => Promise.resolve({ ok: true, value: true })),
       undefined,
+      report,
     )
     await controller.load()
     expect(controller.store.getSnapshot().options).toEqual([])
@@ -114,7 +180,7 @@ describe('CrewChoiceController', () => {
 
   it('records the staged combination as the formation routes', async () => {
     const selectRoutes = vi.fn(() => Promise.resolve({ ok: true, value: true }))
-    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }] }))
+    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }] }), report)
     await controller.load()
     controller.select('a')
     expect(await controller.applyToSession('session-1' as never)).toBeUndefined()
@@ -133,7 +199,7 @@ describe('CrewChoiceController', () => {
 
   it('does nothing when no combination is staged', async () => {
     const selectRoutes = vi.fn(() => Promise.resolve({ ok: true, value: true }))
-    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [] }))
+    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [] }), report)
     await controller.load()
     expect(await controller.applyToSession('session-1' as never)).toBeUndefined()
     expect(selectRoutes).not.toHaveBeenCalled()
@@ -141,11 +207,12 @@ describe('CrewChoiceController', () => {
 
   it('surfaces a Host refusal and keeps the stage for a retry', async () => {
     const selectRoutes = vi.fn(() => Promise.resolve({ ok: false, error: { message: 'unknown model' } }))
-    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }] }))
+    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }] }), report)
     await controller.load()
     controller.select('a')
-    expect(await controller.applyToSession('session-1' as never)).toBe('unknown model')
-    expect(controller.store.getSnapshot().error).toBe('unknown model')
+    const reported = t('crewChoiceRefused', { reason: 'unknown model' })
+    expect(await controller.applyToSession('session-1' as never)).toBe(reported)
+    expect(controller.store.getSnapshot().error).toBe(reported)
     // The stage survives so a corrected pick does not silently fall back to
     // whatever the library default is.
     expect(controller.stage()).toBe('a')
@@ -153,24 +220,24 @@ describe('CrewChoiceController', () => {
 
   it('refuses a combination that vanished between staging and applying', async () => {
     const selectRoutes = vi.fn(() => Promise.resolve({ ok: true, value: true }))
-    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }] }))
+    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [{ id: 'a', name: 'A', routes: ROUTES }] }), report)
     await controller.load()
     controller.select('a')
     // The Host answered an empty library after the pick was staged.
-    const dropped = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [] }))
+    const dropped = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [] }), report)
     await dropped.load()
     dropped.select('a')
-    expect(await dropped.applyToSession('session-1' as never)).toContain('no longer stored')
+    expect(await dropped.applyToSession('session-1' as never)).toBe(t('crewChoiceGone'))
     expect(selectRoutes).not.toHaveBeenCalled()
   })
 
   it('refuses a combination that does not name all three roles', async () => {
     const selectRoutes = vi.fn(() => Promise.resolve({ ok: true, value: true }))
     const partial = [{ namespace: WORKER, provider: 'a', model: 'b', reasoningEffort: 'c' }]
-    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [{ id: 'a', name: 'A', routes: partial }] }))
+    const controller = new CrewChoiceController(ctxWith(selectRoutes), library({ presets: [{ id: 'a', name: 'A', routes: partial }] }), report)
     await controller.load()
     controller.select('a')
-    expect(await controller.applyToSession('session-1' as never)).toContain('all three roles')
+    expect(await controller.applyToSession('session-1' as never)).toBe(t('crewChoiceIncomplete'))
     expect(selectRoutes).not.toHaveBeenCalled()
   })
 })
@@ -213,13 +280,19 @@ describe('CrewChoice', () => {
 
   it('offers every stored combination while crew is staged', () => {
     mount('crew', [{ id: 'a', name: 'Fast' }, { id: 'b', name: 'Deep' }])
-    const picker = screen.getByLabelText<HTMLSelectElement>(t('crewChoiceLabel'))
-    expect([...picker.options].map(option => option.textContent)).toEqual(['Fast', 'Deep'])
+    fireEvent.click(screen.getByLabelText(t('crewChoiceLabel')))
+    expect(screen.getAllByRole('menuitem').map(row => row.textContent)).toEqual(['Fast', 'Deep'])
+  })
+
+  it('shows the combination it will apply, not an empty label', () => {
+    mount('crew', [{ id: 'a', name: 'Fast' }, { id: 'b', name: 'Deep' }])
+    expect(screen.getByLabelText(t('crewChoiceLabel')).textContent).toContain('Fast')
   })
 
   it('stages the picked combination', () => {
     const { select } = mount('crew', [{ id: 'a', name: 'Fast' }, { id: 'b', name: 'Deep' }])
-    fireEvent.change(screen.getByLabelText(t('crewChoiceLabel')), { target: { value: 'b' } })
+    fireEvent.click(screen.getByLabelText(t('crewChoiceLabel')))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Deep' }))
     expect(select).toHaveBeenCalledWith('b')
   })
 })

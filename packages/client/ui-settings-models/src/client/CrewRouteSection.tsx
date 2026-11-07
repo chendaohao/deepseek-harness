@@ -269,7 +269,6 @@ function CrewPresetRow({ block, served, copy, t }: {
   const [notice, setNotice] = useState<string | undefined>(undefined)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
-  const fieldId = useId()
   const catalog = useSyncExternalStore(
     fn => block.catalog.subscribe(fn),
     () => block.catalog.getSnapshot(),
@@ -412,7 +411,7 @@ function CrewPresetRow({ block, served, copy, t }: {
 
   return (
     <div className={styles['crewPresets']}>
-      <div className={styles['crewPresetRow']}>
+      <div className={styles['crewPresetControls']}>
         <label className={styles['field']}>
           <span className={styles['fieldLabel']}>{copy.presetLabel}</span>
           <select
@@ -443,9 +442,11 @@ function CrewPresetRow({ block, served, copy, t }: {
             }}
           />
         </label>
+      </div>
+      <div className={styles['crewPresetActions']}>
         <button
           type="button"
-          className={styles['secondaryButton']}
+          className={styles['primaryButton']}
           disabled={disabled || editing === undefined || editing.name.trim().length === 0 || !complete}
           onClick={() => { void save() }}
         >
@@ -464,7 +465,7 @@ function CrewPresetRow({ block, served, copy, t }: {
           : (
             <button
               type="button"
-              className={styles['dangerButton']}
+              className={`${styles['dangerButton']} ${styles['crewPresetDelete']}`}
               disabled={disabled}
               onClick={() => { void remove() }}
             >
@@ -472,47 +473,49 @@ function CrewPresetRow({ block, served, copy, t }: {
             </button>
           )}
       </div>
-      <label className={styles['field']}>
-        <span className={styles['fieldLabel']}>{copy.presetRole}</span>
-        <select
-          className={`${styles['input']} ${styles['selectInput']}`}
-          aria-label={copy.presetRole}
-          value={selectedRole ?? ''}
-          disabled={disabled || roles.length === 0}
-          onChange={(event) => { setSelectedRole(event.target.value) }}
-        >
-          {roles.map(candidate => (
-            <option key={candidate.namespace} value={candidate.namespace}>{t(candidate.nameKey)}</option>
-          ))}
-        </select>
-      </label>
-      {role === undefined || draft === undefined
-        ? null
-        : (
-          <div className={styles['crewFields']} role="group" aria-labelledby={`${fieldId}-role`}>
-            <RouteSelect
-              label={controlLabel(copy.provider)}
-              value={draft.provider}
-              entries={groups}
-              disabled={disabled}
-              onChange={(provider) => { commit({ provider }) }}
-            />
-            <RouteSelect
-              label={controlLabel(copy.model)}
-              value={draft.model}
-              entries={providerGroup?.models ?? []}
-              disabled={disabled || providerGroup === undefined}
-              onChange={(next) => { commit({ model: next }) }}
-            />
-            <EffortPicker
-              label={controlLabel(copy.effort)}
-              value={draft.reasoningEffort}
-              efforts={efforts}
-              disabled={disabled}
-              onChange={(reasoningEffort) => { commit({ reasoningEffort }) }}
-            />
-          </div>
-        )}
+      <div className={styles['crewRoleEditor']}>
+        <label className={styles['field']}>
+          <span className={styles['fieldLabel']}>{copy.presetRole}</span>
+          <select
+            className={`${styles['input']} ${styles['selectInput']}`}
+            aria-label={copy.presetRole}
+            value={selectedRole ?? ''}
+            disabled={disabled || roles.length === 0}
+            onChange={(event) => { setSelectedRole(event.target.value) }}
+          >
+            {roles.map(candidate => (
+              <option key={candidate.namespace} value={candidate.namespace}>{t(candidate.nameKey)}</option>
+            ))}
+          </select>
+        </label>
+        {role === undefined || draft === undefined
+          ? null
+          : (
+            <div className={styles['crewFields']} role="group" aria-label={roleChanged}>
+              <RouteSelect
+                label={controlLabel(copy.provider)}
+                value={draft.provider}
+                entries={groups}
+                disabled={disabled}
+                onChange={(provider) => { commit({ provider }) }}
+              />
+              <RouteSelect
+                label={controlLabel(copy.model)}
+                value={draft.model}
+                entries={providerGroup?.models ?? []}
+                disabled={disabled || providerGroup === undefined}
+                onChange={(next) => { commit({ model: next }) }}
+              />
+              <EffortPicker
+                label={controlLabel(copy.effort)}
+                value={draft.reasoningEffort}
+                efforts={efforts}
+                disabled={disabled}
+                onChange={(reasoningEffort) => { commit({ reasoningEffort }) }}
+              />
+            </div>
+          )}
+      </div>
       {!complete && editing !== undefined
         ? <p className={styles['notice']} role="status">{copy.presetIncomplete}</p>
         : null}

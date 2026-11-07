@@ -124,8 +124,6 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: crew
-        name: Crew
-        description: 'Commander plus three delegation roles: reads the request, splits the work, delegates to worker (implementation), planner (design), or reviewer (audit), verifies what comes back, and reports. The commander has no general shell or filesystem writer; implementation belongs to worker. Git uses the structured crew_git tool and asks before writes. Compile and install commands are serialized process-wide by a guard. Use the built-in plan mode and ask_user_question.'
         order: 6
         plugins:
           - id: preset-tool-mask

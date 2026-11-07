@@ -176,3 +176,80 @@ describe('the agent-preset seat apply machinery', () => {
     expect(controller.store.getSnapshot().current).toBe('cordis')
   })
 })
+
+/**
+ * The companion hook: a plugin whose per-session choice has to land alongside
+ * the composition. The crew model combination rides it.
+ */
+describe('the preset companion hook', () => {
+  /** A seat whose single companion records every composition it is handed. */
+  function companionSeat(currentSession: () => CurrentSession, companion: {
+    afterApply: (sessionId: SessionId, presetId: string) => Promise<string | undefined>
+  }) {
+    const rig = selectRig()
+    const configForms = { developerTools: { enabled: { getSnapshot: () => true } } }
+    const ctx = { remote: rig.remote, configForms } as object as ClientContext
+    const controller = new AgentPresetSeatController(ctx, currentSession, undefined, [companion])
+    return { controller, rig }
+  }
+
+  it('records the companion choice after the composition lands', async () => {
+    const seen: string[] = []
+    const { controller, rig } = companionSeat(() => BLANK_S1, {
+      afterApply: async (_sessionId, presetId) => { seen.push(presetId); return undefined },
+    })
+    controller.stage('crew')
+    const applying = controller.apply()
+    rig.pending[0]!.resolve(ok('crew'))
+    expect(await applying).toEqual({ kind: 'applied' })
+    expect(seen).toEqual(['crew'])
+  })
+
+  it('records the companion choice on a blank session already running that composition', async () => {
+    const seen: string[] = []
+    const alreadyCrew: CurrentSession = {
+      id: 's1' as SessionId, blank: true, projectionValues: { agentPreset: 'crew' },
+    }
+    const { controller, rig } = companionSeat(() => alreadyCrew, {
+      afterApply: async (_sessionId, presetId) => { seen.push(presetId); return undefined },
+    })
+    controller.stage('crew')
+    // No select is needed — the session already runs crew — but the companion
+    // still has to record its own choice, or the session keeps the role defaults.
+    expect(await controller.apply()).toEqual({ kind: 'applied' })
+    expect(rig.pending).toHaveLength(0)
+    expect(seen).toEqual(['crew'])
+  })
+
+  it('holds the send gate open until the companion choice lands', async () => {
+    const landed = Promise.withResolvers<undefined>()
+    let recorded = false
+    const { controller, rig } = companionSeat(() => BLANK_S1, {
+      afterApply: async () => { await landed.promise; recorded = true; return undefined },
+    })
+    controller.stage('crew')
+    const applying = controller.apply()
+    rig.pending[0]!.resolve(ok('crew'))
+    let gateSettled = false
+    const gate = controller.pendingApply().then(() => { gateSettled = true })
+    await Promise.resolve()
+    // The first prompt must not leave before the routes are on the session.
+    expect(gateSettled).toBe(false)
+    landed.resolve(undefined)
+    await gate
+    await applying
+    expect(recorded).toBe(true)
+    expect(gateSettled).toBe(true)
+  })
+
+  it('surfaces a companion refusal against the composition', async () => {
+    const { controller, rig } = companionSeat(() => BLANK_S1, {
+      afterApply: async () => 'unknown model',
+    })
+    controller.stage('crew')
+    const applying = controller.apply()
+    rig.pending[0]!.resolve(ok('crew'))
+    expect(await applying).toEqual({ kind: 'refused', reason: 'unknown model' })
+    expect(controller.store.getSnapshot().error).toEqual({ preset: { id: 'crew' }, reason: 'unknown model' })
+  })
+})

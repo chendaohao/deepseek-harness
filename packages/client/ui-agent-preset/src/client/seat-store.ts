@@ -253,11 +253,20 @@ export class AgentPresetSeatController {
     if (session === undefined) return { kind: 'staged' }
     // A started session's history was produced under its own composition; the
     // host refuses the swap, so the stage is no longer meaningful.
-    if (!session.blank || presetOf(session) === staged) {
+    if (!session.blank) {
       this.clearStage()
       return UNCHANGED
     }
-    const run = this.runApply(staged, session)
+    // Both paths are flights: the send path waits on `this.applying`, and a
+    // companion's routes must land inside that wait or the first turn runs
+    // before them.
+    const alreadyComposed = presetOf(session) === staged
+    const run = alreadyComposed
+      // The composition is already on this blank session, so there is no select
+      // to make — but a companion still has its own choice to record, and this
+      // is the only point that knows both the session and the composition.
+      ? this.runCompanions(staged, session, { kind: 'unchanged' })
+      : this.runApply(staged, session)
     this.applying = run
     try {
       return await run
@@ -331,13 +340,7 @@ export class AgentPresetSeatController {
       // Consumed: the next new session opens on the deployment default again.
       this.set({ current: this.staged.id ?? result.value })
       if (result.value !== staged) return UNCHANGED
-      // The composition is on the session now, so a companion that belongs to
-      // it records its own choice before the first turn freezes both.
-      for (const companion of this.companions) {
-        const refusal = await companion.afterApply(session.id, staged)
-        if (refusal !== undefined) return refuse(refusal)
-      }
-      return { kind: 'applied' }
+      return await this.runCompanions(staged, session, { kind: 'applied' })
     } catch (error) {
       return refuse(messageOf(error))
     } finally {
@@ -345,6 +348,38 @@ export class AgentPresetSeatController {
       this.set({ busy: false })
       completion.resolve(undefined)
     }
+  }
+
+  /**
+   * Run every companion that records its own choice alongside one composition.
+   *
+   * Both paths reach here: a session that just adopted the composition, and one
+   * that already carried it. The second is the case a pick made on the initial
+   * screen hits when the blank session was created on `crew` in the first place,
+   * and skipping it there left the session on the role defaults.
+   * @param presetId - the composition the session now carries.
+   * @param session - the blank session the companion records its choice on.
+   * @param whenNone - outcome to report when no companion has anything to record.
+   * @returns the applied outcome, or the companion's refusal.
+   */
+  private async runCompanions(
+    presetId: string,
+    session: Pick<SessionSummary, 'id' | 'blank' | 'projectionValues'>,
+    whenNone: AgentPresetApplyOutcome,
+  ): Promise<AgentPresetApplyOutcome> {
+    if (this.companions.length === 0) return whenNone
+    const refusalOf = (reason: string): AgentPresetApplyOutcome => {
+      this.set({
+        error: { reason, preset: this.store.getSnapshot().options.find(option => option.id === presetId) ?? { id: presetId } },
+        current: presetOf(session) ?? presetId,
+      })
+      return { kind: 'refused', reason }
+    }
+    for (const companion of this.companions) {
+      const refusal = await companion.afterApply(session.id, presetId)
+      if (refusal !== undefined) return refusalOf(refusal)
+    }
+    return { kind: 'applied' }
   }
 }
 
