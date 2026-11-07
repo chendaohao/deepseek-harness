@@ -15,6 +15,7 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { Session } from '@deepseek-ai/dsh-session'
 import {
   assertSubagentMaxDepth,
   delegationDepthOf,
@@ -34,7 +35,7 @@ import type { DelegationModelRequest } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
 import { SubagentPresetSelection, type PresetSelectionConfig, type PresetSelectionRequest } from './preset-selection.ts'
 import type {} from './model-selection-settings.ts'
-import type { SubagentRouteSettingsOwner, SubagentWorkerRouteSettings } from './worker-route-settings.ts'
+import type { SubagentRouteResolution, SubagentWorkerRouteSettings } from './worker-route-settings.ts'
 import {
   recordSubagentWorkerRoute,
   subagentWorkerRouteMark,
@@ -203,14 +204,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // Awaiting registers the marker before any child is announced to this row.
   await ctx.sessionProjections.register(subagentWorkerRouteProjectionDefinition)
 
-  // Resolve the row's route owner through the shared registry, so several
-  // role rows can compose side by side without fighting over one service name.
+  // Resolve the row's routes through the shared registry, so several role rows
+  // can compose side by side without fighting over one service name. The
+  // resolution carries the row's stored default and any Session pin composed on
+  // it; a deployment that pins nothing sees exactly the row's own route.
   const registry = config.routeSettingsNamespace === undefined
     ? undefined
     : ctx.get('subagentRouteSettings')
   const workerRouteConfig = config.routeSettingsNamespace === undefined || registry === undefined
     ? undefined
-    : registry.resolve(config.routeSettingsNamespace)
+    : registry.resolutionOf(config.routeSettingsNamespace)
   if (config.routeSettingsNamespace !== undefined && workerRouteConfig === undefined) {
     throw new Error(
       `tool-subagent: \`routeSettingsNamespace: '${config.routeSettingsNamespace}'\` requires a `
@@ -218,11 +221,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       + '`subagentRouteSettings` registry when that row itself is absent',
     )
   }
-  // Bound rather than captured: the service instance reads through its own
-  // settings source, so each call observes the current stored route.
-  const workerRoute = workerRouteConfig === undefined
-    ? undefined
-    : (): SubagentWorkerRouteSettings => workerRouteConfig.current()
+  /**
+   * The route this delegation should use: the calling Session's own pick when
+   * it made one, otherwise the row's stored default.
+   *
+   * A deployment that lets a person choose the formation's models per session
+   * records the choice on that Session; reading it here is what keeps two
+   * sessions on different routes without a second settings namespace. The row
+   * stays the fallback for every session that pinned nothing, so a deployment
+   * that never pins a route behaves exactly as before.
+   * @param parentSession - the delegating Session.
+   * @returns the effective route for this role.
+   */
+  const routeFor = (parentSession: Session): SubagentWorkerRouteSettings | undefined =>
+    workerRouteConfig?.forSession(parentSession) ?? workerRouteConfig?.current()
 
   /**
    * Route one marked child's later requests from the current setting. The route
@@ -233,7 +245,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
    * once; across rows, the module-level installation set decides, because two
    * opted-in rows each announce the same resumed child.
    */
-  const installWorkerRouteSelection = (routeConfig: SubagentRouteSettingsOwner, child: Agent): void => {
+  const installWorkerRouteSelection = (routeConfig: SubagentRouteResolution, child: Agent): void => {
     // The marker must name THIS row's namespace: without the match a row whose
     // listener runs first would route a planner or reviewer child to the worker
     // route. The weak set below only dedupes repeated announcements of the
@@ -243,12 +255,27 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     workerRouteSelectionInstalled.add(child)
     child.ctx.effect(() => installModelSelection(child.ctx), 'tool-subagent: worker-route selection')
     /**
-     * Record the stored route on the child, leaving an already-matching
+     * The route this child follows now.
+     *
+     * A pin belongs to the Session that made the pick, which for a delegation
+     * is the child's direct parent — the child was created by that Session and
+     * a cold resume recreates it from its own log without its parent being
+     * live, so a missing parent falls back to the row's default rather than
+     * inventing one.
+     * @returns the effective route for this child's role.
+     */
+    const currentRoute = (): SubagentWorkerRouteSettings => {
+      const parentId = child.session.header.parentSession
+      const parent = parentId === undefined ? undefined : ctx.sessions.get(parentId)
+      return (parent === undefined ? undefined : routeConfig.forSession(parent)) ?? routeConfig.current()
+    }
+    /**
+     * Record the current route on the child, leaving an already-matching
      * selection alone: a no-op select would still append a durable
      * `model/selection` to every worker log.
      */
     const applyRoute = (): void => {
-      const route = routeConfig.current()
+      const route = currentRoute()
       const current = child.model.current()
       if (current !== undefined
         && current.provider === route.provider
@@ -397,7 +424,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         const parentOptions = parentAgentOptionsForDelegation(parent)
         // Read per call, never captured at apply: a settings write reaches the
         // next delegation in this process without rebuilding the definition.
-        const settingsRoute = workerRoute?.()
+        const settingsRoute = routeFor(parent.session)
         const settingsAgentOptions = settingsRoute === undefined
           ? undefined
           : {

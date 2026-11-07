@@ -77,11 +77,12 @@
 
     # ── saved route combinations ─────────────────────────────────────────────
     #
-    # Named triples of the three routes above, so switching "which models the
-    # formation runs on" is one pick instead of three edits. The row owns no
-    # runtime behavior: it serves the settings namespace the Models page writes,
-    # and applying a preset copies its routes into the role namespaces through
-    # those rows' own settings entries.
+    # Named triples of the three routes above: the library a new crew session
+    # picks from. The row owns no runtime behavior; it serves the settings
+    # namespace the Models page writes. Saving a combination changes only this
+    # namespace, so editing the library is never blocked by a running role —
+    # what a session actually runs is copied onto that session by the formation
+    # row below.
     #
     # It lives here for the same reason the route rows do — a deployment without
     # this bundle has no crew role, so its Models page must show no preset
@@ -92,6 +93,25 @@
       name: '@deepseek-ai/dsh-tool-subagent/route-presets'
       config:
         presets: []
+
+    # ── per-session formation ────────────────────────────────────────────────
+    #
+    # Which routes one crew session runs its three roles on. A new crew session
+    # picks a combination, and the pick is recorded on that session alone: a
+    # later edit of the library, or another session's pick, never moves it.
+    # This row also publishes the per-session read the three delegation rows
+    # consult through `subagentRouteSettings`, so a session that pinned nothing
+    # keeps resolving the role namespaces above.
+    #
+    # It sits on the host plane rather than inside a preset for the same reason
+    # the route rows do: the namespaces it narrows are served here, and a
+    # deployment without this bundle has no crew role for a formation to own.
+    - id: crew-formation
+      name: '@deepseek-ai/dsh-crew/formation'
+      config:
+        worker: subagent-worker-route-settings
+        planner: subagent-planner-route-settings
+        reviewer: subagent-reviewer-route-settings
 
     # ── the commander ────────────────────────────────────────────────────────
     #

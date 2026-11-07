@@ -5,6 +5,7 @@ import type { Context, Volatile } from '@deepseek-ai/cordis'
 import { Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { Session } from '@deepseek-ai/dsh-session'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -26,8 +27,39 @@ export interface SubagentWorkerRouteSettings {
   reasoningEffort: ReturnType<typeof ReasoningEffortId>
 }
 
-/** What one route-settings owner exposes to the delegation tool reading it. */
+/** What one composed route-settings row exposes to the delegation tool reading it. */
 export type SubagentRouteSettingsOwner = Pick<SubagentWorkerRouteConfig, 'current'>
+
+/**
+ * A route one Session pinned for itself, outranking the row's stored default.
+ *
+ * A deployment that lets a person choose the formation's models per session
+ * needs the delegation rows to read that choice rather than the one global
+ * namespace: the pick belongs to the session that made it, and a later edit of
+ * another session's pick must not move this one. The row keeps serving
+ * `current()` as the default for every session that pinned nothing, so an
+ * existing deployment that never writes a pinned route is unchanged.
+ */
+export interface SubagentRouteSessionResolver {
+  /**
+   * Read the route this Session pinned for the role this namespace serves.
+   * @param session - Session whose own choice is read; for a delegation that is the delegating parent.
+   * @returns the pinned route, or undefined to fall through to the row's default.
+   */
+  forSession(session: Session): SubagentWorkerRouteSettings | undefined
+}
+
+/**
+ * One namespace's routes as the delegation tool reads them: the row's stored
+ * default plus every session pin composed onto it.
+ */
+export interface SubagentRouteResolution extends SubagentRouteSessionResolver {
+  /**
+   * Read the row's stored default route.
+   * @returns the configured route as a detached value.
+   */
+  current(): SubagentWorkerRouteSettings
+}
 
 /** Deployment base for the preference; every field is required. */
 export interface Config {

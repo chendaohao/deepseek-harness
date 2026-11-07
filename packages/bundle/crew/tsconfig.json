@@ -34,6 +34,21 @@
     },
     {
       "path": "../../session/working-directory"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../subagent/tool-subagent"
+    },
+    {
+      "path": "../../typert/protocol"
     }
   ]
 }

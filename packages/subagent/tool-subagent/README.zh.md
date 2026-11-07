@@ -83,7 +83,7 @@ kind: "package-reference"
 
 ### 设置默认子级路由
 
-设置 `routeSettingsNamespace`，即可让宿主设置（而非组合文件）决定每个子 agent 的起始路由。工具随后在每次调用时读取该命名空间存下的路由——`provider`、`model` 与 `reasoningEffort`——因此一次编辑就能作用于下一次委派，无需重建工具定义，也无需重启进程。该设置中的路由优先于配置的 `agentOptions`，后者保留为从未写入该区段的部署的兜底；面向模型的选择仍然优先于两者。此模式要求后端声明 `agentOptions`。
+设置 `routeSettingsNamespace`，即可让宿主设置（而非组合文件）决定每个子 agent 的起始路由。工具随后在每次调用时读取该命名空间存下的路由——`provider`、`model` 与 `reasoningEffort`——因此一次编辑就能作用于下一次委派，无需重建工具定义，也无需重启进程。该设置中的路由优先于配置的 `agentOptions`，后者保留为从未写入该区段的部署的兜底；面向模型的选择仍然优先于两者。此模式要求后端声明 `agentOptions`。需要按 Session 变化的部署在这一行旁向 `subagentRouteSettings` 注册一个解析器（`registerResolver`）：解析器为记录过路由的 Session 作答，其余 Session 仍由该行已存的值作答，所以从不注册解析器的部署行为不变。
 
 由该设置本身路由的子会话会记录一个持久化的 `subagent/worker-route` 标记，因此之后每次激活（包含冷恢复）都从该区段重新解析 provider、model 与 reasoningEffort，并在下一次请求上追加常规的模型切换告知。调用中自己指名路由或推理档的子会话保持所指定的值，不留标记；由其他工具行创建的子会话保持创建时的路由。
 
