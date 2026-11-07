@@ -16,6 +16,6 @@ description: "Crew 指挥者不再提供通用 shell 或文件修改工具；实
 1. 升级后新建 Crew 会话。把每个文件修改、通用命令、构建、测试和部署派给 `worker`；指挥者不再为小任务提供直接实施的回退。
 2. 指挥者负责的 Git 操作改用 `crew_git`。出现提示时，审查并批准每个写操作；批准不可用或被拒绝时，把该操作视为未执行。
 3. 确认新会话的工具目录包含 `worker`、`planner`、`reviewer`、`read`、`crew_git`，且不包含 `bash`、`pwsh`、`write`、`edit`。
-4. 读取被过滤的文件时预期看到存储字节。`crew_git` 会列出在目标仓库生效的 Git 配置键，并仅对本次调用把其中值指向程序的键覆盖为空——内容过滤器、合并驱动器、diff 助手、签名程序、编辑器、传输命令、凭据助手。仓库无法通过它写进自己 `.git/config` 的属性执行命令，且该配置与 index 都不被写入。因此在 `crew_git diff` 与 `crew_git show` 中，Git LFS 指针显示为指针文本，而本地 `git diff` 会还原内容。
+4. 读取被过滤的文件时预期看到存储字节，且不验证提交签名。`crew_git` 通过仅对本次调用生效的环境键值对，把每个已配置的程序键覆盖为空，包括子节含 `=` 的键。它会禁用 `log.showSignature`，把仓库的 `format.pretty` 替换为 `medium`，拒绝 `--format=` 中的 `%G…` 占位符，清除继承的 Git 追踪输出目标；完整键列表超过 `maxOutputBytes` 时，读取会报 `CREW_GIT_CONFIG_UNREADABLE`。配置与 index 都不被写入。
 5. 写操作保留仓库的过滤器。`checkout`、`commit`、`merge` 保留工作树所依赖的过滤器与合并驱动器；用户对写操作的批准就是把这一后果摆在面前。
 6. 调用 `crew_git commit` 时传 `--message=`。它的 stdin 是关闭的且拒绝打开编辑器，因此不带消息的提交会立即失败而不是等待；不带 `--no-edit` 或 `-m` 的 `merge` 同理。

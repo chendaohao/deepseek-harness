@@ -52,6 +52,10 @@ const GIT_ENV: NodeJS.ProcessEnv = {
     'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT',
     'GIT_CEILING_DIRECTORIES', 'GIT_PREFIX', 'GIT_SHALLOW_FILE', 'GIT_GRAFT_FILE',
     'GIT_REPLACE_REF_BASE', 'GIT_ATTR_SOURCE',
+    // Trace variables accept absolute output paths; reads must not append files.
+    'GIT_TRACE', 'GIT_TRACE_FSMONITOR', 'GIT_TRACE_PACK_ACCESS', 'GIT_TRACE_PACKET', 'GIT_TRACE_PACKFILE',
+    'GIT_TRACE_PERFORMANCE', 'GIT_TRACE_REFS', 'GIT_TRACE_SETUP', 'GIT_TRACE_SHALLOW', 'GIT_TRACE_CURL',
+    'GIT_TRACE2', 'GIT_TRACE2_EVENT', 'GIT_TRACE2_PERF',
   ].map(key => [key, undefined])),
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0',
@@ -94,6 +98,18 @@ function operationOf(args: unknown): Operation | undefined {
     : undefined
 }
 
+/** Whether a log/show format requests signature verification, excluding an escaped `%%`. */
+function signatureFormat(arg: string): boolean {
+  if (!arg.startsWith('--format=')) return false
+  const format = arg.slice('--format='.length)
+  for (let index = 0; index < format.length - 1; index++) {
+    if (format[index] !== '%') continue
+    if (format[index + 1] === '%') index++
+    else if (format[index + 1] === 'G') return true
+  }
+  return false
+}
+
 /** Validate literal arguments, including the options that could make Git execute another program. */
 function validateArguments(operation: Operation, args: readonly string[]): void {
   const allowed = ALLOWED_OPTIONS[operation]
@@ -110,8 +126,12 @@ function validateArguments(operation: Operation, args: readonly string[]): void 
       continue
     }
     if (positionalOnly || !arg.startsWith('-')) continue
-    if (allowed.some(option => arg === option || option.endsWith('=') && arg.startsWith(option))) continue
-    throw new CrewGitError(`crew_git does not allow option ${JSON.stringify(arg)} for git ${operation}`, 'CREW_GIT_ARGUMENTS')
+    if (!allowed.some(option => arg === option || option.endsWith('=') && arg.startsWith(option))) {
+      throw new CrewGitError(`crew_git does not allow option ${JSON.stringify(arg)} for git ${operation}`, 'CREW_GIT_ARGUMENTS')
+    }
+    if ((operation === 'log' || operation === 'show') && signatureFormat(arg)) {
+      throw new CrewGitError('crew_git read formats cannot request signature verification', 'CREW_GIT_ARGUMENTS')
+    }
   }
 }
 
@@ -135,20 +155,30 @@ const PROGRAM_CONFIG = new RegExp([
   'core\\.(?:sshcommand|editor|askpass|gitproxy|pager)',
   'sequence\\.editor',
   'credential\\.(?:.+?\\.)?helper',
-  'gpg\\.(?:program|ssh\\.program|x509\\.program)',
+  'gpg\\.(?:[^.]+\\.)?(?:program|defaultkeycommand)',
   'interactive\\.difffilter',
   'submodule\\..+\\.update',
 ].map(source => `(?:${source})`).join('|'), 'iu')
 
 /**
- * Turn configured key names into command-local overrides that blank each one.
- * `-c <key>=` outranks every configuration file and leaves the files, the
- * index, and their timestamps untouched.
+ * Turn configured key names into command-local environment overrides. Separate
+ * key and value slots preserve subsection names containing `=`; unlike `-c`,
+ * Git does not have to split the key from its value first. Reads also disable
+ * configured signature verification and replace the repository's pretty format,
+ * either of which can otherwise start a signature program.
  * @param keys - configuration key names reported by `git config --list`.
- * @returns the `-c <key>=` pair list for keys whose value names a program.
+ * @returns environment entries carrying empty program values and safe read formatting.
  */
-function programConfigOverrides(keys: readonly string[]): string[] {
-  return keys.filter(key => PROGRAM_CONFIG.test(key)).flatMap(key => ['-c', `${key}=`])
+function readConfigEnvironment(keys: readonly string[]): NodeJS.ProcessEnv {
+  const entries: (readonly [string, string])[] = keys.filter(key => PROGRAM_CONFIG.test(key)).map(key => [key, ''] as const)
+  entries.push(['log.showSignature', 'false'], ['format.pretty', 'medium'])
+  return {
+    GIT_CONFIG_COUNT: String(entries.length),
+    ...Object.fromEntries(entries.flatMap(([key, value], index) => [
+      [`GIT_CONFIG_KEY_${index}`, key],
+      [`GIT_CONFIG_VALUE_${index}`, value],
+    ])),
+  }
 }
 
 /** One finished Git process, already collected and released. */
@@ -184,8 +214,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolved = Config(config) as Required<Config>
   const writes = new Set<string>(WRITE_OPERATIONS)
 
-  /** Run one Git process to completion and release its process range before returning. */
-  async function runGit(argv: readonly string[], cwd: string, signal: AbortSignal, label: string): Promise<GitRun> {
+  /** Run one Git process to completion and release its process range before returning.
+   * Reads supply command-local program/signature overrides; writes leave `configEnv` empty.
+   */
+  async function runGit(
+    argv: readonly string[], cwd: string, signal: AbortSignal, label: string,
+    configEnv: Readonly<NodeJS.ProcessEnv> = {},
+  ): Promise<GitRun> {
     let handle: SubprocessHandle
     try {
       handle = ctx.subprocess.spawn({
@@ -198,12 +233,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         },
         graceMs: resolved.graceMs,
         signal,
-        env: { ...GIT_ENV },
+        env: { ...GIT_ENV, ...configEnv },
       } satisfies SubprocessSpawnSpec)
     } catch (error: unknown) {
       if (signal.aborted) throw new CrewGitError('crew_git was aborted before Git started', 'CREW_GIT_ABORTED', { cause: error })
       throw new CrewGitError(`crew_git could not start git ${label}`, 'CREW_GIT_START_FAILED', { cause: error })
     }
+    let failure: { error: unknown } | undefined
     try {
       let outcome
       try {
@@ -218,10 +254,27 @@ export function apply(ctx: Context, config: Config = {}): void {
         stdout: outputOf(handle.collected.stdout?.readFrom(0), 'stdout'),
         stderr: outputOf(handle.collected.stderr?.readFrom(0), 'stderr'),
       }
+    } catch (error: unknown) {
+      failure = { error }
     } finally {
       handle.terminate()
-      await handle.waitForExit()
+      try {
+        await handle.waitForExit()
+      } catch (cleanupError: unknown) {
+        if (failure === undefined) {
+          throw new CrewGitError(`crew_git could not confirm that git ${label} stopped`, 'CREW_GIT_FAILED', { cause: cleanupError })
+        }
+        /* v8 ignore else -- every expected operation failure above already has a CrewGitError code. */
+        if (failure.error instanceof CrewGitError) {
+          throw new CrewGitError(failure.error.message, failure.error.code, {
+            cause: new AggregateError([failure.error, cleanupError]),
+          })
+        }
+        /* v8 ignore next -- Unexpected non-Harness defects have no stable tool error code to preserve. */
+        throw new AggregateError([failure.error, cleanupError], `crew_git git ${label} and its cleanup both failed`)
+      }
     }
+    throw failure.error
   }
 
   ctx.on('tools/pre-execute', async (exec, next) => {
@@ -280,19 +333,19 @@ export function apply(ctx: Context, config: Config = {}): void {
         : (await ctx.sandbox.confine(command, { ...policy, mode: policy.mode }, exec.signal)).argv
       // A read must not let the checkout choose a program. Enumerate the keys Git
       // resolves here, then blank every one that names an executable for this call.
-      let overrides: string[] = []
+      let configEnv: Readonly<NodeJS.ProcessEnv> = {}
       if (!writes.has(args.operation)) {
         const listing = await runGit(
           await confine([program, ...GIT_PREFIX, 'config', '--null', '--name-only', '--list']),
           cwd, exec.signal, 'config',
         )
-        if (listing.exitCode !== 0) {
-          throw new CrewGitError(`crew_git could not read the Git configuration of ${cwd}`, 'CREW_GIT_CONFIG_UNREADABLE')
+        if (listing.exitCode !== 0 || listing.stdout.truncated) {
+          throw new CrewGitError(`crew_git could not read the complete Git configuration of ${cwd}`, 'CREW_GIT_CONFIG_UNREADABLE')
         }
-        overrides = programConfigOverrides(listing.stdout.text.split('\0').filter(name => name.length > 0))
+        configEnv = readConfigEnvironment(listing.stdout.text.split('\0').filter(name => name.length > 0))
       }
-      const argv = await confine([program, ...GIT_PREFIX, ...overrides, args.operation, ...safeReadOptions, ...args.args ?? []])
-      const run = await runGit(argv, cwd, exec.signal, args.operation)
+      const argv = await confine([program, ...GIT_PREFIX, args.operation, ...safeReadOptions, ...args.args ?? []])
+      const run = await runGit(argv, cwd, exec.signal, args.operation, configEnv)
       return {
         operation: args.operation,
         cwd,
