@@ -16,6 +16,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the ctx.remote merge into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
 import { messageOf, presetOptions, readRoster } from './settings-store.ts'
@@ -61,6 +62,27 @@ export type AgentPresetApplyOutcome =
 
 const UNCHANGED: AgentPresetApplyOutcome = { kind: 'unchanged' }
 
+/**
+ * A hook another plugin uses to record its own per-session choice once the
+ * composition it belongs to is on the session.
+ *
+ * A crew session picks its model combination beside the preset chip, and the
+ * two must land together: the composition decides which roles exist, and the
+ * combination decides what they run on. The preset apply is the one point that
+ * knows both the session and the moment it became blank under the new
+ * composition, so the other plugin registers here rather than racing a second
+ * listener. An implementation returns a refusal message to stop the flow.
+ */
+export interface PresetCompanion {
+  /**
+   * Record this plugin's per-session choice.
+   * @param sessionId - the blank session that just adopted the composition.
+   * @param presetId - the composition it adopted.
+   * @returns a refusal message, or undefined once the choice landed.
+   */
+  afterApply(sessionId: SessionId, presetId: string): Promise<string | undefined>
+}
+
 /** Stages the next session's preset and applies it when one appears. */
 export class AgentPresetSeatController {
   /** Chip snapshot the renderer subscribes to. */
@@ -85,6 +107,8 @@ export class AgentPresetSeatController {
       'id' | 'blank' | 'projectionValues'
     > | undefined,
     private readonly staged: AgentPresetStage = { id: undefined, introduce: false },
+    /** Companions that record their own choice alongside the composition. */
+    private readonly companions: readonly PresetCompanion[] = [],
   ) {}
 
   private set(patch: Partial<AgentPresetSeatState>): void {
@@ -306,7 +330,14 @@ export class AgentPresetSeatController {
       }
       // Consumed: the next new session opens on the deployment default again.
       this.set({ current: this.staged.id ?? result.value })
-      return result.value === staged ? { kind: 'applied' } : UNCHANGED
+      if (result.value !== staged) return UNCHANGED
+      // The composition is on the session now, so a companion that belongs to
+      // it records its own choice before the first turn freezes both.
+      for (const companion of this.companions) {
+        const refusal = await companion.afterApply(session.id, staged)
+        if (refusal !== undefined) return refuse(refusal)
+      }
+      return { kind: 'applied' }
     } catch (error) {
       return refuse(messageOf(error))
     } finally {

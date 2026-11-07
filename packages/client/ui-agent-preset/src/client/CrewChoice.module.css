@@ -1,0 +1,33 @@
+/**
+ * The new-session crew combination picker: one compact labelled select in the
+ * hero options row, sized so it never pushes that row's other controls.
+ */
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--dsw-text-secondary);
+  font-size: var(--dsw-font-size-xs);
+  white-space: nowrap;
+}
+
+.select {
+  min-width: 0;
+  max-width: 180px;
+  padding: 2px 6px;
+  border: 1px solid var(--dsw-border-subtle);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-surface-raised);
+  color: var(--dsw-text-primary);
+  font-size: var(--dsw-font-size-xs);
+}
+
+.error {
+  color: var(--dsw-status-danger);
+  font-size: var(--dsw-font-size-xs);
+}

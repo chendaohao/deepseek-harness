@@ -40,7 +40,9 @@ import { AgentPresetSeat } from './AgentPresetSeat.tsx'
 import type { AgentPresetSeatInjected } from './AgentPresetSeat.tsx'
 import { AgentPresetSection } from './AgentPresetSection.tsx'
 import type { AgentPresetSectionInjected } from './AgentPresetSection.tsx'
-import { AgentPresetSeatController, type AgentPresetStage } from './seat-store.ts'
+import { AgentPresetSeatController, type AgentPresetStage, type PresetCompanion } from './seat-store.ts'
+import { CREW_ROUTE_PRESETS_NAMESPACE, CrewChoiceController } from './crew-choice.ts'
+import { CrewChoice } from './CrewChoice.tsx'
 import { AgentPresetSectionController } from './section-store.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type AgentPresetSettingsKey } from './locales.ts'
 import { AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController } from './settings-store.ts'
@@ -78,13 +80,27 @@ export function apply(ctx: ClientContext): void {
   const codingToolsDisabled = (): boolean => active
     && toolsSettings.getSnapshot().value?.enabled === false
   const controller = new AgentPresetSettingsController(ctx)
+  // The crew bundle serves this namespace only in a profile that selects it, so
+  // a deployment without the formation has no handle and the picker stays away.
+  const crewChoice = new CrewChoiceController(ctx, ctx.configForms.get(CREW_ROUTE_PRESETS_NAMESPACE))
   const staged: AgentPresetStage = { id: undefined, introduce: false }
   const seats = new WeakMapWithValues<SessionBinding, AgentPresetSeatController>()
   const boundSeatDisposers = new Set<() => Promise<void>>()
   ctx.effect(() => async () => {
     await Promise.all([...boundSeatDisposers].map(dispose => dispose()))
   }, 'ui-agent-preset: bound selections')
-  const unboundSeat = new AgentPresetSeatController(ctx, () => undefined, staged)
+  // The crew combination picker records its own per-session choice right after
+  // the composition lands, so both are on the session before its first turn.
+  // A deployment without the crew formation Remote answers unavailable and the
+  // companion reports nothing, which is what keeps this plugin optional.
+  const companions: readonly PresetCompanion[] = [{
+    afterApply: async (sessionId, presetId) => {
+      if (presetId !== 'crew') return undefined
+      if (crewChoice.stage() === undefined) return undefined
+      return await crewChoice.applyToSession(sessionId)
+    },
+  }]
+  const unboundSeat = new AgentPresetSeatController(ctx, () => undefined, staged, companions)
   const seatFor = (binding: SessionBinding): AgentPresetSeatController => {
     const existing = seats.get(binding)
     if (existing !== undefined) return existing
@@ -95,7 +111,7 @@ export function apply(ctx: ClientContext): void {
         && (ctx.sessions.retainInfo(binding.sessionId).getSnapshot().retainedBy.mainView ?? 0) > 0
         ? summary
         : undefined
-    }, staged)
+    }, staged, companions)
     seats.set(binding, seat)
     const dispose = binding.ctx.effect(() => {
       const stop = ctx.sessions.list.subscribe(() => { void seat.apply() })
@@ -237,6 +253,20 @@ export function apply(ctx: ClientContext): void {
 
     scope.effect(() => {
       creatorDraft = startCreatorDraft
+      // The combination picker sits in the hero's compact options row, which
+      // only exists once a session does — the same moment the chip's stage can
+      // be applied, so the two controls never disagree about which session they
+      // are configuring.
+      const choice = scope.slots.inject('conversation.hero.options', () => scope.slots.register({
+        name: 'conversation.hero.options',
+        id: 'crew-model-combination',
+        locale: 'settings.agentPreset',
+        inject: () => ({
+          hooks: { crewChoice: crewChoice.store, agentPresetSeat: (mainBlankSeat() ?? unboundSeat).store },
+          load: () => crewChoice.load(),
+          select: (id: string) => { crewChoice.select(id) },
+        }),
+      }, CrewChoice))
       const chip = scope.slots.register({
         name: 'conversation.hero.agentPreset',
         locale: 'settings.agentPreset',
@@ -255,6 +285,7 @@ export function apply(ctx: ClientContext): void {
         // The seats died with this scope: the root-level gate returns to its
         // no-op so the send path never awaits a dead controller.
         seatGate.pendingApply = () => Promise.resolve()
+        choice()
         chip()
         label()
       }
