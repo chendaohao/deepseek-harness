@@ -53,6 +53,12 @@ export interface AgentPresetOption {
   name?: string
   /** One sentence on what the preset is for. */
   description?: string
+  /**
+   * Whether a person may pick this preset for a new session. Absence means
+   * yes; the option list already drops the presets that say no, so this field
+   * exists only for a surface that keeps the full roster beside the picks.
+   */
+  userSelectable?: boolean
 }
 
 /** Whether a shipped preset requires the Coding Tools preference.
@@ -111,12 +117,33 @@ export async function beginRosterRead<S extends { status: string; error: string 
 }
 
 /**
- * The roster entries as the pickers render them: healthy presets only.
+ * Whether a roster row belongs in a person-facing list.
+ *
+ * Two rows exist only for machines: a preset another preset mounts
+ * (`userSelectable: false`) and a preset that cannot compose at all. The one
+ * exception is a broken internal preset — that is a deployment fault someone
+ * has to see, and hiding it would turn it into a delegation failure nobody can
+ * point at.
+ * @param preset - roster row.
+ * @returns whether a person-facing list should show it.
+ */
+export function personFacingPreset(
+  preset: { userSelectable?: boolean; broken?: string },
+): boolean {
+  return preset.userSelectable !== false || preset.broken !== undefined
+}
+
+/**
+ * The roster entries as the pickers render them: healthy, person-selectable
+ * presets only.
  *
  * The chip exists to choose the NEXT session's composition, and a broken
  * preset cannot compose one — offering it would defer the discovery of that
- * fact to a failed session start. The management section renders the full
- * roster (broken rows included) from its own store instead.
+ * fact to a failed session start. A preset declared `userSelectable: false`
+ * is mounted only by another preset's composition (a crew delegation role),
+ * so picking it would start a session whose own tools never apply. The
+ * management section renders the roster through {@link personFacingPreset},
+ * which keeps a broken internal row visible for diagnosis.
  *
  * The chip, the header label, and the management section all show the same
  * facts, and `exactOptionalPropertyTypes` makes "absent" and "present as
@@ -126,13 +153,15 @@ export async function beginRosterRead<S extends { status: string; error: string 
  * @returns one option per selectable preset, in roster order.
  */
 export function presetOptions(
-  presets: readonly { id: string; name?: string; description?: string; broken?: string }[],
+  presets: readonly { id: string; name?: string; description?: string; userSelectable?: boolean; broken?: string }[],
 ): AgentPresetOption[] {
-  return presets.filter(preset => preset.broken === undefined).map(preset => ({
-    id: preset.id,
-    ...preset.name === undefined ? {} : { name: preset.name },
-    ...preset.description === undefined ? {} : { description: preset.description },
-  }))
+  return presets
+    .filter(preset => preset.broken === undefined && preset.userSelectable !== false)
+    .map(preset => ({
+      id: preset.id,
+      ...preset.name === undefined ? {} : { name: preset.name },
+      ...preset.description === undefined ? {} : { description: preset.description },
+    }))
 }
 
 /** Agent-preset roster snapshot for the display surfaces. */

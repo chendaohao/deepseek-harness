@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/crew-role-presets-unselectable/guide.md
+/:
+  en: 508abcf2f8638955
+  zh: 43510b8c4b59fad8
+/crew-role-presets-are-no-longer-selectable:
+  en: af9df77aed883f45
+  zh: 78175a585aad6a14
+/crew-role-presets-are-no-longer-selectable/change:
+  en: 9fcc0cb7043a3f10
+  zh: e0031552ce743386
+/crew-role-presets-are-no-longer-selectable/migration:
+  en: 2b0228db9e404c9f
+  zh: 9b37f27df8222fb5

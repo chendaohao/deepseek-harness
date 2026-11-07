@@ -114,6 +114,19 @@ describe('the agent-preset roster store', () => {
     expect(controller.store.getSnapshot().options.map(option => option.id)).toEqual(['standard'])
   })
 
+  it('offers no preset another preset mounts', async () => {
+    const controller = derivedController(fakeApi([
+      { id: 'crew', isDefault: false },
+      { id: 'crew-worker', isDefault: false, userSelectable: false },
+    ] as never))
+
+    await controller.load()
+
+    // A crew delegation role runs without a commander when a session starts on
+    // it directly, so the chip must not offer it even though it is healthy.
+    expect(controller.store.getSnapshot().options.map(option => option.id)).toEqual(['crew'])
+  })
+
   it('carries the display metadata a preset published', async () => {
     const controller = derivedController(fakeApi([
       { id: 'standard', isDefault: true, name: '标准模式', description: '完整的编码 agent。' },

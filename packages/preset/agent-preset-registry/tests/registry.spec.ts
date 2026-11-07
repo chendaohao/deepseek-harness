@@ -124,6 +124,19 @@ describe('declarative preset revisions', () => {
     ]))
   })
 
+  it('reports the internal-mount flag on the roster so a picker can filter it', async () => {
+    const ctx = await setup()
+    await declare(ctx, contribution('standard'))
+    await declare(ctx, { ...contribution('minimal'), userSelectable: false })
+    const roster = await ctx.agentPresets.remoteExportList()
+    // Absent means selectable: an ordinary preset never restates the default.
+    expect(roster.presets.find(row => row.id === 'standard')).not.toHaveProperty('userSelectable')
+    expect(roster.presets.find(row => row.id === 'minimal')?.userSelectable).toBe(false)
+    // The internal mount keeps working; only the human-facing picker filters.
+    const scope = createScope(ctx, {})
+    expect(await ctx.agentPresets.mount(scope.ctx, 'minimal')).toEqual({ id: 'minimal' })
+  })
+
   it('renders a declaration as entry-list YAML for reading, conditions included', async () => {
     const ctx = await setup()
     await declare(ctx, {

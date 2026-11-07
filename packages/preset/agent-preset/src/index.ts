@@ -18,6 +18,9 @@ export default class AgentPreset {
     name: z.string(),
     description: z.string(),
     order: z.number(),
+    // Absence means selectable, so a declaration that mounts a role internally
+    // states this instead of every ordinary preset restating the default.
+    userSelectable: (z.boolean() as z<boolean | undefined>).default(undefined),
     // Cordis owns individual plugin schemas; the registry validates entry structure.
     plugins: z.array(z.any()).required(),
   }) as z<Config>

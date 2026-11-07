@@ -361,6 +361,9 @@
         id: crew-worker
         name: Crew Worker
         order: 99
+        # Mounted only by the crew preset's worker tool. The picker and the
+        # roster filter this flag out; the internal mount names it by id.
+        userSelectable: false
         description: 'Crew executor preset, mounted by the crew preset''s worker tool; not for creating sessions.'
         plugins:
           - id: preset-tool-mask
@@ -472,6 +475,7 @@
         id: crew-planner
         name: Crew Planner
         order: 98
+        userSelectable: false
         description: 'Crew planning preset: reads code and requirements and writes a plan, without changing code, auditing itself, or asking the user. Mounted by the crew preset''s planner tool; not for creating sessions.'
         plugins:
           - id: preset-tool-mask
@@ -574,6 +578,7 @@
         id: crew-reviewer
         name: Crew Reviewer
         order: 97
+        userSelectable: false
         description: 'Crew audit preset: reads a plan, a diff, and evidence, then returns PASS or FAIL with citations, without changing the plan or the code. Mounted by the crew preset''s reviewer tool; not for creating sessions.'
         plugins:
           - id: preset-tool-mask

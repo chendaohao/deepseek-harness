@@ -7,6 +7,17 @@ export interface PresetDefinition {
   readonly name?: string
   readonly description?: string
   readonly order?: number
+  /**
+   * Whether a person may pick this preset for a new session; defaults to true.
+   *
+   * A composition mounts some presets only as a child of another: the crew
+   * delegation roles are each named by one `tool-subagent` row's
+   * `agentPreset`, and a session started on one directly has no commander to
+   * delegate to it. Declaring them unselectable keeps them out of the session
+   * picker and the preset roster while leaving every internal mount working,
+   * because only the human-facing entries filter on this flag.
+   */
+  readonly userSelectable?: boolean
   readonly plugins: readonly (Omit<EntryOptions, 'id' | 'disabled'> & { id?: string; disabled?: EntryOptions['disabled'] | JsExpr })[]
 }
 

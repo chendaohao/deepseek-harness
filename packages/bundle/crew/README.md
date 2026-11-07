@@ -45,13 +45,19 @@ Select the `crew` preset when creating a session. It appears in the preset roste
 | Preset | Selected by a person | Role |
 |---|---|---|
 | `crew` | yes | Commander: reads the request, splits the work, delegates, verifies deliveries, reports |
-| `crew-worker` | no | Executor with the full working tool set |
-| `crew-planner` | no | Writes a plan; does not change code |
-| `crew-reviewer` | no | Returns PASS or FAIL with citations; changes nothing |
+| `crew-worker` | no (`userSelectable: false`) | Executor with the full working tool set |
+| `crew-planner` | no (`userSelectable: false`) | Writes a plan; does not change code |
+| `crew-reviewer` | no (`userSelectable: false`) | Returns PASS or FAIL with citations; changes nothing |
 
-Each delegation row reads its own route namespace, so the three roles can run on three different models. This bundle serves those namespaces, so the **Models** settings page shows its crew-route block only in a profile that selects this bundle. Set the routes there under the worker, planner, and reviewer rows; a change reaches a role's next request, including a continuation or a cold resume. With no stored route the row falls back to its `agentOptions` baseline, which the worker row sets from `DSH_CREW_PROVIDER`, `DSH_CREW_MODEL`, and `DSH_CREW_EFFORT`.
+Only `crew` appears in the new-session picker and on the presets page. The three role declarations exist for the delegation rows to mount; naming one in `session.create` is refused rather than starting a role child with no commander above it.
 
-Below the rows, the **Model combination** picker saves the three routes under a name and writes all three back on one pick. A combination is all-or-nothing in its outcome: the page preflights every role first and, if a role refuses the write mid-set, puts the roles it already switched back where it found them.
+Each delegation row reads its own route namespace, so the three roles can run on three different models; a session that recorded a combination outranks that namespace, and a session that recorded none keeps reading it. This bundle serves those namespaces, so the **Models** settings page shows its crew-route block only in a profile that selects this bundle. Set the routes there under the worker, planner, and reviewer rows; a change reaches a role's next request, including a continuation or a cold resume. With no stored route the row falls back to its `agentOptions` baseline, which the worker row sets from `DSH_CREW_PROVIDER`, `DSH_CREW_MODEL`, and `DSH_CREW_EFFORT`.
+
+The Models page edits a **combination library**, not the live routes: pick a combination, pick one of the three roles, and edit that role's provider, model, and reasoning effort. Saving writes only the library, so editing is never blocked by a role that happens to be running.
+
+A new crew session picks one combination beside the preset chip, and that pick is recorded on the session itself. Editing the combination afterwards, or another session picking a different one, leaves this session's routes as they were. A failed delegation is repaired one role at a time from the session, which records the replacement and stops matching its source combination.
+
+A session's own routes are recorded by the formation service this bundle mounts (`dsh-crew/formation`), and a delegation row reads them through `subagentRouteSettings` before its own stored default. That is why a combination needs no second settings namespace per session: the session log is the store, so a cold resume replays the same routes without consulting the library.
 
 The commander has no general shell or filesystem write/edit tools. Delegate every implementation action to `worker`, including a one-file patch or a single test command. `crew_git` supports the read operations `status`, `diff`, `log`, `show`, `ls-files`, and `rev-parse`; the write operations `checkout`, `reset`, `restore`, `stash`, `clean`, `commit`, `push`, `rebase`, `merge`, and `switch` require user approval. Arguments are literal argv values validated against per-operation option allowlists. Every call applies the Session sandbox policy, disables repository hooks and filesystem monitors, refuses an editor prompt, and never invokes a shell or an external remote helper.
 
@@ -90,7 +96,7 @@ A role child's tool catalog is fixed by its preset, so repeated requests in one 
 
 - **The roles are siblings, not a gate.** A commander can skip planning or review and delegate straight to a worker. The plan PASS and delivery PASS binding, the digest invalidation when a plan changes, and the evidence manifest that make a gate enforceable are a separate delivery.
 - **Role boundaries use different mechanisms.** The commander cannot directly implement because its preset omits general shell and filesystem writers. Each role preset also opens with `preset-tool-mask`, which calls `tools.restrict()` on that preset's scope and narrows the inherited global catalog to the names the declaration keeps. The mask is derived rather than hardcoded, so a deployment mounting an extra plugin narrows that too. Planner and reviewer shell rows remain for their declared read/report workflows; their personas still forbid implementation and long commands.
-- **The role presets appear in the preset roster.** The registry has no hidden flag, so `crew-worker`, `crew-planner`, and `crew-reviewer` are offered alongside `crew` when creating a session; their names and `order` values mark them as mounted-only.
+- **The role presets are declared unselectable, not hidden.** Each role carries `userSelectable: false`, so the new-session picker and the presets page offer only `crew`; a `session.create` naming a role is refused with `agent-preset/invalid`. The flag is a roster fact rather than a registry policy: an internal mount names the preset by id and never consults it.
 
 <a id="dev-note"></a>
 ### Dev Note

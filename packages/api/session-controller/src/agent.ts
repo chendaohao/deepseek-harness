@@ -270,6 +270,11 @@ export class ApiSessionAgentController {
 
   /**
    * Resolve the preset id and pre-publication Agent setup for a create or resume.
+   *
+   * A preset declared `userSelectable: false` is mounted only by another
+   * preset's own composition (a crew delegation role), so a session created on
+   * one directly would run a child's persona with nothing to delegate to it.
+   * Internal mounts reach the registry through `mount`, never here.
    * @param presetId - requested preset or the configured default when omitted.
    * @returns the resolved preset identity and Agent setup callback.
    */
@@ -278,7 +283,12 @@ export class ApiSessionAgentController {
     if (presets === undefined) {
       return { setup: (agentCtx) => { installModelSelection(agentCtx) } }
     }
-    const resolvedId = (await presets.resolve(presetId)).id
+    const resolved = await presets.resolve(presetId)
+    if (resolved.userSelectable === false) {
+      throw new RemoteError('agent-preset/invalid', `Agent preset "${resolved.id}" is mounted only by another preset and cannot start a session`,
+        { agentPreset: resolved.id, reason: 'declared userSelectable: false' })
+    }
+    const resolvedId = resolved.id
     return {
       agentPreset: resolvedId,
       setup: async (agentCtx) => {

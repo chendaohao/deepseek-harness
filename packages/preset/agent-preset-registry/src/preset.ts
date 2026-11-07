@@ -6,6 +6,8 @@ export interface AgentPreset {
   readonly name?: string
   readonly description?: string
   readonly order?: number
+  /** Whether a person may create a session on this preset; see {@link PresetDefinition.userSelectable}. */
+  readonly userSelectable?: boolean
   readonly broken?: string
 }
 

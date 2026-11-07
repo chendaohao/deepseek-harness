@@ -50,6 +50,8 @@ interface HarnessOptions {
   readonly locked?: ReadonlySet<SessionId>
   /** Declared presets whose activation failed. */
   readonly broken?: ReadonlySet<string>
+  /** Declared presets another preset mounts, so no session may start on one. */
+  readonly internal?: ReadonlySet<string>
   /** Requested presets whose resolution waits for the paired promise. */
   readonly resolving?: ReadonlyMap<string, Promise<void>>
   /** Workspace placement served to `workspaceId` requests. */
@@ -91,7 +93,10 @@ async function harness(options: HarnessOptions = {}) {
       defaultId: presets[0],
       presetForSession: (session: Session) => preset.stateOf(session),
       resolve: (id?: string) => Promise.resolve(id === undefined ? undefined : options.resolving?.get(id))
-        .then(() => ({ id: known(id) })),
+        .then(() => ({
+          id: known(id),
+          ...options.internal?.has(known(id)) === true ? { userSelectable: false } : {},
+        })),
       mount: (_ctx: Context, id?: string) => Promise.resolve().then(() => ({ id: usable(id) })),
       select: async (agent: Agent, agentPreset: string) => {
         usable(agentPreset)
@@ -228,6 +233,17 @@ describe('session.create Agent preset identity', () => {
     const response = await remote.create({ sessionId: SessionId('s3'), agentPreset: 'nope' })
 
     expect(response).toMatchObject({ ok: false, error: { code: 'agent-preset/not-found' } })
+  })
+
+  it('refuses a preset another preset mounts, before creating anything', async () => {
+    const { ctx, remote } = await harness({ presets: ['crew', 'crew-worker'], internal: new Set(['crew-worker']) })
+
+    const response = await remote.create({ sessionId: SessionId('s7'), agentPreset: 'crew-worker' })
+
+    // The role runs without a commander when a session starts on it directly,
+    // so the refusal is a host decision rather than a hidden picker entry.
+    expect(response).toMatchObject({ ok: false, error: { code: 'agent-preset/invalid' } })
+    expect(ctx.sessions.get(SessionId('s7'))).toBeUndefined()
   })
 
   it('leaves the header preset-less when no roster is composed', async () => {
