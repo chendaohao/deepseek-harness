@@ -15,13 +15,15 @@
 import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import type { ModelCatalogModel, ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
 import type { en } from './locales.ts'
-import type { CrewRoute, CrewRouteBlock } from './crew-routes.ts'
-import type { RouteCatalogState, RouteSettings } from './route-settings.ts'
+import type { CrewRouteBlock } from './crew-routes.ts'
+
 import {
-  applyRoutes, createServedRouteSet, matchingPreset, newPresetId, removePreset, samePresetRoutes, snapshotRoutes,
-  upsertPreset,
+  createServedRouteSet, defaultPreset, draftComplete, draftFromPreset, emptyPresets, newPresetId,
+  removePreset, routesFromDraft, upsertPreset,
 } from './crew-presets.ts'
-import type { RoutePreset, ServedRouteSet } from './crew-presets.ts'
+import type {
+  CrewRoleRef, RoleDraft, RoutePreset, RoutePresetsSettings, ServedRouteSet,
+} from './crew-presets.ts'
 import styles from './ModelsSection.module.css'
 
 /** Block copy: page copy plus the role name interpolated into each control. */
@@ -46,31 +48,27 @@ export interface CrewRouteCopy {
   reset: string
   /** Combination picker name. */
   presetLabel: string
-  /** The picker entry meaning "the current routes are not a saved combination". */
-  presetCustom: string
-  /** Open the naming field for a new combination. */
+  /** The picker entry that starts a new combination. */
+  presetNew: string
+  /** Start a new combination from the roles' current routes. */
   presetSave: string
+  /** Role picker name. */
+  presetRole: string
   /** Accessible name of the naming field. */
   presetName: string
   /** Placeholder of the naming field. */
   presetNamePlaceholder: string
   /** Confirm the naming field. */
   presetConfirm: string
-  /** Dismiss the naming field. */
-  presetDismiss: string
-  /** Delete the currently matching combination. */
+  /** Delete the combination being edited. */
   presetDelete: string
-  /** A stored combination that now describes the served routes. */
-  presetApplied: string
   /** A stored combination that was just written. */
   presetSaved: string
   /** A stored combination that was just dropped. */
   presetDeleted: string
-  /** A role that holds its route, so nothing was written. */
-  presetLocked: string
-  /** A refused write mid-set, with the roles already written put back. */
-  presetRolledBack: string
-  /** The document or a role handle is not writable. */
+  /** Why a combination cannot be saved yet. */
+  presetIncomplete: string
+  /** The combination list is not writable. */
   presetReadOnly: string
   /** A rejected combination write. */
   presetRefused: string
@@ -236,144 +234,106 @@ function EffortPicker({ label, value, efforts, disabled, onChange }: {
   )
 }
 
-/**
- * One role's row: the role name, its three pickers, and the notices its own
- * writes produce.
- * @param props - the role handle, the shared catalog state, and the block copy.
- * @returns the row, or null when the Host does not serve this role's namespace.
- */
-function CrewRouteRow({ route, catalog, copy, t }: {
-  route: CrewRoute
-  catalog: RouteCatalogState
-  copy: CrewRouteCopy
-  t: CrewRouteSectionProps['t']
-}) {
-  const state = useSyncExternalStore(
-    fn => route.scope.subscribe(fn),
-    () => route.scope.getSnapshot(),
-  )
-  const [resetNotice, setResetNotice] = useState<string | undefined>(undefined)
-  const fieldId = useId()
-
-  if (state.status === 'unavailable') return null
-  const role = t(route.nameKey)
-  const label = (template: string): string => roleCopy(template, role)
-  const value = state.value
-  const groups = catalog.value?.groups ?? []
-  const group = value === undefined ? undefined : groupFor(groups, value.provider)
-  const model = modelFor(group, value?.model ?? '')
-  const efforts = model?.reasoning?.efforts ?? []
-  // The Host publishes why it would refuse the next write, so the controls are
-  // disabled by that answer rather than by a client-side re-derivation of it.
-  const locked = state.writeRefusal !== undefined
-  const disabled = !state.writable || value === undefined || locked
-
-  /**
-   * Write one route, carrying the fields the edit strands.
-   * @param next - the field the user just picked.
-   */
-  const commit = (next: Partial<RouteSettings>): void => {
-    if (value === undefined) return
-    const provider = next.provider ?? value.provider
-    const providerChanged = provider !== value.provider
-    // The catalog answers what the new provider or model can serve. Until it
-    // has, the edited field is written alone and nothing is guessed.
-    const providerGroup = providerChanged ? groupFor(groups, provider) : group
-    const model = next.model ?? (providerChanged ? modelForProvider(groups, provider, value.model) : value.model)
-    const effort = effortFor(modelFor(providerGroup, model), next.reasoningEffort ?? value.reasoningEffort)
-    const ops = [
-      ...provider === value.provider ? [] : [{ op: 'set' as const, path: ['provider'], value: provider }],
-      ...model === value.model ? [] : [{ op: 'set' as const, path: ['model'], value: model }],
-      ...effort === value.reasoningEffort ? [] : [{ op: 'set' as const, path: ['reasoningEffort'], value: effort }],
-    ]
-    const cascaded = model !== value.model || effort !== value.reasoningEffort
-    setResetNotice(undefined)
-    if (ops.length === 0) return
-    void route.scope.mutate(ops).then((accepted) => {
-      if (accepted && cascaded) setResetNotice(copy.reset)
-    })
-  }
-
-  return (
-    <div className={styles['crewRow']} role="group" aria-labelledby={`${fieldId}-role`}>
-      <h4 id={`${fieldId}-role`} className={styles['crewRole']}>{role}</h4>
-      {/* The Host's own refusal reason explains the disabled controls below. */}
-      {locked && <p className={styles['notice']} role="status">{label(copy.locked)}</p>}
-      {/* A rejected write must never read as a silent revert. */}
-      {state.writeFailure !== undefined && (
-        <p className={styles['error']} role="alert">
-          {state.writeFailure === 'conflict' ? copy.conflict : label(copy.refused)}
-        </p>
-      )}
-      {resetNotice !== undefined && <p className={styles['savedNotice']} role="status">{resetNotice}</p>}
-      <div className={styles['crewFields']}>
-        <RouteSelect
-          label={label(copy.provider)}
-          value={value?.provider ?? ''}
-          entries={groups}
-          disabled={disabled}
-          onChange={(provider) => { commit({ provider }) }}
-        />
-        <RouteSelect
-          label={label(copy.model)}
-          value={value?.model ?? ''}
-          entries={group?.models ?? []}
-          disabled={disabled || group === undefined}
-          onChange={(model) => { commit({ model }) }}
-        />
-        <EffortPicker
-          label={label(copy.effort)}
-          value={value?.reasoningEffort ?? ''}
-          efforts={efforts}
-          disabled={disabled}
-          onChange={(reasoningEffort) => { commit({ reasoningEffort }) }}
-        />
-      </div>
-    </div>
-  )
+/** The combination an edit started from, and the drafts being edited. */
+interface EditState {
+  /** Combination id being edited, or a freshly minted one for a new combination. */
+  id: string
+  /** Name shown in the name field; the stored name until the user changes it. */
+  name: string
+  /** One draft per role, keyed by namespace. */
+  drafts: Map<string, RoleDraft>
 }
 
 /**
- * The saved-combination row: one picker over the stored sets, plus the controls
- * that save the current one and delete the matching one.
+ * The combination editor: pick a combination, pick a role, edit that role.
  *
- * The picker's value is derived, not stored: the entry shown is the combination
- * whose routes the roles currently carry, so a manual edit of any single role
- * moves the picker back to "custom" without a write of its own.
- * @param props - the role handles, the preset handle, block copy, and the `t` seat.
- * @returns the row, or null while the Host serves no preset namespace.
+ * The three roles share one draft, so choosing which role to edit is a view
+ * switch rather than three independent editors. Saving writes the whole
+ * combination at once, requiring every role, so a stored set is never partial.
+ * @param props - the role handles, the preset handle, the served routes, block
+ *   copy, and the `t` seat.
+ * @returns the editor, or null while the Host serves no preset namespace.
  */
-function CrewPresetRow({ block, served, copy }: {
+function CrewPresetRow({ block, served, copy, t }: {
   block: CrewRouteBlock
   served: ServedRouteSet
   copy: CrewRouteCopy
+  t: CrewRouteSectionProps['t']
 }) {
   const presets = useSyncExternalStore(
     fn => block.presets.subscribe(fn),
     () => block.presets.getSnapshot(),
   )
-  const [naming, setNaming] = useState(false)
-  const [draftName, setDraftName] = useState('')
+  const [editing, setEditing] = useState<EditState | undefined>(undefined)
+  const [selectedRole, setSelectedRole] = useState<string | undefined>(undefined)
   const [notice, setNotice] = useState<string | undefined>(undefined)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
+  const fieldId = useId()
+  const catalog = useSyncExternalStore(
+    fn => block.catalog.subscribe(fn),
+    () => block.catalog.getSnapshot(),
+  )
+
+  const stored = presets.value?.presets ?? []
+  const servedRoutes = useMemo(
+    () => new Map(served.routes.map(route => [route.namespace, route.value])),
+    [served.routes],
+  )
+  const roles = useMemo<CrewRoleRef[]>(
+    () => block.routes.map(route => ({ namespace: route.namespace, nameKey: route.nameKey })),
+    [block.routes],
+  )
+  const groups = catalog.value?.groups ?? []
+
+  // The editor opens on the combination the last new session used, so the page
+  // and the picker agree on which set is the current one.
+  const openingId = defaultPreset(presets.value ?? emptyPresets())?.id
+  useEffect(() => {
+    if (presets.status !== 'ready') return
+    setEditing((current) => {
+      // A draft the user is editing survives a refresh; only the opening state
+      // and a draft whose combination disappeared are recomputed.
+      if (current !== undefined && stored.some(preset => preset.id === current.id)) return current
+      const target = stored.find(preset => preset.id === openingId)
+      // A list with nothing selected still edits a real draft: minting the id
+      // here is what makes the first save an insert rather than an overwrite of
+      // whatever id the form happened to carry.
+      return {
+        id: target?.id ?? newPresetId(stored),
+        name: target?.name ?? '',
+        drafts: draftFromPreset(target, roles, servedRoutes),
+      }
+    })
+  }, [presets.status, openingId, stored, roles, servedRoutes])
+
+  useEffect(() => {
+    if (selectedRole !== undefined && roles.some(role => role.namespace === selectedRole)) return
+    setSelectedRole(roles[0]?.namespace)
+  }, [roles, selectedRole])
 
   if (presets.status === 'unavailable') return null
-  const stored = presets.value?.presets ?? []
-  const current = matchingPreset(stored, served.routes)
-  const writable = presets.writable && !presets.writeFailure && presets.writeRefusal === undefined
-  const disabled = !writable || served.blocked !== undefined || busy
 
-  /**
-   * Persist one combination list and report what happened.
-   * @param next - the complete list to store.
-   */
-  const writePresets = async (next: readonly RoutePreset[]): Promise<boolean> => {
+  const disabled = !presets.writable || busy
+  const current = stored.find(preset => preset.id === editing?.id)
+  const role = roles.find(candidate => candidate.namespace === selectedRole)
+  const draft = role === undefined ? undefined : editing?.drafts.get(role.namespace)
+  const complete = editing !== undefined && draftComplete(editing.drafts, roles)
+
+  /** Persist the combination list and report what happened. */
+  const writePresets = async (next: RoutePresetsSettings): Promise<boolean> => {
     setBusy(true)
     setFailure(undefined)
     setNotice(undefined)
     const accepted = await block.presets.mutate([
-      { op: 'set', path: ['presets'], value: next.map(preset => ({ ...preset, routes: preset.routes.map(route => ({ ...route })) })) },
+      {
+        op: 'set',
+        path: ['presets'],
+        value: next.presets.map(preset => ({ ...preset, routes: preset.routes.map(route => ({ ...route })) })),
+      },
+      ...next.lastUsedPresetId === undefined
+        ? []
+        : [{ op: 'set' as const, path: ['lastUsedPresetId'], value: next.lastUsedPresetId }],
     ])
     setBusy(false)
     if (!accepted) {
@@ -383,142 +343,180 @@ function CrewPresetRow({ block, served, copy }: {
     return true
   }
 
-  /**
-   * Write one combination's routes into the role namespaces.
-   * @param preset - the combination to apply.
-   */
-  const apply = async (preset: RoutePreset): Promise<void> => {
-    setBusy(true)
+  /** Open one stored combination for editing. */
+  const open = (id: string): void => {
+    const preset = stored.find(candidate => candidate.id === id)
     setFailure(undefined)
     setNotice(undefined)
-    const outcome = await applyRoutes(block.routes, preset.routes)
-    setBusy(false)
-    if (outcome.kind === 'applied') {
-      setNotice(copy.presetApplied)
+    if (preset === undefined) {
+      // A new combination starts from what the roles carry now, so "new" is
+      // never a blank page that requires re-picking a working route.
+      setEditing({ id: newPresetId(stored), name: '', drafts: draftFromPreset(undefined, roles, servedRoutes) })
       return
     }
-    if (outcome.kind === 'rolled-back') {
-      setFailure(copy.presetRolledBack)
-      return
-    }
-    setNotice(outcome.kind === 'locked' ? copy.presetLocked : copy.presetReadOnly)
+    setEditing({ id: preset.id, name: preset.name, drafts: draftFromPreset(preset, roles, servedRoutes) })
   }
 
-  const saveCurrent = async (): Promise<void> => {
-    const name = draftName.trim()
-    if (name.length === 0) return
-    const routes = snapshotRoutes(served.routes)
-    // Saving over the combination these routes already match keeps its identity
-    // (and its place in the list) instead of accumulating duplicates.
-    const existing = current
-    const preset: RoutePreset = existing === undefined
-      ? { id: newPresetId(stored), name, routes }
-      : { id: existing.id, name, routes }
-    // A name-only change still rewrites the stored routes: the user confirmed
-    // "this is the combination now", which is what a save means here.
-    const next = samePresetRoutes(existing?.routes ?? [], routes) && existing?.name === name
-      ? stored
-      : upsertPreset(stored, preset)
-    if (next !== stored && await writePresets(next)) {
-      setNotice(copy.presetSaved)
-      setNaming(false)
-      setDraftName('')
+  /** Store the draft under its name. */
+  const save = async (): Promise<void> => {
+    if (editing === undefined) return
+    const name = editing.name.trim()
+    if (name.length === 0 || !complete) return
+    const preset: RoutePreset = { id: editing.id, name, routes: routesFromDraft(editing.drafts, roles) }
+    const next = {
+      presets: upsertPreset(stored, preset),
+      ...presets.value?.lastUsedPresetId === undefined ? {} : { lastUsedPresetId: presets.value.lastUsedPresetId },
     }
+    if (await writePresets(next)) setNotice(copy.presetSaved)
   }
 
-  /**
-   * Drop one stored combination.
-   * @param preset - the combination to delete.
-   */
-  const removePresetEntry = async (preset: RoutePreset): Promise<void> => {
-    if (await writePresets(removePreset(stored, preset.id))) setNotice(copy.presetDeleted)
+  /** Drop the combination being edited. */
+  const remove = async (): Promise<void> => {
+    if (current === undefined) return
+    const remaining = removePreset(stored, current.id)
+    // The last-used pointer must not keep naming a combination nobody can pick.
+    const lastUsed = presets.value?.lastUsedPresetId === current.id ? undefined : presets.value?.lastUsedPresetId
+    if (!await writePresets({ presets: remaining, ...lastUsed === undefined ? {} : { lastUsedPresetId: lastUsed } })) return
+    setNotice(copy.presetDeleted)
+    setEditing({
+      id: remaining[0]?.id ?? newPresetId(remaining),
+      name: remaining[0]?.name ?? '',
+      drafts: draftFromPreset(remaining[0], roles, servedRoutes),
+    })
   }
+
+  /** Edit one field of the selected role's draft, carrying what it strands. */
+  const commit = (next: Partial<RoleDraft>): void => {
+    if (editing === undefined || role === undefined || draft === undefined) return
+    const provider = next.provider ?? draft.provider
+    const providerChanged = provider !== draft.provider
+    const providerGroup = providerChanged
+      ? groups.find(group => group.id === provider)
+      : groups.find(group => group.id === draft.provider)
+    const model = next.model
+      ?? (providerChanged ? modelForProvider(groups, provider, draft.model) : draft.model)
+    const effort = effortFor(modelFor(providerGroup, model), next.reasoningEffort ?? draft.reasoningEffort)
+    const drafts = new Map(editing.drafts)
+    drafts.set(role.namespace, { provider, model, reasoningEffort: effort })
+    setEditing({ ...editing, drafts })
+  }
+
+  // The pickers name the role being edited rather than the one whose route was
+  // read: with one role on screen, "{role} provider" would otherwise render its
+  // placeholder literally and leave three-way labels on a single control.
+  const roleChanged = role === undefined ? undefined : t(role.nameKey)
+  const controlLabel = (template: string): string => roleCopy(template, roleChanged ?? '')
+  const providerGroup = draft === undefined ? undefined : groups.find(group => group.id === draft.provider)
+  const model = modelFor(providerGroup, draft?.model ?? '')
+  const efforts = model?.reasoning?.efforts ?? []
 
   return (
     <div className={styles['crewPresets']}>
-      <div className={styles['crewPresetControls']}>
+      <div className={styles['crewPresetRow']}>
         <label className={styles['field']}>
           <span className={styles['fieldLabel']}>{copy.presetLabel}</span>
           <select
             className={`${styles['input']} ${styles['selectInput']}`}
             aria-label={copy.presetLabel}
-            value={current?.id ?? ''}
+            value={editing?.id ?? ''}
             disabled={disabled}
-            onChange={(event) => {
-              const picked = stored.find(preset => preset.id === event.target.value)
-              if (picked !== undefined) void apply(picked)
-              else setNotice(undefined)
-            }}
+            onChange={(event) => { open(event.target.value) }}
           >
-            <option value="">{copy.presetCustom}</option>
+            {stored.length === 0 && current === undefined
+              ? <option value="">{copy.presetNew}</option>
+              : null}
             {stored.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
           </select>
         </label>
-        {naming
-          ? (
-            <label className={styles['field']}>
-              <span className={styles['fieldLabel']}>{copy.presetName}</span>
-              <input
-                className={styles['input']}
-                autoFocus
-                type="text"
-                aria-label={copy.presetName}
-                placeholder={copy.presetNamePlaceholder}
-                value={draftName}
-                disabled={busy}
-                onChange={(event) => { setDraftName(event.target.value) }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void saveCurrent()
-                  if (event.key === 'Escape') { setNaming(false); setDraftName('') }
-                }}
-              />
-            </label>
-          )
-          : null}
-        {naming
-          ? (
-            <>
-              <button
-                type="button"
-                className={styles['secondaryButton']}
-                disabled={busy || draftName.trim().length === 0}
-                onClick={() => { void saveCurrent() }}
-              >
-                {copy.presetConfirm}
-              </button>
-              <button
-                type="button"
-                className={styles['secondaryButton']}
-                disabled={busy}
-                onClick={() => { setNaming(false); setDraftName('') }}
-              >
-                {copy.presetDismiss}
-              </button>
-            </>
-          )
+        <label className={styles['field']}>
+          <span className={styles['fieldLabel']}>{copy.presetName}</span>
+          <input
+            className={styles['input']}
+            type="text"
+            aria-label={copy.presetName}
+            placeholder={copy.presetNamePlaceholder}
+            value={editing?.name ?? ''}
+            disabled={disabled}
+            onChange={(event) => {
+              if (editing === undefined) return
+              setEditing({ ...editing, name: event.target.value })
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className={styles['secondaryButton']}
+          disabled={disabled || editing === undefined || editing.name.trim().length === 0 || !complete}
+          onClick={() => { void save() }}
+        >
+          {copy.presetConfirm}
+        </button>
+        <button
+          type="button"
+          className={styles['secondaryButton']}
+          disabled={disabled}
+          onClick={() => { open('') }}
+        >
+          {copy.presetSave}
+        </button>
+        {current === undefined
+          ? null
           : (
-            <button
-              type="button"
-              className={styles['secondaryButton']}
-              disabled={disabled || served.routes.length === 0}
-              onClick={() => { setNaming(true); setDraftName(current?.name ?? '') }}
-            >
-              {copy.presetSave}
-            </button>
-          )}
-        {current !== undefined
-          ? (
             <button
               type="button"
               className={styles['dangerButton']}
               disabled={disabled}
-              onClick={() => { void removePresetEntry(current) }}
+              onClick={() => { void remove() }}
             >
               {copy.presetDelete}
             </button>
-          )
-          : null}
+          )}
       </div>
+      <label className={styles['field']}>
+        <span className={styles['fieldLabel']}>{copy.presetRole}</span>
+        <select
+          className={`${styles['input']} ${styles['selectInput']}`}
+          aria-label={copy.presetRole}
+          value={selectedRole ?? ''}
+          disabled={disabled || roles.length === 0}
+          onChange={(event) => { setSelectedRole(event.target.value) }}
+        >
+          {roles.map(candidate => (
+            <option key={candidate.namespace} value={candidate.namespace}>{t(candidate.nameKey)}</option>
+          ))}
+        </select>
+      </label>
+      {role === undefined || draft === undefined
+        ? null
+        : (
+          <div className={styles['crewFields']} role="group" aria-labelledby={`${fieldId}-role`}>
+            <RouteSelect
+              label={controlLabel(copy.provider)}
+              value={draft.provider}
+              entries={groups}
+              disabled={disabled}
+              onChange={(provider) => { commit({ provider }) }}
+            />
+            <RouteSelect
+              label={controlLabel(copy.model)}
+              value={draft.model}
+              entries={providerGroup?.models ?? []}
+              disabled={disabled || providerGroup === undefined}
+              onChange={(next) => { commit({ model: next }) }}
+            />
+            <EffortPicker
+              label={controlLabel(copy.effort)}
+              value={draft.reasoningEffort}
+              efforts={efforts}
+              disabled={disabled}
+              onChange={(reasoningEffort) => { commit({ reasoningEffort }) }}
+            />
+          </div>
+        )}
+      {!complete && editing !== undefined
+        ? <p className={styles['notice']} role="status">{copy.presetIncomplete}</p>
+        : null}
+      {presets.writable ? null : <p className={styles['notice']} role="status">{copy.presetReadOnly}</p>}
       {failure !== undefined && <p className={styles['error']} role="alert">{failure}</p>}
       {notice !== undefined && <p className={styles['savedNotice']} role="status">{notice}</p>}
     </div>
@@ -531,12 +529,8 @@ function CrewPresetRow({ block, served, copy }: {
  * @returns the block, or null while the Host serves none of its namespaces.
  */
 export function CrewRouteSection({ block, copy, t }: CrewRouteSectionProps) {
-  const catalog = useSyncExternalStore(
-    fn => block.catalog.subscribe(fn),
-    () => block.catalog.getSnapshot(),
-  )
-  // One fold over every role handle: the combination row needs them together,
-  // and the blocks's own rows keep reading their own handle.
+  // One fold over every role handle: the combination editor needs them together,
+  // and each role's own picker reads its draft instead of the handle.
   const servedSource = useMemo(() => createServedRouteSet(block.routes), [block.routes])
   const served = useSyncExternalStore(servedSource.subscribe, servedSource.getSnapshot)
   const fieldId = useId()
@@ -551,12 +545,7 @@ export function CrewRouteSection({ block, copy, t }: CrewRouteSectionProps) {
     <section className={styles['section']} aria-labelledby={`${fieldId}-title`}>
       <h3 id={`${fieldId}-title`} className={styles['title']}>{copy.title}</h3>
       <p className={styles['intro']}>{copy.intro}</p>
-      <CrewPresetRow block={block} served={served} copy={copy} />
-      <div className={styles['crewRows']}>
-        {block.routes.map(route => (
-          <CrewRouteRow key={route.namespace} route={route} catalog={catalog} copy={copy} t={t} />
-        ))}
-      </div>
+      <CrewPresetRow block={block} served={served} copy={copy} t={t} />
     </section>
   )
 }

@@ -35,24 +35,19 @@ const COPY: CrewRouteCopy = {
   conflict: t('crewRouteConflict'),
   reset: t('crewRouteReset'),
   presetLabel: t('crewPresetLabel'),
-  presetCustom: t('crewPresetCustom'),
+  presetNew: t('crewPresetNew'),
   presetSave: t('crewPresetSave'),
+  presetRole: t('crewPresetRole'),
   presetName: t('crewPresetName'),
   presetNamePlaceholder: t('crewPresetNamePlaceholder'),
   presetConfirm: t('crewPresetConfirm'),
-  presetDismiss: t('crewPresetDismiss'),
   presetDelete: t('crewPresetDelete'),
-  presetApplied: t('crewPresetApplied'),
   presetSaved: t('crewPresetSaved'),
   presetDeleted: t('crewPresetDeleted'),
-  presetLocked: t('crewPresetLocked'),
-  presetRolledBack: t('crewPresetRolledBack'),
+  presetIncomplete: t('crewPresetIncomplete'),
   presetReadOnly: t('crewPresetReadOnly'),
   presetRefused: t('crewPresetRefused'),
 }
-
-/** The current value of one form control. */
-const value = (element: HTMLElement): string => (element as HTMLInputElement).value
 
 /** Whether one form control is disabled. */
 const disabled = (element: HTMLElement): boolean => (element as HTMLInputElement).disabled
@@ -60,6 +55,10 @@ const disabled = (element: HTMLElement): boolean => (element as HTMLInputElement
 /** The option values of the select carrying one label. */
 const optionValues = (label: string): string[] =>
   [...screen.getByLabelText<HTMLSelectElement>(label).options].map(option => option.value)
+
+/** The control a role label carries once the role name replaces its placeholder. */
+const roleLabel = (template: string, role = en.crewRoleWorker): string =>
+  template.replaceAll('{role}', role)
 
 const ROUTE: RouteSettings = {
   provider: 'alpha',
@@ -178,10 +177,6 @@ function mount(
   return { roles, loadCatalog, store, view }
 }
 
-/** The label one role's control carries. */
-const labelFor = (role: string, control: string): string =>
-  roleCopy(control, role)
-
 describe('roleCopy', () => {
   it('replaces every placeholder with the role name', () => {
     expect(roleCopy('{role} provider — {role}', 'Worker')).toBe('Worker provider — Worker')
@@ -208,7 +203,7 @@ describe('effortFor', () => {
   })
 
   it('keeps the stored effort when the model advertises none or is unknown', () => {
-    expect(effortFor(CATALOG.groups[1]!.models[0]!, 'max')).toBe('max')
+    expect(effortFor(CATALOG.groups[1]!.models[0], 'max')).toBe('max')
     expect(effortFor(undefined, 'max')).toBe('max')
   })
 })
@@ -314,232 +309,103 @@ describe('servedCrewRoutes', () => {
     expect(servedCrewRoutes(ROUTES, new Map())).toEqual([])
   })
 })
-
 describe('CrewRouteSection', () => {
-  it('shows every role in one block with the stored routes and loads the catalog once', () => {
+  it('draws one block and loads the catalog once', () => {
     const { loadCatalog } = mount([
       roleOverride('crewRoleWorker'),
       roleOverride('crewRolePlanner', { value: { provider: 'beta', model: 'beta-plain', reasoningEffort: 'max' } }),
-    ])
-
-    expect(loadCatalog).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe(en.crewRouteTitle)
-    expect(screen.getAllByRole('group')).toHaveLength(2)
-    expect(value(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)))).toBe('alpha')
-    expect(value(screen.getByLabelText(labelFor('Worker', en.crewRouteModel)))).toBe('alpha-fast')
-    expect(value(screen.getByLabelText(labelFor('Worker', en.crewRouteEffort)))).toBe('high')
-    expect(value(screen.getByLabelText(labelFor('Planner', en.crewRouteProvider)))).toBe('beta')
-  })
-
-  it('names each role control after its role, so three pickers stay distinguishable', () => {
-    mount([
-      roleOverride('crewRoleWorker'),
-      roleOverride('crewRolePlanner'),
       roleOverride('crewRoleReviewer'),
     ])
-
-    for (const role of ['Worker', 'Planner', 'Reviewer']) {
-      expect(screen.getByLabelText(labelFor(role, en.crewRouteProvider))).toBeDefined()
-    }
+    expect(screen.getAllByText(COPY.title)).toHaveLength(1)
+    expect(loadCatalog).toHaveBeenCalledTimes(1)
   })
 
-  it('writes the one picked field when the catalog cannot improve on it', () => {
-    const { roles } = mount()
-    const mutate = roles[0]!.mutate
-
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteModel)), { target: { value: 'alpha-pro' } })
-    // Alpha Pro advertises no efforts, so the stored effort stays editable.
-    expect(mutate).toHaveBeenCalledWith([
-      { op: 'set', path: ['model'], value: 'alpha-pro' },
-    ])
+  it('draws nothing when the Host serves no role namespace', () => {
+    mount([])
+    expect(screen.queryByText(COPY.title)).toBeNull()
   })
 
-  it('resets the effort when the new model advertises a different vocabulary', () => {
-    // Alpha Pro advertises no efforts, so \`max\` was storable there; Alpha Fast
-    // advertises low and high, and its default replaces the stranded value.
+  it('names the role picker after each role, so every role stays addressable', () => {
+    mount([roleOverride('crewRoleWorker'), roleOverride('crewRolePlanner'), roleOverride('crewRoleReviewer')])
+    const picker = screen.getByLabelText<HTMLSelectElement>(COPY.presetRole)
+    expect([...picker.options].map(option => option.textContent))
+      .toEqual([t('crewRoleWorker'), t('crewRolePlanner'), t('crewRoleReviewer')])
+  })
+
+  it('edits the selected role without writing any role namespace', () => {
     const { roles } = mount([
-      roleOverride('crewRoleWorker', { value: { provider: 'alpha', model: 'alpha-pro', reasoningEffort: 'max' } }),
+      roleOverride('crewRoleWorker'),
+      roleOverride('crewRolePlanner', { value: { provider: 'beta', model: 'beta-plain', reasoningEffort: 'max' } }),
     ])
-    const mutate = roles[0]!.mutate
-
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteModel)), { target: { value: 'alpha-fast' } })
-    expect(mutate).toHaveBeenCalledWith([
-      { op: 'set', path: ['model'], value: 'alpha-fast' },
-      { op: 'set', path: ['reasoningEffort'], value: 'high' },
-    ])
+    // The editor's pickers carry the plain role labels: one role at a time is
+    // edited, so the role name is the picker's own value rather than each
+    // control's prefix.
+    expect(optionValues(roleLabel(COPY.provider))).toEqual(['alpha', 'beta'])
+    fireEvent.change(screen.getByLabelText(roleLabel(COPY.model)), { target: { value: 'alpha-pro' } })
+    for (const role of roles) expect(role.mutate).not.toHaveBeenCalled()
   })
 
-  it('carries provider, model, and effort in one mutation when the provider changes', () => {
-    const { roles } = mount()
-    const mutate = roles[0]!.mutate
-
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)), { target: { value: 'beta' } })
-    // Beta's only model advertises no efforts, so the stored effort survives and
-    // only the stranded model is carried along.
-    expect(mutate).toHaveBeenCalledWith([
-      { op: 'set', path: ['provider'], value: 'beta' },
-      { op: 'set', path: ['model'], value: 'beta-plain' },
-    ])
+  it('follows the catalog when a provider changes: the model list and effort both move', () => {
+    mount([roleOverride('crewRoleWorker')])
+    expect(optionValues(roleLabel(COPY.model))).toEqual(['alpha-fast', 'alpha-pro'])
+    fireEvent.change(screen.getByLabelText(roleLabel(COPY.provider)), { target: { value: 'beta' } })
+    // Beta advertises one model and no reasoning dimension, so the model list
+    // narrows and the effort falls back to a text field.
+    expect(optionValues(roleLabel(COPY.model))).toEqual(['beta-plain'])
+    expect(screen.getByLabelText(roleLabel(COPY.effort))).toBeTruthy()
   })
 
-  it('keeps a stored route the catalog does not advertise instead of rewriting it', () => {
-    const { roles } = mount([
-      roleOverride('crewRoleWorker', { value: { provider: 'gamma', model: 'gamma-only', reasoningEffort: 'high' } }),
-    ], null)
-    const mutate = roles[0]!.mutate
-
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteEffort)), { target: { value: 'medium' } })
-    expect(mutate).toHaveBeenCalledWith([{ op: 'set', path: ['reasoningEffort'], value: 'medium' }])
+  it('keeps a stored route the catalog does not advertise', () => {
+    mount([roleOverride('crewRoleWorker', {
+      value: { provider: 'ghost', model: 'ghost-model', reasoningEffort: 'high' },
+    })])
+    expect(optionValues(roleLabel(COPY.provider))).toEqual(['ghost', 'alpha', 'beta'])
+    // The ghost model advertises no reasoning levels, so the effort stays a text
+    // field carrying the stored value rather than a list that cannot name it.
+    expect(screen.getByLabelText<HTMLInputElement>(roleLabel(COPY.effort)).value).toBe('high')
   })
 
-  it('announces a route the edit reset', async () => {
-    mount([
-      roleOverride('crewRoleWorker', { value: { provider: 'alpha', model: 'alpha-pro', reasoningEffort: 'high' } }),
-    ])
-
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteModel)), { target: { value: 'alpha-fast' } })
-    await waitFor(() => { expect(screen.getByRole('status').textContent).toBe(en.crewRouteReset) })
-  })
-
-  it('does not announce a reset when the pick changes nothing', async () => {
-    const { roles } = mount()
-    const mutate = roles[0]!.mutate
-
-    // Re-picking the provider already stored strands no field, so the row
-    // writes nothing at all rather than a no-op mutation.
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)), { target: { value: 'alpha' } })
-    await Promise.resolve()
-    expect(mutate).not.toHaveBeenCalled()
-    expect(screen.queryByRole('status')).toBeNull()
-  })
-
-  it('offers only the efforts the selected model advertises', () => {
-    mount()
-
-    expect(optionValues(labelFor('Worker', en.crewRouteEffort))).toEqual(['low', 'high'])
-  })
-
-  it('keeps the stored effort selectable when the model does not advertise it', () => {
-    mount([roleOverride('crewRoleWorker', { value: { ...ROUTE, reasoningEffort: 'max' } })])
-
-    expect(optionValues(labelFor('Worker', en.crewRouteEffort))).toEqual(['max', 'low', 'high'])
-  })
-
-  it('falls back to a text field when the model advertises no efforts', () => {
-    mount([roleOverride('crewRoleWorker', { value: { provider: 'beta', model: 'beta-plain', reasoningEffort: 'high' } })])
-    const effort = screen.getByLabelText(labelFor('Worker', en.crewRouteEffort))
-
+  it('falls back to the effort text field when the model advertises no levels', () => {
+    mount([roleOverride('crewRoleWorker', {
+      value: { provider: 'beta', model: 'beta-plain', reasoningEffort: 'custom-35' },
+    })])
+    const effort = screen.getByLabelText<HTMLInputElement>(roleLabel(COPY.effort))
     expect(effort.tagName).toBe('INPUT')
-    expect(value(effort)).toBe('high')
+    expect(effort.value).toBe('custom-35')
   })
 
-  it('keeps a stored route selectable when the catalog no longer advertises it', () => {
+  it('disables the editor while the combination list is read-only', () => {
     mount(
-      [roleOverride('crewRoleWorker', { value: { provider: 'gamma', model: 'gamma-only', reasoningEffort: 'high' } })],
-      null,
+      [roleOverride('crewRoleWorker')],
+      CATALOG,
+      presetsWith({ writable: false }).scope,
     )
-
-    expect(value(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)))).toBe('gamma')
-    expect(value(screen.getByLabelText(labelFor('Worker', en.crewRouteModel)))).toBe('gamma-only')
+    expect(disabled(screen.getByLabelText(COPY.presetLabel))).toBe(true)
+    expect(disabled(screen.getByLabelText(roleLabel(COPY.model)))).toBe(true)
   })
 
-  it('renders a role with empty controls while the first section has not landed', () => {
-    mount([roleOverride('crewRoleWorker', { status: 'loading', value: undefined })])
-
-    // `loading` is not `unavailable`: the row renders and every control is
-    // disabled until a value arrives, so the layout does not jump in later.
-    expect(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)).tagName).toBe('SELECT')
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)))).toBe(true)
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteModel)))).toBe(true)
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteEffort)))).toBe(true)
+  it('reports a refused combination write instead of reverting silently', async () => {
+    const handle = presetsWith()
+    handle.scope.mutate = vi.fn(async () => {
+      // The controller publishes the failure after the rejected write settles.
+      Object.assign(handle.scope.getSnapshot(), { writeFailure: 'refused' as const })
+      return false
+    })
+    mount([roleOverride('crewRoleWorker')], CATALOG, handle.scope)
+    fireEvent.change(screen.getByLabelText(COPY.presetName), { target: { value: 'Fast' } })
+    fireEvent.click(screen.getByRole('button', { name: COPY.presetConfirm }))
+    await waitFor(() => { expect(screen.getByText(COPY.presetRefused)).toBeTruthy() })
   })
 
-  it('drops the effort picker to the fallback field when a stored provider is not in the catalog', () => {
-    mount([roleOverride('crewRoleWorker', { value: { provider: 'gamma', model: 'gamma-only', reasoningEffort: 'high' } })])
-
-    // No group means no advertised efforts, so the stored id stays editable.
-    expect(screen.getByLabelText(labelFor('Worker', en.crewRouteEffort)).tagName).toBe('INPUT')
-  })
-
-  it('draws no row while the Host does not serve that namespace', () => {
-    mount([
-      roleOverride('crewRoleWorker', { status: 'unavailable', value: undefined }),
-      roleOverride('crewRolePlanner'),
-    ])
-
-    expect(screen.getAllByRole('group')).toHaveLength(1)
-    expect(screen.queryByLabelText(labelFor('Worker', en.crewRouteProvider))).toBeNull()
-    expect(screen.getByLabelText(labelFor('Planner', en.crewRouteProvider))).toBeDefined()
-  })
-
-  it('draws nothing at all when the Host serves none of the namespaces', () => {
-    const { view } = mount([])
-
-    // Without the crew bundle no role namespace is served, so the block leaves
-    // not even a heading behind.
-    expect(view.container.innerHTML).toBe('')
-  })
-
-  it('disables every control when the document is read-only', () => {
-    mount([roleOverride('crewRoleWorker', { writable: false })])
-
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)))).toBe(true)
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteModel)))).toBe(true)
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteEffort)))).toBe(true)
-  })
-
-  it('disables the controls from the Host-published refusal, not a client-side guess', () => {
-    mount([roleOverride('crewRoleWorker', { writeRefusal: 'worker "w-1" is running' })])
-
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)))).toBe(true)
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteModel)))).toBe(true)
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteEffort)))).toBe(true)
-    expect(screen.getByRole('status').textContent).toBe(labelFor('Worker', en.crewRouteLocked))
-  })
-
-  it('reports a refused write instead of reverting silently', () => {
-    mount([roleOverride('crewRoleWorker', { writeFailure: 'refused' })])
-
-    expect(screen.getByRole('alert').textContent).toBe(labelFor('Worker', en.crewRouteRefused))
-    expect(disabled(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)))).toBe(false)
-  })
-
-  it('reports a stale-revision write as a reload rather than a refusal', () => {
-    mount([roleOverride('crewRoleWorker', { writeFailure: 'conflict' })])
-
-    expect(screen.getByRole('alert').textContent).toBe(en.crewRouteConflict)
-  })
-
-  it('writes an effort picked from the advertised levels', () => {
-    const { roles } = mount()
-    const mutate = roles[0]!.mutate
-
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteEffort)), { target: { value: 'low' } })
-    expect(mutate).toHaveBeenCalledWith([{ op: 'set', path: ['reasoningEffort'], value: 'low' }])
-  })
-
-  it('announces nothing when the Host refuses the cascaded write', async () => {
-    const roles = [roleOverride('crewRoleWorker')]
-    roles[0]!.mutate.mockResolvedValue(false)
-    mount(roles)
-
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)), { target: { value: 'beta' } })
-    await waitFor(() => { expect(roles[0]!.mutate).toHaveBeenCalled() })
-    expect(screen.queryByRole('status')).toBeNull()
-  })
-
-  it('ignores a pick while no value has landed yet', () => {
-    // The controls are disabled in that state, so this is the guard behind them.
-    const roles = [roleOverride('crewRoleWorker', { status: 'loading', value: undefined })]
-    mount(roles)
-
-    fireEvent.change(screen.getByLabelText(labelFor('Worker', en.crewRouteProvider)), { target: { value: 'beta' } })
-    expect(roles[0]!.mutate).not.toHaveBeenCalled()
-  })
-
-  it('shows no failure notice before any write is rejected', () => {
-    mount()
-
-    expect(screen.queryByRole('alert')).toBeNull()
+  it('reports a stale page as a reload rather than a refusal', async () => {
+    const handle = presetsWith()
+    handle.scope.mutate = vi.fn(async () => {
+      Object.assign(handle.scope.getSnapshot(), { writeFailure: 'conflict' as const })
+      return false
+    })
+    mount([roleOverride('crewRoleWorker')], CATALOG, handle.scope)
+    fireEvent.change(screen.getByLabelText(COPY.presetName), { target: { value: 'Fast' } })
+    fireEvent.click(screen.getByRole('button', { name: COPY.presetConfirm }))
+    await waitFor(() => { expect(screen.getByText(COPY.conflict)).toBeTruthy() })
   })
 })

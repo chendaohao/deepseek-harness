@@ -1,13 +1,13 @@
 /**
- * Saved route combinations for the crew roles, and the one-click switch between
- * them.
+ * The crew route combination library: named triples of the three role routes,
+ * edited as data.
  *
- * A combination is a named snapshot of every role's route. Applying one writes
- * the role route namespaces through their own settings forms: the three rows are
- * independent settings entries, so there is no cross-namespace transaction to
- * borrow. The switch therefore gives the whole set one outcome — it preflights
- * every role first, writes only what differs, and puts the written rows back
- * when one is refused, so a half-applied combination never becomes the state.
+ * A combination is a template, not a switch. Editing one changes only this
+ * settings namespace, so the page is never blocked by a role that happens to be
+ * running: what a session actually runs was copied onto that session when it
+ * started, and this library is where the next session picks from. That
+ * separation is why the block no longer writes the role namespaces at all —
+ * applying a combination to a live session is the formation service's job.
  */
 
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -43,187 +43,127 @@ export interface RoutePreset {
 export interface RoutePresetsSettings {
   /** Every saved combination, in stored order. */
   presets: RoutePreset[]
-}
-
-/** One role as the page currently sees it: its namespace and its stored route. */
-export interface ServedRoute {
-  /** Settings namespace of the role. */
-  namespace: string
-  /** The route the Host currently serves for that role. */
-  value: RouteSettings
-}
-
-/** What one switch did, in the terms the row reports. */
-export type ApplyOutcome =
-  | { readonly kind: 'applied' }
-  /** Roles that would refuse a write, so nothing was written. */
-  | { readonly kind: 'locked'; readonly namespaces: readonly string[] }
-  /** Roles the page cannot write at all (unavailable, or a read-only document). */
-  | { readonly kind: 'read-only' }
-  /** A role refused mid-set; the rows already written were put back. */
-  | { readonly kind: 'rolled-back'; readonly namespace: string }
-
-/**
- * The role routes a combination would store right now.
- * @param served - every role the page serves, with its current route.
- * @returns a detached list, in the order given.
- */
-export function snapshotRoutes(served: readonly ServedRoute[]): RoutePresetRoute[] {
-  return served.map(route => ({
-    namespace: route.namespace,
-    provider: route.value.provider,
-    model: route.value.model,
-    reasoningEffort: route.value.reasoningEffort,
-  }))
-}
-
-/** Whether two routes name the same provider, model, and effort. */
-function sameRoute(left: RoutePresetRoute, right: RoutePresetRoute): boolean {
-  return left.provider === right.provider
-    && left.model === right.model
-    && left.reasoningEffort === right.reasoningEffort
+  /**
+   * Combination the new-session picker opens on, when one is stored. Absence
+   * means the picker offers its first combination; a value naming a combination
+   * that no longer exists is treated the same way.
+   */
+  lastUsedPresetId?: string
 }
 
 /**
- * The stored combination matching the routes currently served, if any.
+ * One role's draft while the page edits a combination.
  *
- * A combination is current when it describes every served role and every stored
- * route equals the served one. A combination naming a role this deployment does
- * not serve still matches on the roles both describe, because the extra role is
- * not part of this page's state; a served role the combination omits never
- * matches, since applying it would leave that role at a route the name does not
- * promise.
- * @param presets - every stored combination.
- * @param served - every role the page serves, with its current route.
- * @returns the matching combination, or undefined when none describes this set.
+ * A draft is per role and independent of every other role's, so switching the
+ * selected role never loses unsaved edits and saving requires all three.
  */
-export function matchingPreset(
-  presets: readonly RoutePreset[],
-  served: readonly ServedRoute[],
-): RoutePreset | undefined {
-  if (served.length === 0) return undefined
-  return presets.find((preset) => {
-    const stored = new Map(preset.routes.map(route => [route.namespace, route]))
-    return served.every((role) => {
-      const route = stored.get(role.namespace)
-      return route !== undefined
-        && sameRoute(route, { namespace: role.namespace, ...role.value })
-    })
-  })
+export interface RoleDraft {
+  /** Selected provider id. */
+  provider: string
+  /** Selected model id. */
+  model: string
+  /** Selected reasoning effort id. */
+  reasoningEffort: string
 }
 
-/**
- * The settings edits one role needs to move from one route to another.
- * @param current - the route the role carries now.
- * @param target - the route to reach.
- * @returns the ops to send, empty when the role already carries it.
- */
-export function routeOps(current: RouteSettings, target: RouteSettings): {
-  op: 'set'
-  path: string[]
-  value: string
-}[] {
-  const ops: { op: 'set'; path: string[]; value: string }[] = []
-  if (target.provider !== current.provider) ops.push({ op: 'set', path: ['provider'], value: target.provider })
-  if (target.model !== current.model) ops.push({ op: 'set', path: ['model'], value: target.model })
-  if (target.reasoningEffort !== current.reasoningEffort) {
-    ops.push({ op: 'set', path: ['reasoningEffort'], value: target.reasoningEffort })
-  }
-  return ops
-}
-
-/** One role's write, resolved against the page's handles. */
-interface PlannedWrite {
+/** One role's identity in the block: its namespace and its label key. */
+export interface CrewRoleRef {
+  /** Settings namespace the role's route row serves. */
   namespace: string
-  scope: ConfigForm<RouteSettings>
-  ops: { op: 'set'; path: string[]; value: string }[]
-  /** The edits that put this role back on the route this call found. */
-  restore: { op: 'set'; path: string[]; value: string }[]
+  /** Locale key naming the role. */
+  nameKey: CrewRoute['nameKey']
 }
 
 /**
- * Move every served role onto the routes a combination names.
+ * The draft a newly selected combination starts from.
  *
- * The switch is all-or-nothing in its outcome, not in its wire calls: the role
- * routes are separate settings namespaces, so each write is its own transaction.
- * Every role is preflighted first — an unwritable document, an unavailable
- * namespace, or a running child that holds a role's route refuses the whole set
- * before anything is sent. If a write is refused anyway, the roles already
- * written go back to the routes this call found them on, so the page never
- * settles on a combination that is half one preset and half another.
- * @param routes - every role handle the page serves.
- * @param target - the route set to reach; a role it omits is left alone.
- * @returns what the switch did.
+ * A combination that covers every role yields those routes. One that omits a
+ * role falls back to the role's served default, so the page opens on a complete,
+ * saveable set instead of an incomplete one the Host would reject.
+ * @param preset - the selected combination, or undefined when none is selected.
+ * @param roles - every role the page serves, in display order.
+ * @param served - the route each role currently carries.
+ * @returns one draft per role, in `roles` order.
  */
-export async function applyRoutes(
-  routes: readonly CrewRoute[],
-  target: readonly RoutePresetRoute[],
-): Promise<ApplyOutcome> {
-  const wanted = new Map(target.map(route => [route.namespace, route]))
-  const served = routes.flatMap((route) => {
-    const target = wanted.get(route.namespace)
-    return target === undefined ? [] : [{ route, target, snapshot: route.scope.getSnapshot() }]
-  })
-  if (served.length === 0) return { kind: 'read-only' }
-  if (served.some(entry => entry.snapshot.status !== 'ready' || !entry.snapshot.writable)) {
-    return { kind: 'read-only' }
-  }
-  const locked = served.filter(entry => entry.snapshot.writeRefusal !== undefined)
-  if (locked.length > 0) {
-    return { kind: 'locked', namespaces: locked.map(entry => entry.route.namespace) }
-  }
-  const planned: PlannedWrite[] = []
-  for (const { route, target: wantedRoute, snapshot } of served) {
-    const current = snapshot.value
-    if (current === undefined) continue
-    const ops = routeOps(current, wantedRoute)
-    if (ops.length === 0) continue
-    planned.push({
-      namespace: route.namespace,
-      scope: route.scope,
-      ops,
-      restore: routeOps(wantedRoute, current),
-    })
-  }
-  const written: PlannedWrite[] = []
-  for (const write of planned) {
-    const accepted = await write.scope.mutate(write.ops)
-    if (accepted) {
-      written.push(write)
+export function draftFromPreset(
+  preset: RoutePreset | undefined,
+  roles: readonly CrewRoleRef[],
+  served: ReadonlyMap<string, RouteSettings>,
+): Map<string, RoleDraft> {
+  const stored = new Map((preset?.routes ?? []).map(route => [route.namespace, route]))
+  const drafts = new Map<string, RoleDraft>()
+  for (const role of roles) {
+    const route = stored.get(role.namespace)
+    const fallback = served.get(role.namespace)
+    if (route !== undefined) {
+      drafts.set(role.namespace, {
+        provider: route.provider,
+        model: route.model,
+        reasoningEffort: route.reasoningEffort,
+      })
       continue
     }
-    // Restore only what was written, in reverse: the role written earliest goes
-    // back last, so a reader watching the page never settles on a half state.
-    for (const done of written.toReversed()) await done.scope.mutate(done.restore)
-    return { kind: 'rolled-back', namespace: write.namespace }
+    if (fallback !== undefined) {
+      drafts.set(role.namespace, {
+        provider: fallback.provider,
+        model: fallback.model,
+        reasoningEffort: fallback.reasoningEffort,
+      })
+    }
   }
-  return { kind: 'applied' }
+  return drafts
 }
 
 /**
- * Whether a stored combination names the same routes as another one.
- * @param left - one combination's routes.
- * @param right - another's.
- * @returns whether every namespace both name carries the same route.
+ * Whether a draft covers every role the page serves.
+ *
+ * The Host requires a combination to be complete: a partial one would fail only
+ * after someone picked it for a session, with no way to tell which role was
+ * missing.
+ * @param drafts - one draft per role being edited.
+ * @param roles - every role the page serves.
+ * @returns whether saving the draft produces a combination the Host accepts.
  */
-export function samePresetRoutes(
-  left: readonly RoutePresetRoute[],
-  right: readonly RoutePresetRoute[],
+export function draftComplete(
+  drafts: ReadonlyMap<string, RoleDraft>,
+  roles: readonly CrewRoleRef[],
 ): boolean {
-  if (left.length !== right.length) return false
-  const stored = new Map(right.map(route => [route.namespace, route]))
-  return left.every((route) => {
-    const other = stored.get(route.namespace)
-    return other !== undefined && sameRoute(route, other)
+  return roles.length > 0 && roles.every((role) => {
+    const draft = drafts.get(role.namespace)
+    return draft !== undefined && draft.provider.length > 0 && draft.model.length > 0 && draft.reasoningEffort.length > 0
   })
+}
+
+/**
+ * The routes a save would store from the current draft.
+ * @param drafts - one draft per role being edited.
+ * @param roles - every role the page serves, in display order.
+ * @returns the stored route list, in role order.
+ */
+export function routesFromDraft(
+  drafts: ReadonlyMap<string, RoleDraft>,
+  roles: readonly CrewRoleRef[],
+): RoutePresetRoute[] {
+  const routes: RoutePresetRoute[] = []
+  for (const role of roles) {
+    const draft = drafts.get(role.namespace)
+    if (draft === undefined) continue
+    routes.push({
+      namespace: role.namespace,
+      provider: draft.provider,
+      model: draft.model,
+      reasoningEffort: draft.reasoningEffort,
+    })
+  }
+  return routes
 }
 
 /**
  * The next unused preset id.
  *
- * Ids are positional and unguessable-free on purpose: nothing parses them, the
- * page only looks a preset up by one, and a stored list the user rewrote by hand
- * keeps working as long as the ids stay distinct.
+ * Ids are positional and parsed by nothing: the page looks a combination up by
+ * one, and a stored list someone rewrote by hand keeps working as long as the
+ * ids stay distinct.
  * @param presets - the combinations currently stored.
  * @returns an id no stored combination uses.
  */
@@ -249,6 +189,10 @@ export function upsertPreset(presets: readonly RoutePreset[], preset: RoutePrese
 
 /**
  * Drop one combination.
+ *
+ * The last-used pointer is cleared when it named the dropped combination, so the
+ * next new-session picker falls back to the first entry instead of pointing at
+ * something that no longer exists.
  * @param presets - the combinations currently stored.
  * @param id - identity of the combination to drop.
  * @returns the remaining combinations, in stored order.
@@ -257,9 +201,43 @@ export function removePreset(presets: readonly RoutePreset[], id: string): Route
   return presets.filter(preset => preset.id !== id)
 }
 
-/** One role's route as the page currently serves it, or the reason it cannot. */
+/**
+ * The combination a new-session picker should open on.
+ * @param settings - the stored combination list and its last-used pointer.
+ * @returns the last-used combination, or the first stored one, or undefined.
+ */
+export function defaultPreset(settings: RoutePresetsSettings): RoutePreset | undefined {
+  const last = settings.lastUsedPresetId === undefined
+    ? undefined
+    : settings.presets.find(preset => preset.id === settings.lastUsedPresetId)
+  return last ?? settings.presets[0]
+}
+
+/**
+ * An empty combination list, for a page whose Host serves no preset namespace.
+ * @returns settings with no combinations and no last-used pointer.
+ */
+export function emptyPresets(): RoutePresetsSettings {
+  return { presets: [] }
+}
+
+/** One role's settings handle plus its identity, as the block renders it. */
+export interface CrewRoleForm extends CrewRoleRef {
+  /** Reactive handle over the role's Host route namespace, read for defaults only. */
+  scope: ConfigForm<RouteSettings>
+}
+
+/** One role's route as the page currently serves it. */
+export interface ServedRoute {
+  /** Settings namespace of the role. */
+  namespace: string
+  /** The route the Host currently serves for that role. */
+  value: RouteSettings
+}
+
+/** The served routes of every role the page renders, with what a write would face. */
 export interface ServedRouteSet {
-  /** One entry per role handle, in table order. */
+  /** One entry per role handle whose namespace the Host serves. */
   routes: readonly ServedRoute[]
   /** Whether every role handle is ready and writable. */
   writable: boolean
@@ -278,12 +256,12 @@ export interface ServedRouteSetSource {
 /**
  * Fold every role handle into one subscribable set.
  *
- * The combination row reads all roles at once, which no single role handle can
- * answer. The fold keeps one snapshot object between changes because the row
- * subscribes to it the way any React consumer does, and rebuilds it only when a
- * handle actually moves.
+ * The combination editor reads every role at once to seed a draft, which no
+ * single role handle can answer. The fold keeps one snapshot object between
+ * changes because the editor subscribes to it the way any React consumer does,
+ * and rebuilds it only when a handle actually moves.
  * @param routes - every role the block renders, in display order.
- * @returns the shared set the combination row subscribes to.
+ * @returns the shared set the editor subscribes to.
  */
 export function createServedRouteSet(routes: readonly CrewRoute[]): ServedRouteSetSource {
   let cached = derive()
@@ -305,8 +283,9 @@ export function createServedRouteSet(routes: readonly CrewRoute[]): ServedRouteS
       if (snapshot.value === undefined) continue
       served.push({ namespace: route.namespace, value: snapshot.value })
     }
-    // A role the Host does not serve keeps the block from offering a switch: the
-    // combination would name a route this deployment cannot reach.
+    // A role the Host does not serve keeps the set from describing a complete
+    // combination: a draft seeded from it would name a route this deployment
+    // cannot reach.
     if (served.length !== routes.length) writable = false
     return { routes: served, writable, blocked: blockedOf(writable, locked) }
   }
@@ -326,10 +305,10 @@ export function createServedRouteSet(routes: readonly CrewRoute[]): ServedRouteS
 }
 
 /**
- * Why a switch cannot start, from the two facts the handles published.
+ * Why a write cannot start, from the two facts the handles published.
  * @param writable - whether every role handle can be written.
  * @param locked - whether one role published a write refusal.
- * @returns the blocking reason, or undefined when a switch may start.
+ * @returns the blocking reason, or undefined when a write may start.
  */
 function blockedOf(writable: boolean, locked: boolean): ServedRouteSet['blocked'] {
   if (!writable) return 'read-only'

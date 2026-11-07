@@ -2125,12 +2125,13 @@ describe('ModelsSection', () => {
     await screen.findByText('DeepSeek')
   })
 
-  it('leaves the crew route open while the Host admits a write', async () => {
+  it('leaves the crew combination editor open while the Host admits a write', async () => {
     await mountSection()
 
-    expect(screen.getByLabelText<HTMLSelectElement>(en.crewRouteProvider.replace('{role}', en.crewRoleWorker)).disabled)
-      .toBe(false)
-    expect(screen.queryByRole('status')).toBeNull()
+    // The page edits the combination library, not a live session's routes, so
+    // the only control gate is the library's own writability.
+    expect(screen.getByLabelText<HTMLSelectElement>(en.crewPresetLabel).disabled).toBe(false)
+    expect(screen.getByLabelText<HTMLSelectElement>(en.crewPresetRole).disabled).toBe(false)
   })
 
   it('removes by unsetting the profile path, never by rebuilding the section', async () => {

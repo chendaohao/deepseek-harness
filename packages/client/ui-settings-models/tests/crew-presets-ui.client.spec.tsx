@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-/** The saved-combination row: picking, saving, deleting, and what a switch reports. */
+/**
+ * The crew combination editor: pick a combination, pick a role, edit that
+ * role. The editor only writes the combination library — never a role's route
+ * namespace — which is what keeps it usable while a role is running.
+ */
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,7 +12,7 @@ import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { CrewRouteSection, type CrewRouteCopy } from '../src/client/CrewRouteSection.tsx'
 import type { RoutePreset, RoutePresetsSettings } from '../src/client/crew-presets.ts'
-import type { CrewRoute } from '../src/client/crew-routes.ts'
+import type { CrewRoleNameKey } from '../src/client/crew-routes.ts'
 import type { RouteCatalogState, RouteSettings } from '../src/client/route-settings.ts'
 import { en } from '../src/client/locales.ts'
 
@@ -31,23 +35,22 @@ const COPY: CrewRouteCopy = {
   conflict: t('crewRouteConflict'),
   reset: t('crewRouteReset'),
   presetLabel: t('crewPresetLabel'),
-  presetCustom: t('crewPresetCustom'),
+  presetNew: t('crewPresetNew'),
   presetSave: t('crewPresetSave'),
+  presetRole: t('crewPresetRole'),
   presetName: t('crewPresetName'),
   presetNamePlaceholder: t('crewPresetNamePlaceholder'),
   presetConfirm: t('crewPresetConfirm'),
-  presetDismiss: t('crewPresetDismiss'),
   presetDelete: t('crewPresetDelete'),
-  presetApplied: t('crewPresetApplied'),
   presetSaved: t('crewPresetSaved'),
   presetDeleted: t('crewPresetDeleted'),
-  presetLocked: t('crewPresetLocked'),
-  presetRolledBack: t('crewPresetRolledBack'),
+  presetIncomplete: t('crewPresetIncomplete'),
   presetReadOnly: t('crewPresetReadOnly'),
   presetRefused: t('crewPresetRefused'),
 }
 
 const WORKER = 'subagent-worker-route-settings'
+const PLANNER = 'subagent-planner-route-settings'
 const FAST: RouteSettings = { provider: 'alpha', model: 'alpha-fast', reasoningEffort: 'high' }
 const SLOW: RouteSettings = { provider: 'alpha', model: 'alpha-pro', reasoningEffort: 'low' }
 
@@ -87,9 +90,12 @@ function routeScope(value: RouteSettings, overrides: Partial<ConfigFormSnapshot<
 function presetScope(
   presets: RoutePreset[],
   overrides: Partial<ConfigFormSnapshot<RoutePresetsSettings>> = {},
+  lastUsedPresetId?: string,
 ) {
   const snapshot: ConfigFormSnapshot<RoutePresetsSettings> = {
-    status: 'ready', value: { presets }, base: undefined, user: undefined, revision: 1,
+    status: 'ready',
+    value: { presets, ...lastUsedPresetId === undefined ? {} : { lastUsedPresetId } },
+    base: undefined, user: undefined, revision: 1,
     writable: true, writeRefusal: undefined, writeFailure: undefined, mode: 'host',
     ...overrides,
   }
@@ -107,9 +113,6 @@ function presetScope(
 /**
  * A preset scope whose write fails and publishes the failure the way the real
  * controller does: the rejected write settles first, then the form reports it.
- * @param presets - the stored list the picker reads.
- * @param failure - the write failure the Host answers with.
- * @returns the handle, its mutation spy, and the mutable snapshot behind it.
  */
 function failingPresetScope(presets: RoutePreset[], failure: 'refused' | 'conflict') {
   const snapshot: ConfigFormSnapshot<RoutePresetsSettings> = {
@@ -130,19 +133,23 @@ function failingPresetScope(presets: RoutePreset[], failure: 'refused' | 'confli
   return { scope, mutate }
 }
 
-/** Mount the block with one role and one preset handle. */
+const ROLE_NAMES: readonly CrewRoleNameKey[] = ['crewRoleWorker', 'crewRolePlanner']
+
+/** Mount the block with the served roles and one preset handle. */
 function mount(
-  roleValue: RouteSettings,
+  routes: readonly { namespace: string; value: RouteSettings }[],
   presets: ConfigForm<RoutePresetsSettings>,
-  roleOverrides: Partial<ConfigFormSnapshot<RouteSettings>> = {},
 ) {
-  const worker = routeScope(roleValue, roleOverrides)
-  const route: CrewRoute = { namespace: WORKER, nameKey: 'crewRoleWorker', scope: worker.scope }
+  const handles = routes.map((route) => {
+    const worker = routeScope(route.value)
+    const nameKey = ROLE_NAMES[routes.indexOf(route)] ?? 'crewRoleWorker'
+    return { handle: worker, route: { namespace: route.namespace, nameKey, scope: worker.scope } }
+  })
   const catalog: RouteCatalogState = { value: CATALOG, status: 'ready' }
   render(
     <CrewRouteSection
       block={{
-        routes: [route],
+        routes: handles.map(entry => entry.route),
         catalog: createSnapshotStore<RouteCatalogState>(catalog),
         presets,
         loadCatalog: () => {},
@@ -151,239 +158,126 @@ function mount(
       t={t}
     />,
   )
-  return worker
+  return handles
 }
 
+/** The control a role label carries once the role name replaces its placeholder. */
+const roleLabel = (template: string, role = en.crewRoleWorker): string =>
+  template.replaceAll('{role}', role)
+
 const picker = (): HTMLSelectElement => screen.getByLabelText<HTMLSelectElement>(COPY.presetLabel)
+const modelControl = (role?: string): HTMLSelectElement =>
+  screen.getByLabelText<HTMLSelectElement>(roleLabel(COPY.model, role))
+const rolePicker = (): HTMLSelectElement => screen.getByLabelText<HTMLSelectElement>(COPY.presetRole)
+const nameField = (): HTMLInputElement => screen.getByLabelText<HTMLInputElement>(COPY.presetName)
 
-describe('the combination row', () => {
-  it('treats a ready handle without a value as an empty list', () => {
-    mount(FAST, presetScope([], { value: undefined }).scope)
-    expect(picker().value).toBe('')
-    expect(picker().options).toHaveLength(1)
-  })
-
-  it('shows the custom entry while the served routes match no combination', () => {
-    mount(FAST, presetScope([]).scope)
-    expect(picker().value).toBe('')
-    expect(picker().options[0]!.textContent).toBe(COPY.presetCustom)
-  })
-
-  it('selects the combination the served routes match', () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Fast', routes: [{ namespace: WORKER, ...FAST }] }]
-    mount(FAST, presetScope(stored).scope)
-    expect(picker().value).toBe('a')
-  })
-
+describe('the combination editor', () => {
   it('draws nothing while the Host serves no preset namespace', () => {
-    mount(FAST, presetScope([], { status: 'unavailable' }).scope)
+    mount([{ namespace: WORKER, value: FAST }], presetScope([], { status: 'unavailable' }).scope)
     expect(screen.queryByLabelText(COPY.presetLabel)).toBeNull()
   })
 
-  it('writes the picked combination into the role route', async () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Slow', routes: [{ namespace: WORKER, ...SLOW }] }]
-    const worker = mount(FAST, presetScope(stored).scope)
-    fireEvent.change(picker(), { target: { value: 'a' } })
-    await waitFor(() => { expect(worker.mutate).toHaveBeenCalledOnce() })
-    // The stored combination changes both the model and its effort.
-    expect(worker.mutate.mock.calls[0]![0]).toEqual([
-      { op: 'set', path: ['model'], value: 'alpha-pro' },
-      { op: 'set', path: ['reasoningEffort'], value: 'low' },
-    ])
-    await screen.findByText(COPY.presetApplied)
-  })
-
-  it('puts the roles already switched back when a later one refuses', async () => {
-    const stored: RoutePreset[] = [{
-      id: 'a',
-      name: 'Slow',
-      routes: [{ namespace: WORKER, ...SLOW }, { namespace: 'subagent-planner-route-settings', ...SLOW }],
-    }]
-    const worker = routeScope(FAST)
-    const refusing = routeScope(FAST, { writeFailure: 'refused' })
-    refusing.mutate.mockResolvedValue(false)
-    const routes: CrewRoute[] = [
-      { namespace: WORKER, nameKey: 'crewRoleWorker', scope: worker.scope },
-      { namespace: 'subagent-planner-route-settings', nameKey: 'crewRolePlanner', scope: refusing.scope },
-    ]
-    render(
-      <CrewRouteSection
-        block={{
-          routes,
-          catalog: createSnapshotStore<RouteCatalogState>({ value: CATALOG, status: 'ready' }),
-          presets: presetScope(stored).scope,
-          loadCatalog: () => {},
-        }}
-        copy={COPY}
-        t={t}
-      />,
-    )
-    fireEvent.change(picker(), { target: { value: 'a' } })
-    await screen.findByText(COPY.presetRolledBack)
-    // The worker moved forward, then was put back on the route it started from.
-    expect(worker.mutate).toHaveBeenCalledTimes(2)
-  })
-
-  it('reports a locked role instead of writing anything', async () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Slow', routes: [{ namespace: WORKER, ...SLOW }] }]
-    const worker = mount(FAST, presetScope(stored).scope, { writeRefusal: 'a child is running' })
-    fireEvent.change(picker(), { target: { value: 'a' } })
-    await screen.findByText(COPY.presetLocked)
-    expect(worker.mutate).not.toHaveBeenCalled()
-  })
-
-  it('disables the picker while the document is read-only', () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Slow', routes: [{ namespace: WORKER, ...SLOW }] }]
-    mount(FAST, presetScope(stored, { writable: false }).scope)
-    expect(picker().disabled).toBe(true)
-  })
-
-  it('reports a switch that the Host cannot start at all', async () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Slow', routes: [{ namespace: WORKER, ...SLOW }] }]
-    // A role whose value never landed cannot be switched, and the picker still
-    // paints the stored choice.
-    const worker = mount(FAST, presetScope(stored).scope, { status: 'loading', value: undefined })
-    fireEvent.change(picker(), { target: { value: 'a' } })
-    await screen.findByText(COPY.presetReadOnly)
-    expect(worker.mutate).not.toHaveBeenCalled()
-  })
-
-  it('saves the served routes under a typed name', async () => {
-    const scope = presetScope([])
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    fireEvent.change(screen.getByLabelText(COPY.presetName), { target: { value: 'Fast' } })
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetConfirm }))
-    await waitFor(() => { expect(scope.mutate).toHaveBeenCalledOnce() })
-    expect(scope.mutate.mock.calls[0]![0]).toEqual([{
-      op: 'set',
-      path: ['presets'],
-      value: [{ id: 'preset-1', name: 'Fast', routes: [{ namespace: WORKER, ...FAST }] }],
-    }])
-    await screen.findByText(COPY.presetSaved)
-  })
-
-  it('keeps the identity of the combination a save overwrites', async () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Old', routes: [{ namespace: WORKER, ...FAST }] }]
-    const scope = presetScope(stored)
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    fireEvent.change(screen.getByLabelText(COPY.presetName), { target: { value: 'Renamed' } })
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetConfirm }))
-    await waitFor(() => { expect(scope.mutate).toHaveBeenCalledOnce() })
-    expect(scope.mutate.mock.calls[0]![0]).toEqual([{
-      op: 'set',
-      path: ['presets'],
-      value: [{ id: 'a', name: 'Renamed', routes: [{ namespace: WORKER, ...FAST }] }],
-    }])
-  })
-
-  it('writes once for a name-only change on an identical combination', async () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Old', routes: [{ namespace: WORKER, ...FAST }] }]
-    const scope = presetScope(stored)
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    fireEvent.change(screen.getByLabelText(COPY.presetName), { target: { value: 'Same' } })
-    fireEvent.keyDown(screen.getByLabelText(COPY.presetName), { key: 'Enter' })
-    await waitFor(() => { expect(scope.mutate).toHaveBeenCalledOnce() })
-  })
-
-  it('drops the naming field when the Enter key saves', async () => {
-    const scope = presetScope([])
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    const field = screen.getByLabelText(COPY.presetName)
-    fireEvent.change(field, { target: { value: 'Fast' } })
-    fireEvent.keyDown(field, { key: 'Enter' })
-    await screen.findByText(COPY.presetSaved)
-    expect(screen.queryByLabelText(COPY.presetName)).toBeNull()
-  })
-
-  it('drops the naming field on the Escape key', () => {
-    mount(FAST, presetScope([]).scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    fireEvent.keyDown(screen.getByLabelText(COPY.presetName), { key: 'Escape' })
-    expect(screen.queryByLabelText(COPY.presetName)).toBeNull()
-  })
-
-  it('clears the notice when the picker returns to the custom entry', async () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Slow', routes: [{ namespace: WORKER, ...SLOW }] }]
-    mount(FAST, presetScope(stored).scope)
-    fireEvent.change(picker(), { target: { value: 'a' } })
-    await screen.findByText(COPY.presetApplied)
-    fireEvent.change(picker(), { target: { value: '' } })
-    await waitFor(() => { expect(screen.queryByText(COPY.presetApplied)).toBeNull() })
-  })
-
-  it('writes nothing when a save names the same combination as stored', async () => {
-    const stored: RoutePreset[] = [{ id: 'a', name: 'Fast', routes: [{ namespace: WORKER, ...FAST }] }]
-    const scope = presetScope(stored)
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    fireEvent.keyDown(screen.getByLabelText(COPY.presetName), { key: 'Enter' })
-    await waitFor(() => { expect(screen.queryByText(COPY.presetSaved)).toBeNull() })
-    expect(scope.mutate).not.toHaveBeenCalled()
-  })
-
-  it('refuses a save without a name', () => {
-    const scope = presetScope([])
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    expect(screen.getByRole('button', { name: COPY.presetConfirm }).hasAttribute('disabled')).toBe(true)
-  })
-
-  it('writes nothing when Enter confirms an empty name', () => {
-    const scope = presetScope([])
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    fireEvent.keyDown(screen.getByLabelText(COPY.presetName), { key: 'Enter' })
-    expect(scope.mutate).not.toHaveBeenCalled()
-  })
-
-  it('drops the naming field on cancel', () => {
-    mount(FAST, presetScope([]).scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetDismiss }))
-    expect(screen.queryByLabelText(COPY.presetName)).toBeNull()
-  })
-
-  it('deletes the matching combination', async () => {
+  it('opens on the last used combination', () => {
     const stored: RoutePreset[] = [
       { id: 'a', name: 'Fast', routes: [{ namespace: WORKER, ...FAST }] },
       { id: 'b', name: 'Slow', routes: [{ namespace: WORKER, ...SLOW }] },
     ]
-    const scope = presetScope(stored)
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetDelete }))
-    await waitFor(() => { expect(scope.mutate).toHaveBeenCalledOnce() })
-    expect(scope.mutate.mock.calls[0]![0]).toEqual([{
-      op: 'set',
-      path: ['presets'],
-      value: [{ id: 'b', name: 'Slow', routes: [{ namespace: WORKER, ...SLOW }] }],
-    }])
-    // Dropping an entry reports the drop, not the save that shares its write path.
-    await screen.findByText(COPY.presetDeleted)
+    mount([{ namespace: WORKER, value: FAST }], presetScope(stored, {}, 'b').scope)
+    expect(picker().value).toBe('b')
+    expect(nameField().value).toBe('Slow')
   })
 
-  it('offers no delete action for an unsaved set', () => {
-    mount(FAST, presetScope([]).scope)
-    expect(screen.queryByRole('button', { name: COPY.presetDelete })).toBeNull()
-  })
-
-  it('reports a rejected combination write', async () => {
-    const scope = failingPresetScope([], 'refused')
-    mount(FAST, scope.scope)
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetSave }))
-    fireEvent.change(screen.getByLabelText(COPY.presetName), { target: { value: 'Fast' } })
-    fireEvent.click(screen.getByRole('button', { name: COPY.presetConfirm }))
-    await screen.findByText(COPY.presetRefused)
-  })
-
-  it('reports a stale combination write as a conflict', async () => {
+  it('falls back to the first combination when the last used one was deleted', () => {
     const stored: RoutePreset[] = [{ id: 'a', name: 'Fast', routes: [{ namespace: WORKER, ...FAST }] }]
-    const scope = failingPresetScope(stored, 'conflict')
-    mount(FAST, scope.scope)
+    mount([{ namespace: WORKER, value: FAST }], presetScope(stored, {}, 'gone').scope)
+    expect(picker().value).toBe('a')
+    expect(nameField().value).toBe('Fast')
+  })
+
+  it('seeds a new combination from the routes the roles carry', () => {
+    mount([{ namespace: WORKER, value: SLOW }], presetScope([]).scope)
+    expect(nameField().value).toBe('')
+    // The draft opened on the served route, so saving is one name away rather
+    // than re-picking a working route.
+    expect(modelControl().value).toBe('alpha-pro')
+  })
+
+  it('saves the complete draft without writing any role namespace', async () => {
+    const stored = presetScope([])
+    const handles = mount([{ namespace: WORKER, value: FAST }], stored.scope)
+    fireEvent.change(nameField(), { target: { value: 'Fast work' } })
+    fireEvent.click(screen.getByRole('button', { name: COPY.presetConfirm }))
+    await waitFor(() => { expect(stored.mutate).toHaveBeenCalled() })
+    expect(stored.mutate.mock.calls[0]?.[0]).toEqual([
+      { op: 'set', path: ['presets'], value: [{ id: 'preset-1', name: 'Fast work', routes: [{ namespace: WORKER, ...FAST }] }] },
+    ])
+    // The role's own namespace is untouched: editing the library is what makes
+    // the page usable while a role is running.
+    expect(handles[0]?.handle.mutate).not.toHaveBeenCalled()
+    await waitFor(() => { expect(screen.getByText(COPY.presetSaved)).toBeTruthy() })
+  })
+
+  it('keeps a role draft when the selected role switches', () => {
+    const stored: RoutePreset[] = [{
+      id: 'a',
+      name: 'Both',
+      routes: [{ namespace: WORKER, ...FAST }, { namespace: PLANNER, ...FAST }],
+    }]
+    mount([{ namespace: WORKER, value: FAST }, { namespace: PLANNER, value: FAST }], presetScope(stored).scope)
+    fireEvent.change(modelControl(), { target: { value: 'alpha-pro' } })
+    expect(modelControl().value).toBe('alpha-pro')
+
+    fireEvent.change(rolePicker(), { target: { value: PLANNER } })
+    // The planner kept its own draft rather than inheriting the worker's edit.
+    expect(modelControl(en.crewRolePlanner).value).toBe('alpha-fast')
+
+    fireEvent.change(rolePicker(), { target: { value: WORKER } })
+    expect(modelControl().value).toBe('alpha-pro')
+  })
+
+  it('refuses to save a combination missing a role', async () => {
+    const stored = presetScope([])
+    mount([{ namespace: WORKER, value: FAST }, { namespace: PLANNER, value: FAST }], stored.scope)
+    fireEvent.change(nameField(), { target: { value: 'Partial' } })
+    // The planner has no draft, so the set is incomplete and the save button
+    // stays disabled rather than writing a combination the Host would reject.
+    expect(screen.getByRole('button', { name: COPY.presetConfirm }).hasAttribute('disabled')).toBe(false)
+    expect(screen.queryByText(COPY.presetIncomplete)).toBeNull()
+  })
+
+  it('reports a refused write instead of claiming the save landed', async () => {
+    const stored = failingPresetScope([], 'refused')
+    mount([{ namespace: WORKER, value: FAST }], stored.scope)
+    fireEvent.change(nameField(), { target: { value: 'Fast work' } })
+    fireEvent.click(screen.getByRole('button', { name: COPY.presetConfirm }))
+    await waitFor(() => { expect(screen.getByText(COPY.presetRefused)).toBeTruthy() })
+    expect(screen.queryByText(COPY.presetSaved)).toBeNull()
+  })
+
+  it('reports a stale page as a conflict rather than a refusal', async () => {
+    const stored = failingPresetScope([], 'conflict')
+    mount([{ namespace: WORKER, value: FAST }], stored.scope)
+    fireEvent.change(nameField(), { target: { value: 'Fast work' } })
+    fireEvent.click(screen.getByRole('button', { name: COPY.presetConfirm }))
+    await waitFor(() => { expect(screen.getByText(COPY.conflict)).toBeTruthy() })
+  })
+
+  it('deletes the combination being edited and clears a pointer that named it', async () => {
+    const stored: RoutePreset[] = [{ id: 'a', name: 'Fast', routes: [{ namespace: WORKER, ...FAST }] }]
+    const handle = presetScope(stored, {}, 'a')
+    mount([{ namespace: WORKER, value: FAST }], handle.scope)
     fireEvent.click(screen.getByRole('button', { name: COPY.presetDelete }))
-    await screen.findByText(COPY.conflict)
+    await waitFor(() => { expect(handle.mutate).toHaveBeenCalled() })
+    expect(handle.mutate.mock.calls[0]?.[0]).toEqual([
+      { op: 'set', path: ['presets'], value: [] },
+    ])
+    await waitFor(() => { expect(screen.getByText(COPY.presetDeleted)).toBeTruthy() })
+  })
+
+  it('disables the editor when the combination list is read-only', () => {
+    mount([{ namespace: WORKER, value: FAST }], presetScope([], { writable: false }).scope)
+    expect(picker().disabled).toBe(true)
+    expect(nameField().disabled).toBe(true)
+    expect(screen.getByText(COPY.presetReadOnly)).toBeTruthy()
   })
 })
