@@ -1,0 +1,11 @@
+# Keep the recorded turn to one model request and one persisted event stream.
+- id: session-title-llm
+  disabled: true
+
+- id: session-log-deepseek
+  config:
+    enabled: false
+
+- insert:
+    - id: crew-session-events-fixture
+      name: './crew-events.mjs'

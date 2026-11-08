@@ -32,10 +32,25 @@ import type {
 } from './contract/input.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
+/**
+ * How one staged-preset attempt settled, as the seat plugin reports it. The
+ * seat owns the exact vocabulary; this face carries it structurally so the
+ * send path can refuse a first turn without parsing error text.
+ */
+export interface PresetSeatOutcome {
+  /** `refused` means the staged preset did not land and the session must not start. */
+  readonly kind: 'applied' | 'staged' | 'unchanged' | 'refused'
+  /** The seat's refusal message, present only for `kind: 'refused'`. */
+  readonly reason?: string
+}
+
 /** The staged agent-preset gate the seat plugin publishes as `agentPresetSeat`. */
 export interface PresetSeatGate {
-  /** Resolve once a staged preset is applied, dropped, or unservable. */
-  pendingApply(): Promise<void>
+  /**
+   * Resolve once a staged preset is applied, dropped, or unservable.
+   * @returns the seat's settled outcome; a seat without a stage reports `unchanged`.
+   */
+  pendingApply(): Promise<PresetSeatOutcome>
 }
 
 /**
@@ -215,11 +230,11 @@ export class ConversationController extends Service implements IConversation {
    * locks a started session's preset, so a pick made on the hero just before
    * the first send must land first or the session keeps its creation preset.
    * A no-op when the seat plugin is absent, has no stage, or already applied.
-   * @returns once the staged pick is applied, dropped, or unservable.
+   * @returns the seat's settled outcome, or `unchanged` when the seat plugin is absent.
    */
-  private async settlePreset(): Promise<void> {
+  private async settlePreset(): Promise<PresetSeatOutcome> {
     const gate = this.presetGate?.()
-    if (gate !== undefined) await gate.pendingApply()
+    return await gate?.pendingApply() ?? { kind: 'unchanged' }
   }
 
   /**
@@ -230,7 +245,8 @@ export class ConversationController extends Service implements IConversation {
    */
   async send(text: string): Promise<void> {
     const session = this.scopedSession('send')
-    await this.settlePreset()
+    const preset = await this.settlePreset()
+    if (preset.kind === 'refused') throw new Error(`conversation.send: preset did not apply: ${preset.reason ?? 'refused'}`)
     const result = await session.prompt([{ type: 'text', text }], 'queue')
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
   }
@@ -324,7 +340,11 @@ export class ConversationController extends Service implements IConversation {
       // Dispatch the staged-preset apply before the (slower) image admission
       // so the select races ahead of the prompt on the host side. The echo
       // above already registered synchronously and must not wait on it.
-      await this.settlePreset()
+      const preset = await this.settlePreset()
+      // A refused preset must not start the session's first turn: the echo
+      // stays a draft (the abandon leaves it unaccepted and unretired), the
+      // seat's refusal stays visible, and the composer keeps its content.
+      if (preset.kind === 'refused') throw new Error(`conversation.sendSession: preset did not apply: ${preset.reason ?? 'refused'}`)
       const uploaded = await serializeAttachments()
       content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
     } catch (error) {

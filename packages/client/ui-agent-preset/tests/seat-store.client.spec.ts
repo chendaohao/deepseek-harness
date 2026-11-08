@@ -5,12 +5,12 @@
  * stage lifecycle the two share.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
-import { AgentPresetSeatController } from '../src/client/seat-store.ts'
+import { AgentPresetSeatController, type PresetCompanion } from '../src/client/seat-store.ts'
 
 /** One dispatched select RPC whose settlement the test controls. */
 interface PendingSelect {
@@ -77,6 +77,26 @@ describe('the agent-preset seat apply machinery', () => {
     expect(rig.pending).toHaveLength(1)
   })
 
+  it('keeps the flight closed while the prior selection publishes its final busy state', async () => {
+    const rig = selectRig()
+    const controller = seat(rig, () => BLANK_S1)
+    controller.stage('minimal')
+    let reentered: ReturnType<AgentPresetSeatController['apply']> | undefined
+    const stop = controller.store.subscribe(() => {
+      if (rig.pending.length !== 1 || controller.store.getSnapshot().busy || reentered !== undefined) return
+      controller.stage('cordis')
+      reentered = controller.apply()
+    })
+
+    const first = controller.apply()
+    rig.pending[0]!.resolve(ok('minimal'))
+    await expect(first).resolves.toEqual({ kind: 'applied' })
+
+    expect(rig.pending).toHaveLength(1)
+    await expect(reentered).resolves.toEqual({ kind: 'unchanged' })
+    stop()
+  })
+
   it('pendingApply resolves only after the in-flight apply settles', async () => {
     const rig = selectRig()
     const controller = seat(rig, () => BLANK_S1)
@@ -89,6 +109,57 @@ describe('the agent-preset seat apply machinery', () => {
     rig.pending[0]!.resolve(ok('minimal'))
     await gate
     expect(settled).toBe(true)
+  })
+
+  it('the gate reports the settled apply outcome instead of only resolving', async () => {
+    const rig = selectRig()
+    const controller = seat(rig, () => BLANK_S1)
+    controller.stage('minimal')
+    const applied = controller.pendingApply()
+    rig.pending[0]!.resolve(ok('minimal'))
+    await expect(applied).resolves.toEqual({ kind: 'applied' })
+    // With no stage left, the gate settles on the last outcome it observed.
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'applied' })
+  })
+
+  it('the gate reports a refused apply so the send path can stop', async () => {
+    const rig = selectRig()
+    const controller = seat(rig, () => BLANK_S1)
+    controller.stage('minimal')
+    const refused = controller.pendingApply()
+    rig.pending[0]!.resolve(err('session has already started'))
+    await expect(refused).resolves.toEqual({ kind: 'refused', reason: 'session has already started' })
+  })
+
+  it('the gate retains a refusal from an apply that no gate caller awaited', async () => {
+    const rig = selectRig()
+    const controller = seat(rig, () => BLANK_S1)
+    controller.stage('minimal')
+    const applying = controller.apply()
+    rig.pending[0]!.resolve(err('session has already started'))
+    await expect(applying).resolves.toEqual({ kind: 'refused', reason: 'session has already started' })
+
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'refused', reason: 'session has already started' })
+  })
+
+  it('a successful replacement clears the refusal an earlier gate observed', async () => {
+    const rig = selectRig()
+    const controller = seat(rig, () => BLANK_S1)
+    controller.stage('minimal')
+    const refused = controller.pendingApply()
+    rig.pending[0]!.resolve(err('selection refused'))
+    await expect(refused).resolves.toEqual({ kind: 'refused', reason: 'selection refused' })
+
+    const replacing = controller.select('cordis')
+    rig.pending[1]!.resolve(ok('cordis'))
+    await expect(replacing).resolves.toEqual({ kind: 'applied' })
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'applied' })
+  })
+
+  it('the gate of an idle seat reports unchanged', async () => {
+    const rig = selectRig()
+    const controller = seat(rig, () => undefined)
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'unchanged' })
   })
 
   it('applies an unserved stage itself instead of waiting for a list change', async () => {
@@ -183,13 +254,11 @@ describe('the agent-preset seat apply machinery', () => {
  */
 describe('the preset companion hook', () => {
   /** A seat whose single companion records every composition it is handed. */
-  function companionSeat(currentSession: () => CurrentSession, companion: {
-    afterApply: (sessionId: SessionId, presetId: string) => Promise<string | undefined>
-  }) {
+  function companionSeat(currentSession: () => CurrentSession, companion: PresetCompanion, others: readonly PresetCompanion[] = []) {
     const rig = selectRig()
     const configForms = { developerTools: { enabled: { getSnapshot: () => true } } }
     const ctx = { remote: rig.remote, configForms } as object as ClientContext
-    const controller = new AgentPresetSeatController(ctx, currentSession, undefined, [companion])
+    const controller = new AgentPresetSeatController(ctx, currentSession, undefined, [companion, ...others])
     return { controller, rig }
   }
 
@@ -219,6 +288,81 @@ describe('the preset companion hook', () => {
     expect(await controller.apply()).toEqual({ kind: 'applied' })
     expect(rig.pending).toHaveLength(0)
     expect(seen).toEqual(['crew'])
+  })
+
+  it('single-flights the companion on a blank session already running that composition', async () => {
+    const companionGate = Promise.withResolvers<undefined>()
+    const afterApply = vi.fn(async () => {
+      await companionGate.promise
+      return undefined
+    })
+    const alreadyCrew: CurrentSession = {
+      id: 's1' as SessionId, blank: true, projectionValues: { agentPreset: 'crew' },
+    }
+    const { controller, rig } = companionSeat(() => alreadyCrew, { afterApply })
+    controller.stage('crew')
+
+    const first = controller.apply()
+    const second = controller.apply()
+
+    expect(afterApply).toHaveBeenCalledOnce()
+    expect(controller.store.getSnapshot().busy).toBe(true)
+    expect(rig.pending).toHaveLength(0)
+    companionGate.resolve(undefined)
+    await expect(first).resolves.toEqual({ kind: 'applied' })
+    await expect(second).resolves.toEqual({ kind: 'unchanged' })
+    expect(controller.store.getSnapshot().busy).toBe(false)
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'applied' })
+    expect(afterApply).toHaveBeenCalledOnce()
+  })
+
+  it('runs send preparation on the current blank composition without replaying afterApply', async () => {
+    const alreadyCrew: CurrentSession = {
+      id: 's1' as SessionId, blank: true, projectionValues: { agentPreset: 'crew' },
+    }
+    const afterApply = vi.fn(async (): Promise<string | undefined> => undefined)
+    const beforeSend = vi.fn(async (): Promise<string | undefined> => undefined)
+    const { controller, rig } = companionSeat(() => alreadyCrew, { afterApply, beforeSend }, [
+      { afterApply: async () => undefined },
+    ])
+
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'applied' })
+
+    expect(beforeSend).toHaveBeenCalledExactlyOnceWith('s1', 'crew')
+    expect(afterApply).not.toHaveBeenCalled()
+    expect(rig.pending).toHaveLength(0)
+    expect(controller.store.getSnapshot().busy).toBe(false)
+  })
+
+  it('returns a send-preparation refusal and does not retry it behind the next send', async () => {
+    const alreadyCrew: CurrentSession = {
+      id: 's1' as SessionId, blank: true, projectionValues: { agentPreset: 'crew' },
+    }
+    const beforeSend = vi.fn(async (): Promise<string | undefined> => 'routes refused')
+    const { controller } = companionSeat(() => alreadyCrew, {
+      afterApply: async () => undefined, beforeSend,
+    })
+
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'refused', reason: 'routes refused' })
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'refused', reason: 'routes refused' })
+    expect(beforeSend).toHaveBeenCalledOnce()
+    expect(controller.store.getSnapshot()).toMatchObject({
+      busy: false, error: { preset: { id: 'crew' }, reason: 'routes refused' },
+    })
+  })
+
+  it('does not send-prepare over an existing companion refusal', async () => {
+    const alreadyCrew: CurrentSession = {
+      id: 's1' as SessionId, blank: true, projectionValues: { agentPreset: 'crew' },
+    }
+    const beforeSend = vi.fn(async (): Promise<string | undefined> => undefined)
+    const { controller } = companionSeat(() => alreadyCrew, {
+      afterApply: async () => 'combination conflict', beforeSend,
+    })
+
+    await expect(controller.select('crew')).resolves.toEqual({ kind: 'refused', reason: 'combination conflict' })
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'refused', reason: 'combination conflict' })
+    expect(beforeSend).not.toHaveBeenCalled()
   })
 
   it('holds the send gate open until the companion choice lands', async () => {
@@ -251,5 +395,20 @@ describe('the preset companion hook', () => {
     rig.pending[0]!.resolve(ok('crew'))
     expect(await applying).toEqual({ kind: 'refused', reason: 'unknown model' })
     expect(controller.store.getSnapshot().error).toEqual({ preset: { id: 'crew' }, reason: 'unknown model' })
+  })
+
+  it('lets one successful companion retry replace its earlier refusal', async () => {
+    const alreadyCrew: CurrentSession = {
+      id: 's1' as SessionId, blank: true, projectionValues: { agentPreset: 'crew' },
+    }
+    const afterApply = vi.fn(async (): Promise<string | undefined> => undefined)
+      .mockResolvedValueOnce('combination conflict')
+      .mockResolvedValueOnce(undefined)
+    const { controller } = companionSeat(() => alreadyCrew, { afterApply })
+
+    await expect(controller.select('crew')).resolves.toEqual({ kind: 'refused', reason: 'combination conflict' })
+    await expect(controller.select('crew')).resolves.toEqual({ kind: 'applied' })
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'applied' })
+    expect(afterApply).toHaveBeenCalledTimes(2)
   })
 })

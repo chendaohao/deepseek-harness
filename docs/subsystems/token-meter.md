@@ -91,6 +91,25 @@ interface ContextPressureProjection {
 }
 ```
 
+## `TokenUsageProjection`
+
+`ctx.tokenMeter.tokenUsage(session)` synchronously reads the four cumulative provider-reported buckets across the complete durable log and returns a detached snapshot. These values measure actual usage, not estimated request pressure.
+
+```ts type-equiv
+/**
+ * Durable cumulative provider usage for a complete session log.
+ *
+ * The four buckets are disjoint. In particular, reasoning tokens are already
+ * included in `outputTokens` and are not accumulated again.
+ */
+interface TokenUsageProjection {
+  uncachedInputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+```
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -106,6 +125,13 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 Replay owner for one service-wide estimator and isolated per-session folds.
 
 ```ts cordis-catalog
+/**
+ * Read cumulative provider-reported usage across the complete durable log.
+ * @param session - Session whose committed usage is read.
+ * @returns a detached snapshot of the four disjoint usage buckets.
+ */
+tokenUsage(session: Session): TokenUsageProjection
+
 /**
  * Read the latest logged provider prompt size and route capacity.
  * @param session - Session whose committed usage and request capacity are read.

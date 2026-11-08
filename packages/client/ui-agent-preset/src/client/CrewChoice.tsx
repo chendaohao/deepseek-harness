@@ -35,7 +35,7 @@ export interface CrewChoiceInjected {
   }
   /** Read the stored combinations and the staged pick. */
   load: () => Promise<void>
-  /** Stage one combination for the session this flow is about to create. */
+  /** Stage one combination and apply it through an already-composed main Crew blank. */
   select: (id: string) => void
 }
 
@@ -64,6 +64,7 @@ export function CrewChoice({
   if (staged !== 'crew' || state.options.length === 0) return null
 
   const chosen = state.options.find(option => option.id === state.selected)
+  const currentName = chosen?.name ?? state.selected
   return (
     <span className={css.field}>
       <span className={css.label}>{t('crewChoiceLabel')}</span>
@@ -85,10 +86,10 @@ export function CrewChoice({
             className={css.trigger}
             aria-haspopup="menu"
             aria-expanded={open}
-            aria-label={t('crewChoiceLabel')}
+            aria-label={t('crewChoiceTriggerLabel', { name: currentName })}
             onClick={() => { setOpen(value => !value) }}
           >
-            <span className={css.triggerLabel}>{chosen?.name ?? state.selected}</span>
+            <span className={css.triggerLabel}>{currentName}</span>
             <IconChevronDownOutlineRegular className={css.chevron} />
           </button>
         )}

@@ -21,6 +21,7 @@ import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { CrewRoleRouteView } from '@deepseek-ai/dsh-crew/types'
 
 /** Settings namespace the crew bundle's combination row serves. */
 export const CREW_ROUTE_PRESETS_NAMESPACE = 'subagent-route-presets'
@@ -54,6 +55,8 @@ export type CrewChoiceFailure =
   | { readonly reason: 'incomplete' }
   /** This deployment mounts no crew formation, so there is nowhere to record it. */
   | { readonly reason: 'unserved' }
+  /** The session already records another combination; the attempt changed nothing. */
+  | { readonly reason: 'conflict'; readonly recorded?: string }
   /** The Host rejected the routes; its own message is the report. */
   | { readonly reason: 'host'; readonly message: string }
 
@@ -61,7 +64,7 @@ export type CrewChoiceFailure =
 export interface CrewChoiceState {
   /** Every stored combination, in stored order; empty means nothing to pick. */
   options: readonly CrewPresetOption[]
-  /** The staged combination id, or the one the picker would open on. */
+  /** The explicit stage, last successful choice, or entry the picker opens on. */
   selected: string
   /** The localized report of the last failed apply, or null. */
   error: string | null
@@ -102,6 +105,10 @@ export class CrewChoiceController {
   private staged: string | undefined
   /** Only the newest library read may publish after overlapping refreshes. */
   private generation = 0
+  /** Only the newest selection or displayed fallback may publish a response. */
+  private selectionGeneration = 0
+  /** The session and combination already recorded, so send preparation does not repeat them. */
+  private recorded: { readonly sessionId: SessionId; readonly id: string } | undefined
 
   constructor(
     private readonly ctx: ClientContext,
@@ -109,28 +116,39 @@ export class CrewChoiceController {
     private readonly presets: ConfigForm<PresetsValue> | undefined,
     /** Localizes a failure into the line every surface reports. */
     private readonly describe: CrewChoiceDescribe,
-  ) {}
+  ) {
+    ctx.effect(() => {
+      if (presets === undefined) return () => {}
+      return presets.subscribe(() => { void this.load() })
+    }, 'ui-agent-preset: Crew combination settings')
+  }
 
   /**
-   * Read the stored combinations and stage the one the picker opens on.
+   * Read the stored combinations and open on the last-used or first entry.
    *
-   * The opened combination is the staged one, so a session started without
-   * touching the picker still records the routes that picker names. Staging
-   * nothing while the control showed a combination is what let a crew session
-   * run the role defaults under a picker that said otherwise.
+   * The opening entry is display state and the send-time fallback, not an
+   * immediate selection: choosing Crew alone must not record it.
    * @returns once the snapshot reflects the Host.
    */
   load(): Promise<void> {
     const generation = ++this.generation
-    const snapshot = this.presets?.getSnapshot()
-    if (generation !== this.generation || snapshot === undefined) return Promise.resolve()
+    const presets = this.presets
+    if (generation !== this.generation || presets === undefined) return Promise.resolve()
+    const snapshot = presets.getSnapshot()
     const value = snapshot.status === 'ready' ? snapshot.value : undefined
     const options = (value?.presets ?? []).map(preset => ({ id: preset.id, name: preset.name }))
-    // A stage that survived a refresh stays: a stale id is refused by
+    // An explicit stage survives a refresh: a stale id is refused by
     // `applyToSession` rather than silently replaced by the library default.
     const opening = this.staged ?? openingOf(value)
-    this.staged = opening
-    this.set({ options, selected: opening ?? '' })
+    const selected = opening ?? ''
+    if (this.staged === undefined && selected !== this.store.getSnapshot().selected) {
+      this.selectionGeneration += 1
+    }
+    this.set({ options, selected })
+    const lastUsed = value?.lastUsedPresetId
+    if (lastUsed !== undefined && !(value?.presets ?? []).some(preset => preset.id === lastUsed)) {
+      this.forgetLastUsed(presets)
+    }
     return Promise.resolve()
   }
 
@@ -139,11 +157,13 @@ export class CrewChoiceController {
    * @param id - combination identity to record.
    */
   select(id: string): void {
+    this.selectionGeneration += 1
     this.staged = id
     this.set({ selected: id, error: null })
   }
 
-  /** @returns the staged combination id, or undefined when none is staged. */
+  /** Read the currently staged combination id.
+   * @returns the staged combination id, or undefined when none is staged. */
   stage(): string | undefined {
     return this.staged
   }
@@ -152,15 +172,35 @@ export class CrewChoiceController {
    * Record the staged combination on one session.
    *
    * The Host decides whether the routes exist, so its refusal is what the
-   * picker shows. A stage is cleared only on success: dropping it on failure
-   * would leave the session without routes and the next session silently
-   * inheriting the pick instead.
+   * picker shows. Confirmed success consumes the current stage; a refusal or
+   * conflict keeps it for a retry. A response superseded by a newer selection
+   * changes neither the stage nor its report.
    * @param sessionId - the blank session that just adopted the crew preset.
-   * @returns the localized report, or undefined once the routes are recorded.
+   * @returns the current selection's localized report, or undefined when applied, absent, already recorded, or superseded.
    */
-  async applyToSession(sessionId: SessionId): Promise<string | undefined> {
-    const staged = this.staged
-    if (staged === undefined) return undefined
+  applyToSession(sessionId: SessionId): Promise<string | undefined> {
+    return this.apply(sessionId, false)
+  }
+
+  /**
+   * Record the explicit stage, or the displayed opening entry when nothing was staged.
+   * The send path uses this after the Crew preset has settled, so merely choosing
+   * Crew does not commit the opening entry before the user can change it.
+   * @param sessionId - current blank Crew session preparing its first prompt.
+   * @returns the current choice's localized refusal, or undefined when applied, absent, already recorded, or superseded.
+   */
+  applyDisplayedToSession(sessionId: SessionId): Promise<string | undefined> {
+    return this.apply(sessionId, true)
+  }
+
+  private async apply(sessionId: SessionId, displayFallback: boolean): Promise<string | undefined> {
+    const staged = this.staged ?? (displayFallback ? this.store.getSnapshot().selected : undefined)
+    if (staged === undefined || staged === '') return undefined
+    if (this.recorded?.sessionId === sessionId && (this.staged === undefined || this.recorded.id === staged)) {
+      if (this.staged === staged) this.staged = undefined
+      return undefined
+    }
+    const generation = this.selectionGeneration
     const stored = this.stored().find(preset => preset.id === staged)
     if (stored === undefined) {
       this.staged = undefined
@@ -181,10 +221,41 @@ export class CrewChoiceController {
       presetName: stored.name,
       routes,
     })
-    if (!result.ok) return this.fail({ reason: 'host', message: result.error.message })
-    this.staged = undefined
-    this.set({ error: null })
+    if (generation !== this.selectionGeneration) return undefined
+    if (!result.ok) {
+      // The Host reports a lost combination by code; everything else keeps its
+      // own message as the report.
+      if (result.error.code === 'crew/conflict') {
+        const recordedId = result.error.details.recordedPresetId
+        const recorded = recordedId === null ? undefined : this.stored().find(preset => preset.id === recordedId)?.name
+        return this.fail(recorded === undefined ? { reason: 'conflict' } : { reason: 'conflict', recorded })
+      }
+      return this.fail({ reason: 'host', message: result.error.message })
+    }
+    if (result.value !== true) {
+      // Another call recorded its set between this call's guard and write. The
+      // session's final view says which combination won; a same-combination
+      // loser is the combination already being in place, not a conflict.
+      const view = await formation.view(sessionId)
+      if (generation !== this.selectionGeneration) return undefined
+      if (view.ok && view.value.presetId === stored.id && sameRoutes(view.value.routes, routes)) {
+        await this.succeed(sessionId, stored.id, generation)
+        return undefined
+      }
+      const recorded = view.ok ? view.value.presetName ?? undefined : undefined
+      return this.fail(recorded === undefined ? { reason: 'conflict' } : { reason: 'conflict', recorded })
+    }
+    await this.succeed(sessionId, stored.id, generation)
     return undefined
+  }
+
+  /** Consume the successful selection and remember it for the next picker. */
+  private async succeed(sessionId: SessionId, id: string, generation: number): Promise<void> {
+    this.staged = undefined
+    this.recorded = { sessionId, id }
+    await this.presets?.set('lastUsedPresetId', id)
+    // A selection made while the convenience write settled owns the report now.
+    if (generation === this.selectionGeneration) this.set({ error: null })
   }
 
   /**
@@ -197,6 +268,13 @@ export class CrewChoiceController {
     const error = this.describe(failure)
     this.set(selected === undefined ? { error } : { error, selected })
     return error
+  }
+
+  /** Clear a last-used pointer whose combination disappeared from the library. */
+  private forgetLastUsed(presets: ConfigForm<PresetsValue>): void {
+    void presets.unset('lastUsedPresetId').catch((error: unknown) => {
+      this.fail({ reason: 'host', message: error instanceof Error ? error.message : String(error) })
+    })
   }
 
   /** The stored combinations behind the current snapshot. */
@@ -220,6 +298,25 @@ export function openingOf(value: PresetsValue | undefined): string | undefined {
     ? undefined
     : presets.find(preset => preset.id === value.lastUsedPresetId)
   return last?.id ?? presets[0]?.id
+}
+
+/**
+ * Whether a session's recorded view carries exactly the routes one combination
+ * names: every reported role's provider, model, and effort must agree with the
+ * combination's route for that role.
+ * @param recorded - the session's recorded routes as the view reports them.
+ * @param routes - the combination's three role routes.
+ * @returns whether the recorded set equals the combination's set.
+ */
+function sameRoutes(recorded: readonly CrewRoleRouteView[] | null, routes: StoredRoutes): boolean {
+  if (recorded === null || recorded.length !== 3) return false
+  return recorded.every((view) => {
+    const route = routes[view.role]
+    return route !== undefined
+      && view.provider === route.provider
+      && view.model === route.model
+      && view.reasoningEffort === route.reasoningEffort
+  })
 }
 
 /**

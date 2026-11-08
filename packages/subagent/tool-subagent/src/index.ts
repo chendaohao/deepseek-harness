@@ -47,7 +47,7 @@ import {
 } from './model-selection-state.ts'
 
 export const name = 'tool-subagent'
-export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections']
+export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections', 'sessions']
 
 // Definition identity keeps shared guidance scoped to the actual visible tools,
 // including scoped overrides and independently loaded tool registries.
@@ -258,16 +258,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
      * The route this child follows now.
      *
      * A pin belongs to the Session that made the pick, which for a delegation
-     * is the child's direct parent — the child was created by that Session and
-     * a cold resume recreates it from its own log without its parent being
-     * live, so a missing parent falls back to the row's default rather than
-     * inventing one.
-     * @returns the effective route for this child's role.
+     * is the child's direct parent. A cold resume can recreate the child without
+     * loading that parent; in that case the child's existing durable selection
+     * stays in force instead of being overwritten by the row's default.
+     * @returns the route to select, or undefined to keep the child's current route.
      */
-    const currentRoute = (): SubagentWorkerRouteSettings => {
+    const currentRoute = (): SubagentWorkerRouteSettings | undefined => {
       const parentId = child.session.header.parentSession
       const parent = parentId === undefined ? undefined : ctx.sessions.get(parentId)
-      return (parent === undefined ? undefined : routeConfig.forSession(parent)) ?? routeConfig.current()
+      if (parent !== undefined) return routeConfig.forSession(parent) ?? routeConfig.current()
+      return child.model.current() === undefined ? routeConfig.current() : undefined
     }
     /**
      * Record the current route on the child, leaving an already-matching
@@ -276,6 +276,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
      */
     const applyRoute = (): void => {
       const route = currentRoute()
+      if (route === undefined) return
       const current = child.model.current()
       if (current !== undefined
         && current.provider === route.provider

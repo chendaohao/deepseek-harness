@@ -25,7 +25,7 @@ import { WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
 // (the settings invalidation rides the allowlist) into this program.
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the settings shell's SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -33,6 +33,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { AgentPresetLabel } from './AgentPresetLabel.tsx'
 import { CreatePluginMenuItem } from './CreatePluginMenuItem.tsx'
 import type { AgentPresetLabelInjected } from './AgentPresetLabel.tsx'
@@ -40,9 +41,11 @@ import { AgentPresetSeat } from './AgentPresetSeat.tsx'
 import type { AgentPresetSeatInjected } from './AgentPresetSeat.tsx'
 import { AgentPresetSection } from './AgentPresetSection.tsx'
 import type { AgentPresetSectionInjected } from './AgentPresetSection.tsx'
-import { AgentPresetSeatController, type AgentPresetStage, type PresetCompanion } from './seat-store.ts'
+import { AgentPresetSeatController, type AgentPresetApplyOutcome, type AgentPresetStage, type PresetCompanion } from './seat-store.ts'
 import { CREW_ROUTE_PRESETS_NAMESPACE, CrewChoiceController, type CrewChoiceFailure } from './crew-choice.ts'
+import { CrewRoutesViewController, type CrewRoutesState } from './crew-routes-view.ts'
 import { CrewChoice } from './CrewChoice.tsx'
+import type { CrewRouteRepairActions } from './CrewRouteRepairDialog.tsx'
 import { AgentPresetSectionController } from './section-store.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type AgentPresetSettingsKey } from './locales.ts'
 import { AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController } from './settings-store.ts'
@@ -65,7 +68,7 @@ export { AGENT_PRESET_SETTINGS_NS, writeDefaultPreset } from './settings-store.t
 
 /** Required services (cordis fiber inject). */
 export const inject = [
-  'slots', 'sessions', 'locale', 'remote', 'remote.agentPresets', 'remote.settings', 'configForms',
+  'slots', 'sessions', 'locale', 'remote', 'remote.session', 'remote.agentPresets', 'remote.settings', 'configForms',
 ]
 
 /**
@@ -88,6 +91,10 @@ export function apply(ctx: ClientContext): void {
       case 'gone': return t('crewChoiceGone')
       case 'incomplete': return t('crewChoiceIncomplete')
       case 'unserved': return t('crewChoiceUnserved')
+      case 'conflict':
+        return failure.recorded === undefined
+          ? t('crewChoiceConflict')
+          : t('crewChoiceConflictNamed', { recorded: failure.recorded })
       case 'host': return t('crewChoiceRefused', { reason: failure.message })
     }
   }
@@ -97,13 +104,14 @@ export function apply(ctx: ClientContext): void {
     crewChoiceCopy,
   )
   const staged: AgentPresetStage = { id: undefined, introduce: false }
+  let choiceRequest = 0
   const seats = new WeakMapWithValues<SessionBinding, AgentPresetSeatController>()
   const boundSeatDisposers = new Set<() => Promise<void>>()
   ctx.effect(() => async () => {
     await Promise.all([...boundSeatDisposers].map(dispose => dispose()))
   }, 'ui-agent-preset: bound selections')
-  // The crew combination picker records its own per-session choice right after
-  // the composition lands, so both are on the session before its first turn.
+  // The crew combination picker joins the preset's per-session transaction, so
+  // the combination and composition settle together before the first turn.
   // A deployment without the crew formation Remote answers unavailable and the
   // companion reports nothing, which is what keeps this plugin optional.
   const companions: readonly PresetCompanion[] = [{
@@ -111,6 +119,10 @@ export function apply(ctx: ClientContext): void {
       if (presetId !== 'crew') return undefined
       if (crewChoice.stage() === undefined) return undefined
       return await crewChoice.applyToSession(sessionId)
+    },
+    beforeSend: async (sessionId, presetId) => {
+      if (presetId !== 'crew') return undefined
+      return await crewChoice.applyDisplayedToSession(sessionId)
     },
   }]
   const unboundSeat = new AgentPresetSeatController(ctx, () => undefined, staged, companions)
@@ -215,10 +227,13 @@ export function apply(ctx: ClientContext): void {
   // The conversation send path awaits a staged pick through this root-level
   // service (read structurally via ctx.get, never imported): the seats live in
   // the conversation scope below and wire their pendingApply here, so a first
-  // prompt dispatched right after a chip pick composes the preset before the
-  // turn instead of racing the seat's own apply and losing to the host's
-  // blank-session lock. A collapsed flow resets the wiring to a no-op.
-  const seatGate: { pendingApply(): Promise<void> } = { pendingApply: () => Promise.resolve() }
+  // The send path awaits this gate and reads its settled outcome: a refused
+  // preset must stop the first turn, so the conversation service carries the
+  // seat's structured result instead of parsing error text. A collapsed flow
+  // resets the wiring to a no-op.
+  const seatGate: { pendingApply(): Promise<AgentPresetApplyOutcome> } = {
+    pendingApply: () => Promise.resolve({ kind: 'unchanged' }),
+  }
   ctx.provide('agentPresetSeat', seatGate)
 
   ctx.inject(['slots', 'conversation', 'sessions', 'uiWorkspace'], (scope: ClientContext) => {
@@ -251,10 +266,79 @@ export function apply(ctx: ClientContext): void {
       }
     }
 
-    const labelInjected = (): AgentPresetLabelInjected => ({
-      hooks: { agentPresets: controller.store },
-      load: () => controller.load(),
+    // The header label reads what the session itself recorded, so each reading
+    // belongs to one Provider binding: a second header on another session must
+    // never share the first one's snapshot.
+    const routeViews = new WeakMapWithValues<SessionBinding, CrewRoutesViewController>()
+    const routeViewStops = new Set<() => Promise<void>>()
+    const crewRoutesFor = (binding: SessionBinding): CrewRoutesViewController => {
+      const existing = routeViews.get(binding)
+      if (existing !== undefined) return existing
+      const routes = new CrewRoutesViewController(ctx)
+      routeViews.set(binding, routes)
+      const stop = binding.ctx.effect(() => () => {
+        routes.stop()
+        routeViews.delete(binding)
+        routeViewStops.delete(stop)
+      }, 'ui-agent-preset: crew routes view')
+      routeViewStops.add(stop)
+      return routes
+    }
+    // Unloading the plugin ends every read it started, including the ones whose
+    // binding outlives it; a late answer must not publish into a dead surface.
+    scope.effect(() => async () => {
+      await Promise.all([...routeViewStops].map(stop => stop()))
+      routeViewStops.clear()
+    }, 'ui-agent-preset: crew routes views')
+    /** A session the list has not bound yet has nothing to read. */
+    const unboundRoutes = createSnapshotStore<CrewRoutesState>({ status: 'loading' })
+    const repairActions = (routes: Pick<CrewRoutesViewController, 'load'>, sessionId?: SessionId): CrewRouteRepairActions => ({
+      loadCrewRouteCatalog: async () => {
+        try {
+          const result = await ctx.remote.session.modelCatalog()
+          return result.ok
+            ? { ok: true, value: result.value }
+            : { ok: false, message: result.error.message }
+        } catch (error: unknown) {
+          return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        }
+      },
+      replaceCrewRole: async (role, route) => {
+        const formation = ctx.get('remote.crewFormation') as ClientRemote['crewFormation'] | undefined
+        if (formation === undefined || sessionId === undefined) {
+          return { ok: false, message: ctx.locale.bind('settings.agentPreset')('crewRoutesUnavailableHint') }
+        }
+        try {
+          const result = await formation.replaceRole(sessionId, role, route)
+          if (!result.ok) return { ok: false, message: result.error.message }
+          // Replacement never retries the failed child. Refresh the header from
+          // the session record so the visible route and the next resume agree.
+          await routes.load(sessionId)
+          return { ok: true }
+        } catch (error: unknown) {
+          return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        }
+      },
     })
+
+    const labelInjected = (sessionId: SessionId): AgentPresetLabelInjected => {
+      const binding = ctx.sessions.binding(sessionId)
+      if (binding === undefined) {
+        return {
+          hooks: { agentPresets: controller.store, crewRoutes: unboundRoutes },
+          load: () => controller.load(),
+          loadCrewRoutes: () => Promise.resolve(),
+          ...repairActions({ load: () => Promise.resolve() }),
+        }
+      }
+      const routes = crewRoutesFor(binding)
+      return {
+        hooks: { agentPresets: controller.store, crewRoutes: routes.store },
+        load: () => controller.load(),
+        loadCrewRoutes: () => routes.load(binding.sessionId),
+        ...repairActions(routes, binding.sessionId),
+      }
+    }
 
     const startCreatorDraft = () => {
       // The Host composes the reused draft or new Session; the stage only drives the chip's display and introduction.
@@ -277,7 +361,23 @@ export function apply(ctx: ClientContext): void {
         inject: () => ({
           hooks: { crewChoice: crewChoice.store, agentPresetSeat: (mainBlankSeat() ?? unboundSeat).store },
           load: () => crewChoice.load(),
-          select: (id: string) => { crewChoice.select(id) },
+          select: (id: string) => {
+            const request = ++choiceRequest
+            crewChoice.select(id)
+            const session = mainBlank()
+            if (session?.blank !== true || session.projectionValues?.agentPreset !== 'crew') return
+            const seat = mainBlankSeat()
+            if (seat?.blankSessionId() !== session.id) return
+            // Re-enter the seat transaction when Crew is already composed: its
+            // companion consumes this explicit choice and settles the send gate.
+            // While the preset RPC is still landing, that original apply owns it.
+            seat.stage('crew')
+            void seat.apply().catch((error: unknown) => {
+              if (!active || request !== choiceRequest) return
+              const message = error instanceof Error ? error.message : String(error)
+              crewChoice.store.set({ ...crewChoice.store.getSnapshot(), error: crewChoiceCopy({ reason: 'host', message }) })
+            })
+          },
         }),
       }, CrewChoice))
       const chip = scope.slots.register({
@@ -295,9 +395,10 @@ export function apply(ctx: ClientContext): void {
       }, AgentPresetLabel)
       return () => {
         creatorDraft = undefined
+        choiceRequest++
         // The seats died with this scope: the root-level gate returns to its
         // no-op so the send path never awaits a dead controller.
-        seatGate.pendingApply = () => Promise.resolve()
+        seatGate.pendingApply = () => Promise.resolve({ kind: 'unchanged' })
         choice()
         chip()
         label()

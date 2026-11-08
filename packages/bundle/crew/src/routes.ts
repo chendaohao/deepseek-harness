@@ -19,18 +19,19 @@
 import { z as zod } from 'zod'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import {
-  CREW_ROLES,
-  type CrewRole,
-  type CrewRoleRoute,
-  type CrewRouteSelection,
+import type {
+  CrewRole,
+  CrewRoleRoute,
+  CrewRouteSelection,
 } from './types.ts'
 
-export {
-  CREW_ROLES,
-  type CrewRole,
-  type CrewRoleRoute,
-  type CrewRouteSelection,
+/** Delegation roles in formation and display order. */
+export const CREW_ROLES = ['worker', 'planner', 'reviewer'] as const satisfies readonly CrewRole[]
+
+export type {
+  CrewRole,
+  CrewRoleRoute,
+  CrewRouteSelection,
 } from './types.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {

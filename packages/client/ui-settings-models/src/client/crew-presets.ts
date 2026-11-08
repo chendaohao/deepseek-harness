@@ -190,9 +190,9 @@ export function upsertPreset(presets: readonly RoutePreset[], preset: RoutePrese
 /**
  * Drop one combination.
  *
- * The last-used pointer is cleared when it named the dropped combination, so the
- * next new-session picker falls back to the first entry instead of pointing at
- * something that no longer exists.
+ * The caller also unsets a last-used pointer that named the dropped
+ * combination, so the next new-session picker falls back to the first entry
+ * instead of pointing at something that no longer exists.
  * @param presets - the combinations currently stored.
  * @param id - identity of the combination to drop.
  * @returns the remaining combinations, in stored order.

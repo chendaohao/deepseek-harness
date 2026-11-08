@@ -69,7 +69,7 @@ const CATALOG: ModelCatalog = {
 }
 
 /** One route scope over a fixed snapshot, recording every mutation. */
-function routeScope(value: RouteSettings, overrides: Partial<ConfigFormSnapshot<RouteSettings>> = {}) {
+function routeScope(value: RouteSettings | undefined, overrides: Partial<ConfigFormSnapshot<RouteSettings>> = {}) {
   const snapshot: ConfigFormSnapshot<RouteSettings> = {
     status: 'ready', value, base: undefined, user: undefined, revision: 1,
     writable: true, writeRefusal: undefined, writeFailure: undefined, mode: 'host',
@@ -137,7 +137,7 @@ const ROLE_NAMES: readonly CrewRoleNameKey[] = ['crewRoleWorker', 'crewRolePlann
 
 /** Mount the block with the served roles and one preset handle. */
 function mount(
-  routes: readonly { namespace: string; value: RouteSettings }[],
+  routes: readonly { namespace: string; value: RouteSettings | undefined }[],
   presets: ConfigForm<RoutePresetsSettings>,
 ) {
   const handles = routes.map((route) => {
@@ -237,12 +237,12 @@ describe('the combination editor', () => {
 
   it('refuses to save a combination missing a role', async () => {
     const stored = presetScope([])
-    mount([{ namespace: WORKER, value: FAST }, { namespace: PLANNER, value: FAST }], stored.scope)
+    mount([{ namespace: WORKER, value: FAST }, { namespace: PLANNER, value: undefined }], stored.scope)
     fireEvent.change(nameField(), { target: { value: 'Partial' } })
     // The planner has no draft, so the set is incomplete and the save button
     // stays disabled rather than writing a combination the Host would reject.
-    expect(screen.getByRole('button', { name: COPY.presetConfirm }).hasAttribute('disabled')).toBe(false)
-    expect(screen.queryByText(COPY.presetIncomplete)).toBeNull()
+    expect(screen.getByRole('button', { name: COPY.presetConfirm }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText(COPY.presetIncomplete)).toBeTruthy()
   })
 
   it('reports a refused write instead of claiming the save landed', async () => {
@@ -270,6 +270,7 @@ describe('the combination editor', () => {
     await waitFor(() => { expect(handle.mutate).toHaveBeenCalled() })
     expect(handle.mutate.mock.calls[0]?.[0]).toEqual([
       { op: 'set', path: ['presets'], value: [] },
+      { op: 'unset', path: ['lastUsedPresetId'] },
     ])
     await waitFor(() => { expect(screen.getByText(COPY.presetDeleted)).toBeTruthy() })
   })

@@ -62,7 +62,8 @@ const tokenUsageStateSchema = z.object({
   }).nullable(),
 }).strict()
 
-type TokenUsageState = z.infer<typeof tokenUsageStateSchema>
+/** Host fold state for cumulative provider usage and the latest attempt sample. */
+export type TokenUsageState = z.infer<typeof tokenUsageStateSchema>
 
 const pressureSchema: z.ZodType<ContextPressureProjection> = z.object({
   pressureTokens: z.number().int().nonnegative().optional(),

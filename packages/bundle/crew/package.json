@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-crew",
   "description": "The crew agent presets as a profile bundle: a commander that delegates to worker, planner, and reviewer roles, each with its own model route",
-  "version": "0.2.2-alpha.3",
+  "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
   },
@@ -23,7 +23,7 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./formation": {
       "types": "./lib/types/formation.d.ts",
-      "default": "./lib/formation.js"
+      "default": "./lib/types/formation.js"
     },
     "./types": {
       "types": "./lib/types/types.d.ts",
@@ -41,8 +41,8 @@
   "files": [
     "lib/index.js",
     "cordis.patch.yml",
+    "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
-    "lib/formation.js",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
@@ -79,18 +79,23 @@
     "@deepseek-ai/dsh-tool-web": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
     "@deepseek-ai/dsh-timeout": "workspace:*",
+    "@deepseek-ai/dsh-token-meter": "workspace:*",
     "@deepseek-ai/dsh-working-directory": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~"
+    "@deepseek-ai/schemastery": "workspace:~",
+    "zod": "4.4.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-app-boot": "workspace:*",
+    "@deepseek-ai/dsh-agent-loop": "workspace:*",
+    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
     "@deepseek-ai/dsh-subprocess-local": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-tool-executor-native": "workspace:*",

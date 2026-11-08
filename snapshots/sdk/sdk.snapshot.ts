@@ -106,6 +106,10 @@ function dirOf(url: string): string {
 interface SdkAssertions {
   /** Client decisions for the internal approval protocol recording. */
   approvalOutcomes?: readonly ('allowed-once' | 'rejected')[]
+  /** Live route used with manifest input.task before the first recording owns a Session fixture. */
+  initialRoute?: { readonly provider: string; readonly model: string }
+  /** Retain wire goldens from the first recording, with an optional complete RunResult projection. */
+  wireProjection?: 'summary' | 'complete'
   /** Additional profile patches applied after the shared composition. */
   patches?: readonly string[]
   /** Captured model-request JSONL filename under this scenario's private DSH home. */
@@ -152,6 +156,12 @@ const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
     approvalOutcomes: ['allowed-once', 'rejected'],
     environment: { DSH_PERMISSION_MODE: 'workspace-write' },
     patches: [fileURLToPath(new URL('./approval/runtime.cordis.yml', import.meta.url))],
+  },
+  'crew-session-events': {
+    initialRoute: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    wireProjection: 'complete',
+    expectedFinalResponse: 'CREW_EVENTS_OK',
+    patches: [fileURLToPath(new URL('./crew-session-events/runtime.cordis.yml', import.meta.url))],
   },
 
   'desktop-context': {
@@ -438,7 +448,9 @@ function contextOfContents(contents: readonly string[]): NormalizeContext {
 }
 
 async function fixtureFiles(scenario: CorpusScenario): Promise<string[]> {
-  const names = sessionFixtureNames(await readdir(scenario.dir))
+  const entries = await readdir(scenario.dir)
+  if (recording && !entries.some(name => name === 'session.jsonl' || /^session\.v[1-9]\d*\.jsonl$/u.test(name))) return []
+  const names = sessionFixtureNames(entries)
   return Promise.all(names.map(async (name) => {
     const path = join(scenario.dir, name)
     assertSessionFixtureVersion(name, await readFile(path, 'utf8'))
@@ -495,10 +507,26 @@ function normalizeNotifications(notifications: readonly HarnessNotification[], c
 }
 
 /** Normalize the owned-run projection. */
-function normalizeResult(result: RunResult, ctx: NormalizeContext): string {
+function normalizeResult(result: RunResult, ctx: NormalizeContext, projection: 'summary' | 'complete' = 'summary'): string {
+  if (projection === 'summary') {
+    return normalizeStdout(`${JSON.stringify({
+      sessionId: result.sessionId,
+      finalResponse: result.finalResponse,
+    })}\n`, ctx)
+  }
+  const notifications = records(normalizeNotifications(result.notifications, ctx))
+  const eventNotifications = result.events.map(event => ({
+    method: 'session.event',
+    params: { sessionId: result.sessionId, event },
+  }))
+  const events = records(normalizeNotifications(eventNotifications, ctx))
+    .map(record => (record.params as JsonObject).event)
   return normalizeStdout(`${JSON.stringify({
     sessionId: result.sessionId,
     finalResponse: result.finalResponse,
+    finishReason: result.finishReason,
+    events,
+    notifications,
   })}\n`, ctx)
 }
 
@@ -766,14 +794,27 @@ async function runScenario(scenario: CorpusScenario): Promise<{
   const replayFixtures = recording ? [] : await hydrateReplayFixtures(scenario, cwd)
   const fixtureContents = await Promise.all((await fixtureFiles(scenario)).map(file => readFile(file, 'utf8')))
   const primaryFixture = fixtureContents[0]
-  if (primaryFixture === undefined) throw new Error(`${scenario.name}: no primary session fixture`)
-  const route = modelFromSession(primaryFixture)
+  const firstReplayRecording = recording && primaryFixture === undefined && scenario.manifest.replay?.override === true
+  const assertions = SDK_ASSERTIONS[scenario.name] ?? {}
+  let route: { provider: string; model: string }
+  let actions: SdkAction[]
+  if (primaryFixture === undefined) {
+    const task = scenario.manifest.input?.task
+    const initialRoute = assertions.initialRoute
+    if (!recording || task === undefined || initialRoute === undefined) {
+      throw new Error(`${scenario.name}: first recording requires manifest input.task and an initialRoute`)
+    }
+    route = initialRoute
+    actions = [{ kind: 'turn', turn: 1, content: [{ type: 'text', text: task }] }]
+  } else {
+    route = modelFromSession(primaryFixture)
+    actions = sdkActions(primaryFixture, assertions.replayStandaloneCommands === true)
+  }
   const patchRoot = join(cwd, '.snapshot-patches')
   await mkdir(patchRoot, { recursive: true })
-  const assertions = SDK_ASSERTIONS[scenario.name] ?? {}
   const patches = [
     ...legacySdkCompositions.has(scenario.manifest.composition) ? [legacySdkContextPatch] : [],
-    ...authoredPatches(scenario, !recording),
+    ...authoredPatches(scenario, !recording || firstReplayRecording),
     ...assertions.patches ?? [],
     ...scenario.name === 'session-resume' && !recording ? [join(scenario.dir, 'replay.cordis.yml')] : [],
   ]
@@ -801,7 +842,6 @@ async function runScenario(scenario: CorpusScenario): Promise<{
     ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
   })
   const [parentFixture, ...childFixtures] = replayFixtures
-  const actions = sdkActions(primaryFixture, assertions.replayStandaloneCommands === true)
   const resumeReplayFile = scenario.name === 'session-resume' && !recording
     ? join(patchRoot, 'resume-replay.json') : undefined
   const prepareTurnReplay = async (turn: number): Promise<void> => {
@@ -814,18 +854,18 @@ async function runScenario(scenario: CorpusScenario): Promise<{
   if (firstTurn !== undefined) await prepareTurnReplay(firstTurn.turn)
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
-    ...recording ? {} : REPLAY_CREDENTIAL_ENV,
+    ...!recording || firstReplayRecording ? REPLAY_CREDENTIAL_ENV : {},
     DSH_SNAPSHOT: mode,
     DSH_SNAPSHOT_PROVIDER: route.provider,
     DSH_SNAPSHOT_MODEL: route.model,
     DSH_TELEMETRY_DISABLED: '1',
     DSH_AGENTS_HOME: join(cwd, '.agents'),
     NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
-    ...parentFixture === undefined ? {} : {
+    ...firstReplayRecording ? { DSH_SNAPSHOT_FILE: join(scenario.dir, 'replay.override.json') } : parentFixture === undefined ? {} : {
       DSH_SNAPSHOT_FILE: parentFixture,
       ...childFixtures.length > 0 ? { DSH_SNAPSHOT_CHILD_FILES: childFixtures.join(delimiter) } : {},
     },
-    ...!recording && scenario.manifest.replay?.override === true
+    ...(!recording || firstReplayRecording) && scenario.manifest.replay?.override === true
       ? { DSH_SNAPSHOT_OVERRIDE: join(scenario.dir, 'replay.override.json') }
       : {},
     ...scenario.manifest.environment,
@@ -885,7 +925,7 @@ async function runScenario(scenario: CorpusScenario): Promise<{
     const titleSubscription = assertions.waitForProviderTitle === true
       ? harness.client.subscribeSessionTree(sessionId)
       : undefined
-    const expectedTitles = records(primaryFixture).filter(event => event.type === 'session/title'
+    const expectedTitles = primaryFixture === undefined ? [] : records(primaryFixture).filter(event => event.type === 'session/title'
       && ((event.data as JsonObject).source as JsonObject).kind === 'provider')
     const completionSubscription = scenario.name === 'subagent-continuable'
       ? harness.client.subscribeSessionTree(sessionId)
@@ -1020,7 +1060,7 @@ async function runScenario(scenario: CorpusScenario): Promise<{
           observe,
         )
       }
-      for (const type of postActionEventTypes(primaryFixture)) {
+      for (const type of primaryFixture === undefined ? [] : postActionEventTypes(primaryFixture)) {
         await waitForRootEvent(subscription, sessionId, event => event.type === type, observe)
       }
     } finally {
@@ -1186,7 +1226,8 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
 
   for (const scenario of sdkScenarios) {
     const scenarioTest = recording
-      && (scenario.manifest.recording === 'authored' || scenario.manifest.sessionFormat !== undefined)
+      && (scenario.manifest.sessionFormat !== undefined
+        || (scenario.manifest.recording === 'authored' && scenario.manifest.input?.task === undefined))
       ? it.skip
       : it
     scenarioTest(`${mode}s ${scenario.name} through dsh --profile ${scenario.manifest.profile}`, async () => {
@@ -1194,8 +1235,9 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       const retained = scenario.manifest.sessionFormat !== undefined
       const notificationsExpectedPath = join(scenarioDir, retained ? 'notifications.current.expected.jsonl' : 'notifications.expected.jsonl')
       const resultExpectedPath = join(scenarioDir, 'result.expected.json')
-      const hasWireGoldens = existsSync(notificationsExpectedPath) || existsSync(resultExpectedPath)
       const assertions = SDK_ASSERTIONS[scenario.name] ?? {}
+      const hasWireGoldens = assertions.wireProjection !== undefined
+        || existsSync(notificationsExpectedPath) || existsSync(resultExpectedPath)
       const writesSessionFixtures = writesCurrentSessionFixtures(scenario.manifest, sessionWriteMode)
 
       let files = await fixtureFiles(scenario)
@@ -1500,6 +1542,23 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         expect(events.findLastIndex(event => event.type === 'assistant/message'))
           .toBeGreaterThan(events.findIndex(event => event.type === 'compaction/summary'))
       }
+      if (scenario.name === 'crew-session-events') {
+        const result = results.at(-1)
+        const parent = ordered[0]
+        if (result === undefined || parent === undefined) throw new Error('Crew event projection has no SDK result or persisted Session')
+        const events = result.events.filter(event => event.type.startsWith('crew/'))
+        expect(events.map(event => event.type)).toEqual([
+          'crew/routes-selected', 'crew/route-replaced', 'crew/run-budget-exceeded',
+        ])
+        const subscribed = result.notifications.flatMap(notification => {
+          const event = notificationEvent(notification)
+          return typeof event?.type === 'string' && event.type.startsWith('crew/') ? [event] : []
+        })
+        expect(subscribed, 'RunResult notifications project every Crew event').toEqual(events)
+        const persisted = records(parent.content)
+          .filter(record => typeof record.type === 'string' && record.type.startsWith('crew/'))
+        expect(persisted, 'persisted Session retains the SDK Crew events').toEqual(events)
+      }
       expect(logs.some(log => log.content.includes('llm-replay: script exhausted')), `${scenario.name}: replay script covers every model request`).toBe(false)
       if (scenario.name === 'subagent-dsh-sdk-diagnostic' || scenario.name === 'subagent-dsh-sdk-dynamic-route') {
         const parentEvents = records(ordered[0]!.content)
@@ -1609,7 +1668,10 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         const parent = ordered[0]
         if (parent === undefined) throw new Error(`${scenario.name}: no primary session log`)
         const turnEnds = records(parent.content).filter(record => record.type === 'turn/end')
-        const expectedTurns = records(replayContents[0]!).filter(record => record.type === 'turn/end')
+        const recordedTurns = replayContents[0]
+        const expectedTurns = recordedTurns === undefined
+          ? turnEnds
+          : records(recordedTurns).filter(record => record.type === 'turn/end')
         expect(turnEnds, `${scenario.name}: completed turns`).toHaveLength(expectedTurns.length)
         for (const turnEnd of turnEnds) expect(turnEnd).toMatchObject({ data: { reason: { kind: 'completed' } } })
       }
@@ -1679,7 +1741,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       if (hasWireGoldens) {
         if (finalResult === undefined) throw new Error(`${scenario.name}: SDK wire golden has no run result`)
         const normalizedNotifications = normalizeNotifications(notifications, actualContext)
-        const normalizedResult = normalizeResult(finalResult, actualContext)
+        const normalizedResult = normalizeResult(finalResult, actualContext, assertions.wireProjection)
         if (recording || refreshing) {
           await writeFile(notificationsExpectedPath, normalizedNotifications)
           await writeFile(resultExpectedPath, normalizedResult)

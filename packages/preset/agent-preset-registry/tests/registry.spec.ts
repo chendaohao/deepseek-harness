@@ -124,7 +124,7 @@ describe('declarative preset revisions', () => {
     ]))
   })
 
-  it('reports the internal-mount flag on the roster so a picker can filter it', async () => {
+  it('enforces the internal-mount flag without blocking composition-owned mounts', async () => {
     const ctx = await setup()
     await declare(ctx, contribution('standard'))
     await declare(ctx, { ...contribution('minimal'), userSelectable: false })
@@ -132,7 +132,16 @@ describe('declarative preset revisions', () => {
     // Absent means selectable: an ordinary preset never restates the default.
     expect(roster.presets.find(row => row.id === 'standard')).not.toHaveProperty('userSelectable')
     expect(roster.presets.find(row => row.id === 'minimal')?.userSelectable).toBe(false)
-    // The internal mount keeps working; only the human-facing picker filters.
+    expect(await ctx.agentPresets.resolve('minimal')).toEqual({ id: 'minimal', userSelectable: false })
+
+    const agent = await agentOn(ctx, 'internal-only')
+    await expect(ctx.agentPresets.select(agent, 'minimal')).rejects.toMatchObject({
+      code: 'agent-preset/invalid', message: expect.stringContaining('mounted only by another preset') as string,
+    })
+    expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('standard')
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'agent-preset/selected')).toHaveLength(0)
+
+    // The internal mount keeps working; only human-facing entries refuse it.
     const scope = createScope(ctx, {})
     expect(await ctx.agentPresets.mount(scope.ctx, 'minimal')).toEqual({ id: 'minimal' })
   })

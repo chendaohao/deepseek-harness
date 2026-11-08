@@ -50,7 +50,7 @@ kind: "package-reference"
 | `modelSelection` | `false` | 公开可选子级路由字段；要求提供方支持 `agentOptions` |
 | `modelDiscovery` | `false` | 注册 `list_subagent_models`；每个工具作用域仅在一个实例上启用 |
 | `modelSelectionSettings` | `false` | 为每个顶层 Session 读取宿主的精确路由授权偏好；常驻 preset 观察匹配 Session，直接 Agent setup 则显式传入其 Session；要求提供方支持 `agentOptions` |
-| `routeSettingsNamespace` | — | 每次调用都读取指定宿主路由设置命名空间，作为本实例的子级基线路由；由该命名空间路由的子会话会记下这一点，并在之后每次请求重新解析，因此设置改动既不需要重建定义也不需要重启。跟随该设置的子会话正在运行时，写入该命名空间会被拒绝。配置的 `agentOptions` 保留为其下方的兜底；要求组合中存在入口 id 指向同一命名空间的路由设置行，且提供方支持 `agentOptions` |
+| `routeSettingsNamespace` | — | 每次调用都读取指定宿主路由设置命名空间，作为本实例的子级基线路由；由该命名空间路由的子会话会记下这一点，在父 Session 已加载时于后续请求重新解析，并在父 Session 未加载时保留已持久化路由，因此设置改动既不需要重建定义也不需要重启。跟随该设置的子会话正在运行时，写入该命名空间会被拒绝。配置的 `agentOptions` 保留为其下方的兜底；要求组合中存在入口 id 指向同一命名空间的路由设置行，且提供方支持 `agentOptions` |
 | `agentOptions` | — | 配置的子级 `provider`、`model`、适配器所有的 `reasoningEffort` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
 | `agentPreset` | — | 独立子级 preset 的默认 id；要求进程内 spawn |
 | `allowedAgentPresets` | — | 非空 preset-id 白名单，作为模型可选的 `agent_preset` 枚举；与 `agentPreset` 同时配置时必须包含后者 |
@@ -85,7 +85,7 @@ kind: "package-reference"
 
 设置 `routeSettingsNamespace`，即可让宿主设置（而非组合文件）决定每个子 agent 的起始路由。工具随后在每次调用时读取该命名空间存下的路由——`provider`、`model` 与 `reasoningEffort`——因此一次编辑就能作用于下一次委派，无需重建工具定义，也无需重启进程。该设置中的路由优先于配置的 `agentOptions`，后者保留为从未写入该区段的部署的兜底；面向模型的选择仍然优先于两者。此模式要求后端声明 `agentOptions`。需要按 Session 变化的部署在这一行旁向 `subagentRouteSettings` 注册一个解析器（`registerResolver`）：解析器为记录过路由的 Session 作答，其余 Session 仍由该行已存的值作答，所以从不注册解析器的部署行为不变。
 
-由该设置本身路由的子会话会记录一个持久化的 `subagent/worker-route` 标记，因此之后每次激活（包含冷恢复）都从该区段重新解析 provider、model 与 reasoningEffort，并在下一次请求上追加常规的模型切换告知。调用中自己指名路由或推理档的子会话保持所指定的值，不留标记；由其他工具行创建的子会话保持创建时的路由。
+由该设置本身路由的子会话会记录一个持久化的 `subagent/worker-route` 标记。之后的激活在父 Session 已加载时会从该区段重新解析 provider、model 与 reasoningEffort；未加载父 Session 的冷恢复会保留子会话已持久化的选择，而不是用该行默认值覆盖。路由变化会在下一次请求上追加常规的模型切换告知。调用中自己指名路由或推理档的子会话保持所指定的值，不留标记；由其他工具行创建的子会话保持创建时的路由。
 
 同一个插件持有该命名空间的写入守卫。当跟随该设置的工人正在运行时，路由改写会被拒绝：子会话每次请求都重读该设置，改写若落在请求组装期间，就会改变已在发往提供方途中的请求的路由。守卫无法区分请求组装与一轮中各请求之间的间隙，因此整个运行轮次都持有写入。已结算或失败的工人仍可续聊但不在使用中，而该设置从未路由过的工人保持创建时的路由，因此两者都不持锁——恢复流程需要的正是这个窗口。拒绝原因通过 `settings.describe()` 发布，客户端据此禁用控件，而不是自行推断该条件。
 

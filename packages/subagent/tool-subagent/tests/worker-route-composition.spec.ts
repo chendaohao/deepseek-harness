@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
@@ -144,6 +144,75 @@ async function runSpawnedDelegation(ctx: Context, parent: Agent, toolName: strin
   const { name } = result.value as { kind: 'activation'; name: string }
   return ctx.subagents.resolveName(parent, name, new AbortController().signal)
 }
+
+describe('worker-route runtime dependencies', () => {
+  it('declares the live Session registry used by child route installation', () => {
+    expect(tool.inject).toContain('sessions')
+  })
+})
+
+describe('route-settings registration replacement', () => {
+  const route = (model: string) => ({ provider: 'alpha', model, reasoningEffort: ReasoningEffortId('high') })
+
+  async function bootRegistry(): Promise<Context> {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SubagentRouteSettingsRegistry)
+    return ctx
+  }
+
+  it('moves an existing resolution to the replacement owner and resolvers', async () => {
+    const ctx = await bootRegistry()
+    try {
+      const registry = ctx.subagentRouteSettings
+      const firstOwner = { current: () => route('first-default') }
+      const secondOwner = { current: () => route('second-default') }
+      const disposeFirst = registry.register(NAMESPACES.worker, firstOwner)
+      registry.registerResolver(NAMESPACES.worker, { forSession: () => route('first-pin') })
+      const resolution = registry.resolutionOf(NAMESPACES.worker)
+      if (resolution === undefined) throw new Error('route resolution missing after registration')
+      const session = Session.create(SessionId('route-resolution-replacement'))
+
+      disposeFirst()
+      const disposeSecond = registry.register(NAMESPACES.worker, secondOwner)
+      registry.registerResolver(NAMESPACES.worker, { forSession: () => route('second-pin') })
+
+      expect(resolution.current()).toEqual(route('second-default'))
+      expect(resolution.forSession(session)).toEqual(route('second-pin'))
+      disposeSecond()
+      expect(() => resolution.current()).toThrow('has no serving row')
+      expect(resolution.forSession(session)).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps replacement registrations when stale owner and resolver disposers run', async () => {
+    const ctx = await bootRegistry()
+    try {
+      const registry = ctx.subagentRouteSettings
+      const firstOwner = { current: () => route('first-default') }
+      const secondOwner = { current: () => route('second-default') }
+      const sharedResolver = { forSession: () => route('shared-pin') }
+      const disposeFirst = registry.register(NAMESPACES.worker, firstOwner)
+      const disposeFirstResolver = registry.registerResolver(NAMESPACES.worker, sharedResolver)
+      disposeFirst()
+      registry.register(NAMESPACES.worker, secondOwner)
+      registry.registerResolver(NAMESPACES.worker, sharedResolver)
+
+      disposeFirstResolver()
+      disposeFirstResolver()
+      disposeFirst()
+
+      expect(registry.resolve(NAMESPACES.worker)).toBe(secondOwner)
+      expect(registry.resolutionOf(NAMESPACES.worker)?.forSession(
+        Session.create(SessionId('route-registration-replacement')),
+      )).toEqual(route('shared-pin'))
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+})
 
 describe('three route-settings rows compose with the registry', () => {
   it('mounts the registry and three isolated rows, resolving every namespace', async () => {

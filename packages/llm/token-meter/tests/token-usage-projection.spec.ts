@@ -101,6 +101,18 @@ function appendSummaryMeter(ctx: Context, session: Session, start: SessionSeq, e
 }
 
 describe('tokenUsage session projection', () => {
+  it('serves cumulative usage through the owning token-meter service', async () => {
+    const { ctx, session } = await harness()
+    expect(ctx.tokenMeter.tokenUsage(session)).toEqual(ZERO)
+    startStep(session, 1, 1)
+    usageChunk(session, { inputTokens: 8, outputTokens: 2, cacheReadTokens: 5 }, 1, 1)
+    expect(ctx.tokenMeter.tokenUsage(session)).toEqual({
+      uncachedInputTokens: 8,
+      outputTokens: 2,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 0,
+    })
+  })
   it('serves zero buckets without usage samples', async () => {
     const { ctx, session } = await harness()
     expect(projected(ctx, session)).toEqual(ZERO)

@@ -443,6 +443,72 @@ type SubagentDescendantListEntry = SubagentListEntry & {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxcrewformation--crewformation"></a>
+
+### `ctx.crewFormation` — `CrewFormation`
+
+One session's formation, and the per-role read the delegation rows perform.
+
+A resolver is registered for each role namespace rather than replacing the route-settings rows: the row keeps owning the settings entry, its write guard, and its stored default, and this service only answers the narrower question "did THIS session pin a route for that role".
+
+```ts cordis-catalog
+/**
+ * Read what one session recorded, for a surface that renders it.
+ * @param agent - live Agent whose formation is read.
+ * @returns the recorded formation; `routes` is null when none was recorded.
+ */
+@Remote('view') view(agent: Agent): CrewSessionView
+
+/**
+ * Read one session's formation from the Host itself.
+ * @param session - session whose formation is read.
+ * @returns the recorded formation; `routes` is null when none was recorded.
+ */
+viewOf(session: Session): CrewSessionView
+
+/**
+ * Record a session's complete route set from a combination.
+ *
+ * Every role is validated against the resolved catalog together before
+ * anything is written, so a combination the deployment cannot serve leaves
+ * the session without routes rather than with two good roles and one that
+ * fails on its first delegation.
+ *
+ * The write is a first-set-once claim, judged against the session's final
+ * record: the same combination as the recorded set succeeds idempotently
+ * without another event, and any other combination throws a `crew/conflict`
+ * RemoteError that leaves the recorded set unchanged. A racing loser of the
+ * pre-validation check re-reads the record after validation, so it settles
+ * by the same comparison instead of trusting a stale guard result.
+ * @param agent - live Agent receiving the routes.
+ * @param selection - source combination identity, name, and complete routes.
+ * @param signal - carrier cancellation, owning the call until the routes land.
+ * @returns whether this call appended the event; an idempotent replay returns false.
+ * @throws a `crew/conflict` RemoteError when the session already records a
+ *   different combination; the recorded set is untouched.
+ */
+@Remote('selectRoutes') async selectRoutes( agent: Agent, selection: CrewRouteSelection, signal: AbortSignal, ): Promise<boolean>
+
+/**
+ * Replace one role's route after a failed delegation made it unusable.
+ *
+ * The other two roles keep theirs, and the session stops matching its source
+ * combination. No delegation is retried here: the caller decides whether to
+ * resume the settled child, because an automatic retry could repeat whatever
+ * the failed request had already done.
+ * @param agent - live Agent whose role route changes.
+ * @param role - role being repaired.
+ * @param route - the route that role now uses.
+ * @param signal - carrier cancellation, owning the call until the route lands.
+ * @returns the route the session now records for that role.
+ */
+@Remote('replaceRole') async replaceRole( agent: Agent, role: CrewRole, route: CrewRoleRoute, signal: AbortSignal, ): Promise<CrewRoleRoute>
+```
+
+Types: [Agent](core.zh.md) · [Session](session.zh.md)
+
+Source: [`packages/bundle/crew/src/formation.ts`](../../packages/bundle/crew/src/formation.ts)
+
 <a id="ctxsubagentmodelselection--subagentmodelselectionconfig"></a>
 
 ### `ctx.subagentModelSelection` — `SubagentModelSelectionConfig`
@@ -457,6 +523,8 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-settings.ts`](../.
 
 Single registry the composed route-settings rows publish into, so three namespace rows never fight over one service name. Each registration is scoped to the registering row and releases its write guard on unregister.
 
+A deployment whose routes vary per Session registers one resolver per namespace beside the row. The row keeps its settings entry, its stored default, and its write guard; a resolver only answers the narrower question "did THIS Session pin a route", and the delegation tool reads the answer through SubagentRouteSettingsRegistry.resolutionOf.
+
 ```ts cordis-catalog
 /**
  * Publish one namespace's route owner and hold its write guard.
@@ -469,11 +537,35 @@ Single registry the composed route-settings rows publish into, so three namespac
 register(namespace: string, owner: SubagentRouteSettingsOwner): () => void
 
 /**
+ * Publish one Session-scoped source for a namespace that already has a row.
+ *
+ * The resolver outranks the row's stored default for the sessions that pin a
+ * route, and the row keeps serving every session that pins none. Registration
+ * order decides between several resolvers for one namespace, so a deployment
+ * registers at most one per role.
+ * @param namespace - settings namespace whose route this source narrows.
+ * @param resolver - the per-Session read.
+ * @throws when no composed row serves the namespace; the row is what a
+ *   deployment without the pin capability still resolves.
+ * @returns the disposer the registering plugin adopts into its own effect.
+ */
+registerResolver(namespace: string, resolver: SubagentRouteSessionResolver): () => void
+
+/**
  * Read the owner registered for one namespace.
  * @param namespace - settings namespace a delegation row declared.
  * @returns the owner, or undefined when no composed row serves it.
  */
 resolve(namespace: string): SubagentRouteSettingsOwner | undefined
+
+/**
+ * Read one namespace's routes as a delegation should use them.
+ * @param namespace - settings namespace a delegation row declared.
+ * @returns a live view of the row default plus session pins, or undefined when
+ *   no row serves the namespace at this call. The view follows later owner and
+ *   resolver replacement; `current()` throws if no row remains when read.
+ */
+resolutionOf(namespace: string): SubagentRouteResolution | undefined
 ```
 
 Source: [`packages/subagent/tool-subagent/src/route-settings-registry.ts`](../../packages/subagent/tool-subagent/src/route-settings-registry.ts)

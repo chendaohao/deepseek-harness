@@ -573,12 +573,13 @@ const TOOL_PACKAGES: ToolPackage[] = [
       list_subagent_models: 'packages/subagent/tool-subagent/src/list-models.ts',
       subagent: 'packages/subagent/tool-subagent/src/index.ts',
     },
-    requires: ['ctx.tools', 'ctx.subagents', 'ctx.systemPrompt', 'ctx.sessionProjections', 'ctx.llm for model discovery and selected-route validation'],
+    requires: ['ctx.tools', 'ctx.subagents', 'ctx.systemPrompt', 'ctx.sessionProjections', 'ctx.sessions', 'ctx.llm for model discovery and selected-route validation'],
     writes: ['tool/call', 'tool/result', 'child session events through the chosen provider'],
     shippedNames: ['subagent', 'subagent_fork'],
     async mount(ctx) {
       await ctx.plugin(SubagentRuntime)
       await ctx.plugin(LlmRuntime)
+      await ctx.plugin(SessionStore)
       registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(ToolSubagent, { provider: 'mock', modelDiscovery: true })
     },

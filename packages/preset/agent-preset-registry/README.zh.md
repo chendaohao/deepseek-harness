@@ -47,6 +47,8 @@ Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注�
 
 注册表不写入任何声明。`read` Remote 把一条声明的子插件列表按 entry-list YAML 方言（含 `!!js` 条件）渲染回来，供客户端展示 preset 的组成；没有任何接口接受 YAML 写回。新建 preset 或覆盖内置 preset 都是 bundle 补丁：插入一行 `@deepseek-ai/dsh-agent-preset`，或按该行 id 写覆盖补丁，再用 `plugin_manager` 安装到 profile；创造模式在对话中编写这类 bundle。
 
+声明为 `userSelectable: false` 的 preset 仅供其他组合内部使用。选择器会省略它，会话创建和 `select` 会以 `agent-preset/invalid` 拒绝它；所属组合仍可按 id 调用 `mount`。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

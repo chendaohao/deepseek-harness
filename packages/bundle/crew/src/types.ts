@@ -8,11 +8,24 @@
  * @module @deepseek-ai/dsh-crew/types
  */
 
-/** The three delegation roles a crew formation runs on. */
-export const CREW_ROLES = ['worker', 'planner', 'reviewer'] as const
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface RemoteErrorDetailsMap {
+    /** The session already records a different combination; the attempt changed nothing. */
+    'crew/conflict': {
+      /** The session that holds the other combination. */
+      readonly sessionId: SessionId
+      /** Identity the session recorded, or null once a role was replaced. */
+      readonly recordedPresetId: string | null
+      /** Identity the attempt wanted to record. */
+      readonly attemptedPresetId: string
+    }
+  }
+}
 
 /** One crew delegation role. */
-export type CrewRole = (typeof CREW_ROLES)[number]
+export type CrewRole = 'worker' | 'planner' | 'reviewer'
 
 /** One role's exact LLM route. */
 export interface CrewRoleRoute {

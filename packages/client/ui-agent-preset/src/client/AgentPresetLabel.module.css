@@ -1,4 +1,12 @@
-/* Session-header agent-preset label: static chrome, never a control. */
+/* Session-header agent-preset label, its read retry, and Crew route repair. */
+
+/* Keep the text actions beside the label without letting them squeeze it. */
+.row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
 
 .label {
   display: inline-flex;
@@ -29,6 +37,32 @@
 
 .icon {
   flex: none;
+}
+
+/* Retry and route repair share the compact text-action treatment. */
+.retry {
+  flex: none;
+  padding: 0 4px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .retry:hover {
+    background: var(--dsw-alias-fill-tsp-secondary);
+  }
+}
+
+.retry:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
 }
 
 /* The preset is passive chrome, so it sheds its name before any interactive

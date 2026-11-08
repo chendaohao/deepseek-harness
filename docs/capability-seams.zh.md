@@ -140,6 +140,9 @@ flowchart LR
   svc_subagentModelSelection["ctx.subagentModelSelection<br/>Subagent model-selection preference"]
   svc_subagentRouteSettings["ctx.subagentRouteSettings<br/>Composed route-settings owners"]
   svc_subagentWorkerRoute["ctx.subagentWorkerRoute<br/>Subagent worker-route preference"]
+  pkg_crew["crew"]
+  svc_crewFormation["ctx.crewFormation<br/>Crew session route formation"]
+  pkg_ui_agent_preset["ui-agent-preset"]
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
@@ -365,6 +368,7 @@ flowchart LR
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
   pkg_credentials --> svc_credentials
   pkg_credentials_local --> svc_credentials
+  pkg_crew --> svc_crewFormation
   pkg_cua --> svc_cuaAccess
   pkg_deepseek_account --> svc_deepseekAccount
   pkg_deepseek_account_platform --> svc_deepseekAccount
@@ -527,6 +531,7 @@ flowchart LR
   svc_credentials --> pkg_api_settings_controller
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
+  svc_crewFormation --> pkg_ui_agent_preset
   svc_cuaAccess --> pkg_cua
   svc_deepseekAccount --> pkg_api_account_controller
   svc_deepseekAccount --> pkg_llm_deepseek
@@ -715,6 +720,7 @@ flowchart LR
 | `ctx.subagentModelSelection` | `core` | [`tool-subagent`](../packages/subagent/tool-subagent) | - | [`tool-subagent`](../packages/subagent/tool-subagent) | - | 拥有默认关闭的设置命名空间；Agent 作用域的委派工具会在组合新顶层 Session 时读取它。 |
 | `ctx.subagentRouteSettings` | `core` | [`tool-subagent`](../packages/subagent/tool-subagent) | - | [`tool-subagent`](../packages/subagent/tool-subagent) | - | 按命名空间发布各组合行的路由 owner，并为每个命名空间持有写入守卫，使多行委派工具可以并列组合，而不是每行抢占同一个服务名。 |
 | `ctx.subagentWorkerRoute` | `core` | [`tool-subagent`](../packages/subagent/tool-subagent) | - | [`tool-subagent`](../packages/subagent/tool-subagent) | - | 拥有一个路由设置命名空间的默认子级路由（provider、model 与 reasoning effort）；声明该命名空间的委派工具行会在每次调用时读取它，因此设置改动无需重建工具定义即可作用于下一次委派。 |
+| `ctx.crewFormation` | `core` | [`crew`](../packages/bundle/crew) | - | `ui-agent-preset` | - | 记录每个 Crew 会话完整的角色路由组合，向委派行提供按会话解析器，并向客户端提供读取与单角色替换。 |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`api-settings-controller`](../packages/api/settings-controller), [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | 配置携带对机密信息的引用；提供方拥有实际值。消费方按操作解析，因此轮换后的凭据会在紧接着的下一次请求中生效；settings controller 提供不含实际值的视图和只写存储。 |
 | `ctx.deepseekAccount` | `seam` | [`deepseek-account`](../packages/credentials/deepseek-account) | [`deepseek-account-platform`](../packages/credentials/deepseek-account-platform) | [`api-account-controller`](../packages/api/account-controller), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | Host 负责浏览器授权和本地凭证；UI 使用方只接收不含 token 的状态。 |
 | `ctx.authorization` | `seam` | [`authorization`](../packages/credentials/authorization) | - | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | flow 由知道如何取得某份凭据的插件注册，并以其写入的记录为键；seam 拥有这段对话与"每个键同时只跑一次尝试"的生命周期，而非协议本身。 |

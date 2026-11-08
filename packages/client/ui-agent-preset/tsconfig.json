@@ -51,6 +51,9 @@
       "path": "../../api/remotes/tsconfig.client.json"
     },
     {
+      "path": "../../bundle/crew"
+    },
+    {
       "path": "../../api/session-controller/tsconfig.client.json"
     },
     {

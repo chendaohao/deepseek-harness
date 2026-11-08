@@ -224,7 +224,11 @@ export class AgentPresetRegistry extends TypertRemoteService {
     if (record === undefined) throw new RemoteError('agent-preset/not-found', `Unknown agent preset: ${wanted}`,
       { agentPreset: wanted, available: [...this.definitions.keys()] })
     const broken = await this.diagnostic(record)
-    return { id: wanted, ...(broken === undefined ? {} : { broken }) }
+    return {
+      id: wanted,
+      ...(record.config.userSelectable === undefined ? {} : { userSelectable: record.config.userSelectable }),
+      ...(broken === undefined ? {} : { broken }),
+    }
   }
 
   /** Read one declaration's child plugin list as YAML, for viewing only.
@@ -361,6 +365,7 @@ export class AgentPresetRegistry extends TypertRemoteService {
    * @param agent Target Agent.
    * @param agentPreset Requested identity.
    * @returns Committed preset identity.
+   * @throws RemoteError when the preset is unknown, internal-only, or the Session has started.
    */
   @Remote('select')
   async select(agent: Agent, agentPreset: string): Promise<string> {
@@ -369,7 +374,12 @@ export class AgentPresetRegistry extends TypertRemoteService {
       if (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0) {
         throw new RemoteError('agent-preset/locked', 'This session has already started', { sessionId: agent.id, agentPreset })
       }
-      const current = this.definitions.get(agentPreset)?.generation
+      const definition = this.definitions.get(agentPreset)
+      if (definition?.config.userSelectable === false) {
+        throw new RemoteError('agent-preset/invalid', `Agent preset "${agentPreset}" is mounted only by another preset and cannot start a session`,
+          { agentPreset, reason: 'declared userSelectable: false' })
+      }
+      const current = definition?.generation
       if (current !== undefined && this.generationFor(agent.ctx) === current
         && this.agentPresetProjectionHandle.stateOf(agent.session) === agentPreset) return agentPreset
       const preset = await this.recompose(agent.ctx, agentPreset)

@@ -1165,6 +1165,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'factory \'conversation.content\' (client-ui-conversation), so it exists while that definition is registered',
     occupants: [
+      'client-ui-agent-preset CrewChoice id \'crew-model-combination\'',
       'experimental-client-ui-forge WorktreeToggle id \'forge-panel.worktree\'',
     ],
     replaceRisk: 'none',

@@ -9,29 +9,27 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-The Models page's crew block no longer edits the three role route namespaces. It edits a **combination library**: pick a combination, pick one of the three roles, edit that role's provider, model, and reasoning effort, then save. Saving writes only the `subagent-route-presets` settings entry.
-
-A new crew session picks one combination beside the preset chip, and the pick is recorded on that session:
-
-The session's log gains this event before its first turn:
+The Models page edits a **combination library**, not the three role route namespaces. Saving writes only `subagent-route-presets`. A new Crew session copies its chosen combination onto itself before the first turn:
 
 ```jsonc
 { "type": "crew/routes-selected", "data": { "presetId": "preset-1", "presetName": "Deep review", "routes": { "worker": { … }, "planner": { … }, "reviewer": { … } } } }
 ```
 
-Each delegation row resolves its route as *the session's recorded route, else the row's stored namespace*. Consequences:
+Each delegation reads the session's recorded route, falling back to its role namespace only when none exists. Consequences:
 
-1. **Editing a combination no longer reaches a session.** A session that already recorded one keeps it. Changing models for a running formation means starting a session on another combination, or repairing one role, not editing the library.
-2. **Editing is never blocked by a running role.** The write goes to the library, which no delegation reads directly; only the per-session repair is gated.
-3. **A failed delegation is repaired one role at a time.** `crew/route-replaced` records one role's new route, keeps the other two, and stops the session matching its source combination.
-4. **A session that recorded nothing keeps reading the role namespaces**, so a deployment that never opens the picker — CLI, API, an older client — behaves as before.
+1. **Editing the library changes no existing session.** Use the session header's **Change route** action to replace one role instead.
+2. **Library writes never wait for a running role.** Only the per-session repair is gated.
+3. **A replacement affects one role.** `crew/route-replaced` preserves the other two and detaches the session from its source combination.
+4. **Sessions without a recorded combination keep their old behavior**, including sessions opened through CLI, API, or older clients.
+5. **Recording is first-set-once.** Repeating the same pick succeeds without another event. A different pick fails with `crew/conflict`, preserves the record, and leaves the staged choice visible.
+6. **Role turns have execution budgets.** `crew-formation.budget` limits steps, wall time, total tokens, and consecutive identical tool failures. Exhaustion records `crew/run-budget-exceeded`; a continuation turn receives fresh budgets.
 
-Two settings entries remain and one is added:
+The relevant settings entries are:
 
 ```yaml
-- id: subagent-route-presets        # the combination library
+- id: subagent-route-presets
   name: '@deepseek-ai/dsh-tool-subagent/route-presets'
-- id: crew-formation                # per-session ownership
+- id: crew-formation
   name: '@deepseek-ai/dsh-crew/formation'
   config:
     worker: subagent-worker-route-settings
@@ -41,8 +39,12 @@ Two settings entries remain and one is added:
 
 ## Migration
 
-1. Select `@deepseek-ai/dsh-crew` and restart: the bundle inserts the `crew-formation` row, and the block draws one combination editor instead of three role rows.
-2. Routes a user set through the old role rows are still the fallback for sessions that recorded no combination. Copy them into a combination on the Models page to make them selectable.
-3. A stored blank crew session resumes normally: it recorded no routes, so its delegations keep reading the role namespaces until it is replaced by a session started with a pick.
-4. The `crewFormation` Remote namespace (`view`, `selectRoutes`, `replaceRole`) is new; a client older than this version does not call it and needs no change. A viewer client with an endpoint allowlist must classify the three endpoints.
-5. Upgrade `@deepseek-ai/dsh-crew`, `@deepseek-ai/dsh-tool-subagent`, and the Client together: a copied session's routes are read by the delegation rows, so an older `tool-subagent` would ignore them.
+1. Select `@deepseek-ai/dsh-crew` and restart. The Crew block shows the combination editor.
+2. Existing role routes remain the fallback for sessions without a recorded combination. Save them as a combination to make them selectable.
+3. Stored blank Crew sessions resume with that fallback until a newly started session records a pick.
+4. Older clients need no `crewFormation` calls. Endpoint-allowlisting viewers must classify `view`, `selectRoutes`, and `replaceRole`.
+5. Upgrade `@deepseek-ai/dsh-crew`, `@deepseek-ai/dsh-tool-subagent`, and the Client together; older delegation rows ignore session routes.
+6. A refused first-turn combination abandons the submission echo, keeps the draft, and shows the refusal. Upgrade Client and Host together to prevent a silent fallback to role defaults.
+7. After a quota or budget stop, select and confirm a replacement in the existing session. This does not retry work; ask the commander to continue the original subagent. Raise `crew-formation.budget` only when a larger limit is intentional.
+8. Custom compositions must mount `@deepseek-ai/dsh-token-meter` before `crew-formation` and `@deepseek-ai/dsh-session` before `tool-subagent`; role budgets and child-route recovery read those services. Standard bundles already provide them.
+9. Direct session creation or `agentPresets.select` with `crew-worker`, `crew-planner`, or `crew-reviewer` fails with `agent-preset/invalid`. Start the `crew` preset and delegate to those internal roles instead.

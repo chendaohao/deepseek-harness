@@ -1,23 +1,31 @@
 // @vitest-environment jsdom
 /**
- * The two conversation-adjacent surfaces: the new-session chip naming the
- * next session's preset, and the session header's read-only label. The split
- * is the host's rule — a session's history is produced under its preset's
- * tools, so the choice is only ever offered before one starts.
+ * Conversation-adjacent surfaces: the new-session chip and combination picker
+ * naming the next session's choices, and the session header's read-only label.
+ * The split is the host's rule — a session's history is produced under its
+ * preset's tools, so the choice is only ever offered before one starts.
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import { Context } from '@deepseek-ai/cordis'
+import { bindSnapshotSelector, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionRetainInfo } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { AgentPresetLabel } from '../src/client/AgentPresetLabel.tsx'
 import type { AgentPresetLabelProps } from '../src/client/AgentPresetLabel.tsx'
 import { AgentPresetSeat } from '../src/client/AgentPresetSeat.tsx'
 import type { AgentPresetSeatProps } from '../src/client/AgentPresetSeat.tsx'
+import { CrewChoice } from '../src/client/CrewChoice.tsx'
+import type { CrewChoiceInjected, CrewChoiceProps } from '../src/client/CrewChoice.tsx'
+import { apply as applyAgentPreset, inject as agentPresetInject } from '../src/client/index.ts'
 import type { AgentPresetSettingsState } from '../src/client/settings-store.ts'
 import type { AgentPresetSeatState } from '../src/client/seat-store.ts'
+import type { CrewRoutesState } from '../src/client/crew-routes-view.ts'
+import type { CrewRouteCatalogOutcome, CrewRouteRepairOutcome } from '../src/client/CrewRouteRepairDialog.tsx'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -38,6 +46,46 @@ const SEAT_READY: AgentPresetSeatState = {
   error: null,
   introduce: false,
 }
+
+const CATALOG: Extract<CrewRouteCatalogOutcome, { ok: true }>['value'] = {
+  default: { provider: 'deepseek', model: 'worker-model', reasoningEffort: 'high' },
+  routableProviders: ['deepseek', 'tierflow'],
+  groups: [
+    {
+      id: 'deepseek', name: 'DeepSeek',
+      models: [
+        { id: 'worker-model', name: 'Worker model', reasoning: { efforts: [{ id: 'high', name: 'High' }] } },
+        { id: 'planner-model', name: 'Planner model' },
+        { id: 'reviewer-model', name: 'Reviewer model' },
+      ],
+    },
+    {
+      id: 'tierflow', name: 'Tierflow',
+      models: [{ id: 'tierflow-pro', name: 'Tierflow Pro', reasoning: { efforts: [{ id: 'max', name: 'Max' }], defaultEffort: 'max' } }],
+    },
+  ],
+  failures: [],
+}
+
+const COMBINATION_ROUTES = [
+  { namespace: 'crew-worker-route-settings', provider: 'deepseek', model: 'worker-model', reasoningEffort: 'high' },
+  { namespace: 'crew-planner-route-settings', provider: 'deepseek', model: 'planner-model', reasoningEffort: 'medium' },
+  { namespace: 'crew-reviewer-route-settings', provider: 'deepseek', model: 'reviewer-model', reasoningEffort: 'low' },
+] as const
+
+interface CombinationDocument {
+  presets: readonly {
+    id: string
+    name: string
+    routes: readonly (typeof COMBINATION_ROUTES)[number][]
+  }[]
+  lastUsedPresetId?: string
+}
+
+const COMBINATIONS: CombinationDocument['presets'] = [
+  { id: 'night', name: 'Night shift', routes: COMBINATION_ROUTES },
+  { id: 'day', name: 'Day shift', routes: COMBINATION_ROUTES },
+]
 
 const useSessionRetainInfo = <Selected,>(selector: (value: undefined) => Selected): Selected => selector(undefined)
 
@@ -82,22 +130,210 @@ function renderSeat(
 function renderLabel(
   summary: { blank: boolean; projectionValues?: { agentPreset?: string | null } } | undefined,
   roster: Partial<AgentPresetSettingsState> = {},
+  crew: CrewRoutesState = { status: 'loading' },
 ) {
   // The chip and the label read the same roster, metadata included.
   const store = createSnapshotStore<AgentPresetSettingsState>({
     ...ROSTER_READY, options: SEAT_READY.options, ...roster,
   })
   const sessions = createSnapshotStore({ byId: summary === undefined ? {} : { s1: summary } })
+  const crewRoutes = createSnapshotStore<CrewRoutesState>(crew)
   const load = vi.fn(() => Promise.resolve())
+  const loadCrewRoutes = vi.fn(() => Promise.resolve())
+  const loadCrewRouteCatalog = vi.fn(async (): Promise<CrewRouteCatalogOutcome> => ({ ok: true, value: CATALOG }))
+  const replaceCrewRole = vi.fn(async (): Promise<CrewRouteRepairOutcome> => ({ ok: true }))
   const view = render(<AgentPresetLabel {...({
     load,
+    loadCrewRoutes,
+    loadCrewRouteCatalog,
+    replaceCrewRole,
     sessionId: 's1',
     useSessions: bindSnapshotSelector(sessions),
     useAgentPresets: bindSnapshotSelector(store),
-    t: (key: keyof typeof en) => en[key],
-  } as unknown as AgentPresetLabelProps)} />)
-  return { load, view }
+    useCrewRoutes: bindSnapshotSelector(crewRoutes),
+    t: translate,
+  } as AgentPresetLabelProps)} />)
+  return { load, loadCrewRoutes, loadCrewRouteCatalog, replaceCrewRole, crewRoutes, view }
 }
+
+/** Narrow the registry's erased inject payload without an unknown cast. */
+function isCrewChoiceInjected(value: unknown): value is CrewChoiceInjected {
+  return typeof value === 'object' && value !== null && 'hooks' in value && 'load' in value && 'select' in value
+}
+
+/** Mount the real combination registration over in-memory settings and Remotes. */
+async function mountChoice(mainBlankCrew = false) {
+  const ctx = new Context()
+  await ctx.plugin(SlotRegistry).await()
+  const locale = new LocaleRuntime(ctx)
+  locale.setLocale('en')
+  ctx.provide('locale', locale)
+  const slots = ctx.get('slots') as SlotRegistry
+  slots.register({
+    name: 'root',
+    children: {
+      'settings.section': { kind: 'list', scope: 'root' },
+      'plugins.add.actions': { kind: 'list', scope: 'root' },
+      conversation: { kind: 'single', scope: 'root' },
+    },
+  } as never, () => null)
+  slots.register({
+    name: 'conversation',
+    children: {
+      'conversation.hero.options': { kind: 'list', scope: 'session-maybe' },
+      'conversation.hero.agentPreset': { kind: 'single', scope: 'session-maybe' },
+      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+    },
+  } as never, () => null)
+
+  const tools = stubConfigForm<{ enabled: boolean }>()
+  const presetSettings = stubConfigForm<{ selectedDefault: string }>()
+  const combinations = stubConfigForm<CombinationDocument>()
+  tools.publish({ status: 'ready', value: { enabled: true }, revision: 0 })
+  presetSettings.publish({ status: 'ready', value: { selectedDefault: 'standard' }, revision: 0 })
+  combinations.publish({ status: 'ready', value: { presets: COMBINATIONS }, revision: 0 })
+  ctx.provide('configForms', {
+    developerTools: { enabled: createSnapshotStore(true) },
+    get: (namespace: string) => {
+      if (namespace === 'ui-settings') return tools.scope
+      if (namespace === 'agent-preset-registry') return presetSettings.scope
+      return combinations.scope
+    },
+  } as never)
+
+  const agentPresets = {
+    list: vi.fn(() => Promise.resolve({ ok: true as const, value: { presets: [
+      { id: 'standard', isDefault: true }, { id: 'crew', isDefault: false },
+    ] } })),
+  }
+  const settings = { update: vi.fn() }
+  const session = { modelCatalog: vi.fn() }
+  const remote = { $on: vi.fn(() => () => {}), agentPresets, settings, session }
+  ctx.provide('remote', remote as never)
+  ctx.provide('remote.agentPresets', agentPresets as never)
+  ctx.provide('remote.settings', settings as never)
+  ctx.provide('remote.session', session as never)
+  const selectRoutes = vi.fn(() => Promise.resolve({ ok: true as const, value: true }))
+  ctx.provide('remote.crewFormation', { selectRoutes } as never)
+
+  const sessionId = SessionId('blank')
+  const binding = { sessionId, ctx }
+  const summary = mainBlankCrew
+    ? { id: sessionId, blank: true, projectionValues: { agentPreset: 'crew' }, retainedBy: { mainView: 1 } }
+    : undefined
+  const sessions = {
+    list: {
+      getSnapshot: () => ({ byId: summary === undefined ? {} : { blank: summary } }),
+      subscribe: () => () => {},
+    },
+    binding: (id: string) => summary !== undefined && id === 'blank' ? binding : undefined,
+    retainInfo: () => ({
+      getSnapshot: () => ({ referenceCount: 1, retainedBy: { mainView: 1 } }),
+      subscribe: () => () => {},
+    }),
+  }
+  ctx.provide('sessions', sessions as never)
+  ctx.provide('conversation', {} as never)
+  ctx.provide('uiWorkspace', { startSession: vi.fn() } as never)
+  await ctx.plugin({ inject: [...agentPresetInject], apply: applyAgentPreset }).await()
+  const entry = slots.entries('conversation.hero.options').find(candidate => candidate.options.id === 'crew-model-combination')
+  if (entry === undefined) throw new Error('Crew combination registration missing')
+  const injected: unknown = entry.inject?.()
+  if (!isCrewChoiceInjected(injected)) throw new Error('Crew combination inject payload is invalid')
+  return { ctx, combinations, injected, selectRoutes }
+}
+
+/** Render a mounted picker with the same hook binding the renderer supplies. */
+async function renderMountedChoice(injected: CrewChoiceInjected) {
+  const props = {
+    load: injected.load,
+    select: injected.select,
+    useCrewChoice: bindSnapshotSelector(injected.hooks.crewChoice),
+    useAgentPresetSeat: bindSnapshotSelector(injected.hooks.agentPresetSeat),
+    t: translate,
+  } as CrewChoiceProps
+  render(<CrewChoice {...props} />)
+  await act(async () => { await injected.load() })
+  act(() => {
+    const seat = injected.hooks.agentPresetSeat
+    seat.set({ ...seat.getSnapshot(), current: 'crew' })
+  })
+}
+
+describe('the crew combination picker', () => {
+  it('names its trigger with the current combination', async () => {
+    const mounted = await mountChoice()
+    try {
+      await renderMountedChoice(mounted.injected)
+      expect(screen.getByRole('button', {
+        name: translate('crewChoiceTriggerLabel', { name: 'Night shift' }),
+      })).toBeTruthy()
+      act(() => { mounted.injected.select('day') })
+      expect(screen.getByRole('button', {
+        name: translate('crewChoiceTriggerLabel', { name: 'Day shift' }),
+      })).toBeTruthy()
+    } finally {
+      await mounted.ctx.fiber.dispose()
+    }
+  })
+
+  it('reloads an already-mounted picker when combination settings move', async () => {
+    const mounted = await mountChoice()
+    try {
+      await renderMountedChoice(mounted.injected)
+      expect(mounted.combinations.listenerCount()).toBe(1)
+      act(() => {
+        mounted.combinations.publish({
+          value: { presets: [{ ...COMBINATIONS[0]!, name: 'Night shift revised' }, COMBINATIONS[1]!] },
+        })
+      })
+      expect(screen.getByRole('button', {
+        name: translate('crewChoiceTriggerLabel', { name: 'Night shift revised' }),
+      })).toBeTruthy()
+    } finally {
+      await mounted.ctx.fiber.dispose()
+    }
+    expect(mounted.combinations.listenerCount()).toBe(0)
+  })
+
+  it('submits the displayed combination on the first send without repeating it', async () => {
+    const mounted = await mountChoice(true)
+    try {
+      await renderMountedChoice(mounted.injected)
+      const gate = mounted.ctx.get('agentPresetSeat') as {
+        pendingApply(): Promise<{ readonly kind: string }>
+      }
+      await gate.pendingApply()
+      expect(mounted.selectRoutes).toHaveBeenCalledTimes(1)
+      expect(mounted.selectRoutes).toHaveBeenCalledWith(SessionId('blank'), expect.objectContaining({
+        presetId: 'night', presetName: 'Night shift',
+      }))
+      await gate.pendingApply()
+      expect(mounted.selectRoutes).toHaveBeenCalledTimes(1)
+    } finally {
+      await mounted.ctx.fiber.dispose()
+    }
+  })
+
+  it('applies an explicit replacement to the current Crew blank instead of only renaming it', async () => {
+    const mounted = await mountChoice(true)
+    try {
+      await renderMountedChoice(mounted.injected)
+      expect(mounted.selectRoutes).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', {
+        name: translate('crewChoiceTriggerLabel', { name: 'Night shift' }),
+      }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Day shift' }))
+      await waitFor(() => {
+        expect(mounted.selectRoutes).toHaveBeenCalledWith(SessionId('blank'), expect.objectContaining({
+          presetId: 'day', presetName: 'Day shift',
+        }))
+      })
+    } finally {
+      await mounted.ctx.fiber.dispose()
+    }
+  })
+})
 
 describe('the new-session chip', () => {
   it.each([false, true])('offers Standard, Creator and custom presets with Developer tools %s', (enabled) => {
@@ -416,19 +652,7 @@ describe('the session-header label', () => {
   it('pins the description open on tap, the only way a touch device can read it', () => {
     // The bubble paints only after ResizeObserver reports its size, and
     // getByRole skips a visibility:hidden node, so the double delivers one.
-    class BubbleObserver implements ResizeObserver {
-      constructor(private readonly callback: ResizeObserverCallback) {}
-      observe(target: Element): void {
-        const size = { inlineSize: 120, blockSize: 40 }
-        this.callback([{
-          target, contentRect: new DOMRect(0, 0, size.inlineSize, size.blockSize),
-          borderBoxSize: [size], contentBoxSize: [size], devicePixelContentBoxSize: [size],
-        }], this)
-      }
-      unobserve(): void {}
-      disconnect(): void {}
-    }
-    vi.stubGlobal('ResizeObserver', BubbleObserver)
+    stubBubbleObserver()
     vi.stubGlobal('matchMedia', vi.fn(() => ({
       matches: false, addEventListener: () => {}, removeEventListener: () => {},
     })))
@@ -460,5 +684,227 @@ describe('the session-header label', () => {
     await act(async () => { await Promise.resolve() })
     expect(absent.load).not.toHaveBeenCalled()
     expect(unknown.load).not.toHaveBeenCalled()
+  })
+})
+
+const CREW_SESSION = { blank: false, projectionValues: { agentPreset: 'crew' } }
+
+/** A recorded combination covering all three roles with distinguishable routes. */
+const RECORDED: Extract<CrewRoutesState, { status: 'ready-with-routes' }> = {
+  status: 'ready-with-routes',
+  presetName: 'Night shift',
+  routes: [
+    { role: 'worker', provider: 'deepseek', model: 'worker-model', reasoningEffort: 'high' },
+    { role: 'planner', provider: 'deepseek', model: 'planner-model', reasoningEffort: 'medium' },
+    { role: 'reviewer', provider: 'deepseek', model: 'reviewer-model', reasoningEffort: 'low' },
+  ],
+}
+
+/** The three bubble lines a recorded combination produces. */
+const ROUTE_LINES = [
+  { role: 'crewRoutesWorker', model: 'worker-model', effort: 'high' },
+  { role: 'crewRoutesPlanner', model: 'planner-model', effort: 'medium' },
+  { role: 'crewRoutesReviewer', model: 'reviewer-model', effort: 'low' },
+].map(entry => translate('crewRoutesRoute', {
+  role: en[entry.role as keyof typeof en],
+  provider: 'deepseek',
+  model: entry.model,
+  reasoningEffort: entry.effort,
+}))
+
+/** Install the ResizeObserver double that makes the shared Tooltip paintable. */
+function stubBubbleObserver(): void {
+  class BubbleObserver implements ResizeObserver {
+    constructor(private readonly callback: ResizeObserverCallback) {}
+    observe(target: Element): void {
+      const size = { inlineSize: 120, blockSize: 40 }
+      this.callback([{
+        target, contentRect: new DOMRect(0, 0, size.inlineSize, size.blockSize),
+        borderBoxSize: [size], contentBoxSize: [size], devicePixelContentBoxSize: [size],
+      }], this)
+    }
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  vi.stubGlobal('ResizeObserver', BubbleObserver)
+}
+
+/**
+ * Make the bubble paintable: it shows only after ResizeObserver reports a size.
+ * @param coarse - whether the primary input reports no hover (a touch device).
+ */
+function pinBubble(coarse = false): void {
+  stubBubbleObserver()
+  vi.stubGlobal('matchMedia', vi.fn(() => ({
+    matches: coarse, addEventListener: () => {}, removeEventListener: () => {},
+  })))
+}
+
+describe('the crew session-header label', () => {
+  it('says the recorded combination is still being read while the read is in flight', async () => {
+    const { load, loadCrewRoutes } = renderLabel(CREW_SESSION, {}, { status: 'loading' })
+
+    await waitFor(() => { expect(loadCrewRoutes).toHaveBeenCalledTimes(1) })
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('img', { name: en.crewRoutesLoading })).toBeTruthy()
+    expect(screen.getByText(en.crewRoutesLoading)).toBeTruthy()
+    // Reading is not a result: no combination is claimed and nothing is offered.
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('names the recorded combination and lists every role route in the bubble', () => {
+    pinBubble()
+    try {
+      renderLabel(CREW_SESSION, {}, RECORDED)
+
+      const applied = translate('crewRoutesApplied', { name: 'Night shift' })
+      const anchor = screen.getByRole('img', { name: applied })
+      expect(anchor.textContent).toBe(applied)
+      expect(screen.getByRole('button', { name: en.crewRouteRepairAction })).toBeTruthy()
+
+      fireEvent.click(anchor)
+      const bubble = screen.getByRole('tooltip')
+      // All three roles: a combination the session did not record would be a claim.
+      for (const line of ROUTE_LINES) expect(bubble.textContent).toContain(line)
+      expect(bubble.textContent).toContain(applied)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('says the roles run their own defaults when the session recorded no combination', () => {
+    renderLabel(CREW_SESSION, {}, { status: 'ready-without-routes' })
+
+    expect(screen.getByRole('img', { name: en.crewRoutesUnapplied })).toBeTruthy()
+    expect(screen.getByText(en.crewRoutesUnapplied)).toBeTruthy()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('reports a deployment without the crew formation instead of a combination', () => {
+    renderLabel(CREW_SESSION, {}, { status: 'unavailable' })
+
+    expect(screen.getByRole('img', { name: en.crewRoutesUnavailable })).toBeTruthy()
+    expect(screen.getByText(en.crewRoutesUnavailable)).toBeTruthy()
+    // An unreadable deployment never wears the applied face.
+    expect(screen.queryByText(translate('crewRoutesApplied', { name: 'Night shift' }))).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('reports a failed read and re-reads only when the retry is used', async () => {
+    const { loadCrewRoutes, crewRoutes } = renderLabel(CREW_SESSION, {}, {
+      status: 'error', message: 'gateway disconnected',
+    })
+
+    expect(screen.getByRole('img', { name: en.crewRoutesError })).toBeTruthy()
+    await waitFor(() => { expect(loadCrewRoutes).toHaveBeenCalledTimes(1) })
+
+    // The retry is the only interaction: it re-reads, it never changes the session.
+    fireEvent.click(screen.getByRole('button', { name: en.crewRoutesRetry }))
+    expect(loadCrewRoutes).toHaveBeenCalledTimes(2)
+
+    // Whatever the retry finds is what the header then says.
+    act(() => { crewRoutes.set({ status: 'ready-without-routes' }) })
+    expect(screen.getByRole('img', { name: en.crewRoutesUnapplied })).toBeTruthy()
+  })
+
+  it('keeps a long combination name whole for assistive technology and the bubble', () => {
+    pinBubble()
+    try {
+      const name = 'night-shift-with-a-very-long-combination-name-that-the-header-cannot-fit'
+      renderLabel(CREW_SESSION, {}, { ...RECORDED, presetName: name })
+
+      const applied = translate('crewRoutesApplied', { name })
+      // The visible span may ellipsize in CSS, but neither the DOM text nor the
+      // accessible name is cut: both carry the whole name.
+      const anchor = screen.getByRole('img', { name: applied })
+      expect(anchor.textContent).toBe(applied)
+
+      fireEvent.click(anchor)
+      expect(screen.getByRole('tooltip').textContent).toContain(applied)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('pins the role routes open on tap, the only way a touch device can read them', () => {
+    pinBubble(true)
+    try {
+      renderLabel(CREW_SESSION, {}, RECORDED)
+
+      // The native title attribute never shows on touch; the pinned bubble is
+      // the mobile-readable explanation (responsive UI: tap-to-show).
+      expect(screen.queryByRole('tooltip')).toBeNull()
+      fireEvent.click(screen.getByRole('img', {
+        name: translate('crewRoutesApplied', { name: 'Night shift' }),
+      }))
+      const bubble = screen.getByRole('tooltip')
+      for (const line of ROUTE_LINES) expect(bubble.textContent).toContain(line)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
+
+describe('the Crew route repair dialog', () => {
+  it('replaces only the selected role with the chosen catalog route', async () => {
+    const { replaceCrewRole } = renderLabel(CREW_SESSION, {}, RECORDED)
+    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    fireEvent.change(await screen.findByLabelText(en.crewRouteRepairRole), { target: { value: 'reviewer' } })
+    fireEvent.change(screen.getByLabelText(en.crewRouteRepairProvider), { target: { value: 'tierflow' } })
+    expect(screen.getByLabelText<HTMLSelectElement>(en.crewRouteRepairModel).value).toBe('tierflow-pro')
+    expect(screen.getByLabelText<HTMLSelectElement>(en.crewRouteRepairEffort).value).toBe('max')
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.crewRouteRepairConfirm }))
+    await waitFor(() => {
+      expect(replaceCrewRole).toHaveBeenCalledWith('reviewer', {
+        provider: 'tierflow', model: 'tierflow-pro', reasoningEffort: 'max',
+      })
+    })
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(replaceCrewRole).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a pending save completed after an earlier dialog was closed and reopened', async () => {
+    const { replaceCrewRole } = renderLabel(CREW_SESSION, {}, RECORDED)
+    const firstSave = Promise.withResolvers<CrewRouteRepairOutcome>()
+    replaceCrewRole.mockReturnValueOnce(firstSave.promise)
+    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    fireEvent.change(await screen.findByLabelText(en.crewRouteRepairProvider), { target: { value: 'tierflow' } })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.crewRouteRepairConfirm }))
+    expect(replaceCrewRole).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    expect(await screen.findByLabelText(en.crewRouteRepairProvider)).toBeTruthy()
+
+    await act(async () => {
+      firstSave.resolve({ ok: true })
+      await firstSave.promise
+    })
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByLabelText(en.crewRouteRepairProvider)).toBeTruthy()
+  })
+
+  it('keeps the selected route visible when the Host refuses the replacement', async () => {
+    const { replaceCrewRole } = renderLabel(CREW_SESSION, {}, RECORDED)
+    replaceCrewRole.mockResolvedValueOnce({ ok: false, message: 'quota exhausted' })
+    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    fireEvent.change(await screen.findByLabelText(en.crewRouteRepairProvider), { target: { value: 'tierflow' } })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.crewRouteRepairConfirm }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', translate('crewRouteRepairFailed', { message: 'quota exhausted' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByLabelText<HTMLSelectElement>(en.crewRouteRepairProvider).value).toBe('tierflow')
+    expect(screen.getByLabelText<HTMLSelectElement>(en.crewRouteRepairModel).value).toBe('tierflow-pro')
+  })
+
+  it('retries a failed catalog read without losing the open dialog', async () => {
+    const { loadCrewRouteCatalog } = renderLabel(CREW_SESSION, {}, RECORDED)
+    loadCrewRouteCatalog.mockResolvedValueOnce({ ok: false, message: 'offline' })
+    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    expect((await screen.findByRole('alert')).textContent).toContain(translate('crewRouteRepairCatalogFailed', { message: 'offline' }))
+    fireEvent.click(screen.getByRole('button', { name: en.crewRoutesRetry }))
+    expect(await screen.findByLabelText(en.crewRouteRepairProvider)).toBeTruthy()
+    expect(loadCrewRouteCatalog).toHaveBeenCalledTimes(2)
   })
 })

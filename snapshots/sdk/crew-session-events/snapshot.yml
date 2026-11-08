@@ -1,0 +1,11 @@
+version: 1
+scenario: crew-session-events
+profile: sdk
+composition: sdk-upload
+recording: authored
+input:
+  task: Reply with exactly CREW_EVENTS_OK and nothing else.
+replay:
+  override: true
+header:
+  class: sdk-upload

@@ -138,6 +138,9 @@ flowchart LR
   svc_subagentModelSelection["ctx.subagentModelSelection<br/>Subagent model-selection preference"]
   svc_subagentRouteSettings["ctx.subagentRouteSettings<br/>Composed route-settings owners"]
   svc_subagentWorkerRoute["ctx.subagentWorkerRoute<br/>Subagent worker-route preference"]
+  pkg_crew["crew"]
+  svc_crewFormation["ctx.crewFormation<br/>Crew session route formation"]
+  pkg_ui_agent_preset["ui-agent-preset"]
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
@@ -363,6 +366,7 @@ flowchart LR
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
   pkg_credentials --> svc_credentials
   pkg_credentials_local --> svc_credentials
+  pkg_crew --> svc_crewFormation
   pkg_cua --> svc_cuaAccess
   pkg_deepseek_account --> svc_deepseekAccount
   pkg_deepseek_account_platform --> svc_deepseekAccount
@@ -525,6 +529,7 @@ flowchart LR
   svc_credentials --> pkg_api_settings_controller
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
+  svc_crewFormation --> pkg_ui_agent_preset
   svc_cuaAccess --> pkg_cua
   svc_deepseekAccount --> pkg_api_account_controller
   svc_deepseekAccount --> pkg_llm_deepseek
@@ -713,6 +718,7 @@ flowchart LR
 | `ctx.subagentModelSelection` | `core` | [`tool-subagent`](../packages/subagent/tool-subagent) | - | [`tool-subagent`](../packages/subagent/tool-subagent) | - | Owns the default-off settings namespace that Agent-scoped delegation tools sample when composing a new top-level Session. |
 | `ctx.subagentRouteSettings` | `core` | [`tool-subagent`](../packages/subagent/tool-subagent) | - | [`tool-subagent`](../packages/subagent/tool-subagent) | - | Publishes one route owner per composed namespace and holds each namespace's write guard, so several delegation rows compose beside each other instead of every row claiming one service name. |
 | `ctx.subagentWorkerRoute` | `core` | [`tool-subagent`](../packages/subagent/tool-subagent) | - | [`tool-subagent`](../packages/subagent/tool-subagent) | - | Owns one route-settings namespace and its default child route — provider, model, and reasoning effort — that the delegation row declaring that namespace reads on every call, so a settings edit reaches the next delegation without rebuilding a tool definition. |
+| `ctx.crewFormation` | `core` | [`crew`](../packages/bundle/crew) | - | `ui-agent-preset` | - | Records each Crew session's complete role-route combination, serves per-session resolvers to delegation rows, and exposes reads and single-role replacement to the client. |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`api-settings-controller`](../packages/api/settings-controller), [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the settings controller exposes value-free views and write-only storage. |
 | `ctx.deepseekAccount` | `seam` | [`deepseek-account`](../packages/credentials/deepseek-account) | [`deepseek-account-platform`](../packages/credentials/deepseek-account-platform) | [`api-account-controller`](../packages/api/account-controller), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | The Host owns browser authorization and local credentials; UI consumers receive state without tokens. |
 | `ctx.authorization` | `seam` | [`authorization`](../packages/credentials/authorization) | - | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | Flows are registered by the plugin that knows how to obtain one credential and keyed by the record they write; the seam owns the conversation and the one-attempt-per-key lifecycle, never the protocol. |

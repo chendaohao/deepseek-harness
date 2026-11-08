@@ -81,6 +81,16 @@ export interface PresetCompanion {
    * @returns a refusal message, or undefined once the choice landed.
    */
   afterApply(sessionId: SessionId, presetId: string): Promise<string | undefined>
+  /**
+   * Resolve the companion's remaining displayed choice before the first prompt.
+   * This hook runs after the composition and any explicit stage have settled;
+   * unlike {@link afterApply}, it may consume a choice that was only displayed.
+   * Implementations must make an already-recorded Session a no-op.
+   * @param sessionId - current blank Session preparing its first prompt.
+   * @param presetId - composition already recorded on that Session.
+   * @returns a refusal message, or undefined when the choice landed or nothing remained.
+   */
+  beforeSend?(sessionId: SessionId, presetId: string): Promise<string | undefined>
 }
 
 /** Stages the next session's preset and applies it when one appears. */
@@ -213,7 +223,12 @@ export class AgentPresetSeatController {
     expectedSessionId: SessionSummary['id'],
     id: string,
   ): Promise<string | undefined> {
-    while (this.pendingSelection !== undefined) await this.pendingSelection
+    for (;;) {
+      const pending = this.pendingSelection
+      const applying = this.applying
+      if (pending === undefined && applying === null) break
+      await (pending ?? applying)
+    }
     const session = this.currentSession()
     if (session === undefined || !session.blank || session.id !== expectedSessionId) return undefined
     this.stage(id)
@@ -240,8 +255,9 @@ export class AgentPresetSeatController {
     // One in-flight apply owns the stage: a list update arriving while it runs
     // must not start a second select. The reconciliation path awaits
     // pendingSelection, which settles after busy clears, so it still applies a
-    // stage made during the flight.
-    if (this.store.getSnapshot().busy) return UNCHANGED
+    // stage made during the flight. `applying` also covers the settlement
+    // interval after busy clears.
+    if (this.applying !== null || this.store.getSnapshot().busy) return UNCHANGED
     const staged = this.staged.id
     const session = this.currentSession()
     if (staged === undefined) {
@@ -250,32 +266,33 @@ export class AgentPresetSeatController {
       if (current !== shown.current) this.set({ current })
       return UNCHANGED
     }
-    if (session === undefined) return { kind: 'staged' }
+    if (session === undefined) {
+      this.lastOutcome = { kind: 'staged' }
+      return this.lastOutcome
+    }
     // A started session's history was produced under its own composition; the
     // host refuses the swap, so the stage is no longer meaningful.
     if (!session.blank) {
       this.clearStage()
-      return UNCHANGED
+      this.lastOutcome = UNCHANGED
+      return this.lastOutcome
     }
     // Both paths are flights: the send path waits on `this.applying`, and a
     // companion's routes must land inside that wait or the first turn runs
-    // before them.
+    // before them. The already-composed path owns the same busy interval so a
+    // concurrent list update cannot enter its companion twice.
     const alreadyComposed = presetOf(session) === staged
+    if (alreadyComposed) {
+      this.clearStage()
+      this.set({ busy: true, error: null })
+    }
     const run = alreadyComposed
       // The composition is already on this blank session, so there is no select
       // to make — but a companion still has its own choice to record, and this
       // is the only point that knows both the session and the composition.
       ? this.runCompanions(staged, session, { kind: 'unchanged' })
       : this.runApply(staged, session)
-    this.applying = run
-    try {
-      return await run
-    } finally {
-      // Single-flight: no other apply can have started while this one owned
-      // the flag (the while-loop gate above admits exactly one), so the flag
-      // always belongs to this run at settlement.
-      this.applying = null
-    }
+    return await this.track(run, alreadyComposed)
   }
 
   /**
@@ -286,6 +303,26 @@ export class AgentPresetSeatController {
    */
   private applying: Promise<AgentPresetApplyOutcome> | null = null
 
+  /** Publish one flight's outcome and release its ownership at the same settlement point. */
+  private track(run: Promise<AgentPresetApplyOutcome>, clearBusy: boolean): Promise<AgentPresetApplyOutcome> {
+    const flight = (async (): Promise<AgentPresetApplyOutcome> => {
+      try {
+        const settled = await run
+        // Direct callers and later send gates read the same settled outcome.
+        this.lastOutcome = settled
+        return settled
+      } finally {
+        this.applying = null
+        if (clearBusy) this.set({ busy: false })
+      }
+    })()
+    this.applying = flight
+    return flight
+  }
+
+  /** Outcome of the most recent settled apply, so the send path reads the result without parsing error text. */
+  private lastOutcome: AgentPresetApplyOutcome | undefined
+
   /**
    * Resolve once no staged pick awaits application: the in-flight apply (if
    * any) has settled, and a stage that survived it has been applied or found
@@ -293,22 +330,36 @@ export class AgentPresetSeatController {
    * prompt, so a pick made just before the first send composes the session
    * before its first turn instead of racing it (the host locks a started
    * session's preset). Terminates even when no session exists to apply to —
-   * the stage then stays for the list-change applier.
-   * @returns once the staged pick is applied, dropped, or unservable.
+   * the stage then stays for the list-change applier. Once the stage settles,
+   * companion `beforeSend` hooks resolve any displayed choice on the current
+   * blank composition before the first prompt.
+   * @returns the last settled attempt's outcome, or `unchanged` when no apply
+   *   has settled.
    */
-  async pendingApply(): Promise<void> {
+  async pendingApply(): Promise<AgentPresetApplyOutcome> {
     for (;;) {
       if (this.applying !== null) {
         await this.applying
         continue
       }
-      if (this.staged.id === undefined) return
+      if (this.staged.id === undefined) {
+        const current = this.lastOutcome ?? UNCHANGED
+        if (current.kind === 'refused') return current
+        const session = this.currentSession()
+        if (session === undefined || !session.blank) return current
+        const presetId = presetOf(session)
+        if (presetId === undefined || !this.companions.some(companion => companion.beforeSend !== undefined)) {
+          return current
+        }
+        this.set({ busy: true, error: null })
+        return await this.track(this.runCompanions(presetId, session, current, 'beforeSend'), true)
+      }
       const before = this.staged.id
-      await this.apply()
+      const settled = await this.apply()
       // apply() consumes a stage it serves (applied or dropped); a stage that
       // survived means no session exists to serve it yet, so the caller may
       // proceed — the list-change applier owns that case.
-      if (this.staged.id === before) return
+      if (this.staged.id === before) return settled
     }
   }
 
@@ -360,12 +411,14 @@ export class AgentPresetSeatController {
    * @param presetId - the composition the session now carries.
    * @param session - the blank session the companion records its choice on.
    * @param whenNone - outcome to report when no companion has anything to record.
+   * @param phase - whether this is the immediate explicit apply or send preparation.
    * @returns the applied outcome, or the companion's refusal.
    */
   private async runCompanions(
     presetId: string,
     session: Pick<SessionSummary, 'id' | 'blank' | 'projectionValues'>,
     whenNone: AgentPresetApplyOutcome,
+    phase: 'afterApply' | 'beforeSend' = 'afterApply',
   ): Promise<AgentPresetApplyOutcome> {
     if (this.companions.length === 0) return whenNone
     const refusalOf = (reason: string): AgentPresetApplyOutcome => {
@@ -376,7 +429,9 @@ export class AgentPresetSeatController {
       return { kind: 'refused', reason }
     }
     for (const companion of this.companions) {
-      const refusal = await companion.afterApply(session.id, presetId)
+      const hook = companion[phase]
+      if (hook === undefined) continue
+      const refusal = await hook.call(companion, session.id, presetId)
       if (refusal !== undefined) return refusalOf(refusal)
     }
     return { kind: 'applied' }

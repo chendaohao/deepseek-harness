@@ -36,6 +36,12 @@ function developerTools(enabled = true): { configForms: { developerTools: { enab
   return { configForms: { developerTools: { enabled: createSnapshotStore(enabled) } } }
 }
 
+/** Invoke one erased Slot inject payload with its concrete test-facing type. */
+function callInjected<Result>(inject: unknown, ...args: unknown[]): Result {
+  if (typeof inject !== 'function') throw new Error('Slot inject is not a function')
+  return inject(...args) as Result
+}
+
 const ROSTER_ONE = {
   ok: true as const,
   value: {
@@ -141,7 +147,13 @@ async function bench(options: {
     },
 
   }
-  const remote = new TestRemote(ctx, { settings })
+  const session = {
+    modelCatalog: () => Promise.resolve({ ok: true as const, value: {
+      default: { provider: 'deepseek', model: 'worker-model', reasoningEffort: 'high' },
+      routableProviders: ['deepseek'], groups: [], failures: [],
+    } }),
+  }
+  const remote = new TestRemote(ctx, { settings, session })
   // The roster and the switch are the AgentPresets Remote namespace; the
   // shared double carries no generated namespaces, so this spec stages its
   // own. Registered twice on purpose: the nested key satisfies the plugin's
@@ -348,7 +360,7 @@ describe('ui-agent-preset apply', () => {
 
   it('declares the services it uses', () => {
     expect(inject).toEqual([
-      'slots', 'sessions', 'locale', 'remote', 'remote.agentPresets', 'remote.settings', 'configForms',
+      'slots', 'sessions', 'locale', 'remote', 'remote.session', 'remote.agentPresets', 'remote.settings', 'configForms',
     ])
   })
 
@@ -732,8 +744,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('sessions', sessions as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
-    const injectSeat = slots.entries('conversation.hero.agentPreset')[0]!
-      .inject as unknown as (sessionId?: SessionId) => AgentPresetSeatInjected
+    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const chip = injectSeat()
 
     await chip.load()
@@ -1076,12 +1087,93 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('sessions', sessionsDouble(ctx, { byId: {} }) as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
-    const label = (slots.entries('conversation.session.header.actions')[0]!
-      .inject as unknown as () => AgentPresetLabelInjected)()
+    const label = callInjected<AgentPresetLabelInjected>(slots.entries('conversation.session.header.actions')[0]!.inject)
 
     await label.load()
 
     expect(label.hooks.agentPresets.getSnapshot().options).toEqual([{ id: 'standard' }])
+  })
+
+  it('mounts without the crew formation and reports the combination as unavailable', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    ctx.provide('sessions', sessionsDouble(ctx, {
+      current: 's1',
+      byId: { s1: { id: 's1', blank: false, projectionValues: { agentPreset: 'crew' } } },
+    }) as never)
+    ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
+    const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply })
+    await fiber.await()
+
+    const label = callInjected<AgentPresetLabelInjected>(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
+    // The crew bundle is what mounts that namespace. A deployment without it
+    // still mounts this plugin, and the label says the formation is not served
+    // rather than leaving the session's combination looking unread.
+    expect(slots.entries('conversation.hero.agentPreset')).toHaveLength(1)
+    expect(label.hooks.crewRoutes.getSnapshot()).toEqual({ status: 'unavailable' })
+    await label.loadCrewRoutes()
+    expect(label.hooks.crewRoutes.getSnapshot()).toEqual({ status: 'unavailable' })
+    conversation()
+    await fiber.dispose()
+  })
+
+  it('reads a session’s recorded combination, and stops reading once the plugin is disposed', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const reads: SessionId[] = []
+    // The Host answers from the session's own record; this double proves the
+    // label asks for the session it is bound to and stops asking after disposal.
+    const crewFormation = {
+      view: (sessionId: SessionId) => {
+        reads.push(sessionId)
+        return Promise.resolve({
+          ok: true as const,
+          value: {
+            sessionId,
+            presetId: 'night-shift',
+            presetName: 'Night shift',
+            routes: [
+              { role: 'worker' as const, provider: 'deepseek', model: 'worker-model', reasoningEffort: 'high' },
+              { role: 'planner' as const, provider: 'deepseek', model: 'planner-model', reasoningEffort: 'medium' },
+              { role: 'reviewer' as const, provider: 'deepseek', model: 'reviewer-model', reasoningEffort: 'low' },
+            ],
+            replaced: [],
+          },
+        })
+      },
+    }
+    ctx.provide('remote.crewFormation', crewFormation as never)
+    ctx.provide('sessions', sessionsDouble(ctx, {
+      current: 's1',
+      byId: { s1: { id: 's1', blank: false, projectionValues: { agentPreset: 'crew' } } },
+    }) as never)
+    ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
+    const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply })
+    await fiber.await()
+
+    const label = callInjected<AgentPresetLabelInjected>(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
+    await label.loadCrewRoutes()
+
+    expect(reads).toEqual([SessionId('s1')])
+    expect(label.hooks.crewRoutes.getSnapshot()).toEqual({
+      status: 'ready-with-routes',
+      presetName: 'Night shift',
+      routes: [
+        { role: 'worker', provider: 'deepseek', model: 'worker-model', reasoningEffort: 'high' },
+        { role: 'planner', provider: 'deepseek', model: 'planner-model', reasoningEffort: 'medium' },
+        { role: 'reviewer', provider: 'deepseek', model: 'reviewer-model', reasoningEffort: 'low' },
+      ],
+    })
+
+    await fiber.dispose()
+    await label.loadCrewRoutes()
+    // The plugin ended every read it started: a late surface must not revive.
+    expect(reads).toHaveLength(1)
+    conversation()
   })
 
   it('stages the creator preset and starts a session from the section', async () => {
@@ -1094,8 +1186,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('uiWorkspace', uiWorkspace as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
     const section = (slots.entries('settings.section')[0]!.inject as object as () => AgentPresetSectionInjected)()
-    const injectSeat = slots.entries('conversation.hero.agentPreset')[0]!
-      .inject as unknown as (sessionId?: SessionId) => AgentPresetSeatInjected
+    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const seat = injectSeat()
 
     await section.load()
@@ -1134,8 +1225,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('uiWorkspace', uiWorkspace as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
     const section = (slots.entries('settings.section')[0]!.inject as object as () => AgentPresetSectionInjected)()
-    const injectSeat = slots.entries('conversation.hero.agentPreset')[0]!
-      .inject as unknown as (sessionId?: SessionId) => AgentPresetSeatInjected
+    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const seat = injectSeat(SessionId('s1'))
 
     await seat.load()
@@ -1182,8 +1272,7 @@ describe('ui-agent-preset apply', () => {
     // over to: a stage the seat's own apply has not served yet is applied by
     // the gate once the session appears — which is what keeps the first prompt
     // behind a hero-chip pick.
-    const injectSeat = slots.entries('conversation.hero.agentPreset')[0]!
-      .inject as unknown as (sessionId?: SessionId) => AgentPresetSeatInjected
+    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const chip = injectSeat(undefined)
     await chip.load()
     await chip.select('minimal')
@@ -1218,8 +1307,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
     const section = (slots.entries('settings.section')[0]!.inject as object as () => AgentPresetSectionInjected)()
-    const injectSeat = slots.entries('conversation.hero.agentPreset')[0]!
-      .inject as unknown as (sessionId?: SessionId) => AgentPresetSeatInjected
+    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const unboundSeat = injectSeat()
 
     await section.load()
@@ -1740,5 +1828,69 @@ describe('AgentPresetSeatController apply outcomes', () => {
     expect(controller.store.getSnapshot()).toMatchObject({
       current: 'standard', busy: false, error: { preset: { id: 'minimal' }, reason },
     })
+  })
+})
+
+
+describe('Crew route repair Remote actions', () => {
+  it('replaces the bound session role, refreshes its record, and does not resume work', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    ctx.provide('sessions', sessionsDouble(ctx, {
+      current: 's1',
+      byId: { s1: { id: 's1', blank: false, projectionValues: { agentPreset: 'crew' } } },
+    }) as never)
+    ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
+    const replacements: { sessionId: SessionId; role: string; route: unknown }[] = []
+    const reads: SessionId[] = []
+    let refused = true
+    let worker = { provider: 'deepseek', model: 'worker-model', reasoningEffort: 'high' }
+    const crewFormation = {
+      view: (sessionId: SessionId) => {
+        reads.push(sessionId)
+        return Promise.resolve({ ok: true as const, value: {
+          sessionId,
+          presetId: null,
+          presetName: 'Night shift',
+          routes: [
+            { role: 'worker' as const, ...worker },
+            { role: 'planner' as const, provider: 'deepseek', model: 'planner-model', reasoningEffort: 'medium' },
+            { role: 'reviewer' as const, provider: 'deepseek', model: 'reviewer-model', reasoningEffort: 'low' },
+          ],
+          replaced: ['worker' as const],
+        } })
+      },
+      replaceRole: (sessionId: SessionId, role: 'worker', route: typeof worker) => {
+        replacements.push({ sessionId, role, route })
+        if (refused) return Promise.resolve({ ok: false as const, error: new RemoteError('gateway/internal', 'route refused', {}) })
+        worker = { ...route }
+        return Promise.resolve({ ok: true as const, value: { ...route } })
+      },
+    }
+    ctx.provide('remote.crewFormation', crewFormation as never)
+    const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply })
+    await fiber.await()
+    const label = callInjected<AgentPresetLabelInjected>(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
+    const catalog = await label.loadCrewRouteCatalog()
+    expect(catalog).toMatchObject({ ok: true, value: { routableProviders: ['deepseek'] } })
+
+    const replacement = { provider: 'tierflow', model: 'tierflow-pro', reasoningEffort: 'max' }
+    expect(await label.replaceCrewRole('worker', replacement)).toEqual({ ok: false, message: 'route refused' })
+    expect(reads).toEqual([])
+    refused = false
+    expect(await label.replaceCrewRole('worker', replacement)).toEqual({ ok: true })
+    expect(replacements).toEqual([
+      { sessionId: SessionId('s1'), role: 'worker', route: replacement },
+      { sessionId: SessionId('s1'), role: 'worker', route: replacement },
+    ])
+    expect(reads).toEqual([SessionId('s1')])
+    const state = label.hooks.crewRoutes.getSnapshot()
+    expect(state.status).toBe('ready-with-routes')
+    expect(state.status === 'ready-with-routes' ? state.routes.find(route => route.role === 'worker') : undefined)
+      .toEqual({ role: 'worker', ...replacement })
+    await fiber.dispose()
+    conversation()
   })
 })

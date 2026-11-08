@@ -497,6 +497,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns one route-settings namespace and its default child route — provider, model, and reasoning effort — that the delegation row declaring that namespace reads on every call, so a settings edit reaches the next delegation without rebuilding a tool definition.',
   },
   {
+    key: 'crewFormation',
+    pkg: 'crew',
+    title: 'Crew session route formation',
+    mode: 'core',
+    consumers: ['ui-agent-preset'],
+    note: 'Records each Crew session\'s complete role-route combination, serves per-session resolvers to delegation rows, and exposes reads and single-role replacement to the client.',
+  },
+  {
     key: 'credentials',
     pkg: 'credentials',
     title: 'Credential seam',

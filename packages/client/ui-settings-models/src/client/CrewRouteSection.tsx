@@ -331,7 +331,9 @@ function CrewPresetRow({ block, served, copy, t }: {
         value: next.presets.map(preset => ({ ...preset, routes: preset.routes.map(route => ({ ...route })) })),
       },
       ...next.lastUsedPresetId === undefined
-        ? []
+        ? presets.value?.lastUsedPresetId === undefined
+          ? []
+          : [{ op: 'unset' as const, path: ['lastUsedPresetId'] }]
         : [{ op: 'set' as const, path: ['lastUsedPresetId'], value: next.lastUsedPresetId }],
     ])
     setBusy(false)

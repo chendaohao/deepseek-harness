@@ -39,6 +39,12 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../core/agent-loop"
+    },
+    {
+      "path": "../../test-support/agent-loop-testkit"
+    },
+    {
       "path": "../../core/session"
     },
     {
@@ -49,6 +55,9 @@
     },
     {
       "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../llm/token-meter"
     }
   ]
 }

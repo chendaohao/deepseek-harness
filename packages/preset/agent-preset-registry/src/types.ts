@@ -12,9 +12,9 @@ export interface AgentPresetRow {
   readonly isDefault: boolean
   /**
    * Whether a person may pick this preset for a new session. Absence means
-   * yes; a preset declared `userSelectable: false` exists only to be mounted
-   * by another preset, so each human-facing picker filters it out while the
-   * internal mount that names it by id keeps working.
+   * yes. Pickers omit `userSelectable: false` presets, and the Host refuses
+   * them on session creation and selection; composition-owned mounts by id
+   * keep working.
    */
   readonly userSelectable?: boolean
   /** Display name the preset published. */

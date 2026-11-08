@@ -262,6 +262,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Select a preset before a session starts its first turn. A Session whose log records the preset and whose Agent runs its current revision keeps its composition; nothing is logged or announced.',
         parameters: [{ name: 'agent', description: 'Target Agent.' }, { name: 'agentPreset', description: 'Requested identity.' }],
         returns: 'Committed preset identity.',
+        throws: ['RemoteError when the preset is unknown, internal-only, or the Session has started.'],
       },
       {
         signature: 'async acquireScope(id?: string): Promise<{ key: ScopeKey } & AsyncDisposable>',
@@ -930,6 +931,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Remove one reference from a configuration surface. Refused unconditionally for a forwarded request — the `forwardedWrite` switch does not reach credentials.',
         parameters: [{ name: 'ref', description: 'reference name to remove.' }],
         throws: ['RemoteError when the request is invalid, the request is forwarded, no provider is mounted, or the provider refuses the write.'],
+      },
+    ],
+  },
+  {
+    key: 'crewFormation',
+    summary: 'One session\'s formation, and the per-role read the delegation rows perform.',
+    description: 'One session\'s formation, and the per-role read the delegation rows perform.\n\nA resolver is registered for each role namespace rather than replacing the route-settings rows: the row keeps owning the settings entry, its write guard, and its stored default, and this service only answers the narrower question "did THIS session pin a route for that role".',
+    methods: [
+      {
+        signature: '@Remote(\'view\') view(agent: Agent): CrewSessionView',
+        description: 'Read what one session recorded, for a surface that renders it.',
+        parameters: [{ name: 'agent', description: 'live Agent whose formation is read.' }],
+        returns: 'the recorded formation; `routes` is null when none was recorded.',
+      },
+      {
+        signature: 'viewOf(session: Session): CrewSessionView',
+        description: 'Read one session\'s formation from the Host itself.',
+        parameters: [{ name: 'session', description: 'session whose formation is read.' }],
+        returns: 'the recorded formation; `routes` is null when none was recorded.',
+      },
+      {
+        signature: '@Remote(\'selectRoutes\') async selectRoutes( agent: Agent, selection: CrewRouteSelection, signal: AbortSignal, ): Promise<boolean>',
+        description: 'Record a session\'s complete route set from a combination.\n\nEvery role is validated against the resolved catalog together before anything is written, so a combination the deployment cannot serve leaves the session without routes rather than with two good roles and one that fails on its first delegation.\n\nThe write is a first-set-once claim, judged against the session\'s final record: the same combination as the recorded set succeeds idempotently without another event, and any other combination throws a `crew/conflict` RemoteError that leaves the recorded set unchanged. A racing loser of the pre-validation check re-reads the record after validation, so it settles by the same comparison instead of trusting a stale guard result.',
+        parameters: [{ name: 'agent', description: 'live Agent receiving the routes.' }, { name: 'selection', description: 'source combination identity, name, and complete routes.' }, { name: 'signal', description: 'carrier cancellation, owning the call until the routes land.' }],
+        returns: 'whether this call appended the event; an idempotent replay returns false.',
+        throws: ['a `crew/conflict` RemoteError when the session already records a different combination; the recorded set is untouched.'],
+      },
+      {
+        signature: '@Remote(\'replaceRole\') async replaceRole( agent: Agent, role: CrewRole, route: CrewRoleRoute, signal: AbortSignal, ): Promise<CrewRoleRoute>',
+        description: 'Replace one role\'s route after a failed delegation made it unusable.\n\nThe other two roles keep theirs, and the session stops matching its source combination. No delegation is retried here: the caller decides whether to resume the settled child, because an automatic retry could repeat whatever the failed request had already done.',
+        parameters: [{ name: 'agent', description: 'live Agent whose role route changes.' }, { name: 'role', description: 'role being repaired.' }, { name: 'route', description: 'the route that role now uses.' }, { name: 'signal', description: 'carrier cancellation, owning the call until the route lands.' }],
+        returns: 'the route the session now records for that role.',
       },
     ],
   },
@@ -3731,7 +3764,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'subagentRouteSettings',
     summary: 'Single registry the composed route-settings rows publish into, so three namespace rows never fight over one service name.',
-    description: 'Single registry the composed route-settings rows publish into, so three namespace rows never fight over one service name. Each registration is scoped to the registering row and releases its write guard on unregister.',
+    description: 'Single registry the composed route-settings rows publish into, so three namespace rows never fight over one service name. Each registration is scoped to the registering row and releases its write guard on unregister.\n\nA deployment whose routes vary per Session registers one resolver per namespace beside the row. The row keeps its settings entry, its stored default, and its write guard; a resolver only answers the narrower question "did THIS Session pin a route", and the delegation tool reads the answer through SubagentRouteSettingsRegistry.resolutionOf.',
     methods: [
       {
         signature: 'register(namespace: string, owner: SubagentRouteSettingsOwner): () => void',
@@ -3741,10 +3774,23 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the namespace already has a live registration.'],
       },
       {
+        signature: 'registerResolver(namespace: string, resolver: SubagentRouteSessionResolver): () => void',
+        description: 'Publish one Session-scoped source for a namespace that already has a row.\n\nThe resolver outranks the row\'s stored default for the sessions that pin a route, and the row keeps serving every session that pins none. Registration order decides between several resolvers for one namespace, so a deployment registers at most one per role.',
+        parameters: [{ name: 'namespace', description: 'settings namespace whose route this source narrows.' }, { name: 'resolver', description: 'the per-Session read.' }],
+        returns: 'the disposer the registering plugin adopts into its own effect.',
+        throws: ['when no composed row serves the namespace; the row is what a deployment without the pin capability still resolves.'],
+      },
+      {
         signature: 'resolve(namespace: string): SubagentRouteSettingsOwner | undefined',
         description: 'Read the owner registered for one namespace.',
         parameters: [{ name: 'namespace', description: 'settings namespace a delegation row declared.' }],
         returns: 'the owner, or undefined when no composed row serves it.',
+      },
+      {
+        signature: 'resolutionOf(namespace: string): SubagentRouteResolution | undefined',
+        description: 'Read one namespace\'s routes as a delegation should use them.',
+        parameters: [{ name: 'namespace', description: 'settings namespace a delegation row declared.' }],
+        returns: 'a live view of the row default plus session pins, or undefined when no row serves the namespace at this call. The view follows later owner and resolver replacement; `current()` throws if no row remains when read.',
       },
     ],
   },
@@ -4116,6 +4162,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Replay owner for one service-wide estimator and isolated per-session folds.',
     description: 'Replay owner for one service-wide estimator and isolated per-session folds.',
     methods: [
+      {
+        signature: 'tokenUsage(session: Session): TokenUsageProjection',
+        description: 'Read cumulative provider-reported usage across the complete durable log.',
+        parameters: [{ name: 'session', description: 'Session whose committed usage is read.' }],
+        returns: 'a detached snapshot of the four disjoint usage buckets.',
+      },
       {
         signature: 'contextPressure(session: Session): Pick<ContextPressureProjection, \'pressureTokens\' | \'contextWindow\'>',
         description: 'Read the latest logged provider prompt size and route capacity.',
@@ -5685,7 +5737,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentPresetRow',
-    declaration: 'export interface AgentPresetRow {\n    readonly id: string;\n    readonly isDefault: boolean;\n    readonly name?: string;\n    readonly description?: string;\n    readonly broken?: string;\n}',
+    declaration: 'export interface AgentPresetRow {\n    readonly id: string;\n    readonly isDefault: boolean;\n    readonly userSelectable?: boolean;\n    readonly name?: string;\n    readonly description?: string;\n    readonly broken?: string;\n}',
   },
   {
     name: 'AgentResolver',
@@ -6298,6 +6350,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CredentialRef',
     declaration: 'export type CredentialRef = Branded<\'CredentialRef\'>;',
+  },
+  {
+    name: 'CrewRoleRoute',
+    declaration: 'export interface CrewRoleRoute {\n    provider: string;\n    model: string;\n    reasoningEffort: string;\n}',
+  },
+  {
+    name: 'CrewRoleRouteView',
+    declaration: 'export interface CrewRoleRouteView extends CrewRoleRoute {\n    role: CrewRole;\n}',
+  },
+  {
+    name: 'CrewRouteSelection',
+    declaration: 'export interface CrewRouteSelection {\n    presetId: string;\n    presetName: string;\n    routes: {\n        [Role in CrewRole]: CrewRoleRoute;\n    };\n}',
+  },
+  {
+    name: 'CrewSessionView',
+    declaration: 'export interface CrewSessionView {\n    sessionId: string;\n    presetId: string | null;\n    presetName: string | null;\n    routes: readonly CrewRoleRouteView[] | null;\n    replaced: readonly CrewRole[];\n}',
   },
   {
     name: 'CronInput',
@@ -7797,7 +7865,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PresetDefinition',
-    declaration: 'export interface PresetDefinition {\n    readonly id: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly plugins: readonly (Omit<EntryOptions, \'id\' | \'disabled\'> & {\n        id?: string;\n        disabled?: EntryOptions[\'disabled\'] | JsExpr;\n    })[];\n}',
+    declaration: 'export interface PresetDefinition {\n    readonly id: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly userSelectable?: boolean;\n    readonly plugins: readonly (Omit<EntryOptions, \'id\' | \'disabled\'> & {\n        id?: string;\n        disabled?: EntryOptions[\'disabled\'] | JsExpr;\n    })[];\n}',
   },
   {
     name: 'PresetOption',
@@ -9448,6 +9516,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentResult {\n    readonly output: readonly ContentBlock[];\n    readonly budget?: TurnBudgetReport;\n    readonly structured?: unknown;\n    readonly diagnostic?: string;\n    readonly abortCause?: TurnEndCancelCause;\n    readonly stopReason: SubagentStopReason;\n}',
   },
   {
+    name: 'SubagentRouteResolution',
+    declaration: 'export interface SubagentRouteResolution extends SubagentRouteSessionResolver {\n    current(): SubagentWorkerRouteSettings;\n}',
+  },
+  {
+    name: 'SubagentRouteSessionResolver',
+    declaration: 'export interface SubagentRouteSessionResolver {\n    forSession(session: Session): SubagentWorkerRouteSettings | undefined;\n}',
+  },
+  {
     name: 'SubagentRouteSettingsOwner',
     declaration: 'export type SubagentRouteSettingsOwner = Pick<SubagentWorkerRouteConfig, \'current\'>;',
   },
@@ -9754,6 +9830,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TokenUsage',
     declaration: 'export interface TokenUsage {\n    inputTokens: number;\n    outputTokens: number;\n    totalTokens?: number;\n    cacheReadTokens?: number;\n    cacheWriteTokens?: number;\n    reasoningTokens?: number;\n}',
+  },
+  {
+    name: 'TokenUsageProjection',
+    declaration: 'export interface TokenUsageProjection {\n    uncachedInputTokens: number;\n    outputTokens: number;\n    cacheReadTokens: number;\n    cacheWriteTokens: number;\n}',
   },
   {
     name: 'ToolActivationContext',

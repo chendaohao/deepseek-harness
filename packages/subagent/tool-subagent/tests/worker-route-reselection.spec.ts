@@ -211,6 +211,34 @@ describe('worker-route re-resolution', () => {
     await second.ctx.fiber.dispose()
   }, TEST_TIMEOUT_MS)
 
+  it('keeps the persisted route when a cold child resume has no live parent', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-worker-route-cold-child-'))
+    roots.push(root)
+    const first = await mountStack(root, { provider: 'mock', model: 'model-a', reasoningEffort: 'high' })
+    let childId: SessionId
+    try {
+      await installTool(first.ctx)
+      const parent = await createParent(first.ctx)
+      childId = await delegate(first.ctx, parent)
+      await vi.waitFor(() => { expect(first.ctx.agents.get(childId)).toBeUndefined() }, { timeout: 10_000 })
+      expect(requestsFor(first.adapter, childId)[0]?.model).toBe('model-a')
+    } finally {
+      await first.ctx.fiber.dispose()
+    }
+
+    const second = await mountStack(root, { provider: 'mock', model: 'model-c', reasoningEffort: 'low' })
+    try {
+      await installTool(second.ctx)
+      expect(second.ctx.sessions.get(PARENT)).toBeUndefined()
+      const { agent: resumedChild } = await second.ctx.agents.resume({ resumeSessionId: childId })
+
+      expect(second.ctx.sessions.get(PARENT)).toBeUndefined()
+      expect(resumedChild.model.current()).toEqual({ provider: 'mock', model: 'model-a', reasoningEffort: 'high' })
+    } finally {
+      await second.ctx.fiber.dispose()
+    }
+  }, TEST_TIMEOUT_MS)
+
   it('keeps the route an explicit per-call selection named', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-worker-route-explicit-'))
     roots.push(root)

@@ -4,15 +4,17 @@
  * namespaces while an unpinned session keeps reading them.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import {
+  CREW_ROLES,
   crewRoutesOf,
   crewRoutesProjectionDefinition,
   recordCrewRoutes,
   replaceCrewRoleRoute,
+  type CrewRole,
 } from '../src/routes.ts'
 
 /** One complete route set, used as the recorded and the replacement value. */
@@ -25,6 +27,20 @@ const ROUTES = {
 const SELECTION = { presetId: 'preset-1', presetName: 'Deep review', routes: ROUTES }
 
 describe('crew formation routes', () => {
+  it('keeps the runtime role order aligned with the client-safe role union', () => {
+    expect(CREW_ROLES).toEqual(['worker', 'planner', 'reviewer'])
+    expectTypeOf<(typeof CREW_ROLES)[number]>().toEqualTypeOf<CrewRole>()
+  })
+  it('rejects a durable route set that omits the reviewer role', () => {
+    const missingReviewer = {
+      presetId: 'preset-1',
+      presetName: 'Deep review',
+      routes: { worker: ROUTES.worker, planner: ROUTES.planner },
+      replaced: [],
+    }
+    expect(() => crewRoutesProjectionDefinition.stateSchema.parse(missingReviewer)).toThrow(/reviewer/)
+  })
+
   it('records one complete set and reads every role back', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)

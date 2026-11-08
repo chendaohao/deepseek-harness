@@ -956,6 +956,126 @@ describe('sendSession submission echo', () => {
     expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, requestId)
     await b.runtime.dispose()
   })
+
+  /**
+   * A bench whose staged-preset gate refuses: the send path reads the gate
+   * through the controller's `presetGate` resolver, so the bench hands its own
+   * refused outcome there (the seat's own refusal mechanics are unit-owned in
+   * ui-agent-preset).
+   */
+  async function refusedGateBench(gate: { pendingApply(): Promise<{ kind: 'applied' | 'refused'; reason?: string }> }) {
+    const runtime = await SlotTestRuntime.create()
+    runtime.fileUpload.upload = (sessionId: SessionId, ...args: unknown[]) => {
+      const session = runtime.sessions.behavior(sessionId) as {
+        uploadFile?: (...input: unknown[]) => Promise<unknown>
+      }
+      if (session.uploadFile === undefined) throw new Error('test file upload has no Session override')
+      return session.uploadFile(...args)
+    }
+    runtime.fileUpload.uploadImage = (sessionId: SessionId, ...args: unknown[]) => {
+      const session = runtime.sessions.behavior(sessionId) as {
+        uploadImage?: (...input: unknown[]) => Promise<unknown>
+      }
+      if (session.uploadImage === undefined) throw new Error('test image upload has no Session override')
+      return session.uploadImage(...args)
+    }
+    const prompt = vi.fn((
+      _content?: unknown, _mode?: unknown, _signal?: AbortSignal, _rpcId?: string,
+    ) => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
+    await runtime.sessions.add({
+      id: 's1',
+      session: { prompt },
+    })
+    const reference = runtime.sessions.retain('s1' as SessionId)
+    await reference.ready
+    const hub = new InputHub(runtime.ctx, makeTranslate(zh, {}))
+    const fiber = runtime.ctx.plugin(ConversationController, {
+      input: hub,
+      blocks: new ComposerBlockRegistry(),
+      presetGate: () => gate,
+      maxConcurrentFileUploads: 2,
+    })
+    await fiber.await()
+    const root = runtime.ctx.get('conversation') as ConversationController
+    const abandon = vi.fn()
+    const retire: { onRetire?: ((retirement: PendingSubmissionRetirement) => void) | undefined } = {}
+    const begun = Promise.withResolvers<BeginSubmissionInput>()
+    const beginSubmission = vi.fn((input: BeginSubmissionInput) => {
+      retire.onRetire = input.onRetire
+      begun.resolve(input)
+      return { requestId: 'req-refused' as never, abandon }
+    })
+    await runtime.sessions.updateSessionSnapshot('s1', () => {})
+    Object.assign(runtime.sessions.binding('s1')!.session, { beginSubmission })
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:refused-1')
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    const restore = () => {
+      created.mockRestore()
+      revoked.mockRestore()
+    }
+    return { runtime, root, prompt, abandon, retire, revoked, restore }
+  }
+
+  it('stops a first turn with attachments when the staged preset refuses', async () => {
+    const b = await refusedGateBench({ pendingApply: () => Promise.resolve({ kind: 'refused', reason: '组合未能应用' }) })
+    try {
+      const [attachment] = b.root.createDrafts(b.runtime.sessions.binding('s1')!.session.sessionId, [
+        new File([Uint8Array.of(9)], 'kept.png', { type: 'image/png' }),
+      ], INLINE_IMAGES)
+      const session = b.runtime.sessions.binding('s1')!.session
+      await expect(b.root.sendSession(session, '带图', [attachment!.id], 'queue'))
+        .rejects.toThrow('preset did not apply')
+      // The echo is abandoned before the prompt: no model request leaves, the
+      // echo retires failed, and the draft stays in the composer.
+      expect(b.abandon).toHaveBeenCalledOnce()
+      expect(b.prompt).not.toHaveBeenCalled()
+      b.retire.onRetire?.({ reason: 'failed' })
+      expect(b.root.resolveDraftAttachments([attachment!.id])).toHaveLength(1)
+      expect(b.revoked).not.toHaveBeenCalled()
+    } finally {
+      b.restore()
+    }
+    await b.runtime.dispose()
+  })
+
+  it('stops a text turn when the staged preset refuses', async () => {
+    const b = await refusedGateBench({ pendingApply: () => Promise.resolve({ kind: 'refused' }) })
+    try {
+      const session = b.runtime.sessions.binding('s1')!.session
+      await expect(b.root.sendSession(session, '开始', [], 'queue'))
+        .rejects.toThrow('preset did not apply')
+      expect(b.abandon).toHaveBeenCalledOnce()
+      expect(b.prompt).not.toHaveBeenCalled()
+    } finally {
+      b.restore()
+    }
+    await b.runtime.dispose()
+  })
+
+  it('sends the first turn when the staged preset settles without a refusal', async () => {
+    const b = await refusedGateBench({ pendingApply: () => Promise.resolve({ kind: 'applied' }) })
+    try {
+      const session = b.runtime.sessions.binding('s1')!.session
+      await expect(b.root.sendSession(session, '开始', [], 'queue')).resolves.toEqual({ kind: 'success' })
+      expect(b.prompt).toHaveBeenCalledOnce()
+      expect(b.abandon).not.toHaveBeenCalled()
+    } finally {
+      b.restore()
+    }
+    await b.runtime.dispose()
+  })
+
+  it('sends the first turn when the seat plugin is absent', async () => {
+    const b = await echoBench()
+    try {
+      const session = b.runtime.sessions.binding('s1')!.session
+      await expect(b.root.sendSession(session, '开始', [], 'queue')).resolves.toEqual({ kind: 'success' })
+      expect(b.prompt).toHaveBeenCalledOnce()
+    } finally {
+      b.restore()
+    }
+    await b.runtime.dispose()
+  })
 })
 
 describe('draft image dimension probe', () => {

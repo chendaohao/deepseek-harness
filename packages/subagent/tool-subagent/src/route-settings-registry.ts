@@ -68,12 +68,12 @@ export class SubagentRouteSettingsRegistry extends Service {
     if (this.registrations.has(namespace)) {
       throw new Error(`subagent route settings: namespace "${namespace}" is already registered by another route-settings row`)
     }
-    this.registrations.set(namespace, { owner, resolvers: [] })
+    const registration: RouteRegistration = { owner, resolvers: [] }
+    this.registrations.set(namespace, registration)
     const settingsService = this.ctx.get('settings')
-    const registration = this.registrations.get(namespace)
     const guard = settingsService?.guard(namespace, () =>
       subagentRouteWriteRefusal(this.ctx.sessionProjections, this.ctx.get('agents')?.list() ?? [], namespace))
-    if (guard !== undefined && registration !== undefined) {
+    if (guard !== undefined) {
       registration.guard = guard
       // The guard predicate is pull-based, so a flip is published from the
       // transition that causes it: a marked child entering or leaving
@@ -93,11 +93,12 @@ export class SubagentRouteSettingsRegistry extends Service {
         }), 'subagent-route-settings-registry: settle-refresh listener')
       }
     }
+    let disposed = false
     return () => {
-      const registration = this.registrations.get(namespace)
-      if (registration === undefined) return
+      if (disposed) return
+      disposed = true
       registration.guard?.dispose()
-      this.registrations.delete(namespace)
+      if (this.registrations.get(namespace) === registration) this.registrations.delete(namespace)
     }
   }
 
@@ -123,10 +124,8 @@ export class SubagentRouteSettingsRegistry extends Service {
     }
     registration.resolvers.push(resolver)
     return () => {
-      const current = this.registrations.get(namespace)
-      if (current === undefined) return
-      const at = current.resolvers.indexOf(resolver)
-      if (at >= 0) current.resolvers.splice(at, 1)
+      const at = registration.resolvers.indexOf(resolver)
+      if (at >= 0) registration.resolvers.splice(at, 1)
     }
   }
 
@@ -142,16 +141,24 @@ export class SubagentRouteSettingsRegistry extends Service {
   /**
    * Read one namespace's routes as a delegation should use them.
    * @param namespace - settings namespace a delegation row declared.
-   * @returns the row default plus the session pins, or undefined when no row serves it.
+   * @returns a live view of the row default plus session pins, or undefined when
+   *   no row serves the namespace at this call. The view follows later owner and
+   *   resolver replacement; `current()` throws if no row remains when read.
    */
   resolutionOf(namespace: string): SubagentRouteResolution | undefined {
-    const registration = this.registrations.get(namespace)
-    if (registration === undefined) return undefined
-    const { owner, resolvers } = registration
+    if (!this.registrations.has(namespace)) return undefined
     return {
-      current: () => owner.current(),
+      current: () => {
+        const registration = this.registrations.get(namespace)
+        if (registration === undefined) {
+          throw new Error(`subagent route settings: namespace "${namespace}" has no serving row`)
+        }
+        return registration.owner.current()
+      },
       forSession: (session: Session): SubagentWorkerRouteSettings | undefined => {
-        for (const resolver of resolvers) {
+        const registration = this.registrations.get(namespace)
+        if (registration === undefined) return undefined
+        for (const resolver of registration.resolvers) {
           const route = resolver.forSession(session)
           if (route !== undefined) return route
         }

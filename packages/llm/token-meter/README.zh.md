@@ -48,6 +48,8 @@ const price = ctx.tokenMeter.estimateMessage(message)
 
 token-meter 通过必需的 `ctx.sessionProjections` 服务注册三个客户端投影单元和一个仅供宿主使用的单元。Host 消费方调用 `ctx.tokenMeter.contextPressure(session)` 同步读取提供方报告的最新提示词规模和路由容量；注册句柄保留在内部。`tokenUsage` 携带完整持久日志中的 `uncachedInputTokens`、`outputTokens`、`cacheReadTokens` 与 `cacheWriteTokens`。最终 assistant 消息样本会替换同一次尝试的流式用量；`llm/retry-started` 会结束该替换范围，因此同一步骤中的重试会贡献另一次计费用量。`contextPressure` 携带可选 `pressureTokens`（提供方报告的最新提示词规模）、可选 `projectedTokens`（下一个请求的提示词将花费多少）与来自最新一条 `request/context` 记录的可选 `contextWindow`。`contextBreakdown` 携带启发式 `systemTokens`、`toolsTokens` 与 `messageTokens`——上下文的构成，而非提供方计费规模。卸载插件会移除全部四个键。仅宿主使用的 `tokenMeasurement` 保存请求头引用、未结束的步骤，以及最近一次成功调用的用量和输出价格。它不保存消息数组、工具定义、附件数据或价格缓存。计量历史有误时，只记录首次失败的位置，其他投影更新和检查点仍可继续；`measure()` 在该事件处报告原有错误，不提交价格或推进读取位置。状态版本 2 会丢弃旧版计量记录，再从日志重建。
 
+Host 消费方调用 `ctx.tokenMeter.tokenUsage(session)` 读取同一组累计用量的独立快照。TokenMeter 拥有投影注册，并将句柄保留在内部。
+
 图片省略重新计算现有节点的价格，同时保留此前的用量锚点。固定引用启发式规则不计入 `offloaded` 元数据，因此一次省略决定不改变 `contextBreakdown` 或标量启发式总量，按路由的测量则把所选图片的视觉价格换成占位文本价格。
 
 `contextBreakdown` 把 surface 顺序中最后一个非空且存活的 `system/message` 归入 `systemTokens`；休眠的空节点不贡献 token，没有非空系统消息时为零。`messageTokens` 包含其余所有可见节点，包括被取代的提示词。在追加、已计量的压缩与裁剪、系统提示词改写或清空之后，两者之和等于 `measure().nodes[].heuristicTokens`；对非系统范围的未计量替换以零增量折叠，与 `contextPressure` 相同。`toolsTokens` 跟随最新 `request/header`。三个数字都使用固定启发式规则，而非路由图片定价或文件句柄投影；它们是近似构成，不是计费数据或 `projectedTokens`。
@@ -87,7 +89,7 @@ token-meter 通过必需的 `ctx.sessionProjections` 服务注册三个客户端
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `TokenMeter` 服务：回放状态、fold、`measure()` 与 `estimateMessage()` |
+| [`src/index.ts`](src/index.ts) | `TokenMeter` 服务：回放状态、fold、`measure()`、`tokenUsage()` 与 `estimateMessage()` |
 | [`src/estimate.ts`](src/estimate.ts) | 固定启发式规则：每 token 四字符加块与角色开销 |
 | [`src/measurement-projection.ts`](src/measurement-projection.ts) | 固定大小的宿主恢复信息，不含逐节点缓存 |
 | [`src/surface-fold.ts`](src/surface-fold.ts) | 与 `measure()` 共享的位置表面 fold |

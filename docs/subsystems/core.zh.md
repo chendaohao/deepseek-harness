@@ -708,6 +708,7 @@ async recompose(ctx: Context, id: string): Promise<AgentPreset>
  * @param agent Target Agent.
  * @param agentPreset Requested identity.
  * @returns Committed preset identity.
+ * @throws RemoteError when the preset is unknown, internal-only, or the Session has started.
  */
 @Remote('select') async select(agent: Agent, agentPreset: string): Promise<string>
 

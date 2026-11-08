@@ -232,6 +232,19 @@ describe('ApiSession Agent lookup and recovery', () => {
 })
 
 describe('ApiSession creation', () => {
+  it('refuses an internal-only preset before creating an Agent', async () => {
+    const { ctx, agents } = await harness()
+    const mount = vi.fn()
+    ctx.provide('agentPresets', {
+      resolve: () => Promise.resolve({ id: 'crew-worker', userSelectable: false }),
+      mount,
+    } as never)
+
+    await expect(agents.createSession({ cwd: '/workspace', agentPreset: 'crew-worker', reusable: () => true }))
+      .rejects.toMatchObject({ code: 'agent-preset/invalid' })
+    expect(mount).not.toHaveBeenCalled()
+  })
+
   it('rejects a resume that subagent routing adopts before publication', async () => {
     const child = await harness()
     const childMeta = header('resume-child-race')

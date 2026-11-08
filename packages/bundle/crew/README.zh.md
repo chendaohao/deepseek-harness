@@ -57,6 +57,10 @@ kind: "package-bundle"
 
 新建 crew 会话时在预设旁选一套组合，这个选择记在该会话自己身上。之后修改该组合，或另一个会话选了别的组合，都不会改变这个会话已记录的路由。委派失败时按角色单独修复：会话记录这次替换，并不再匹配它原本的组合。
 
+会话头部的「换路」按钮打开实时模型目录，通过 `crewFormation/replaceRole` 只替换选中的角色。换路本身不会重试失败工作；完成后让指挥续作原子代理，它的新 turn 会读取替换后的路由。
+
+每个角色 turn 都受 `crew-formation.budget` 的步数、时长、总 token 与重复失败限制。默认值依次为 300 步、60 分钟、5000 万 token（含缓存读写）、同一工具失败连续 6 次。达到上限时追加 `crew/run-budget-exceeded`，并在继续工作前阻断或取消该 turn。手动续作会开启新 turn，重新计算预算。
+
 会话自己的路由由本 bundle 挂载的 formation 服务（`dsh-crew/formation`）记录，委派行在读取自己已存默认值之前先经 `subagentRouteSettings` 读它。这也是组合不需要为每个会话再开一个设置命名空间的原因：会话日志就是存储，冷恢复重放同一套路由，不必回查组合库。
 
 指挥者没有通用 shell，也没有文件写入或编辑工具。所有实施动作都派给 `worker`，包括单文件补丁和单独一条测试命令。`crew_git` 支持只读操作 `status`、`diff`、`log`、`show`、`ls-files`、`rev-parse`；写操作 `checkout`、`reset`、`restore`、`stash`、`clean`、`commit`、`push`、`rebase`、`merge`、`switch` 需要用户批准。参数是逐条校验选项白名单的字面 argv 值。每次调用都应用 Session 沙箱策略，禁用仓库钩子和文件系统监视器，拒绝打开编辑器，并且绝不调用 shell 或外部远程助手。
@@ -69,7 +73,7 @@ kind: "package-bundle"
 <details>
 <summary>实现内部——点击展开</summary>
 
-本包通过 [cordis.patch.yml](cordis.patch.yml) 组合各角色，该文件由 `dsh.bundle.patch` 声明；Host 模块同时导出只供指挥者使用的 `crew_git` 插件。这一层插入三条 `subagent-*-route-settings` 行、一条 `subagent-route-presets` 行与四条 `@deepseek-ai/dsh-agent-preset` 声明，因此依赖 `dsh-web-app` 组合出的 host 面：Agent 预设注册表与 `subagentRouteSettings` 注册表。路由行放在这里而不是 `dsh-web-app`，所以没有选择编队 bundle 的 web 部署不提供任何编队路由命名空间，模型页也不显示编队路由块；命名空间没有对应的行提供服务时，它的委派行会拒绝加载，而不是悄悄路由到另一个角色。预设行是一个不含运行时行为的设置所有者：它提供选择器要写的那个命名空间，应用一套组合时通过各角色自己的行写入该角色的路由命名空间。
+本包通过 [cordis.patch.yml](cordis.patch.yml) 组合各角色，该文件由 `dsh.bundle.patch` 声明；Host 模块同时导出只供指挥者使用的 `crew_git` 插件。这一层插入三条 `subagent-*-route-settings` 行、一条 `subagent-route-presets` 行与四条 `@deepseek-ai/dsh-agent-preset` 声明，因此依赖 `dsh-web-app` 组合出的 host 面：Agent 预设注册表与 `subagentRouteSettings` 注册表。路由行放在这里而不是 `dsh-web-app`，所以没有选择编队 bundle 的 web 部署不提供任何编队路由命名空间，模型页也不显示编队路由块；命名空间没有对应的行提供服务时，它的委派行会拒绝加载，而不是悄悄路由到另一个角色。预设行提供选择器编辑的组合库。创建会话时把选中的组合传给 `crewFormation/selectRoutes`，由它把完整路由记录在该会话上；各角色的解析器通过 `subagentRouteSettings` 读取这条记录，只有没有记录的会话才回退到角色路由设置命名空间。
 
 每个角色预设只由它自己的委派行挂载。指挥者的 `delegation` 组里有三条 `tool-subagent` 行；`maxDepth: 1` 把链限制在指挥者下一层。`tool-subagent` 自 2026-10-09 起不再接受 `persona` / `toolFilter` 配置，因此角色的人格与工具只来自它 `agentPreset` 指定的预设。
 

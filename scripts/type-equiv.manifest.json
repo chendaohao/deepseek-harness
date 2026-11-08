@@ -2578,6 +2578,11 @@
       "source": "packages/llm/token-meter/src/projection.ts"
     },
     {
+      "doc": "docs/subsystems/token-meter.md",
+      "symbol": "TokenUsageProjection",
+      "source": "packages/llm/token-meter/src/projection.ts"
+    },
+    {
       "doc": "docs/subsystems/session-projection.md",
       "symbol": "SessionProjectionSummaryExcluded",
       "source": "packages/session/session-projection/src/types.ts"

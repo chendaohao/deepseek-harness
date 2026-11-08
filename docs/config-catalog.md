@@ -165,7 +165,7 @@ export type Config = PresetDefinition
 
 - `inject`: `loader` · `sessionProjections` · `agents`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/preset/agent-preset-registry/src/preset.ts:13`](../packages/preset/agent-preset-registry/src/preset.ts)
+- `source`: [`packages/preset/agent-preset-registry/src/preset.ts:15`](../packages/preset/agent-preset-registry/src/preset.ts)
 
 ```ts config-catalog
 /** Registry selection policy. */
@@ -4733,9 +4733,9 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
-- `inject`: `tools` · `subagents` · `systemPrompt` · `sessionProjections`
+- `inject`: `tools` · `subagents` · `systemPrompt` · `sessionProjections` · `sessions`
 - `refs`: [`AgentOptions`](subsystems/core.md)
-- `source`: [`packages/subagent/tool-subagent/src/index.ts:56`](../packages/subagent/tool-subagent/src/index.ts)
+- `source`: [`packages/subagent/tool-subagent/src/index.ts:57`](../packages/subagent/tool-subagent/src/index.ts)
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
