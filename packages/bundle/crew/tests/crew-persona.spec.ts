@@ -16,19 +16,45 @@ import { describe, expect, it } from 'vitest'
 
 const PATCH_PATH = fileURLToPath(new URL('../cordis.patch.yml', import.meta.url))
 
-/** One loader patch row as the overlay declares it: only the fields these snapshots read. */
+/** The keys these snapshots read from one entry's config. */
+interface EntryConfig {
+  prefix?: string
+  roleDescription?: string
+  plugins?: PatchRow[]
+}
+
+/** One loader patch row as the overlay declares it: a keyed config, or a `cordis:group`'s child entries. */
 interface PatchRow {
   id?: string
-  config?: { plugins?: { id?: string; config?: { prefix?: string } }[] }
+  group?: boolean | null
+  config?: EntryConfig | PatchRow[]
+}
+
+/** Read one row's keyed config, refusing an entry that carries a group's child list instead. */
+function configOf(rows: readonly PatchRow[], id: string): EntryConfig {
+  const row = rows.find(entry => entry.id === id)
+  expect(row, `entry ${id} in ${PATCH_PATH}`).toBeDefined()
+  const config = row!.config
+  if (config === undefined || Array.isArray(config)) throw new Error(`${id}: expected a keyed config in ${PATCH_PATH}`)
+  return config
 }
 
 /** One persona config keyed by the preset row that declares it. */
 function personaOf(rows: readonly PatchRow[], id: string) {
-  const row = rows.find(entry => entry.id === id)
-  expect(row, `preset row ${id} in ${PATCH_PATH}`).toBeDefined()
-  const persona = row!.config?.plugins?.find(plugin => plugin.id === 'persona')?.config
-  expect(persona?.prefix, `persona prefix of ${id}`).toBeTruthy()
-  return persona!.prefix!
+  const persona = configOf(configOf(rows, id).plugins ?? [], 'persona')
+  expect(persona.prefix, `persona prefix of ${id}`).toBeTruthy()
+  return persona.prefix!
+}
+
+/** The model-visible `roleDescription` of one delegation row inside a preset's `delegation` group. */
+function delegationRoleDescription(rows: readonly PatchRow[], presetId: string, rowId: string): string {
+  const delegation = configOf(rows, presetId).plugins?.find(plugin => plugin.id === 'delegation')
+  expect(delegation, `delegation group of ${presetId}`).toBeDefined()
+  const children = delegation!.config
+  if (!Array.isArray(children)) throw new Error(`delegation group of ${presetId} lists child entries`)
+  const description = configOf(children, rowId).roleDescription
+  expect(description, `${rowId} roleDescription of ${presetId}`).toBeTruthy()
+  return description!
 }
 
 const rows: readonly PatchRow[] = loadOverlayPatches('crew-persona-snapshot', PATCH_PATH).flatMap(patch => patch.insert ?? [])
@@ -90,5 +116,38 @@ describe('crew model-visible persona rules', () => {
   it('keeps the two presets apart so no rule text migrates between roles', () => {
     expect(commander).not.toContain(reviewer.slice(0, 80))
     expect(reviewer).not.toContain(commander.slice(0, 80))
+  })
+
+  it('states the hybrid planner trigger once, in the persona', () => {
+    expect(commander).toContain('Planner triggering is hybrid.')
+    expect(commander).toContain('use planner only when an unresolved design choice has a high cost to reverse')
+    expect(commander).toContain('Before any planner call, give it a fact pack:')
+    expect(commander).toContain('No plan PASS means no worker for that planned approach.')
+    expect(commander).not.toContain('contested design')
+  })
+
+  it('leaves the planner tool description purpose-only', () => {
+    const description = delegationRoleDescription(rows, 'preset-crew', 'tool-subagent-planner')
+    expect(description).not.toContain('contested design')
+    expect(description).toContain('decision-complete written plan')
+  })
+
+  it('fixes worker reuse to the acceptance objective and keeps budgets out of it', () => {
+    expect(commander).toContain(
+      'Reuse a worker by acceptance objective, not by directory or remaining budget. '
+      + 'Within the same unfinished objective, use `send_message` for incremental fixes, added cases, repeated verification, and reviewer-requested rework. '
+      + 'Start a fresh worker for a new acceptance objective or phase, an independent task in the same directory, mostly irrelevant old context, or repeated drift. '
+      + 'A failure report without a closing message stays with the same worker: check for an interim report first, accept it once it is complete, '
+      + 'and replace the worker only after the same failure twice or a clear drift; a new acceptance objective or phase still starts a fresh worker. '
+      + 'Files and reports are already shared; reuse only preserves relevant working context.',
+    )
+    expect(commander).toContain('Run budgets are per turn and never justify reuse.')
+    expect(commander).toContain('Do not automatically resume a budget-stopped or terminal quota/auth-failed worker.')
+  })
+
+  it('pins automatic compaction to the same unfinished objective and requires settling a running worker first', () => {
+    expect(commander).toContain('Let automatic compaction continue an unfinished objective when the worker\'s context remains relevant.')
+    expect(commander).toContain('Do not compact merely to reuse a worker for a new objective; hand off the report and start fresh.')
+    expect(commander).toContain('Before replacing a running worker, stop or settle it and inspect its artifacts and background jobs.')
   })
 })

@@ -6,11 +6,37 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { assertFixtureInventory, fixtureUserPrompts, launchWebScaffold, type WebScaffold } from './scaffold.ts'
+import type { Session } from '@deepseek-ai/dsh-session'
+import {
+  assertFixtureInventory, fixtureUserPrompts, launchWebScaffold, webSnapshotMode, type WebScaffold,
+} from './scaffold.ts'
 
 const DIR = fileURLToPath(new URL('../../../snapshots/web/crew-commander-read-only', import.meta.url))
 const CREW_BUNDLE_DIR = fileURLToPath(new URL('../../../packages/bundle/crew', import.meta.url))
 const FIXTURE = join(DIR, 'session.v4.jsonl')
+const MODE = webSnapshotMode()
+
+/**
+ * Every tool name the commander's composed request may carry. This allowlist is
+ * written here rather than read from the tool-schema sidecar: refresh rewrites
+ * that sidecar from the current composition, so it cannot refuse a newly added
+ * writer or executor.
+ */
+const COMMANDER_TOOLS = [
+  'ask_user_question', 'create_goal', 'crew_git', 'get_goal', 'glob', 'grep', 'interrupt_agent',
+  'list_agents', 'planner', 'present', 'read', 'read_image', 'reviewer', 'send_message', 'skill',
+  'todo_write', 'update_goal', 'wait_agent', 'web_fetch', 'web_search', 'worker',
+]
+
+/** The rendered system-prompt text of every `system/message` event, in log order. */
+function systemPromptsOf(session: Session): string[] {
+  return session.snapshotEvents().flatMap((event) => {
+    if (event.type !== 'system/message') return []
+    const content = event.data.message.content
+    const text = content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+    return text === '' ? [] : [text]
+  })
+}
 
 describe('Crew commander read-only composition', () => {
   let scaffold: WebScaffold
@@ -43,15 +69,35 @@ describe('Crew commander read-only composition', () => {
   it('replays a direct write as an executor denial with no file effect', async () => {
     const session = handle.agent.session
     const tools = session.requestHeader()?.tools ?? []
+    expect(tools.map(tool => tool.name).toSorted()).toEqual(COMMANDER_TOOLS.toSorted())
     expect(tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['worker', 'planner', 'reviewer', 'crew_git', 'read']))
     expect(tools.map(tool => tool.name)).not.toEqual(expect.arrayContaining(['bash', 'pwsh', 'write', 'edit', 'apply_patch']))
     expect(tools.find(tool => tool.name === 'worker')?.description).toContain('Use worker for every implementation action')
     expect(tools.find(tool => tool.name === 'planner')?.description).toContain('decision-complete written plan')
+    expect(tools.find(tool => tool.name === 'planner')?.description).not.toContain('contested design')
     expect(tools.find(tool => tool.name === 'reviewer')?.description).toContain('PASS or FAIL verdict')
     const result = session.snapshotEvents().find(event => event.type === 'tool/result')
     expect(result?.data.message.isError).toBe(true)
     expect(result?.data.message.content).toEqual([{ type: 'text', text: 'Error: unknown tool "write"' }])
     await expect(readFile(join(scaffold.workspaceCwd, 'direct-write.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.skipIf(MODE === 'refresh')('composes the collaboration rules into the real system prompt', () => {
+    const prompt = systemPromptsOf(handle.agent.session).join('\n\n')
+    // Hybrid planner trigger, and its purpose-only tool description left alone.
+    expect(prompt).toContain('Planner triggering is hybrid.')
+    expect(prompt).toContain('use planner only when an unresolved design choice has a high cost to reverse')
+    // Fact pack before any planner call.
+    expect(prompt).toContain('Before any planner call, give it a fact pack:')
+    // Reuse by acceptance objective, with budgets excluded as a reuse criterion.
+    expect(prompt).toContain('Reuse a worker by acceptance objective, not by directory or remaining budget.')
+    expect(prompt).toContain('Run budgets are per turn and never justify reuse.')
+    // Automatic compaction and the terminal-failure boundary.
+    expect(prompt).toContain('Let automatic compaction continue an unfinished objective')
+    expect(prompt).toContain('Do not automatically resume a budget-stopped or terminal quota/auth-failed worker.')
+    // Completion wording that survives an unavailable reviewer.
+    expect(prompt).toContain('No delivery PASS: do not commit, publish, or call the work complete.')
+    expect(prompt).toContain('every completion report must state that independent review did not run')
   })
 
   it('keeps its snapshot inventory closed', async () => {
