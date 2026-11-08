@@ -266,7 +266,7 @@ export class WorkspaceRegistry extends Service {
     }
     const timer = setInterval(sweep, this.autoPinSweepInterval)
     // The cadence timer must not hold the process open on its own.
-    timer.unref?.()
+    timer.unref()
     this.ctx.effect(() => () => { clearInterval(timer) }, 'workspace.autoPinSweep')
     sweep()
   }

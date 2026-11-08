@@ -326,12 +326,15 @@ async function writeResponse(res: ServerResponse, response: Response, head: bool
     waiting?.()
   }
   res.on('close', wake)
+  // Both facts change while a read or drain wait is pending, so they are read
+  // through a call instead of being narrowed to their pre-await values.
+  const stalled = (): boolean => closed || signal.aborted
   try {
     for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
       if (res.write(chunk.value)) continue
       // A closed exchange never drains, so a client that left ends the loop
       // here rather than waiting for an event the socket can no longer emit.
-      if (closed || signal.aborted) break
+      if (stalled()) break
       // One pending wait per response: the listener fires once and goes with
       // the stream that reported the backpressure.
       await new Promise<void>((resolve) => {
@@ -339,7 +342,7 @@ async function writeResponse(res: ServerResponse, response: Response, head: bool
         res.once('drain', resume)
       })
       resume = undefined
-      if (closed || signal.aborted) break
+      if (stalled()) break
     }
   } finally {
     signal.removeEventListener('abort', cancel)

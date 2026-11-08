@@ -117,7 +117,7 @@ export function ChatView({
   }, [running, sessionId, loadBranch])
   // Only a live run shows the branch: it answers where THIS run works, so it
   // leaves with the Turn instead of lingering as a workspace fact.
-  const loadedBranch = typeof branchState === 'object' && branchState !== null ? branchState.branch : null
+  const loadedBranch = typeof branchState === 'object' ? branchState.branch : null
   const runBranch = running && loadedBranch !== null ? loadedBranch : undefined
   // Fold transitions run while a Turn is live, while an input is pending, and briefly after settling.
   const [motionTail, setMotionTail] = useState(false)

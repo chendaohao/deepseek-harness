@@ -33,7 +33,7 @@ export const inject = ['layout']
  */
 function forceDesktopRequested(): boolean {
   try {
-    return globalThis.sessionStorage?.getItem(FORCE_DESKTOP_KEY) === '1'
+    return globalThis.sessionStorage.getItem(FORCE_DESKTOP_KEY) === '1'
   } catch (error) {
     // Storage is denied by policy, not misconfigured: the layer stays on.
     void error
