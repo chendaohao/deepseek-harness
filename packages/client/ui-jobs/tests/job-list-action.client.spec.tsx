@@ -26,7 +26,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
     // Wide and hover-capable; only the width breakpoint flips, and the
     // narrow-posture test installs its own window.matchMedia below.
-    matches: query.includes('max-width: 640px') === false,
+    matches: !query.includes('max-width: 640px'),
     addEventListener: () => {},
     removeEventListener: () => {},
   })))

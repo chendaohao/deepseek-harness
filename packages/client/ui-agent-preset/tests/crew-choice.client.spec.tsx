@@ -21,7 +21,12 @@ const t = (key: string, params?: Record<string, unknown>): string => {
   const template = (en as Record<string, string>)[key] ?? key
   return params === undefined
     ? template
-    : template.replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? ''))
+    : template.replace(/\{(\w+)\}/g, (_, name: string) => {
+      const value = params[name]
+      return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+        ? String(value)
+        : ''
+    })
 }
 
 /** The reporter every controller in this spec is built with. */

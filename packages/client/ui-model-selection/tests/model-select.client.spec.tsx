@@ -147,7 +147,7 @@ describe('ModelSelect label slot', () => {
     const recentRow = within(screen.getByRole('group', { name: '最近使用' })).getAllByRole('menuitemradio')
     expect(recentRow.map(row => row.textContent)).toEqual(['Same modelexternal gateway'])
     const catalogRows = screen.getAllByRole('menuitemradio')
-      .filter(row => recentRow.includes(row) === false)
+      .filter(row => !recentRow.includes(row))
     expect(catalogRows.map(row => row.textContent)).toEqual(['Same model', 'Same model'])
   })
 

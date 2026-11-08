@@ -36,10 +36,39 @@ function developerTools(enabled = true): { configForms: { developerTools: { enab
   return { configForms: { developerTools: { enabled: createSnapshotStore(enabled) } } }
 }
 
-/** Invoke one erased Slot inject payload with its concrete test-facing type. */
-function callInjected<Result>(inject: unknown, ...args: unknown[]): Result {
-  if (typeof inject !== 'function') throw new Error('Slot inject is not a function')
-  return inject(...args) as Result
+/** Whether an erased Slot inject payload is callable with the spec's arguments. */
+function isInjectedCall(value: unknown): value is (...args: unknown[]) => Record<string, unknown> {
+  return typeof value === 'function'
+}
+
+/** Invoke one erased Slot inject payload, leaving the face it returns erased. */
+function callInjected(inject: unknown, ...args: unknown[]): Record<string, unknown> {
+  if (!isInjectedCall(inject)) throw new Error('Slot inject is not a function')
+  return inject(...args)
+}
+
+/** Whether a returned payload carries the hero chip's inject face. */
+function isSeatFace(value: unknown): value is AgentPresetSeatInjected {
+  return typeof value === 'object' && value !== null && 'load' in value && 'select' in value
+}
+
+/** Read the hero chip's face from the slot's erased inject payload. */
+function seatInjected(inject: unknown, ...args: unknown[]): AgentPresetSeatInjected {
+  const face = callInjected(inject, ...args)
+  if (!isSeatFace(face)) throw new Error('Slot inject returned no seat face')
+  return face
+}
+
+/** Whether a returned payload carries the header label's inject face. */
+function isLabelFace(value: unknown): value is AgentPresetLabelInjected {
+  return typeof value === 'object' && value !== null && 'loadCrewRoutes' in value && 'hooks' in value
+}
+
+/** Read the header label's face from the slot's erased inject payload. */
+function labelInjected(inject: unknown, ...args: unknown[]): AgentPresetLabelInjected {
+  const face = callInjected(inject, ...args)
+  if (!isLabelFace(face)) throw new Error('Slot inject returned no label face')
+  return face
 }
 
 const ROSTER_ONE = {
@@ -744,7 +773,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('sessions', sessions as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
-    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
+    const injectSeat = (sessionId?: SessionId) => seatInjected(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const chip = injectSeat()
 
     await chip.load()
@@ -1087,7 +1116,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('sessions', sessionsDouble(ctx, { byId: {} }) as never)
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
-    const label = callInjected<AgentPresetLabelInjected>(slots.entries('conversation.session.header.actions')[0]!.inject)
+    const label = labelInjected(slots.entries('conversation.session.header.actions')[0]!.inject)
 
     await label.load()
 
@@ -1107,7 +1136,7 @@ describe('ui-agent-preset apply', () => {
     const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply })
     await fiber.await()
 
-    const label = callInjected<AgentPresetLabelInjected>(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
+    const label = labelInjected(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
     // The crew bundle is what mounts that namespace. A deployment without it
     // still mounts this plugin, and the label says the formation is not served
     // rather than leaving the session's combination looking unread.
@@ -1155,7 +1184,7 @@ describe('ui-agent-preset apply', () => {
     const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply })
     await fiber.await()
 
-    const label = callInjected<AgentPresetLabelInjected>(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
+    const label = labelInjected(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
     await label.loadCrewRoutes()
 
     expect(reads).toEqual([SessionId('s1')])
@@ -1186,7 +1215,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('uiWorkspace', uiWorkspace as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
     const section = (slots.entries('settings.section')[0]!.inject as object as () => AgentPresetSectionInjected)()
-    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
+    const injectSeat = (sessionId?: SessionId) => seatInjected(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const seat = injectSeat()
 
     await section.load()
@@ -1225,7 +1254,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('uiWorkspace', uiWorkspace as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
     const section = (slots.entries('settings.section')[0]!.inject as object as () => AgentPresetSectionInjected)()
-    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
+    const injectSeat = (sessionId?: SessionId) => seatInjected(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const seat = injectSeat(SessionId('s1'))
 
     await seat.load()
@@ -1272,7 +1301,7 @@ describe('ui-agent-preset apply', () => {
     // over to: a stage the seat's own apply has not served yet is applied by
     // the gate once the session appears — which is what keeps the first prompt
     // behind a hero-chip pick.
-    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
+    const injectSeat = (sessionId?: SessionId) => seatInjected(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const chip = injectSeat(undefined)
     await chip.load()
     await chip.select('minimal')
@@ -1307,7 +1336,7 @@ describe('ui-agent-preset apply', () => {
     ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
     const section = (slots.entries('settings.section')[0]!.inject as object as () => AgentPresetSectionInjected)()
-    const injectSeat = (sessionId?: SessionId) => callInjected<AgentPresetSeatInjected>(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
+    const injectSeat = (sessionId?: SessionId) => seatInjected(slots.entries('conversation.hero.agentPreset')[0]!.inject, sessionId)
     const unboundSeat = injectSeat()
 
     await section.load()
@@ -1872,7 +1901,7 @@ describe('Crew route repair Remote actions', () => {
     ctx.provide('remote.crewFormation', crewFormation as never)
     const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply })
     await fiber.await()
-    const label = callInjected<AgentPresetLabelInjected>(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
+    const label = labelInjected(slots.entries('conversation.session.header.actions')[0]!.inject, SessionId('s1'))
     const catalog = await label.loadCrewRouteCatalog()
     expect(catalog).toMatchObject({ ok: true, value: { routableProviders: ['deepseek'] } })
 

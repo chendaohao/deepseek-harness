@@ -238,7 +238,7 @@ export class CrewChoiceController {
       }
       return this.fail({ reason: 'host', message: result.error.message })
     }
-    if (result.value !== true) {
+    if (!result.value) {
       // Another call recorded its set between this call's guard and write. The
       // session's final view says which combination won; a same-combination
       // loser is the combination already being in place, not a conflict.
@@ -331,8 +331,7 @@ function sameRoutes(recorded: readonly CrewRoleRouteView[] | null, routes: Store
   if (recorded === null || recorded.length !== 3) return false
   return recorded.every((view) => {
     const route = routes[view.role]
-    return route !== undefined
-      && view.provider === route.provider
+    return view.provider === route.provider
       && view.model === route.model
       && view.reasoningEffort === route.reasoningEffort
   })
