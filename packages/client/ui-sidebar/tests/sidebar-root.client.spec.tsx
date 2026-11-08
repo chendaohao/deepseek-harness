@@ -74,7 +74,8 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
       drawer={current.drawer}
       collapsed={current.collapsed} width={current.width}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
-      usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector(panels)} usePanelsExpanded={selector => selector(true)}
+      usePanelInfo={usePanelInfo} selectPanel={() => {}}
+      usePanels={selector => selector(panels)} usePanelsExpanded={selector => selector(true)}
       useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()} setPanelsExpanded={vi.fn()}
       useShortcuts={selector => selector(shortcuts)}

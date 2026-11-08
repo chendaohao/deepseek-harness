@@ -1535,7 +1535,7 @@ describe('registry-global automatic session pin', () => {
         { sessionId: SessionId('gone-pin'), lastActiveAt: new Date().toISOString() },
         { sessionId: SessionId('gone-archived'), lastActiveAt: new Date().toISOString() },
       ],
-    } as never)
+    })
     const asked: SessionId[] = []
     const result = await harness({
       pool,
@@ -1560,7 +1560,7 @@ describe('registry-global automatic session pin', () => {
       archivedSessionIds: [],
       pinnedSessionIds: [SessionId('doomed')],
       autoPinnedSessions: [{ sessionId: SessionId('doomed'), lastActiveAt: new Date().toISOString() }],
-    } as never)
+    })
     const warnings: string[] = []
     const result = await harness({
       pool,

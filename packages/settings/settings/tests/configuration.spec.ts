@@ -445,7 +445,7 @@ it('republishes a flipped guard answer as document-updated with the revision unc
   const { ctx } = await fixture()
   let reason: string | undefined
   const registration = ctx.settings.guard('first', () => reason)
-  const published: Array<{ ns: string, revision: number }> = []
+  const published: Array<{ ns: string; revision: number }> = []
   ctx.on('settings/document-updated', (ns: string, revision: number) => { published.push({ ns, revision }) })
 
   // Seed the published answer; an unchanged answer publishes nothing.

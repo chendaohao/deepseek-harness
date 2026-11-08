@@ -79,7 +79,7 @@ export default class CotTranslationController extends TypertRemoteService {
       })
       const cancelled = Promise.withResolvers<never>()
       using _listener = addAbortListener(signal, () => {
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Preserve the caller's arbitrary cancellation reason.
+        // Preserve the caller's arbitrary cancellation reason without wrapping it.
         cancelled.reject(signal.reason)
       })
       await Promise.race([activation, cancelled.promise])

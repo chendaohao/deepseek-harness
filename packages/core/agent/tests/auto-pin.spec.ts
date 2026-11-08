@@ -88,7 +88,7 @@ describe('Activity automatic-pin feed', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as never
     await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentRegistry)
 
     emitStatus(ctx, stubAgent('doomed', Session.create(SessionId('doomed'))), 'running')
     await vi.waitFor(() => {

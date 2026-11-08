@@ -91,7 +91,7 @@ describe('agent/turn-error-requeue', () => {
 
     const message = text('cancel me')
     agent.followup(message)
-    await vi.waitFor(() => expect(adapter.requests).toHaveLength(1))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
     agent.cancel({ kind: 'user' })
     await agent.whenIdle()
 
