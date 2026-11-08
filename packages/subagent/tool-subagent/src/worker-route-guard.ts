@@ -1,7 +1,7 @@
 /** Write guard a delegation tool installs on the route setting it reads. */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { subagentWorkerRouteMark } from './worker-route-state.ts'
 
 /**
@@ -17,20 +17,20 @@ import { subagentWorkerRouteMark } from './worker-route-state.ts'
  * requests, so the whole running turn holds the write. Settled and failed
  * children stay continuable but are not in use, so they never hold the write —
  * that is the window the recovery flow needs.
- * @param projections - the session projection registry reading the marker.
+ * @param workerRoute - retained handle of the marker projection.
  * @param agents - live Agents owned by the composing deployment.
  * @param namespace - settings namespace whose writes are being judged.
  * @returns the refusal reason, or undefined when no following child runs.
  */
 export function subagentRouteWriteRefusal(
-  projections: Pick<SessionProjectionRegistry, 'stateOf'>,
+  workerRoute: ProjectionHandle<string | null>,
   agents: readonly Agent[],
   namespace: string,
 ): string | undefined {
   const running = agents.find(agent =>
     agent.session.header.origin === 'subagent'
     && agent.status === 'running'
-    && subagentWorkerRouteMark(projections, agent.session) === namespace)
+    && subagentWorkerRouteMark(workerRoute, agent.session) === namespace)
   if (running === undefined) return undefined
   return `delegated child "${running.id}" is running and follows this route; stop it or wait for its turn to settle before changing the route`
 }

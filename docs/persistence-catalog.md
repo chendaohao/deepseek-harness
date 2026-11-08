@@ -1107,7 +1107,7 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../p
 }
 ```
 
-Source: [`packages/subagent/tool-subagent/src/worker-route-state.ts:18`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+Source: [`packages/subagent/tool-subagent/src/worker-route-state.ts:17`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 ### `system/*`
 
@@ -8551,7 +8551,7 @@ Sources: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/
 
 SHA-256: `78314a75b0160404dc0f554f99261038668b8d12859b10610fd6c41a4355ea6b`
 
-Sources: [`packages/subagent/tool-subagent/src/worker-route-state.ts:18`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+Sources: [`packages/subagent/tool-subagent/src/worker-route-state.ts:17`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 | Property | Presence | Type |
 |---|---|---|

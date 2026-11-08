@@ -1109,7 +1109,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/subagent/tool-subagent/src/worker-route-state.ts:18`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+来源：[`packages/subagent/tool-subagent/src/worker-route-state.ts:17`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 ### `system/*`
 
@@ -8553,7 +8553,7 @@ SHA-256: `9890113e97dd3541787bfe6704f2b223d3a890b5325ca0acae2b0398909b413e`
 
 SHA-256: `78314a75b0160404dc0f554f99261038668b8d12859b10610fd6c41a4355ea6b`
 
-来源：[`packages/subagent/tool-subagent/src/worker-route-state.ts:18`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
+来源：[`packages/subagent/tool-subagent/src/worker-route-state.ts:17`](../packages/subagent/tool-subagent/src/worker-route-state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

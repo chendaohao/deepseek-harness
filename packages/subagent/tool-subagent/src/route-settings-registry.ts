@@ -5,8 +5,12 @@ import { Service } from '@deepseek-ai/cordis'
 import type { SettingsWriteGuardRegistration } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-settings'
 import type { Session } from '@deepseek-ai/dsh-session'
+import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { subagentRouteWriteRefusal } from './worker-route-guard.ts'
-import { subagentWorkerRouteMark } from './worker-route-state.ts'
+import {
+  subagentWorkerRouteMark,
+  subagentWorkerRouteProjectionDefinition,
+} from './worker-route-state.ts'
 import type {
   SubagentRouteResolution,
   SubagentRouteSessionResolver,
@@ -51,9 +55,19 @@ export class SubagentRouteSettingsRegistry extends Service {
   private registrations = new Map<string, RouteRegistration>()
   /** Namespaces whose settle-publish listener is installed on the root context. */
   private listened = new Set<string>()
+  /** Retained marker handle the write guards and settle listeners read. */
+  private workerRoute!: ProjectionHandle<string | null>
 
   constructor(ctx: Context) {
     super(ctx, 'subagentRouteSettings')
+  }
+
+  /**
+   * Retain the marker projection before any row publishes a write guard.
+   * @returns when the marker is readable for every Session.
+   */
+  protected async [Service.init](): Promise<void> {
+    this.workerRoute = await this.ctx.sessionProjections.register(subagentWorkerRouteProjectionDefinition)
   }
 
   /**
@@ -72,7 +86,7 @@ export class SubagentRouteSettingsRegistry extends Service {
     this.registrations.set(namespace, registration)
     const settingsService = this.ctx.get('settings')
     const guard = settingsService?.guard(namespace, () =>
-      subagentRouteWriteRefusal(this.ctx.sessionProjections, this.ctx.get('agents')?.list() ?? [], namespace))
+      subagentRouteWriteRefusal(this.workerRoute, this.ctx.get('agents')?.list() ?? [], namespace))
     if (guard !== undefined) {
       registration.guard = guard
       // The guard predicate is pull-based, so a flip is published from the
@@ -89,7 +103,7 @@ export class SubagentRouteSettingsRegistry extends Service {
         this.ctx.effect(() => root.on('agent/status', ({ agent }) => {
           const registration = this.registrations.get(namespace)
           if (registration === undefined) return
-          if (subagentWorkerRouteMark(this.ctx.sessionProjections, agent.session) === namespace) registration.guard?.refresh()
+          if (subagentWorkerRouteMark(this.workerRoute, agent.session) === namespace) registration.guard?.refresh()
         }), 'subagent-route-settings-registry: settle-refresh listener')
       }
     }

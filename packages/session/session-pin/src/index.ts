@@ -72,7 +72,7 @@ export class SessionPinService extends Service {
     // The pin projection unit: pure last-wins fold of session/pin events,
     // serving the pin state list rows read. The unit child activates only when
     // a projection registry is composed (headless assemblies stay unaffected).
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
+    ctx.inject(['sessionProjections'], async (projectionCtx) => {
       const pinnedStateSchema = zod.object({
         pinned: zod.boolean(),
         pinAt: zod.number().nullable(),
@@ -81,7 +81,7 @@ export class SessionPinService extends Service {
         pinned: zod.boolean(),
         pinAt: zod.number().nullable(),
       })
-      projectionCtx.sessionProjections.register<'pinned', SessionPinState>({
+      await projectionCtx.sessionProjections.register<'pinned', SessionPinState>({
         key: 'pinned',
         stateSchema: pinnedStateSchema,
         init: () => ({ pinned: false, pinAt: null }),

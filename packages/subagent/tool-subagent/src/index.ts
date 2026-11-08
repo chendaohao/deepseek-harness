@@ -202,7 +202,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const modelSelectionEnabled = config.modelSelection === true
   const subagentModelSelectionProjectionHandle = await ctx.sessionProjections.register(subagentModelSelectionProjectionDefinition)
   // Awaiting registers the marker before any child is announced to this row.
-  await ctx.sessionProjections.register(subagentWorkerRouteProjectionDefinition)
+  const subagentWorkerRouteHandle = await ctx.sessionProjections.register(subagentWorkerRouteProjectionDefinition)
 
   // Resolve the row's routes through the shared registry, so several role rows
   // can compose side by side without fighting over one service name. The
@@ -250,7 +250,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // listener runs first would route a planner or reviewer child to the worker
     // route. The weak set below only dedupes repeated announcements of the
     // same child to this row.
-    if (subagentWorkerRouteMark(ctx.sessionProjections, child.session) !== config.routeSettingsNamespace) return
+    if (subagentWorkerRouteMark(subagentWorkerRouteHandle, child.session) !== config.routeSettingsNamespace) return
     if (workerRouteSelectionInstalled.has(child)) return
     workerRouteSelectionInstalled.add(child)
     child.ctx.effect(() => installModelSelection(child.ctx), 'tool-subagent: worker-route selection')
@@ -500,7 +500,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           /* v8 ignore next -- a composition without the Agent registry has no local child to route */
           const child = ctx.get('agents')?.get(started.childId)
           if (child !== undefined) {
-            recordSubagentWorkerRoute(ctx.sessionProjections, child.session, config.routeSettingsNamespace)
+            recordSubagentWorkerRoute(subagentWorkerRouteHandle, child.session, config.routeSettingsNamespace)
             installWorkerRouteSelection(workerRouteConfig, child)
           }
         }

@@ -240,8 +240,8 @@
   en: 1d1f2ffc838ff2e7
   zh: 36a167282b56a813
 /session-persistence-event-catalog/events/subagent/subagent-worker-route-log-only:
-  en: ff46c9e986d17243
-  zh: d74fe358cf5b3157
+  en: baa6fc4727e372f0
+  zh: ebf6a6af89d95cdd
 /session-persistence-event-catalog/events/system:
   en: 8cac41d2fb575975
   zh: 8cac41d2fb575975
@@ -2073,8 +2073,8 @@
   en: 3725669666a234a8
   zh: d38ddb471d8f823e
 /session-persistence-event-catalog/resolved-persistence-types/namespace:
-  en: f7db1c12c0e33226
-  zh: bdd63a6c4b5494f3
+  en: 54415c16fbe1bbed
+  zh: 9eee2a18dbedb20a
 /session-persistence-event-catalog/resolved-persistence-types/planner-reviewer-worker:
   en: b4749ac68372379f
   zh: 5d375dcb3f51e9f9

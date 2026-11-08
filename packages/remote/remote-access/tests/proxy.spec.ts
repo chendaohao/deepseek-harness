@@ -71,6 +71,17 @@ async function startProxy(overrides: Partial<AccessPolicy> = {}): Promise<Remote
   return proxy
 }
 
+/**
+ * Decode one WebSocket message payload as UTF-8 text.
+ * @param data - message payload: a Buffer, an ArrayBuffer, or a list of Buffers.
+ * @returns the decoded text.
+ */
+function textOf(data: RawData): string {
+  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8')
+  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('utf8')
+  return data.toString('utf8')
+}
+
 /** One raw HTTP request with full header control. */
 function rawRequest(port: number, path: string, headers: Record<string, string>, body = ''): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }> {
   return new Promise((resolve, reject) => {
@@ -276,11 +287,6 @@ describe('WebSocket relaying', () => {
         handlePairing: () => false,
       },
     })
-    const textOf = (data: RawData): string => {
-      if (Array.isArray(data)) return Buffer.concat(data).toString('utf8')
-      if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('utf8')
-      return data.toString('utf8')
-    }
     const received = new Promise<string>((resolve) => {
       const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port), { headers: { 'x-authorized': 'yes' } })
       // Delay the frame until the upstream handshake completes, so the relay's open path is deterministic.
@@ -373,7 +379,7 @@ describe('WebSocket relaying', () => {
     const received = new Promise<string>((resolve) => {
       const client = new WebSocket('ws://127.0.0.1:' + String(proxy!.port), { perMessageDeflate: { threshold: 0 } })
       client.on('message', (data) => {
-        resolve(data.toString())
+        resolve(textOf(data))
         client.close()
       })
     })

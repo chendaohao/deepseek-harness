@@ -1169,9 +1169,10 @@ describe('Typert Remote streams', () => {
       const before = frames.length
       sendOpen(socket, streamId, 'feed/proxied', {})
       await vi.waitFor(() => {
-        expect(frames.slice(before)).toEqual([
-          { type: 'item', streamId, value: expect.any(String) },
-          { type: 'end', streamId },
+        // Project `value` to its type: the item frame carries a string, the end frame none.
+        expect(frames.slice(before).map(({ value, ...frame }) => ({ ...frame, value: typeof value }))).toEqual([
+          { type: 'item', streamId, value: 'string' },
+          { type: 'end', streamId, value: 'undefined' },
         ])
       })
       return String(frames[before]!.value)

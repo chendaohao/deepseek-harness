@@ -236,7 +236,7 @@ describe('worker route settings reach the delegated child', () => {
     await preset.ctx.plugin({
       name: 'scoped-tool-row',
       inject: tool.inject,
-      apply(groupCtx: Context) { tool.apply(groupCtx, { provider: 'mock', routeSettingsNamespace: WORKER_NS }) },
+      apply: async (groupCtx: Context) => { await tool.apply(groupCtx, { provider: 'mock', routeSettingsNamespace: WORKER_NS }) },
     })
     await live.update({ model: 'scoped-model' })
     const handle = await ctx.agents.create({

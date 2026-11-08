@@ -90,6 +90,35 @@ function parseCaptured(path: string): unknown {
   }
 }
 
+/** Stop payload fields these specs read from the captured JSON. */
+interface StopHookPayload {
+  hook_event_name: string
+  summary?: string
+}
+
+/**
+ * Narrow one parsed capture to the Stop fields these specs read.
+ * @param value - parsed capture.
+ * @returns whether the capture carries the Stop payload fields.
+ */
+function isStopHookPayload(value: unknown): value is StopHookPayload {
+  return typeof value === 'object' && value !== null
+    && 'hook_event_name' in value && typeof value.hook_event_name === 'string'
+    && (!('summary' in value) || typeof value.summary === 'string')
+}
+
+/**
+ * Read one captured Stop payload.
+ * @param path - file the hook's redirect writes.
+ * @returns the payload the bridge delivered.
+ * @throws {Error} when the capture does not hold a Stop payload.
+ */
+function readStopPayload(path: string): StopHookPayload {
+  const parsed = parseCaptured(path)
+  if (!isStopHookPayload(parsed)) throw new Error(`captured payload at ${path} is not a Stop hook payload`)
+  return parsed
+}
+
 function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
   return agent.whenIdle()
 }
@@ -522,7 +551,7 @@ describe('notify-hooks bridge — Stop turn summary', () => {
     // The Stop hook runs detached, so poll for its observable effect.
     await waitFor(() => parseCaptured(payloadPath) !== undefined)
 
-    const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
+    const payload = readStopPayload(payloadPath)
     expect(payload.hook_event_name).toBe('Stop')
     expect(payload.summary).toBe('did the thing, all green')
     // The summary request reached the configured route, not the conversation route.
@@ -582,7 +611,7 @@ describe('notify-hooks bridge — Stop turn summary', () => {
     // alone can observe an empty file: wait for content that parses.
     await waitFor(() => parseCaptured(payloadPath) !== undefined)
 
-    const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
+    const payload = readStopPayload(payloadPath)
     expect(payload.hook_event_name).toBe('Stop')
     expect('summary' in payload).toBe(false)
   })
@@ -606,7 +635,7 @@ describe('notify-hooks bridge — Stop turn summary', () => {
     await waitForIdle(ctx, agent)
     await waitFor(() => parseCaptured(payloadPath) !== undefined)
 
-    const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
+    const payload = readStopPayload(payloadPath)
     expect(payload.hook_event_name).toBe('Stop')
     expect('summary' in payload).toBe(false)
     // The request is recorded before dispatch, so the failed attempt stays
