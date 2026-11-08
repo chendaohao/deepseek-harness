@@ -385,6 +385,27 @@ export class PiAiAdapter extends LlmAdapter {
     }
   }
 
+  /**
+   * Reject a route whose current credentials cannot dispatch, without sending inference.
+   * The explicit Harness key, when named, joins pi-ai's native auth resolution so
+   * keyless profiles still cover stored OAuth and provider-specific environments.
+   */
+  override async preflight(provider: string, model: string, signal?: AbortSignal): Promise<void> {
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, provider)
+    const resolved = this.modelOf(snapshot, provider, model)
+    const apiKey = await this.config.resolveApiKey(provider, profile)
+    const auth = await snapshot.models.getAuth(resolved, {
+      ...apiKey === undefined ? {} : { apiKey },
+      ...signal === undefined ? {} : { signal },
+    })
+    if (auth !== undefined) return
+    throw new LlmError(
+      `llm-pi-ai: provider route "${provider}" has no usable credential; configure its key or sign in before selecting it`,
+      'MISSING_CREDENTIAL',
+    )
+  }
+
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
     const snapshot = this.current()
     return Promise.resolve({

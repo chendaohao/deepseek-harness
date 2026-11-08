@@ -1,13 +1,14 @@
 /**
  * The crew session's formation ownership: which routes its three delegation
- * roles run on, chosen once per session from the Models page's combinations.
+ * roles run on, chosen per session from the Models page's combinations.
  *
- * A crew session picks a combination when it starts, and the pick stays its
- * own. This service is the one place that decides both halves: it records the
- * set on the session, and it answers the per-role read that each delegation
- * row performs through `subagentRouteSettings`. A session that recorded no set
- * answers nothing, and the row keeps its own stored default — which is what
- * keeps a deployment that never opens the picker unchanged.
+ * A crew session picks a combination before its first turn and keeps that
+ * pick once the turn opens. This service is the one place that decides both
+ * halves: it records the set on the session, and it answers the per-role read
+ * that each delegation row performs through `subagentRouteSettings`. A session
+ * that recorded no set answers nothing, and the row keeps its own stored
+ * default — which is what keeps a deployment that never opens the picker
+ * unchanged.
  *
  * The namespaces stay the settings each row owns. This service registers one
  * resolver per namespace, so the three rows keep their existing ids, settings
@@ -16,8 +17,9 @@
  * @module @deepseek-ai/dsh-crew/formation
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import { Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
@@ -36,7 +38,7 @@ import {
   replaceCrewRoleRoute,
   type CrewRoutesState,
 } from './routes.ts'
-import { CrewRunBudget, type CrewRunBudgetConfig } from './run-budget.ts'
+import { CrewRunBudget, CrewRunBudgetConfigSchema, type CrewRunBudgetConfig } from './run-budget.ts'
 // Client-safe vocabulary: these names cross the Remote boundary, so they live
 // on the package's `./types` subpath and this module only re-states their use.
 import type {
@@ -51,7 +53,7 @@ import type {
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'crew-formation'
 /** Services required to own a session's formation. */
-export const inject = ['sessionProjections', 'subagentRouteSettings', 'tokenMeter']
+export const inject = ['sessionProjections', 'subagentRouteSettings', 'agents', 'tokenMeter']
 
 /** Deployment namespaces, in the order the Models page renders them. */
 export interface Config {
@@ -61,8 +63,8 @@ export interface Config {
   planner: string
   /** Settings namespace serving the reviewer role's default route. */
   reviewer: string
-  /** Per-turn limits applied to every Crew role child. */
-  readonly budget?: CrewRunBudgetConfig
+  /** Per-turn limits applied to every Crew role child; read again for each new turn. */
+  readonly budget?: Volatile<CrewRunBudgetConfig>
 }
 
 /**
@@ -74,7 +76,15 @@ export interface Config {
  * question "did THIS session pin a route for that role".
  */
 export class CrewFormation extends TypertRemoteService {
-  static inject = ['sessionProjections', 'subagentRouteSettings', 'llm', 'tokenMeter']
+  static inject = ['sessionProjections', 'subagentRouteSettings', 'llm', 'agents', 'tokenMeter']
+
+  /** Live role namespaces and per-turn budgets exposed to the settings editor. */
+  static Config = z.object({
+    worker: z.string().min(1).required(),
+    planner: z.string().min(1).required(),
+    reviewer: z.string().min(1).required(),
+    budget: CrewRunBudgetConfigSchema.default({}).volatile(),
+  })
 
   private handle!: ProjectionHandle<CrewRoutesState>
 
@@ -84,7 +94,7 @@ export class CrewFormation extends TypertRemoteService {
 
   protected async [Service.init](): Promise<void> {
     this.handle = await this.ctx.sessionProjections.register(crewRoutesProjectionDefinition)
-    const runBudget = new CrewRunBudget(this.ctx, this.config.budget)
+    const runBudget = new CrewRunBudget(this.ctx, () => this.config.budget?.get() ?? {})
     runBudget.start()
     for (const role of CREW_ROLES) {
       const namespace = this.config[role]
@@ -148,18 +158,19 @@ export class CrewFormation extends TypertRemoteService {
    * the session without routes rather than with two good roles and one that
    * fails on its first delegation.
    *
-   * The write is a first-set-once claim, judged against the session's final
-   * record: the same combination as the recorded set succeeds idempotently
-   * without another event, and any other combination throws a `crew/conflict`
-   * RemoteError that leaves the recorded set unchanged. A racing loser of the
-   * pre-validation check re-reads the record after validation, so it settles
-   * by the same comparison instead of trusting a stale guard result.
+   * A session that has opened no turn accepts a different combination: the new
+   * pick supersedes the recorded set, and every later delegation reads the
+   * superseding routes. Once the first turn opened, the recorded set stands —
+   * the same combination succeeds idempotently without another event, and any
+   * other one throws a `crew/conflict` RemoteError that leaves the record
+   * unchanged. A racing loser re-reads the record after validation, so it
+   * settles by the same comparison instead of trusting a stale guard result.
    * @param agent - live Agent receiving the routes.
    * @param selection - source combination identity, name, and complete routes.
    * @param signal - carrier cancellation, owning the call until the routes land.
    * @returns whether this call appended the event; an idempotent replay returns false.
-   * @throws a `crew/conflict` RemoteError when the session already records a
-   *   different combination; the recorded set is untouched.
+   * @throws a `crew/conflict` RemoteError when the session opened its first turn
+   *   and does not record this combination; the record is untouched.
    */
   @Remote('selectRoutes')
   async selectRoutes(
@@ -169,13 +180,9 @@ export class CrewFormation extends TypertRemoteService {
   ): Promise<boolean> {
     const session = agent.session
     const recorded = crewRoutesOf(this.handle, session)
-    if (recorded.routes !== null) {
-      if (sameSelection(recorded, selection)) return false
-      throw new RemoteError('crew/conflict', 'This session already runs another model combination', {
-        sessionId: session.id,
-        recordedPresetId: recorded.presetId,
-        attemptedPresetId: selection.presetId,
-      })
+    if (sameSelection(recorded, selection)) return false
+    if (recorded.routes !== null && this.firstTurnOpen(agent)) {
+      throw this.conflictOf(session, recorded, selection)
     }
     for (const role of CREW_ROLES) {
       await this.assertRoute(selection.routes[role], signal)
@@ -183,15 +190,11 @@ export class CrewFormation extends TypertRemoteService {
     // Another call may have recorded its set while this one validated: settle
     // the race by the final record, never by the earlier guard result.
     const final = crewRoutesOf(this.handle, session)
-    if (final.routes !== null) {
-      if (sameSelection(final, selection)) return false
-      throw new RemoteError('crew/conflict', 'This session already runs another model combination', {
-        sessionId: session.id,
-        recordedPresetId: final.presetId,
-        attemptedPresetId: selection.presetId,
-      })
+    if (sameSelection(final, selection)) return false
+    if (final.routes !== null && this.firstTurnOpen(agent)) {
+      throw this.conflictOf(session, final, selection)
     }
-    recordCrewRoutes(this.handle, session, {
+    recordCrewRoutes(session, {
       presetId: selection.presetId,
       presetName: selection.presetName,
       routes: {
@@ -239,12 +242,45 @@ export class CrewFormation extends TypertRemoteService {
   }
 
   /**
-   * Reject a route the deployment's catalog cannot serve.
+   * Whether a session opened a turn, which fixes the routes it recorded.
+   *
+   * Before the first turn no delegation is in flight, so a new combination can
+   * still supersede the recorded one. The checked Agent is the one the call
+   * names, so a stale read cannot authorize the write for another session.
+   * @param agent - live Agent whose turn boundaries decide.
+   * @returns whether a turn started or is still open.
+   */
+  private firstTurnOpen(agent: Agent): boolean {
+    const boundary = this.ctx.agents.turnBoundaryOf(agent.session)
+    return boundary.lastTurn > 0 || boundary.openTurnStartSeq !== null
+  }
+
+  /**
+   * The structured refusal for a combination a started session does not run.
+   * @param session - session keeping its recorded routes.
+   * @param recorded - the session's final record.
+   * @param selection - the combination that was refused.
+   * @returns the failure the Remote gateway reports to the caller.
+   */
+  private conflictOf(
+    session: Session,
+    recorded: CrewRoutesState,
+    selection: CrewRouteSelection,
+  ): RemoteError {
+    return new RemoteError('crew/conflict', 'This session already runs another model combination', {
+      sessionId: session.id,
+      recordedPresetId: recorded.presetId,
+      attemptedPresetId: selection.presetId,
+    })
+  }
+
+  /**
+   * Reject a route whose model configuration or current credentials cannot serve a role.
    * @param route - provider, model, and effort to verify together.
-   * @param signal - cancellation for the catalog read.
+   * @param signal - cancellation for model and credential lookup.
    */
   private async assertRoute(route: CrewRoleRoute, signal: AbortSignal): Promise<void> {
-    await this.ctx.llm.resolveCallConfig({
+    await this.ctx.llm.preflightCall({
       provider: route.provider,
       model: route.model,
       reasoningEffort: ReasoningEffortId(route.reasoningEffort),

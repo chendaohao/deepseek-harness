@@ -321,7 +321,7 @@ describe('dsh-tool-subagent model selection', () => {
     const ctx = await setup({
       provider: 'mock', withModelSelection: true, parentAgentOptions: parentWithRoute().options,
     }, { onStart: start })
-    const lookup = vi.spyOn(ctx.llm, 'resolveCallConfig')
+    const lookup = vi.spyOn(ctx.llm, 'preflightCall')
     const result = await callSubagent(ctx, {
       description: 'effort work', prompt: 'do it', reasoning_effort: 'low', ...route,
     })
@@ -349,7 +349,7 @@ describe('dsh-tool-subagent model selection', () => {
       ctx.llm.registerAdapter(['alpha'], new MockAdapter([], {
         ...REASONING, defaultEffort: ReasoningEffortId('low'),
       }))
-      const resolve = vi.spyOn(ctx.llm, 'resolveCallConfig')
+      const resolve = vi.spyOn(ctx.llm, 'preflightCall')
       const result = await callSubagent(ctx, {
         description: 'same route work', prompt: 'do it', provider: 'alpha', model: 'parent-model',
       })
@@ -484,6 +484,23 @@ describe('dsh-tool-subagent model selection', () => {
     expect(starts).toBe(0)
   })
 
+  it('rejects adapter-owned authentication failures before child creation', async () => {
+    let starts = 0
+    const ctx = await setup({ provider: 'mock', withModelSelection: true }, { onStart: () => { starts += 1 } })
+    ctx.llm.registerAdapter(['alpha'], new class extends MockAdapter {
+      override preflight(): Promise<void> {
+        return Promise.reject(new Error('missing credential'))
+      }
+    }([], REASONING))
+
+    const result = await callSubagent(ctx, {
+      description: 'unauthenticated route', prompt: 'do it', provider: 'alpha', model: 'fast-model',
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('missing credential')
+    expect(starts).toBe(0)
+  })
+
   it('normalizes a configured effort the exact model cannot take before child creation', async () => {
     let starts = 0
     const ctx = await setup({
@@ -556,6 +573,24 @@ describe('dsh-tool-subagent model selection', () => {
     expect(configured.isError).toBe(true)
     expect(text(configured)).toContain('`llm` service is unavailable')
 
+  })
+
+  it('preflights provider-owned route defaults before creating the child', async () => {
+    const started = vi.fn()
+    const ctx = await setup({ provider: 'mock' }, {
+      agentRouteDefaults: { provider: 'alpha', model: 'provider-default' },
+      onStart: started,
+    })
+    ctx.llm.registerAdapter(['alpha'], new class extends MockAdapter {
+      override preflight(): Promise<void> {
+        return Promise.reject(new Error('provider default credential missing'))
+      }
+    }([], REASONING))
+
+    const result = await callSubagent(ctx, { description: 'provider default route', prompt: 'do it' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('provider default credential missing')
+    expect(started).not.toHaveBeenCalled()
   })
 
   it('keeps pure inherited routing usable without resolving an LLM route', async () => {

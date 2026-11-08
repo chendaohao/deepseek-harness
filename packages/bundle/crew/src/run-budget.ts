@@ -37,6 +37,8 @@ type BudgetReason = 'steps' | 'duration' | 'tokens' | 'repeated-failure'
 interface TurnState {
   readonly turn: number
   readonly baseline: TokenUsageProjection
+  /** Limits captured when this turn starts; later edits apply to the next turn. */
+  readonly limits: ResolvedCrewRunBudgetConfig
   readonly startedAt: number
   timer: ReturnType<typeof setTimeout>
   failureKey: string | undefined
@@ -68,13 +70,21 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 /** Owns the timers, usage baselines, and repeated-failure chains of live Crew role turns. */
 export class CrewRunBudget {
-  private readonly config: ResolvedCrewRunBudgetConfig
+  private readonly readConfig: () => ResolvedCrewRunBudgetConfig
   private readonly states = new WeakMap<Agent, TurnState>()
   private readonly active = new Set<Agent>()
   private stopped = false
 
-  constructor(private readonly ctx: Context, config: CrewRunBudgetConfig = {}) {
-    this.config = CrewRunBudgetConfigSchema(config)
+  /**
+   * @param config - fixed limits, or a live read sampled when each turn starts.
+   *   A running turn keeps its original limits, including its wall-time timer.
+   */
+  constructor(
+    private readonly ctx: Context,
+    config: CrewRunBudgetConfig | (() => CrewRunBudgetConfig) = {},
+  ) {
+    this.readConfig = () => CrewRunBudgetConfigSchema(typeof config === 'function' ? config() : config)
+    this.readConfig()
   }
 
   /** Register interception points until the formation unloads. */
@@ -114,9 +124,11 @@ export class CrewRunBudget {
     if (existing?.turn === turn) return existing
     if (existing !== undefined) clearTimeout(existing.timer)
     const baseline = this.ctx.tokenMeter.tokenUsage(agent.session)
+    const limits = this.readConfig()
     const state: TurnState = {
       turn,
       baseline,
+      limits,
       startedAt: Date.now(),
       failureKey: undefined,
       failureCount: 0,
@@ -124,12 +136,12 @@ export class CrewRunBudget {
         if (this.stopped || this.states.get(agent) !== state) return
         const failure = {
           reason: 'duration' as const,
-          limit: this.config.maxWallTimeMsPerTurn,
-          observed: Math.max(this.config.maxWallTimeMsPerTurn, Date.now() - state.startedAt),
+          limit: limits.maxWallTimeMsPerTurn,
+          observed: Math.max(limits.maxWallTimeMsPerTurn, Date.now() - state.startedAt),
         }
         this.record(agent, state, failure)
         agent.cancel({ kind: 'hook', reason: 'crew/run-budget-duration' })
-      }, this.config.maxWallTimeMsPerTurn),
+      }, limits.maxWallTimeMsPerTurn),
     }
     state.timer.unref()
     this.states.set(agent, state)
@@ -139,12 +151,12 @@ export class CrewRunBudget {
 
   private exhaustion(agent: Agent, state: TurnState, step: number): TurnState['exhausted'] {
     if (state.exhausted !== undefined) return state.exhausted
-    if (step > this.config.maxStepsPerTurn) {
-      return { reason: 'steps', limit: this.config.maxStepsPerTurn, observed: step - 1 }
+    if (step > state.limits.maxStepsPerTurn) {
+      return { reason: 'steps', limit: state.limits.maxStepsPerTurn, observed: step - 1 }
     }
     const observed = Math.max(0, tokenTotal(this.ctx.tokenMeter.tokenUsage(agent.session)) - tokenTotal(state.baseline))
-    if (observed >= this.config.maxTotalTokensPerTurn) {
-      return { reason: 'tokens', limit: this.config.maxTotalTokensPerTurn, observed }
+    if (observed >= state.limits.maxTotalTokensPerTurn) {
+      return { reason: 'tokens', limit: state.limits.maxTotalTokensPerTurn, observed }
     }
     return undefined
   }
@@ -160,10 +172,10 @@ export class CrewRunBudget {
       state.failureKey = key
       state.failureCount = key === undefined ? 0 : 1
     }
-    if (state.failureCount < this.config.maxConsecutiveIdenticalFailures) return
+    if (state.failureCount < state.limits.maxConsecutiveIdenticalFailures) return
     this.record(agent, state, {
       reason: 'repeated-failure',
-      limit: this.config.maxConsecutiveIdenticalFailures,
+      limit: state.limits.maxConsecutiveIdenticalFailures,
       observed: state.failureCount,
     })
   }

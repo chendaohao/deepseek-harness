@@ -4,6 +4,7 @@ import { useId } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { SettingsForm } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CrewBudgetFields } from './CrewBudgetFields.tsx'
 import { formLabels } from './locales.ts'
 import { SubagentLimitsFields } from './SubagentLimitsFields.tsx'
 import { SubagentModelSelectionFields } from './SubagentModelSelectionFields.tsx'
@@ -16,16 +17,17 @@ export type SubagentCardProps = PropsRuntime<'plugins.item'>
 
 /**
  * Render the available Subagent settings with one configuration page and save footer.
- * @param props - Locale, both form snapshots, and their shared actions.
+ * @param props - Locale, all form snapshots, and their shared actions.
  * @returns The summary or the available settings form.
  */
 export function SubagentCard(props: SubagentCardProps) {
   const { t } = props
   const limits = props.useSubagentLimitsCard(snapshot => snapshot)
   const models = props.useSubagentModelSelectionCard(snapshot => snapshot)
+  const crew = props.useCrewBudgetCard(snapshot => snapshot)
   const headingId = useId()
   if (props.view === 'summary') return t('subagentDescription')
-  const state = subagentCardShell(limits, models)
+  const state = subagentCardShell(limits, models, crew)
   return (
     <SettingsForm labels={formLabels(t)}
       state={state} onSave={props.save} onDiscard={props.discard}>
@@ -35,6 +37,16 @@ export function SubagentCard(props: SubagentCardProps) {
             <h3 className={css.heading} id={`${headingId}-limits`}>{t('subagentLimitsTitle')}</h3>
             <SubagentLimitsFields t={t} state={{ ...limits, saving: state.saving }}
               edit={props.editLimit} resetField={props.resetLimit} />
+          </section>
+        )
+        : null}
+      {crew.available
+        ? (
+          <section className={css.section} aria-labelledby={`${headingId}-crew-budget`}>
+            <h3 className={css.heading} id={`${headingId}-crew-budget`}>{t('crewBudgetTitle')}</h3>
+            <p className={css.description}>{t('crewBudgetDescription')}</p>
+            <CrewBudgetFields t={t} state={{ ...crew, saving: state.saving }}
+              edit={props.editCrewBudget} resetField={props.resetCrewBudget} />
           </section>
         )
         : null}

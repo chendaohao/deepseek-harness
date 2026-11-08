@@ -505,7 +505,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/bundle/crew/src/routes.ts:59`](../packages/bundle/crew/src/routes.ts)
+来源：[`packages/bundle/crew/src/routes.ts:61`](../packages/bundle/crew/src/routes.ts)
 
 <a id="crewroutes-selected--log-only"></a>
 
@@ -514,10 +514,11 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```ts persistence-catalog
 /**
  * Records the complete route set a crew session runs its three delegation
- * roles on, copied from the combination the session picked. Appended once,
- * after the combination pick and before the first turn, so every delegation
- * in that turn already routes from it. Log-only: it carries no `surfaceOp`
- * and never enters model history.
+ * roles on, copied from the combination the session picked. Appended
+ * before the first turn, so every delegation in that turn already routes
+ * from it. A pick made before the first turn replaces an earlier one, and
+ * the last such event is the recorded set. Log-only: it carries no
+ * `surfaceOp` and never enters model history.
  */
 'crew/routes-selected': {
   /** Identity of the combination this set came from; display metadata only. */
@@ -529,7 +530,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/bundle/crew/src/routes.ts:46`](../packages/bundle/crew/src/routes.ts)
+来源：[`packages/bundle/crew/src/routes.ts:48`](../packages/bundle/crew/src/routes.ts)
 
 <a id="crewrun-budget-exceeded--log-only"></a>
 
@@ -549,7 +550,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/bundle/crew/src/run-budget.ts:56`](../packages/bundle/crew/src/run-budget.ts)
+来源：[`packages/bundle/crew/src/run-budget.ts:58`](../packages/bundle/crew/src/run-budget.ts)
 
 ### `deliverables/*`
 
@@ -8451,7 +8452,7 @@ SHA-256: `2235d957bf4b7c6cf959231d480f0ba1f3a6d72d82981493fb6c7c963021d3d5`
 
 SHA-256: `0e97a6078638f9ffc72a26a39d453407aff96a4ef4f6f6b2475a7a2c54dfea66`
 
-来源：[`packages/bundle/crew/src/run-budget.ts:56`](../packages/bundle/crew/src/run-budget.ts)
+来源：[`packages/bundle/crew/src/run-budget.ts:58`](../packages/bundle/crew/src/run-budget.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -8601,7 +8602,7 @@ SHA-256: `8a9c990773f798eac10ca8878e6bcc531ee080bc589cac956730e462cc6a09ad`
 
 SHA-256: `ddc0ab0b907f5287df70613807b7aa20d27a99a57ea949cec4c1cd196629718b`
 
-来源：[`packages/bundle/crew/src/routes.ts:46`](../packages/bundle/crew/src/routes.ts)
+来源：[`packages/bundle/crew/src/routes.ts:48`](../packages/bundle/crew/src/routes.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -8628,7 +8629,7 @@ SHA-256: `e481c46af3813e0010558e93f578b2986acd658404cec2d1679e3ac2a6c48654`
 
 SHA-256: `dfd0376fb7cd289fe25a4ed1367971246dba93300992beb2943126d2dfeb42b4`
 
-来源：[`packages/bundle/crew/src/routes.ts:59`](../packages/bundle/crew/src/routes.ts)
+来源：[`packages/bundle/crew/src/routes.ts:61`](../packages/bundle/crew/src/routes.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

@@ -17,7 +17,10 @@ interface Harness {
   readonly session: Session
 }
 
-async function harness(config: CrewRunBudgetConfig = {}, agentPreset = 'crew-worker'): Promise<Harness> {
+async function harness(
+  config: CrewRunBudgetConfig | (() => CrewRunBudgetConfig) = {},
+  agentPreset = 'crew-worker',
+): Promise<Harness> {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
   await mountAgentLoopTestDependencies(ctx)
@@ -129,6 +132,16 @@ describe('CrewRunBudget', () => {
     await vi.advanceTimersByTimeAsync(20)
     expect(cancel).toHaveBeenCalledWith({ kind: 'hook', reason: 'crew/run-budget-duration' })
     expect(stops(test)).toMatchObject([{ data: { reason: 'duration', limit: 20, observed: 20 } }])
+  })
+
+  it('keeps the current turn fixed and samples live limits for the next turn', async () => {
+    let maxStepsPerTurn = 1
+    const test = await harness(() => ({ maxStepsPerTurn }))
+    await expect(preStep(test, 1, 1)).resolves.toMatchObject({ kind: 'enter' })
+    maxStepsPerTurn = 2
+    await expect(preStep(test, 1, 2)).resolves.toEqual({ kind: 'reject' })
+    expect(stops(test)).toMatchObject([{ data: { turn: 1, reason: 'steps', limit: 1, observed: 1 } }])
+    await expect(preStep(test, 2, 2)).resolves.toMatchObject({ kind: 'enter' })
   })
 
   it('does not intercept non-Crew agents', async () => {

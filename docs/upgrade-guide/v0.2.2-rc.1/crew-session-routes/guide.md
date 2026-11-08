@@ -21,7 +21,7 @@ Each delegation reads the session's recorded route, falling back to its role nam
 2. **Library writes never wait for a running role.** Only the per-session repair is gated.
 3. **A replacement affects one role.** `crew/route-replaced` preserves the other two and detaches the session from its source combination.
 4. **Sessions without a recorded combination keep their old behavior**, including sessions opened through CLI, API, or older clients.
-5. **Recording is first-set-once.** Repeating the same pick succeeds without another event. A different pick fails with `crew/conflict`, preserves the record, and leaves the staged choice visible.
+5. **Recording is replaceable until the first turn.** Before that turn, another pick appends a second `crew/routes-selected` and the last event wins; after it, repeating the pick adds no event and a different one fails with `crew/conflict`, keeping the staged choice. A conflict never blocks the first prompt, since the session keeps a valid route set.
 6. **Role turns have execution budgets.** `crew-formation.budget` limits steps, wall time, total tokens, and consecutive identical tool failures. Exhaustion records `crew/run-budget-exceeded`; a continuation turn receives fresh budgets.
 
 The relevant settings entries are:

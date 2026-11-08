@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { SubagentCard, type SubagentCardProps } from '../src/client/SubagentCard.tsx'
+import type { CrewBudgetCardState } from '../src/client/crew-budget-card-controller.ts'
 import type { SubagentLimitsCardState } from '../src/client/subagent-limits-card-controller.ts'
 import type { SettingsFieldState, SettingsFormShell } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SubagentModelSelectionCardState } from '../src/client/subagent-model-selection-card-controller.ts'
@@ -35,6 +36,7 @@ function renderSubagent(
   limitState: Partial<SubagentLimitsCardState> = {},
   modelState: Partial<SubagentModelSelectionCardState> = {},
   view: ConfigView = 'page',
+  crewState: Partial<CrewBudgetCardState> = { available: false },
 ) {
   const limits = createSnapshotStore<SubagentLimitsCardState>({
     ...settled,
@@ -51,9 +53,19 @@ function renderSubagent(
     conflicted: false,
     ...modelState,
   })
+  const crew = createSnapshotStore<CrewBudgetCardState>({
+    ...settled,
+    maxStepsPerTurn: field('300'),
+    maxWallTimeMsPerTurn: field('60'),
+    maxTotalTokensPerTurn: field('50000000'),
+    maxConsecutiveIdenticalFailures: field('6'),
+    ...crewState,
+  })
   const actions = {
     editLimit: vi.fn(),
     resetLimit: vi.fn(),
+    editCrewBudget: vi.fn(),
+    resetCrewBudget: vi.fn(),
     toggleEnabled: vi.fn(),
     toggleModel: vi.fn(),
     retryCatalog: vi.fn(),
@@ -66,9 +78,10 @@ function renderSubagent(
     t,
     useSubagentLimitsCard: bindSnapshotSelector(limits),
     useSubagentModelSelectionCard: bindSnapshotSelector(models),
+    useCrewBudgetCard: bindSnapshotSelector(crew),
   } as SubagentCardProps
   render(<SubagentCard {...props} />)
-  return { actions, limits, models }
+  return { actions, limits, models, crew }
 }
 
 function renderSubagentModelSelection(state: Partial<SubagentModelSelectionCardState> = {}, view: ConfigView = 'page') {
@@ -178,6 +191,60 @@ describe('Subagent model selection fields', () => {
   })
 })
 
+describe('Crew run budget fields', () => {
+  it('renders four defaults and routes edits and resets through the shared card', () => {
+    const { actions } = renderSubagent({ available: false }, { available: false }, 'page', {
+      maxStepsPerTurn: field('300', { overridden: true }),
+      maxWallTimeMsPerTurn: field('60', { overridden: true }),
+      maxTotalTokensPerTurn: field('50000000', { overridden: true }),
+      maxConsecutiveIdenticalFailures: field('6', { overridden: true }),
+    })
+
+    expect(screen.getByRole('heading', { name: en.crewBudgetTitle })).toBeTruthy()
+    expect(screen.getByText(en.crewBudgetDescription)).toBeTruthy()
+    const fields = [
+      [en.crewBudgetMaxSteps, '300', 'maxStepsPerTurn', '301'],
+      [en.crewBudgetWallTime, '60', 'maxWallTimeMsPerTurn', '90'],
+      [en.crewBudgetMaxTokens, '50000000', 'maxTotalTokensPerTurn', '60000000'],
+      [en.crewBudgetMaxFailures, '6', 'maxConsecutiveIdenticalFailures', '7'],
+    ] as const
+    for (const [label, value, fieldName, edited] of fields) {
+      const input = screen.getByLabelText(label)
+      expect(input).toHaveProperty('value', value)
+      fireEvent.change(input, { target: { value: edited } })
+      expect(actions.editCrewBudget).toHaveBeenLastCalledWith(fieldName, edited)
+    }
+    for (const button of screen.getAllByRole('button', { name: en.reset })) fireEvent.click(button)
+    expect(actions.resetCrewBudget.mock.calls).toEqual(fields.map(([, , fieldName]) => [fieldName]))
+    expect(screen.getAllByRole('button', { name: en.save })).toHaveLength(1)
+  })
+
+  it('omits the section when crew-formation is not served', () => {
+    renderSubagent()
+
+    expect(screen.queryByRole('heading', { name: en.crewBudgetTitle })).toBeNull()
+  })
+
+  it('shows field validation and disables every budget while read-only or saving', () => {
+    const { crew } = renderSubagent({ available: false }, { available: false }, 'page', {
+      dirty: true,
+      invalid: true,
+      maxStepsPerTurn: field('0', { invalid: true }),
+    })
+    const steps = screen.getByLabelText(en.crewBudgetMaxSteps)
+    expect(document.getElementById(steps.getAttribute('aria-describedby')!)?.textContent).toBe(en.crewBudgetStepsInvalid)
+    expect(screen.getByRole('button', { name: en.save })).toHaveProperty('disabled', true)
+
+    act(() => { crew.set({ ...crew.getSnapshot(), writable: false, invalid: false }) })
+    for (const label of [en.crewBudgetMaxSteps, en.crewBudgetWallTime, en.crewBudgetMaxTokens, en.crewBudgetMaxFailures]) {
+      expect(screen.getByLabelText(label)).toHaveProperty('disabled', true)
+    }
+    act(() => { crew.set({ ...crew.getSnapshot(), writable: true, saving: true }) })
+    expect(screen.getByLabelText(en.crewBudgetWallTime)).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: en.saving })).toHaveProperty('disabled', true)
+  })
+})
+
 describe('SubagentCard', () => {
   it('discards both drafts when leaving the page', () => {
     const { actions } = renderSubagent({ dirty: true }, { dirty: true })
@@ -191,11 +258,12 @@ describe('SubagentCard', () => {
     expect(screen.queryByRole('switch')).toBeNull()
   })
 
-  it('shows both sections on one page with one save footer', () => {
-    renderSubagent({ dirty: true })
+  it('shows all served sections on one page with one save footer', () => {
+    renderSubagent({ dirty: true }, {}, 'page', {})
 
     expect(screen.getByRole('heading', { name: en.subagentLimitsTitle })).toBeTruthy()
     expect(screen.getByRole('heading', { name: en.subagentModelSelectionTitle })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: en.crewBudgetTitle })).toBeTruthy()
     expect(screen.getAllByRole('button', { name: en.save })).toHaveLength(1)
   })
 

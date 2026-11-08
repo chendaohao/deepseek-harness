@@ -12,9 +12,21 @@ import type { SubagentCardFace } from '../src/client/index.ts'
 import { SubagentModelSelectionCardController } from '../src/client/subagent-model-selection-card-controller.ts'
 import { apply as hostApply } from '../src/index.ts'
 
-/** One Host view of a served namespace. */
+const EMPTY_OBJECT_SCHEMA = { uid: 0, refs: { 0: { type: 'object', meta: { default: {} }, dict: {} } } }
+
+/** One Host view of a served namespace with its resolved values. */
 function view(ns: string, revision = 0) {
-  return { ns, schema: {}, value: {}, applies: 'live', secrets: [], revision }
+  const values: Record<string, object> = {
+    'subagent': { maxDepth: 3, maxActiveSubagents: 8 },
+    'subagent-model-selection-settings': { enabled: false, allowedModels: [] },
+    'crew-formation': { budget: {
+      maxStepsPerTurn: 300,
+      maxWallTimeMsPerTurn: 3_600_000,
+      maxTotalTokensPerTurn: 50_000_000,
+      maxConsecutiveIdenticalFailures: 6,
+    } },
+  }
+  return { ns, schema: EMPTY_OBJECT_SCHEMA, value: values[ns] ?? {}, applies: 'live', secrets: [], revision }
 }
 
 /** @param served - namespaces the Host describes; omitted answers a failed read. */
@@ -65,7 +77,22 @@ describe('ui-settings-subagent apply', () => {
     expect(resolveSlotLabel(entry.options.label)).toBe('子智能体')
     expect(entry.locale).toBe(NS)
     const face = (entry.inject as () => Pick<SubagentCardFace, 'hooks'>)()
-    expect(Object.keys(face.hooks).sort()).toEqual(['subagentLimitsCard', 'subagentModelSelectionCard'])
+    expect(Object.keys(face.hooks).sort()).toEqual(['crewBudgetCard', 'subagentLimitsCard', 'subagentModelSelectionCard'])
+  })
+
+  it('registers the page with only the Crew section when crew-formation is the sole served namespace', async () => {
+    const { ctx, slots } = await bench(['crew-formation'])
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    await vi.waitFor(() => { expect(slots.entries('plugins.item')).toHaveLength(1) })
+    const root = ctx.configForms.get('crew-formation')
+    await vi.waitFor(() => { expect(root.getSnapshot().status).toBe('ready') })
+
+    const entry = slots.entries('plugins.item')[0]!
+    const face = (entry.inject as () => Pick<SubagentCardFace, 'hooks'>)()
+    await vi.waitFor(() => { expect(face.hooks.crewBudgetCard.getSnapshot().available).toBe(true) })
+    expect(face.hooks.subagentLimitsCard.getSnapshot().available).toBe(false)
+    expect(face.hooks.subagentModelSelectionCard.getSnapshot().available).toBe(false)
   })
 
   it('registers the page when only the model namespace is served, and nothing when neither is', async () => {

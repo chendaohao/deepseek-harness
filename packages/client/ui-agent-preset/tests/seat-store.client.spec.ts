@@ -357,12 +357,30 @@ describe('the preset companion hook', () => {
     }
     const beforeSend = vi.fn(async (): Promise<string | undefined> => undefined)
     const { controller } = companionSeat(() => alreadyCrew, {
-      afterApply: async () => 'combination conflict', beforeSend,
+      afterApply: async () => 'unknown model', beforeSend,
     })
 
-    await expect(controller.select('crew')).resolves.toEqual({ kind: 'refused', reason: 'combination conflict' })
-    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'refused', reason: 'combination conflict' })
+    await expect(controller.select('crew')).resolves.toEqual({ kind: 'refused', reason: 'unknown model' })
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'refused', reason: 'unknown model' })
     expect(beforeSend).not.toHaveBeenCalled()
+  })
+
+  it('keeps the send gate open when a companion reports a notice without refusing', async () => {
+    // The crew combination picker reports a session that already runs another
+    // combination in its own store and resolves without a refusal: the session
+    // holds a valid route set, so the first prompt must still leave.
+    const alreadyCrew: CurrentSession = {
+      id: 's1' as SessionId, blank: true, projectionValues: { agentPreset: 'crew' },
+    }
+    const notice = vi.fn()
+    const { controller } = companionSeat(() => alreadyCrew, {
+      afterApply: async () => { notice(); return undefined },
+      beforeSend: async () => { notice(); return undefined },
+    })
+
+    await expect(controller.select('crew')).resolves.toEqual({ kind: 'applied' })
+    await expect(controller.pendingApply()).resolves.toEqual({ kind: 'applied' })
+    expect(notice).toHaveBeenCalledTimes(2)
   })
 
   it('holds the send gate open until the companion choice lands', async () => {
@@ -402,11 +420,11 @@ describe('the preset companion hook', () => {
       id: 's1' as SessionId, blank: true, projectionValues: { agentPreset: 'crew' },
     }
     const afterApply = vi.fn(async (): Promise<string | undefined> => undefined)
-      .mockResolvedValueOnce('combination conflict')
+      .mockResolvedValueOnce('unknown model')
       .mockResolvedValueOnce(undefined)
     const { controller } = companionSeat(() => alreadyCrew, { afterApply })
 
-    await expect(controller.select('crew')).resolves.toEqual({ kind: 'refused', reason: 'combination conflict' })
+    await expect(controller.select('crew')).resolves.toEqual({ kind: 'refused', reason: 'unknown model' })
     await expect(controller.select('crew')).resolves.toEqual({ kind: 'applied' })
     await expect(controller.pendingApply()).resolves.toEqual({ kind: 'applied' })
     expect(afterApply).toHaveBeenCalledTimes(2)

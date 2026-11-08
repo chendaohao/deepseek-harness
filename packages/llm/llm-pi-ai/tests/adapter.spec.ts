@@ -1207,6 +1207,29 @@ it.each([
   } else await expect(adapter.listModels('deepseek')).rejects.toBe(error)
 })
 
+it('preflights explicit and provider-native credentials without inference', async () => {
+  const missing = new PiAiAdapter({
+    profiles: () => resolveProfiles({ deepseek: {} }),
+    resolveApiKey: () => Promise.resolve(undefined),
+    auth: memoryAuth(),
+  })
+  await expect(missing.preflight('deepseek', 'deepseek-flash')).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+
+  const explicit = new PiAiAdapter({
+    profiles: () => resolveProfiles({ deepseek: { apiKeyEnv: 'PI_TEST_KEY' } }),
+    resolveApiKey: () => Promise.resolve('explicit-test-key'),
+    auth: memoryAuth(),
+  })
+  await expect(explicit.preflight('deepseek', 'deepseek-flash')).resolves.toBeUndefined()
+
+  const native = new PiAiAdapter({
+    profiles: () => resolveProfiles({ deepseek: {} }),
+    resolveApiKey: () => Promise.resolve(undefined),
+    auth: memoryAuth({ deepseek: { type: 'api_key', key: 'stored-test-key' } }),
+  })
+  await expect(native.preflight('deepseek', 'deepseek-flash')).resolves.toBeUndefined()
+})
+
 it('resolves the exact pi-ai image budget for screenshot coordinates', () => {
   const adapter = adapterOf({ deepseek: { apiKeyEnv: 'PI_TEST_KEY', requestImagePixelBudget: 10_000, requestImageMaxBytes: 50_000 } })
   expect(adapter.imageRequestTarget('deepseek', 'deepseek-flash', { ...IMAGE_REF, width: 1000, height: 1000 }))

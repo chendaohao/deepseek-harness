@@ -164,6 +164,8 @@ export function hasConfiguredLlmSelection(options: AgentOptions | undefined): bo
  * Resolve an effective child route through its live adapter before the child is
  * created. The LLM runtime owns provider lookup, exact-model metadata, effort
  * validation, and adapter defaults.
+ * The check covers exact model controls and adapter-owned authentication before
+ * the child is created; it does not send an inference request.
  * @param llm - Live LLM runtime.
  * @param parentOptions - Current parent values whose compatible fields the child inherits.
  * @param requested - Per-child options after request/config merging.
@@ -185,7 +187,7 @@ export async function preflightChildLlmRoute(
   const routeChanged = provider !== parentOptions.provider || model !== parentOptions.model
   const reasoningEffort = requested?.reasoningEffort
     ?? (inheritParentReasoningEffort && !routeChanged ? parentOptions.reasoningEffort : undefined)
-  await llm.resolveCallConfig({
+  await llm.preflightCall({
     provider,
     model,
     ...reasoningEffort === undefined ? {} : { reasoningEffort },

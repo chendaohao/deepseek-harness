@@ -8,11 +8,12 @@
  * was started before it. This module owns that per-session fact and the
  * Host-side reads the delegation rows use.
  *
- * The routes are recorded once, when the session starts its first turn, and
- * a recovery switch records a single role afterwards. Both are ordinary
- * session events, so a cold resume replays the same routes without consulting
- * the combination library, and the "logged ⟺ model-visible" rule holds: the
- * routes decide which model each delegation request goes to.
+ * The routes are recorded before the session's first turn, and a pick may
+ * still be replaced until that turn opens. From then on the session keeps the
+ * set it recorded, and a recovery switch records a single role. Both are
+ * ordinary session events, so a cold resume replays the same routes without
+ * consulting the combination library, and the "logged ⟺ model-visible" rule
+ * holds: the routes decide which model each delegation request goes to.
  * @module @deepseek-ai/dsh-crew/routes
  */
 
@@ -38,10 +39,11 @@ declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Records the complete route set a crew session runs its three delegation
-     * roles on, copied from the combination the session picked. Appended once,
-     * after the combination pick and before the first turn, so every delegation
-     * in that turn already routes from it. Log-only: it carries no `surfaceOp`
-     * and never enters model history.
+     * roles on, copied from the combination the session picked. Appended
+     * before the first turn, so every delegation in that turn already routes
+     * from it. A pick made before the first turn replaces an earlier one, and
+     * the last such event is the recorded set. Log-only: it carries no
+     * `surfaceOp` and never enters model history.
      */
     'crew/routes-selected': {
       /** Identity of the combination this set came from; display metadata only. */
@@ -87,6 +89,8 @@ export interface CrewRoutesState {
   readonly routes: { [Role in CrewRole]: CrewRoleRoute } | null
   /** Roles replaced one at a time after their recorded route failed. */
   readonly replaced: readonly CrewRole[]
+  /** Whether the session appended its first `turn/start`; it fixes the recorded set from then on. */
+  readonly firstTurnStarted: boolean
 }
 
 const crewRoutesStateSchema: zod.ZodType<CrewRoutesState> = zod.object({
@@ -94,27 +98,40 @@ const crewRoutesStateSchema: zod.ZodType<CrewRoutesState> = zod.object({
   presetName: zod.string().min(1).nullable(),
   routes: routesSchema.nullable(),
   replaced: zod.array(zod.enum(CREW_ROLES)),
+  firstTurnStarted: zod.boolean(),
 }).strict()
 
 /**
  * Fold the two route events into the state every reader consults.
  *
- * A set event is accepted once: a session that already runs a formation keeps
- * it, so a second pick cannot move delegation targets under a running turn.
- * A replacement is accepted only for a session that recorded a set, and only
- * for one role, because that is the whole recovery path.
+ * The first set is always accepted, and a later one only while the session
+ * opened no turn: a pick supersedes an earlier pick before anything can
+ * delegate, and the last set event wins. Once a turn started, a recorded set
+ * stands, because a second pick would move delegation targets under work
+ * already in flight. A replacement is accepted only for a session that
+ * recorded a set, and only for one role, because that is the whole recovery
+ * path.
  */
 export const crewRoutesProjectionDefinition = {
   key: 'crewRoutes',
-  stateVersion: 1,
+  stateVersion: 2,
   stateSchema: crewRoutesStateSchema,
-  init: (): CrewRoutesState => ({ presetId: null, presetName: null, routes: null, replaced: [] }),
+  init: (): CrewRoutesState => ({
+    presetId: null,
+    presetName: null,
+    routes: null,
+    replaced: [],
+    firstTurnStarted: false,
+  }),
   apply: (state, event) => {
+    if (event.type === 'turn/start') {
+      return state.firstTurnStarted ? state : { ...state, firstTurnStarted: true }
+    }
     if (event.type === 'crew/routes-selected') {
-      if (state.routes !== null) return state
+      if (state.routes !== null && state.firstTurnStarted) return state
       const { presetId, presetName, routes } = event.data
       const copy = routesSchema.parse(routes)
-      return { presetId, presetName, routes: copy, replaced: [] }
+      return { ...state, presetId, presetName, routes: copy, replaced: [] }
     }
     if (event.type === 'crew/route-replaced') {
       if (state.routes === null) return state
@@ -146,20 +163,16 @@ export function crewRoutesOf(
 }
 
 /**
- * Record a session's route set, ignoring a session that already has one.
- * @param handle - registered projection reader, so the guard sees the same state readers do.
+ * Record a session's route set.
+ *
+ * The caller decides whether the session may still pick: the fold keeps the
+ * first set recorded once a `turn/start` landed, so an event appended to a
+ * started session changes nothing.
  * @param session - crew session receiving the routes.
  * @param selection - source combination identity and the complete route set.
- * @returns whether this call recorded the set.
  */
-export function recordCrewRoutes(
-  handle: Pick<{ stateOf(session: Session): CrewRoutesState }, 'stateOf'>,
-  session: Session,
-  selection: CrewRouteSelection,
-): boolean {
-  if (handle.stateOf(session).routes !== null) return false
+export function recordCrewRoutes(session: Session, selection: CrewRouteSelection): void {
   session.append('crew/routes-selected', selection)
-  return true
 }
 
 /**

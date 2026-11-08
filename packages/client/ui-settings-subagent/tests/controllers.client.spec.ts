@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError, stubConfigForm, type StubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { PROVIDER_ORDER_KEY } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  CrewBudgetCardController, crewBudgetScope,
+  type CrewBudgetSettings, type CrewFormationSettings,
+} from '../src/client/crew-budget-card-controller.ts'
 import { SubagentLimitsCardController, type SubagentLimitsSettings } from '../src/client/subagent-limits-card-controller.ts'
 import { subagentCardFace, subagentCardShell } from '../src/client/subagent-card-controller.ts'
 import {
@@ -525,6 +529,110 @@ describe('SubagentModelSelectionCardController', () => {
   })
 })
 
+describe('CrewBudgetCardController', () => {
+  const defaults: CrewBudgetSettings = {
+    maxStepsPerTurn: 300,
+    maxWallTimeMsPerTurn: 3_600_000,
+    maxTotalTokensPerTurn: 50_000_000,
+    maxConsecutiveIdenticalFailures: 6,
+  }
+
+  function card() {
+    const host = stubConfigForm<CrewFormationSettings>()
+    const controller = new CrewBudgetCardController(crewBudgetScope(host.scope))
+    const face = controller.inject()
+    const state = () => face.hooks.crewBudgetCard.getSnapshot()
+    return { host, controller, face, state }
+  }
+
+  it('shows all four composed defaults when the budget carries no values', () => {
+    const { host, controller, state } = card()
+    host.publish({ status: 'ready', writable: true, value: undefined })
+
+    expect(state()).toMatchObject({
+      available: true,
+      maxStepsPerTurn: { text: '300' },
+      maxWallTimeMsPerTurn: { text: '60' },
+      maxTotalTokensPerTurn: { text: '50000000' },
+      maxConsecutiveIdenticalFailures: { text: '6' },
+    })
+    controller.dispose()
+    expect(host.listenerCount()).toBe(0)
+  })
+
+  it('edits every field through nested budget paths and converts minutes to milliseconds', async () => {
+    const { host, face, state } = card()
+    host.publish({
+      status: 'ready', writable: true, revision: 11,
+      value: { budget: { ...defaults } },
+      base: { budget: { ...defaults } },
+      user: { budget: { ...defaults } },
+    })
+    expect(state().maxWallTimeMsPerTurn.text).toBe('60')
+
+    face.edit('maxStepsPerTurn', '450')
+    face.edit('maxWallTimeMsPerTurn', '1.5')
+    face.edit('maxTotalTokensPerTurn', '60000000')
+    face.edit('maxConsecutiveIdenticalFailures', '8')
+    face.save()
+
+    await vi.waitFor(() => {
+      expect(host.mutate).toHaveBeenCalledWith([
+        { op: 'set', path: ['budget', 'maxStepsPerTurn'], value: 450 },
+        { op: 'set', path: ['budget', 'maxWallTimeMsPerTurn'], value: 90_000 },
+        { op: 'set', path: ['budget', 'maxTotalTokensPerTurn'], value: 60_000_000 },
+        { op: 'set', path: ['budget', 'maxConsecutiveIdenticalFailures'], value: 8 },
+      ], 11)
+    })
+    await vi.waitFor(() => { expect(state().saving).toBe(false) })
+  })
+
+  it('resets to the nested base value and clears overrides for reset or empty drafts', async () => {
+    const { host, face, state } = card()
+    host.publish({
+      status: 'ready', writable: true, revision: 7,
+      value: { budget: { ...defaults, maxStepsPerTurn: 450, maxWallTimeMsPerTurn: 90_000 } },
+      base: { budget: { ...defaults } },
+      user: { budget: { maxStepsPerTurn: 450, maxWallTimeMsPerTurn: 90_000 } },
+    })
+
+    face.resetField('maxStepsPerTurn')
+    face.edit('maxWallTimeMsPerTurn', '')
+    expect(state().maxStepsPerTurn).toMatchObject({ text: '300', invalid: false, overridden: false })
+    expect(state().maxWallTimeMsPerTurn).toMatchObject({ text: '', invalid: false, overridden: false })
+    face.save()
+
+    await vi.waitFor(() => {
+      expect(host.mutate).toHaveBeenCalledWith([
+        { op: 'unset', path: ['budget', 'maxStepsPerTurn'] },
+        { op: 'unset', path: ['budget', 'maxWallTimeMsPerTurn'] },
+      ], 7)
+    })
+  })
+
+  it('rejects unsafe, out-of-range, fractional, and nonnumeric drafts without writing', () => {
+    const { host, face, state } = card()
+    host.publish({ status: 'ready', writable: true, value: { budget: { ...defaults } }, user: {} })
+    const cases = [
+      ['maxStepsPerTurn', ['0', '1.5', '9007199254740992', 'wat']],
+      ['maxWallTimeMsPerTurn', ['0', '-1', '0.00001', '35792', 'Infinity']],
+      ['maxTotalTokensPerTurn', ['0', '-1', '9007199254740992', 'wat']],
+      ['maxConsecutiveIdenticalFailures', ['1', '1.5', 'wat']],
+    ] as const
+
+    for (const [field, drafts] of cases) {
+      for (const draft of drafts) {
+        face.edit(field, draft)
+        expect(state()[field].invalid).toBe(true)
+        expect(state().invalid).toBe(true)
+        face.save()
+        face.discard()
+      }
+    }
+    expect(host.mutate).not.toHaveBeenCalled()
+  })
+})
+
 describe('SubagentLimitsCardController', () => {
   it('validates staged limits, saves them, and restores composed defaults', async () => {
     const host = stubConfigForm<SubagentLimitsSettings>()
@@ -558,8 +666,10 @@ describe('shared Subagent card actions', () => {
   function card() {
     const limits = stubConfigForm<SubagentLimitsSettings>()
     const models = stubConfigForm<SubagentModelSelectionSettings>()
+    const crew = stubConfigForm<CrewFormationSettings>()
     const limitFace = new SubagentLimitsCardController(limits.scope).inject()
     const modelFace = new SubagentModelSelectionCardController(models.scope, modelsApi().ctx).inject()
+    const crewFace = new CrewBudgetCardController(crewBudgetScope(crew.scope)).inject()
     limits.publish({
       status: 'ready', writable: true, revision: 2,
       value: { maxDepth: 3, maxActiveSubagents: 8 },
@@ -569,18 +679,29 @@ describe('shared Subagent card actions', () => {
       status: 'ready', writable: true, revision: 5,
       value: { enabled: false, allowedModels: [{ provider: 'alpha', model: 'fast' }] }, user: {},
     })
+    crew.publish({
+      status: 'ready', writable: true, revision: 7,
+      value: { budget: {
+        maxStepsPerTurn: 300,
+        maxWallTimeMsPerTurn: 3_600_000,
+        maxTotalTokensPerTurn: 50_000_000,
+        maxConsecutiveIdenticalFailures: 6,
+      } },
+      user: {},
+    })
     acceptWrites(limits)
     acceptWrites(models)
-    const face = subagentCardFace(limitFace, modelFace)
+    const face = subagentCardFace(limitFace, modelFace, crewFace)
     const state = () => subagentCardShell(
       face.hooks.subagentLimitsCard.getSnapshot(),
       face.hooks.subagentModelSelectionCard.getSnapshot(),
+      face.hooks.crewBudgetCard.getSnapshot(),
     )
-    return { limits, models, face, state }
+    return { limits, models, crew, face, state }
   }
 
-  it('saves both drafts through their existing namespaces from one action', async () => {
-    const { limits, models, face, state } = card()
+  it('saves the original two drafts without rewriting Crew budgets', async () => {
+    const { limits, models, crew, face, state } = card()
     face.editLimit('maxDepth', '2')
     face.toggleEnabled()
     face.save()
@@ -590,6 +711,22 @@ describe('shared Subagent card actions', () => {
       { op: 'set', path: ['enabled'], value: true },
       { op: 'set', path: ['allowedModels'], value: [{ provider: 'alpha', model: 'fast' }] },
     ], 5)
+    expect(crew.mutate).not.toHaveBeenCalled()
+  })
+
+  it('saves all three sections from one action', async () => {
+    const { limits, models, crew, face, state } = card()
+    face.editLimit('maxDepth', '2')
+    face.toggleEnabled()
+    face.editCrewBudget('maxStepsPerTurn', '400')
+    face.save()
+
+    await vi.waitFor(() => { expect(state()).toMatchObject({ saving: false, dirty: false, failed: false }) })
+    expect(limits.mutate).toHaveBeenCalledOnce()
+    expect(models.mutate).toHaveBeenCalledOnce()
+    expect(crew.mutate).toHaveBeenCalledWith([
+      { op: 'set', path: ['budget', 'maxStepsPerTurn'], value: 400 },
+    ], 7)
   })
 
   it('saves a limit-only draft without rewriting model authorization', async () => {
@@ -640,6 +777,23 @@ describe('shared Subagent card actions', () => {
     expect(state()).toMatchObject({ dirty: false, invalid: false })
     expect(face.hooks.subagentLimitsCard.getSnapshot().maxDepth.text).toBe('3')
     expect(face.hooks.subagentModelSelectionCard.getSnapshot().enabled).toBe(false)
+  })
+
+  it('blocks every namespace for an invalid Crew budget and discards all three drafts', () => {
+    const { limits, models, crew, face, state } = card()
+    face.editLimit('maxDepth', '2')
+    face.toggleEnabled()
+    face.editCrewBudget('maxStepsPerTurn', '0')
+    face.save()
+
+    expect(limits.mutate).not.toHaveBeenCalled()
+    expect(models.mutate).not.toHaveBeenCalled()
+    expect(crew.mutate).not.toHaveBeenCalled()
+    face.discard()
+    expect(state()).toMatchObject({ dirty: false, invalid: false })
+    expect(face.hooks.subagentLimitsCard.getSnapshot().maxDepth.text).toBe('3')
+    expect(face.hooks.subagentModelSelectionCard.getSnapshot().enabled).toBe(false)
+    expect(face.hooks.crewBudgetCard.getSnapshot().maxStepsPerTurn.text).toBe('300')
   })
 
   it('retains a rejected model draft after limits save, and retries only that draft', async () => {

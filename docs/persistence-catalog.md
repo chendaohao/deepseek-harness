@@ -503,7 +503,7 @@ Source: [`packages/compaction/compaction/src/types.ts:34`](../packages/compactio
 }
 ```
 
-Source: [`packages/bundle/crew/src/routes.ts:59`](../packages/bundle/crew/src/routes.ts)
+Source: [`packages/bundle/crew/src/routes.ts:61`](../packages/bundle/crew/src/routes.ts)
 
 <a id="crewroutes-selected--log-only"></a>
 
@@ -512,10 +512,11 @@ Source: [`packages/bundle/crew/src/routes.ts:59`](../packages/bundle/crew/src/ro
 ```ts persistence-catalog
 /**
  * Records the complete route set a crew session runs its three delegation
- * roles on, copied from the combination the session picked. Appended once,
- * after the combination pick and before the first turn, so every delegation
- * in that turn already routes from it. Log-only: it carries no `surfaceOp`
- * and never enters model history.
+ * roles on, copied from the combination the session picked. Appended
+ * before the first turn, so every delegation in that turn already routes
+ * from it. A pick made before the first turn replaces an earlier one, and
+ * the last such event is the recorded set. Log-only: it carries no
+ * `surfaceOp` and never enters model history.
  */
 'crew/routes-selected': {
   /** Identity of the combination this set came from; display metadata only. */
@@ -527,7 +528,7 @@ Source: [`packages/bundle/crew/src/routes.ts:59`](../packages/bundle/crew/src/ro
 }
 ```
 
-Source: [`packages/bundle/crew/src/routes.ts:46`](../packages/bundle/crew/src/routes.ts)
+Source: [`packages/bundle/crew/src/routes.ts:48`](../packages/bundle/crew/src/routes.ts)
 
 <a id="crewrun-budget-exceeded--log-only"></a>
 
@@ -547,7 +548,7 @@ Source: [`packages/bundle/crew/src/routes.ts:46`](../packages/bundle/crew/src/ro
 }
 ```
 
-Source: [`packages/bundle/crew/src/run-budget.ts:56`](../packages/bundle/crew/src/run-budget.ts)
+Source: [`packages/bundle/crew/src/run-budget.ts:58`](../packages/bundle/crew/src/run-budget.ts)
 
 ### `deliverables/*`
 
@@ -8449,7 +8450,7 @@ Sources: [`packages/session/working-directory/src/index.ts:29`](../packages/sess
 
 SHA-256: `0e97a6078638f9ffc72a26a39d453407aff96a4ef4f6f6b2475a7a2c54dfea66`
 
-Sources: [`packages/bundle/crew/src/run-budget.ts:56`](../packages/bundle/crew/src/run-budget.ts)
+Sources: [`packages/bundle/crew/src/run-budget.ts:58`](../packages/bundle/crew/src/run-budget.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8599,7 +8600,7 @@ Sources: [`packages/interaction/permission-presets/src/index.ts:53`](../packages
 
 SHA-256: `ddc0ab0b907f5287df70613807b7aa20d27a99a57ea949cec4c1cd196629718b`
 
-Sources: [`packages/bundle/crew/src/routes.ts:46`](../packages/bundle/crew/src/routes.ts)
+Sources: [`packages/bundle/crew/src/routes.ts:48`](../packages/bundle/crew/src/routes.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8626,7 +8627,7 @@ Sources: [`packages/core/session/src/types.ts:306`](../packages/core/session/src
 
 SHA-256: `dfd0376fb7cd289fe25a4ed1367971246dba93300992beb2943126d2dfeb42b4`
 
-Sources: [`packages/bundle/crew/src/routes.ts:59`](../packages/bundle/crew/src/routes.ts)
+Sources: [`packages/bundle/crew/src/routes.ts:61`](../packages/bundle/crew/src/routes.ts)
 
 | Property | Presence | Type |
 |---|---|---|

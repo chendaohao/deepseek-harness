@@ -172,11 +172,14 @@ export class CrewChoiceController {
    * Record the staged combination on one session.
    *
    * The Host decides whether the routes exist, so its refusal is what the
-   * picker shows. Confirmed success consumes the current stage; a refusal or
-   * conflict keeps it for a retry. A response superseded by a newer selection
-   * changes neither the stage nor its report.
+   * picker shows. Confirmed success consumes the current stage; a refusal keeps
+   * it for a retry, and a conflict keeps it for the next crew session. A
+   * response superseded by a newer selection changes neither the stage nor its
+   * report.
    * @param sessionId - the blank session that just adopted the crew preset.
-   * @returns the current selection's localized report, or undefined when applied, absent, already recorded, or superseded.
+   * @returns the localized refusal; undefined when applied, absent, already
+   *   recorded, superseded, or in conflict — a conflict is a picker notice, not a
+   *   refused prompt.
    */
   applyToSession(sessionId: SessionId): Promise<string | undefined> {
     return this.apply(sessionId, false)
@@ -187,7 +190,9 @@ export class CrewChoiceController {
    * The send path uses this after the Crew preset has settled, so merely choosing
    * Crew does not commit the opening entry before the user can change it.
    * @param sessionId - current blank Crew session preparing its first prompt.
-   * @returns the current choice's localized refusal, or undefined when applied, absent, already recorded, or superseded.
+   * @returns the localized refusal; undefined when applied, absent, already
+   *   recorded, superseded, or in conflict — a conflict is a picker notice, not a
+   *   refused prompt.
    */
   applyDisplayedToSession(sessionId: SessionId): Promise<string | undefined> {
     return this.apply(sessionId, true)
@@ -228,7 +233,8 @@ export class CrewChoiceController {
       if (result.error.code === 'crew/conflict') {
         const recordedId = result.error.details.recordedPresetId
         const recorded = recordedId === null ? undefined : this.stored().find(preset => preset.id === recordedId)?.name
-        return this.fail(recorded === undefined ? { reason: 'conflict' } : { reason: 'conflict', recorded })
+        this.conflict(recorded)
+        return undefined
       }
       return this.fail({ reason: 'host', message: result.error.message })
     }
@@ -242,8 +248,8 @@ export class CrewChoiceController {
         await this.succeed(sessionId, stored.id, generation)
         return undefined
       }
-      const recorded = view.ok ? view.value.presetName ?? undefined : undefined
-      return this.fail(recorded === undefined ? { reason: 'conflict' } : { reason: 'conflict', recorded })
+      this.conflict(view.ok ? view.value.presetName ?? undefined : undefined)
+      return undefined
     }
     await this.succeed(sessionId, stored.id, generation)
     return undefined
@@ -268,6 +274,19 @@ export class CrewChoiceController {
     const error = this.describe(failure)
     this.set(selected === undefined ? { error } : { error, selected })
     return error
+  }
+
+  /**
+   * Report a combination the session already runs, keeping the stage.
+   *
+   * The session keeps a valid route set, so this is a statement about the
+   * pick rather than a failed session operation: the picker shows the line and
+   * the stage survives for the next crew session, while the caller receives
+   * nothing to refuse a first prompt over.
+   * @param recorded - the name of the combination the session runs, when known.
+   */
+  private conflict(recorded: string | undefined): void {
+    this.fail(recorded === undefined ? { reason: 'conflict' } : { reason: 'conflict', recorded })
   }
 
   /** Clear a last-used pointer whose combination disappeared from the library. */

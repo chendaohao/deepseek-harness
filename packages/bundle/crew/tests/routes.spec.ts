@@ -37,6 +37,7 @@ describe('crew formation routes', () => {
       presetName: 'Deep review',
       routes: { worker: ROUTES.worker, planner: ROUTES.planner },
       replaced: [],
+      firstTurnStarted: false,
     }
     expect(() => crewRoutesProjectionDefinition.stateSchema.parse(missingReviewer)).toThrow(/reviewer/)
   })
@@ -48,7 +49,7 @@ describe('crew formation routes', () => {
     const session = Session.create(SessionId('formation-set'))
 
     expect(crewRoutesOf(handle, session).routes).toBeNull()
-    expect(recordCrewRoutes(handle, session, SELECTION)).toBe(true)
+    recordCrewRoutes(session, SELECTION)
 
     const state = crewRoutesOf(handle, session)
     expect(state.presetId).toBe('preset-1')
@@ -58,23 +59,100 @@ describe('crew formation routes', () => {
     await ctx.fiber.dispose()
   })
 
-  it('ignores a second set so a running turn keeps its delegation targets', async () => {
+  it('accepts a second set before the first turn and keeps the later combination', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
     const handle = await ctx.sessionProjections.register(crewRoutesProjectionDefinition)
     const session = Session.create(SessionId('formation-second-set'))
 
-    recordCrewRoutes(handle, session, SELECTION)
+    recordCrewRoutes(session, SELECTION)
     const moved = {
       presetId: 'preset-2',
       presetName: 'Fast',
       routes: { ...ROUTES, worker: { provider: 'other', model: 'cheap', reasoningEffort: 'low' } },
     }
-    expect(recordCrewRoutes(handle, session, moved)).toBe(false)
+    recordCrewRoutes(session, moved)
+
+    const state = crewRoutesOf(handle, session)
+    expect(state.presetId).toBe('preset-2')
+    expect(state.presetName).toBe('Fast')
+    expect(state.routes?.worker.model).toBe('cheap')
+    expect(state.replaced).toEqual([])
+    expect(session.snapshotEvents().filter(event => event.type === 'crew/routes-selected')).toHaveLength(2)
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps the first set once a turn started, so a running turn holds its delegation targets', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    const handle = await ctx.sessionProjections.register(crewRoutesProjectionDefinition)
+    const session = Session.create(SessionId('formation-set-after-turn'))
+
+    recordCrewRoutes(session, SELECTION)
+    session.append('turn/start', { turn: 1 })
+    const moved = {
+      presetId: 'preset-2',
+      presetName: 'Fast',
+      routes: { ...ROUTES, worker: { provider: 'other', model: 'cheap', reasoningEffort: 'low' } },
+    }
+    recordCrewRoutes(session, moved)
+
+    const state = crewRoutesOf(handle, session)
+    expect(state.presetId).toBe('preset-1')
+    expect(state.routes?.worker.model).toBe('deepseek-v4.1-flash')
+    expect(session.snapshotEvents().filter(event => event.type === 'crew/routes-selected')).toHaveLength(2)
+    await ctx.fiber.dispose()
+  })
+
+  it('still accepts a first set appended after a turn started', async () => {
+    // A resumed session that never recorded a combination: its first pick is
+    // the set it runs, so the later suppression only protects a recorded set.
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    const handle = await ctx.sessionProjections.register(crewRoutesProjectionDefinition)
+    const session = Session.create(SessionId('formation-set-late'))
+
+    session.append('turn/start', { turn: 1 })
+    recordCrewRoutes(session, SELECTION)
 
     expect(crewRoutesOf(handle, session).presetId).toBe('preset-1')
-    expect(crewRoutesOf(handle, session).routes?.worker.model).toBe('deepseek-v4.1-flash')
-    expect(session.snapshotEvents().filter(event => event.type === 'crew/routes-selected')).toHaveLength(1)
+    await ctx.fiber.dispose()
+  })
+
+  it('marks the first turn once, keeping the state reference for later turns', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    const handle = await ctx.sessionProjections.register(crewRoutesProjectionDefinition)
+    const session = Session.create(SessionId('formation-turn-once'))
+
+    session.append('turn/start', { turn: 1 })
+    const started = crewRoutesOf(handle, session)
+    expect(started.firstTurnStarted).toBe(true)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+    expect(crewRoutesOf(handle, session)).toBe(started)
+    await ctx.fiber.dispose()
+  })
+
+  it('replays the same state on a cold resume, and a resumed pick is still fixed', async () => {
+    // The fold reads only `turn/start` and the two crew events, so replaying the
+    // stored log reproduces the live state without the combination library.
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    const handle = await ctx.sessionProjections.register(crewRoutesProjectionDefinition)
+    const session = Session.create(SessionId('formation-resume'))
+
+    recordCrewRoutes(session, SELECTION)
+    recordCrewRoutes(session, { presetId: 'preset-2', presetName: 'Fast', routes: { ...ROUTES, worker: { provider: 'other', model: 'cheap', reasoningEffort: 'low' } } })
+    session.append('turn/start', { turn: 1 })
+
+    const online = crewRoutesOf(handle, session)
+    const resumed = Session.create(SessionId('formation-resume'), session.snapshotEvents())
+    expect(crewRoutesOf(handle, resumed)).toEqual(online)
+    expect(crewRoutesOf(handle, resumed).firstTurnStarted).toBe(true)
+    // The resumed session opened its first turn, so the fold keeps the record.
+    recordCrewRoutes(resumed, SELECTION)
+    expect(crewRoutesOf(handle, resumed).presetId).toBe('preset-2')
     await ctx.fiber.dispose()
   })
 
@@ -83,7 +161,7 @@ describe('crew formation routes', () => {
     await ctx.plugin(SessionProjectionRegistry)
     const handle = await ctx.sessionProjections.register(crewRoutesProjectionDefinition)
     const session = Session.create(SessionId('formation-replace'))
-    recordCrewRoutes(handle, session, SELECTION)
+    recordCrewRoutes(session, SELECTION)
 
     replaceCrewRoleRoute(session, 'worker', { provider: 'backup', model: 'spare-model', reasoningEffort: 'high' })
 
@@ -104,7 +182,7 @@ describe('crew formation routes', () => {
     await ctx.plugin(SessionProjectionRegistry)
     const handle = await ctx.sessionProjections.register(crewRoutesProjectionDefinition)
     const session = Session.create(SessionId('formation-replace-twice'))
-    recordCrewRoutes(handle, session, SELECTION)
+    recordCrewRoutes(session, SELECTION)
 
     replaceCrewRoleRoute(session, 'reviewer', { provider: 'a', model: 'm', reasoningEffort: 'low' })
     replaceCrewRoleRoute(session, 'reviewer', { provider: 'b', model: 'n', reasoningEffort: 'high' })

@@ -434,6 +434,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             reasoningEffort: settingsRoute.reasoningEffort,
           }
         const requiresRoutePreflight = hasDelegationModelRequest(modelRequest)
+            || hasConfiguredLlmSelection(providerRouteDefaults)
             || hasConfiguredLlmSelection(config.agentOptions)
             || settingsAgentOptions !== undefined
         const configuredChildAgentOptions = requiresRoutePreflight

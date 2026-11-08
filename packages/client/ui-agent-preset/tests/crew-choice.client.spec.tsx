@@ -222,7 +222,7 @@ describe('CrewChoiceController', () => {
     controller.select('a')
     const reported = t('crewChoiceConflictNamed', { recorded: 'B' })
 
-    await expect(controller.applyDisplayedToSession('session-1' as never)).resolves.toBe(reported)
+    await expect(controller.applyDisplayedToSession('session-1' as never)).resolves.toBeUndefined()
     expect(selectRoutes).toHaveBeenCalledTimes(2)
     expect(controller.store.getSnapshot()).toMatchObject({ selected: 'a', error: reported })
     expect(controller.stage()).toBe('a')
@@ -329,7 +329,7 @@ describe('CrewChoiceController', () => {
     expect(controller.stage()).toBe('a')
   })
 
-  it('reports a conflict by code and keeps the stage when the session already runs another combination', async () => {
+  it('reports a conflict by code, keeps the stage, and lets the first prompt through', async () => {
     const selectRoutes = vi.fn(() => Promise.resolve({
       ok: false,
       error: { code: 'crew/conflict', message: 'This session already runs another model combination', details: { sessionId: 'session-1', recordedPresetId: 'b', attemptedPresetId: 'a' } },
@@ -342,7 +342,9 @@ describe('CrewChoiceController', () => {
     await controller.load()
     controller.select('a')
     const reported = t('crewChoiceConflictNamed', { recorded: 'B' })
-    expect(await controller.applyToSession('session-1' as never)).toBe(reported)
+    // The session keeps a valid route set, so the conflict is a note about the
+    // pick, not a refusal the send path may act on.
+    await expect(controller.applyToSession('session-1' as never)).resolves.toBeUndefined()
     expect(controller.store.getSnapshot().error).toBe(reported)
     expect(controller.store.getSnapshot().selected).toBe('a')
     expect(controller.stage()).toBe('a')
@@ -360,7 +362,8 @@ describe('CrewChoiceController', () => {
     )
     await controller.load()
     controller.select('a')
-    expect(await controller.applyToSession('session-1' as never)).toBe(t('crewChoiceConflict'))
+    await expect(controller.applyToSession('session-1' as never)).resolves.toBeUndefined()
+    expect(controller.store.getSnapshot().error).toBe(t('crewChoiceConflict'))
     expect(controller.stage()).toBe('a')
   })
 
@@ -407,7 +410,8 @@ describe('CrewChoiceController', () => {
     await controller.load()
     controller.select('a')
     const reported = t('crewChoiceConflictNamed', { recorded: 'B' })
-    expect(await controller.applyToSession('session-1' as never)).toBe(reported)
+    await expect(controller.applyToSession('session-1' as never)).resolves.toBeUndefined()
+    expect(controller.store.getSnapshot().error).toBe(reported)
     expect(controller.stage()).toBe('a')
   })
 
@@ -473,7 +477,7 @@ describe('CrewChoiceController', () => {
 
     controller.select('b')
     const reported = t('crewChoiceConflictNamed', { recorded: 'A' })
-    await expect(controller.applyToSession('session-1' as never)).resolves.toBe(reported)
+    await expect(controller.applyToSession('session-1' as never)).resolves.toBeUndefined()
     lastUsed.resolve(true)
     await applyingA
 

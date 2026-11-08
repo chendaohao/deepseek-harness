@@ -833,6 +833,26 @@ describe('LlmRuntime', () => {
     await expect(ctx.llm.resolveCallConfig(providerDefault)).resolves.toBe(providerDefault)
   })
 
+  it('validates exact call controls before adapter-owned preflight', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const calls: string[] = []
+    const adapter = new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        calls.push('resolve')
+        return super.resolveModel(provider, model)
+      }
+      override preflight(): Promise<void> {
+        calls.push('preflight')
+        return Promise.resolve()
+      }
+    }({ id: 'route', name: 'Route' }, [])
+    ctx.llm.registerAdapter(['route'], adapter)
+
+    await expect(ctx.llm.preflightCall({ provider: 'route', model: 'model' })).resolves.toBeUndefined()
+    expect(calls).toEqual(['resolve', 'preflight'])
+  })
+
   it('materializes an adapter-owned maxTokens default while preserving an explicit cap', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)

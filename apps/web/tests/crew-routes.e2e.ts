@@ -150,6 +150,37 @@ describe('web e2e: the crew-route block edits the combination library', () => {
     expect(await block.getByLabel('工人模型').inputValue()).not.toBe('')
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
+
+  it('edits all four Crew turn budgets through the real Subagent settings composition', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-crew-budgets'))
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+    await page.getByRole('navigation', { name: '全局面板' }).getByRole('button', { name: '插件', exact: true }).click()
+    const panel = page.locator('[data-plugin-panel]')
+    await panel.locator('[data-plugin-item="subagent"]').getByRole('button').click()
+    const section = panel.getByRole('region', { name: 'Crew 运行预算' })
+    await section.waitFor({ timeout: 10_000 })
+    await page.screenshot({ path: join(process.cwd(), '.artifacts/crew-budgets-desktop.png'), fullPage: true, animations: 'disabled' })
+    await page.setViewportSize({ width: 390, height: 800 })
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.screenshot({ path: join(process.cwd(), '.artifacts/crew-budgets-mobile.png'), fullPage: true, animations: 'disabled' })
+    await page.setViewportSize({ width: 1680, height: 1000 })
+
+    await section.getByLabel('单轮步数上限', { exact: true }).fill('301')
+    await section.getByLabel('单轮时长（分钟）', { exact: true }).fill('61')
+    await section.getByLabel('单轮 token 上限', { exact: true }).fill('50000001')
+    await section.getByLabel('连续相同工具失败次数上限', { exact: true }).fill('7')
+    await panel.getByRole('button', { name: '保存', exact: true }).click()
+
+    await expect.poll(() => scaffold.ctx.settings.describe().find(row => row.ns === 'crew-formation')?.value, { timeout: 10_000 })
+      .toMatchObject({ budget: {
+        maxStepsPerTurn: 301,
+        maxWallTimeMsPerTurn: 3_660_000,
+        maxTotalTokensPerTurn: 50_000_001,
+        maxConsecutiveIdenticalFailures: 7,
+      } })
+    expect(tripwire.pageErrors).toEqual([])
+  }, 120_000)
 })
 
 /**

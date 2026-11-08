@@ -64,11 +64,25 @@ describe('crew model-visible persona rules', () => {
     expect(reviewer).not.toContain('close with PASS and list the outstanding items')
   })
 
+  it('pins dependency-based parallel dispatch before the first delegation', () => {
+    expect(commander).toContain(
+      'Before the first delegation, classify every intended task by whether its inputs are already available and whether its write targets are disjoint. '
+      + 'Independent work includes planning, read-only probes, and implementation; start all of it in parallel in one message, 2 to 5 roles, '
+      + 'instead of waiting for a planner or probe before starting another independent role.',
+    )
+    expect(commander).toContain(
+      'Serialize a task only when it consumes another task\'s output, writes a shared file, or contends for the same external resource.',
+    )
+  })
+
   it('pins terminal route recovery to manual replacement and same-child continuation', () => {
     expect(commander).toContain(
-      'A terminal quota/authentication failure or a run-budget stop is not a transient settlement. Do not resume or re-delegate it. '
+      'A terminal quota/authentication failure or a run-budget stop is not a transient settlement. Do not resume or re-delegate it, and never start another child on the same route. '
       + 'Name the affected role and its current route, then ask the user to choose a replacement through the session header\'s route action. '
       + 'After the user confirms the replacement and asks to continue, `send_message` the same role; never create a new Crew session merely to change one role.',
+    )
+    expect(commander).toContain(
+      'If a reviewer cannot start, every completion report must state that independent review did not run; tests and worker self-checks are not a substitute.',
     )
     expect(commander).toContain('A role stopped by a run budget needs a smaller task or an explicit budget change before any continuation.')
   })

@@ -961,6 +961,16 @@ declare abstract class LlmAdapter {
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo>;
   /**
+   * Check adapter-owned dispatch prerequisites without sending inference.
+   * The default declares no additional prerequisites; authentication-capable
+   * adapters override this to reject an unauthenticated route before a child
+   * session or other deferred caller commits to it.
+   * @param _provider - registered provider route.
+   * @param _model - exact model id.
+   * @param _signal - cancellation for credential or connection lookup.
+   */
+  preflight(_provider: string, _model: string, _signal?: AbortSignal): Promise<void>;
+  /**
    * Bind exact model metadata and the eventual request dispatch to one adapter generation.
    * Dynamic adapters override this so settings changes between preparation and
    * dispatch cannot combine one generation's capabilities with another's endpoint.
@@ -1159,6 +1169,13 @@ async resolveModelInfo( provider: string, model: string, signal?: AbortSignal, )
  * @returns a detached config only when a default must be materialized.
  */
 async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>
+
+/**
+ * Validate one exact call and its adapter-owned dispatch prerequisites without sending inference.
+ * @param config - provider, model, and request controls to validate together.
+ * @param signal - cancellation for model and credential lookup.
+ */
+async preflightCall(config: LlmCallConfig, signal?: AbortSignal): Promise<void>
 
 /**
  * Resolve one call under its current adapter registration. The returned

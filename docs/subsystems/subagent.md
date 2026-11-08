@@ -472,18 +472,19 @@ viewOf(session: Session): CrewSessionView
  * the session without routes rather than with two good roles and one that
  * fails on its first delegation.
  *
- * The write is a first-set-once claim, judged against the session's final
- * record: the same combination as the recorded set succeeds idempotently
- * without another event, and any other combination throws a `crew/conflict`
- * RemoteError that leaves the recorded set unchanged. A racing loser of the
- * pre-validation check re-reads the record after validation, so it settles
- * by the same comparison instead of trusting a stale guard result.
+ * A session that has opened no turn accepts a different combination: the new
+ * pick supersedes the recorded set, and every later delegation reads the
+ * superseding routes. Once the first turn opened, the recorded set stands —
+ * the same combination succeeds idempotently without another event, and any
+ * other one throws a `crew/conflict` RemoteError that leaves the record
+ * unchanged. A racing loser re-reads the record after validation, so it
+ * settles by the same comparison instead of trusting a stale guard result.
  * @param agent - live Agent receiving the routes.
  * @param selection - source combination identity, name, and complete routes.
  * @param signal - carrier cancellation, owning the call until the routes land.
  * @returns whether this call appended the event; an idempotent replay returns false.
- * @throws a `crew/conflict` RemoteError when the session already records a
- *   different combination; the recorded set is untouched.
+ * @throws a `crew/conflict` RemoteError when the session opened its first turn
+ *   and does not record this combination; the record is untouched.
  */
 @Remote('selectRoutes') async selectRoutes( agent: Agent, selection: CrewRouteSelection, signal: AbortSignal, ): Promise<boolean>
 
