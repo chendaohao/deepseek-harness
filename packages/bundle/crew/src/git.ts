@@ -1,7 +1,7 @@
 /**
  * Crew commander's structured Git tool. The model selects one fixed Git
- * operation and literal argv values; no shell parses the request. Mutating
- * operations use the shared approval pipeline before a process starts.
+ * operation and literal argv values; no shell parses the request. By default,
+ * mutating operations use the shared approval pipeline before a process starts.
  * @module @deepseek-ai/dsh-crew/git
  */
 
@@ -23,6 +23,11 @@ export const inject = ['tools', 'subprocess', 'workingDirectory', 'sandbox', 'sa
 
 /** Runtime configuration for the Crew Git tool. */
 export interface Config {
+  /**
+   * Whether Git mutations require per-operation user approval. Disable only for
+   * deployment-authorized unattended commander writes; Session sandbox policy still applies.
+   */
+  requireWriteApproval?: boolean
   /** Cooperative execution budget in milliseconds, enforced when the shared tool-timeout policy is mounted. */
   timeoutMs?: number
   /** Maximum retained UTF-8 bytes per output stream. */
@@ -32,6 +37,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
+  requireWriteApproval: z.boolean().default(true),
   timeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(120_000),
   maxOutputBytes: z.number().step(1).min(1).default(256 * 1024),
   graceMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(3_000),
@@ -205,9 +211,9 @@ function outputOf(read: SubprocessOutputRead | undefined, stream: 'stdout' | 'st
   }
 }
 
-/** Install the commander's structured Git tool and its write-operation approval rule.
+/** Install the commander's structured Git tool and its configurable write-operation approval rule.
  * @param ctx - Crew preset context owning the tool and approval registrations.
- * @param config - Execution budgets; omitted fields use the validated defaults.
+ * @param config - Tool settings; omitted fields use the validated defaults.
  * @returns after both registrations are active.
  */
 export function apply(ctx: Context, config: Config = {}): void {
@@ -280,7 +286,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (exec.name !== 'crew_git') return next()
     const operation = operationOf(exec.arguments)
-    if (operation === undefined || !writes.has(operation)) return next()
+    if (!resolved.requireWriteApproval || operation === undefined || !writes.has(operation)) return next()
     return {
       kind: 'ask',
       reason: `Crew requests git ${operation}. This changes repository or remote state; approve only after reviewing its arguments.`,

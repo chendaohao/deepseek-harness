@@ -72,6 +72,7 @@ function environmentConfig(spec: SubprocessSpawnSpec | undefined): Record<string
 
 async function setup(options: {
   approve?: boolean
+  requireWriteApproval?: boolean
   mode?: 'danger-full-access' | 'read-only'
   onSpawn?: (spec: SubprocessSpawnSpec) => SubprocessHandle | undefined
   /** Repository configuration keys the read-time probe reports. */
@@ -93,7 +94,9 @@ async function setup(options: {
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: options.mode ?? 'danger-full-access', workspaceRoot: '/workspace' }) } as never)
   const request = vi.fn(() => Promise.resolve(options.approve === true ? 'allowed-once' : 'rejected'))
   ctx.provide('approval', { request } as never)
-  const fiber = await ctx.plugin(CrewGit, {})
+  const fiber = await ctx.plugin(CrewGit, options.requireWriteApproval === undefined
+    ? {}
+    : { requireWriteApproval: options.requireWriteApproval })
   return { ctx, fiber, spawn, request, confine }
 }
 
@@ -109,9 +112,10 @@ async function setupReal(config: CrewGit.Config = {}) {
   ctx.provide('workingDirectory', { ensure: () => Promise.resolve('/workspace') } as never)
   ctx.provide('sandbox', { confine: () => { throw new Error('danger-full-access must not confine') } } as never)
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: '/workspace' }) } as never)
-  ctx.provide('approval', { request: () => Promise.resolve('rejected') } as never)
+  const request = vi.fn(() => Promise.resolve('rejected'))
+  ctx.provide('approval', { request } as never)
   await ctx.plugin(CrewGit, config)
-  return { ctx }
+  return { ctx, request }
 }
 
 async function temporaryDirectory(): Promise<string> {
@@ -243,6 +247,19 @@ describe('Crew commander Git tool', () => {
     expect(result.isError).toBe(false)
     expect(request).toHaveBeenCalledOnce()
     expect(operationCalls(spawn)[0]?.argv).toEqual(expect.arrayContaining(['commit', '--message=reviewed change']))
+  })
+
+  it('keeps sandbox confinement when write approval is disabled', async () => {
+    const { ctx, spawn, request, confine } = await setup({ mode: 'read-only', requireWriteApproval: false })
+    const result = await call(ctx, { operation: 'commit', args: ['--message=authorized change'] })
+    expect(result.isError).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+    expect(confine).toHaveBeenCalledWith(
+      expect.arrayContaining(['commit', '--message=authorized change']),
+      expect.objectContaining({ mode: 'read-only', workspaceRoot: '/workspace' }),
+      expect.any(AbortSignal),
+    )
+    expect(operationCalls(spawn)[0]?.argv).toEqual(expect.arrayContaining(['sandboxed-git', 'commit']))
   })
 
   it('rejects external remote-helper addresses on push', async () => {
@@ -488,6 +505,18 @@ describe('Crew commander Git tool', () => {
 })
 
 describe('Crew commander Git real execution regressions', () => {
+  it('executes a configured write without calling the rejecting approval answerer', async () => {
+    const root = await temporaryDirectory()
+    const repo = await createRepository(root)
+    await writeFile(join(repo, 'a.txt'), 'checkpoint\n')
+    await git(repo, ['add', 'a.txt'])
+    const { ctx, request } = await setupReal({ requireWriteApproval: false })
+    const result = await call(ctx, { operation: 'commit', cwd: repo, args: ['--message=checkpoint'] })
+    expect(result.isError).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+    expect((await git(repo, ['log', '-1', '--format=%s'])).trim()).toBe('checkpoint')
+  })
+
   it('does not execute a filter whose subsection contains an equals sign', async () => {
     const root = await temporaryDirectory()
     const { marker, command } = await markerProgram(root)

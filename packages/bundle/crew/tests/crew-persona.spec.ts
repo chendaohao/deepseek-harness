@@ -74,6 +74,10 @@ describe('crew model-visible persona rules', () => {
       'Name the role that did each action: "I verified", "I accepted", and "I decided" are yours; implementation actions you delegated belong to their role '
       + '— "worker fixed the patch", "reviewer audited the delivery" — never "I fixed" or "I ran the tests".',
     )
+    expect(commander).toContain(
+      'A user-requested local checkpoint commit may proceed after its scope and validation are verified; it is not final delivery. '
+      + 'No delivery PASS: do not push, publish, or call the work complete.',
+    )
   })
 
   it('freezes the reviewer rule text verbatim', () => {

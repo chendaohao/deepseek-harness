@@ -69,9 +69,9 @@ kind: "package-bundle"
 
 会话自己的路由由本 bundle 挂载的 formation 服务（`dsh-crew/formation`）记录，委派行在读取自己已存默认值之前先经 `subagentRouteSettings` 读它。这也是组合不需要为每个会话再开一个设置命名空间的原因：会话日志就是存储，冷恢复重放同一套路由，不必回查组合库。
 
-指挥者没有通用 shell，也没有文件写入或编辑工具。所有实施动作都派给 `worker`，包括单文件补丁和单独一条测试命令。`crew_git` 支持只读操作 `status`、`diff`、`log`、`show`、`ls-files`、`rev-parse`；写操作 `checkout`、`reset`、`restore`、`stash`、`clean`、`commit`、`push`、`rebase`、`merge`、`switch` 需要用户批准。参数是逐条校验选项白名单的字面 argv 值。每次调用都应用 Session 沙箱策略，禁用仓库钩子和文件系统监视器，拒绝打开编辑器，并且绝不调用 shell 或外部远程助手。
+指挥者没有通用 shell，也没有文件写入或编辑工具。所有实施动作都派给 `worker`，包括单文件补丁和单独一条测试命令。`crew_git` 支持只读操作 `status`、`diff`、`log`、`show`、`ls-files`、`rev-parse`；写操作 `checkout`、`reset`、`restore`、`stash`、`clean`、`commit`、`push`、`rebase`、`merge`、`switch` 默认需要用户批准。在 `crew-commander-git` 行设置 `requireWriteApproval: false`，或把它的 `DSH_CREW_GIT_REQUIRE_WRITE_APPROVAL` 环境输入设为 `false`，可授权写入而不再逐次审批；两种设置都不会绕过 Session 沙箱。参数是逐条校验选项白名单的字面 argv 值。每次调用都应用 Session 沙箱策略，禁用仓库钩子和文件系统监视器，拒绝打开编辑器，并且绝不调用 shell 或外部远程助手。
 
-只读操作另外拒绝仓库自身配置能够执行的任何程序。读取开始前，工具先列出在该仓库生效的 Git 配置键，通过 Git 的环境键值槽位，把其中的程序键——内容过滤器、合并驱动器、diff 助手、签名程序、编辑器、传输命令、凭据助手——仅对本次调用覆盖为空串。分离的键值槽位能保留含 `=` 的子节名。读取会禁用 `log.showSignature`，把仓库的 `format.pretty` 替换为 `medium`，拒绝 `--format=` 中的 `%G…` 签名占位符，并清除继承的 Git 追踪输出目标。如果完整键列表超过 `maxOutputBytes`，读取会报 `CREW_GIT_CONFIG_UNREADABLE`，而不是使用不完整的覆盖继续执行。配置、index 及其时间戳都不被写入；读取显示的是被过滤文件的存储字节（Git LFS 指针），而非还原后的内容。写操作保留仓库的过滤器与合并驱动器，因为提交和检出依赖它们；用户对写操作的批准就是把这一后果摆在面前。
+只读操作另外拒绝仓库自身配置能够执行的任何程序。读取开始前，工具先列出在该仓库生效的 Git 配置键，通过 Git 的环境键值槽位，把其中的程序键——内容过滤器、合并驱动器、diff 助手、签名程序、编辑器、传输命令、凭据助手——仅对本次调用覆盖为空串。分离的键值槽位能保留含 `=` 的子节名。读取会禁用 `log.showSignature`，把仓库的 `format.pretty` 替换为 `medium`，拒绝 `--format=` 中的 `%G…` 签名占位符，并清除继承的 Git 追踪输出目标。如果完整键列表超过 `maxOutputBytes`，读取会报 `CREW_GIT_CONFIG_UNREADABLE`，而不是使用不完整的覆盖继续执行。配置、index 及其时间戳都不被写入；读取显示的是被过滤文件的存储字节（Git LFS 指针），而非还原后的内容。写操作保留仓库的过滤器与合并驱动器，因为提交和检出依赖它们；默认启用逐次审批时，用户对写操作的批准就是把这一后果摆在面前。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现

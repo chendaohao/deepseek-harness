@@ -22,7 +22,7 @@
 #
 # The commander is read-only by construction: its preset mounts no general
 # shell or filesystem writer. Git operations use the structured `crew_git` tool,
-# whose write operations require the built-in user approval channel. Role
+# whose write operations use the built-in user approval channel by default. Role
 # presets keep the tools their own work needs; `preset-tool-mask` narrows the
 # inherited global catalog rather than relying on persona text alone.
 
@@ -155,7 +155,7 @@
                 - Planner triggering is hybrid. If the user explicitly asks for a planner or designer, use planner after supplying the fact pack below. If the user explicitly excludes planner, do not call it. Without either instruction, use planner only when an unresolved design choice has a high cost to reverse: competing interfaces or module ownership, materially different architectures, or a requirements conflict. Before an automatic planner call, state one sentence naming the decision and why it merits the round; do not ask for an extra confirmation for this read-only planning step. Do not use planner for lint cleanup, mechanical repair, an already specified implementation, or a well-scoped patch.
                 - Before any planner call, give it a fact pack: verified facts with evidence, assumptions, unknowns, user decisions, the target metric, and non-goals. Resolve discoverable load-bearing facts first. If a user-owned decision still blocks the design, relay that one question before requesting a full plan.
                 - After a planner round, hand the plan to reviewer. No plan PASS means no worker for that planned approach. A worker executing an approach already fixed by the request does not need a planner round.
-                - No delivery PASS: do not commit, publish, or call the work complete.
+                - A user-requested local checkpoint commit may proceed after its scope and validation are verified; it is not final delivery. No delivery PASS: do not push, publish, or call the work complete.
                 - A one- or two-step read or answer: do it directly. Anything that changes files or runs implementation commands goes to worker, even a single patch.
                 - The commander has no general shell or filesystem writer. If a worker cannot run, report the blockage instead of doing its work yourself.
 
@@ -192,7 +192,7 @@
                 - A batch gets at most three review rounds on the same acceptance criteria; a fourth FAIL means the criteria were wrong, not that the worker is careless. When substance still fails after the third re-audit, the reviewer must close FAIL with the unresolved items, and you must not call the batch complete. Your escape is never a fourth round on the same criteria: revise the criteria you can show were wrong and reopen as a new task with a fresh audit, or accept and hand the remaining risk to the user in your report. You may accept only what the user can observe; you may not downgrade an open defect on the current acceptance criteria, factual correctness, state continuity, or this batch's own artifacts into a backlog note.
                 - Several roles dying at once (timeout, queueing, rate limit, network) signals upstream congestion: resume them one at a time; a new batch of workers only deepens the queue.
                 - Account-level concurrency refusals are not transient. When a settlement says the child failed before it finished and it logged no tool call at all, check whether the provider refused for concurrency or quota before re-delegating; re-sending immediately spends the same refusal again. Wait for the window, then resume the same role only after the user confirms that the route is usable.
-                - Git writes are your job, not a role child's: use only `crew_git`, which runs a fixed Git operation with structured arguments and no shell. Its write operations require user approval; if approval is unavailable or rejected, report that outcome. Role children still cannot run checkout/reset/restore/stash/clean/commit/push/rebase/merge/switch because many sessions share one checkout. When two reports conflict, check them line by line against the files; never roll back a whole tree.
+                - Git writes are your job, not a role child's: use only `crew_git`, which runs a fixed Git operation with structured arguments and no shell. The deployment may require approval for each write; if approval is requested but unavailable or rejected, report that outcome. Role children still cannot run checkout/reset/restore/stash/clean/commit/push/rebase/merge/switch because many sessions share one checkout. When two reports conflict, check them line by line against the files; never roll back a whole tree.
                 - Report results with evidence (what changed, what verification ran, what remains), not just the process. Name the role that did each action: "I verified", "I accepted", and "I decided" are yours; implementation actions you delegated belong to their role — "worker fixed the patch", "reviewer audited the delivery" — never "I fixed" or "I ran the tests". One worker does one coherent piece of work; write the task description fully instead of sending "go figure it out".
                 - Track in-flight state with `todo_write`, not by editing a file: it is per-session, needs no read-before-edit, and costs no tool round trip beyond the call itself. Rewriting `.dsh/reports/tasks.md` by hand on every settlement burns a large share of your tool calls and buys nothing the todo list does not already hold.
                 - `.dsh/reports/tasks.md` is append-only and owned by the roles: each role appends its own row (| task | role | state | report path |) when it closes a task. You read it; you do not rewrite it. When a row must change, `send_message` the owning role and let it append the correction.
@@ -211,6 +211,8 @@
           # ── bounded Git coordination ─────────────────────────────────────────
           - id: crew-commander-git
             name: '@deepseek-ai/dsh-crew'
+            config:
+              requireWriteApproval: !!js process.env.DSH_CREW_GIT_REQUIRE_WRITE_APPROVAL !== 'false'
 
           # ── read-only filesystem ─────────────────────────────────────────────
           - id: tool-fs
