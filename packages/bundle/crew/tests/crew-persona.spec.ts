@@ -60,6 +60,7 @@ function delegationRoleDescription(rows: readonly PatchRow[], presetId: string, 
 const rows: readonly PatchRow[] = loadOverlayPatches('crew-persona-snapshot', PATCH_PATH).flatMap(patch => patch.insert ?? [])
 const commander = personaOf(rows, 'preset-crew')
 const reviewer = personaOf(rows, 'preset-crew-reviewer')
+const worker = personaOf(rows, 'preset-crew-worker')
 
 describe('crew model-visible persona rules', () => {
   it('freezes the commander rule text verbatim', () => {
@@ -138,20 +139,97 @@ describe('crew model-visible persona rules', () => {
 
   it('fixes worker reuse to the acceptance objective and keeps budgets out of it', () => {
     expect(commander).toContain(
-      'Reuse a worker by acceptance objective, not by directory or remaining budget. '
-      + 'Within the same unfinished objective, use `send_message` for incremental fixes, added cases, repeated verification, and reviewer-requested rework. '
-      + 'Start a fresh worker for a new acceptance objective or phase, an independent task in the same directory, mostly irrelevant old context, or repeated drift. '
-      + 'A failure report without a closing message stays with the same worker: check for an interim report first, accept it once it is complete, '
-      + 'and replace the worker only after the same failure twice or a clear drift; a new acceptance objective or phase still starts a fresh worker. '
-      + 'Files and reports are already shared; reuse only preserves relevant working context.',
+      'Reuse a worker by acceptance objective, not phase, directory, command count, or remaining budget.',
     )
+    expect(commander).toContain(
+      'Within one unfinished objective, `send_message` the same worker for implementation, verification, fixes, added evidence, '
+      + 'reviewer rework, and separately authorized dry-run and execution; a phase never requires a fresh worker.',
+    )
+    expect(commander).toContain(
+      'Start fresh only for an independent objective, mostly irrelevant or misleading context, clear drift, '
+      + 'two identical failed recovery attempts, an unrecoverable child after evidence handoff, or a user-approved independent split.',
+    )
+    expect(commander).toContain(
+      'Shared files and compile serialization order steps within that worker; they do not create one-command workers.',
+    )
+    expect(commander).toContain('Route and budget exceptions follow the rules below.')
+    expect(commander).toContain('Worker self-verification is not independent acceptance, and a dry-run never authorizes execution.')
     expect(commander).toContain('Run budgets are per turn and never justify reuse.')
     expect(commander).toContain('Do not automatically resume a budget-stopped or terminal quota/auth-failed worker.')
   })
 
-  it('pins automatic compaction to the same unfinished objective and requires settling a running worker first', () => {
+  it('no longer treats a phase as a fresh-worker condition', () => {
+    expect(commander).not.toContain('new acceptance objective or phase')
+    expect(commander).not.toContain('Start a fresh worker for a new acceptance objective or phase')
+    expect(commander).not.toContain('by directory or remaining budget')
+  })
+
+  it('pins the recovery order: inventory, on-disk evidence, background work, then continue or replace', () => {
+    expect(commander).toContain(
+      'After a process restart, or when a settlement lacks a closing message, recover before dispatching: call `list_agents`; '
+      + 'read reports, changed files, and logs; inspect recorded jobs or ask the original worker to collect them; then continue or replace.',
+    )
+    expect(commander).toContain(
+      '`inactive` only means no turn is executing, and an infrastructure `aborted` outcome is unknown until evidence establishes it.',
+    )
+    expect(commander).toContain(
+      'A closing message is not completion evidence; judge each criterion from artifacts, '
+      + 'and never rerun a step with complete success evidence merely because that message is absent.',
+    )
+  })
+
+  it('keeps a running worker exclusive and forbids retrying an unknown mutation', () => {
+    expect(commander).toContain(
+      'Keep a running worker exclusive: steer it with `send_message`, wait unless it drifts, '
+      + 'and never start a replacement or duplicate its active command.',
+    )
+    expect(commander).toContain(
+      'For an inactive or infrastructure-aborted worker on the same objective, send only the evidence inventory and unmet criteria; '
+      + 'accept satisfied criteria without another command and have it supply any missing report.',
+    )
+    expect(commander).toContain(
+      'If follow-up is impossible or two identical recovery attempts fail, settle running work, collect artifacts and jobs, '
+      + 'and start at most one replacement with completed evidence and remaining criteria.',
+    )
+    expect(commander).toContain(
+      'Unknown mutation effects block retry and dependent work until verified; if unverifiable, report unknown and ask the user.',
+    )
+    expect(commander).toContain(
+      'Do not resume intentional user or ancestor aborts; terminal route and budget rules below take precedence.',
+    )
+  })
+
+  it('gives the closing-message and no-rerun rule one home in the recovery line', () => {
+    const closingMessageLines = commander.split('\n').filter(line => line.includes('closing message'))
+    expect(closingMessageLines).toHaveLength(1)
+    expect(closingMessageLines[0]).toContain('recover before dispatching')
+    expect(closingMessageLines[0]).toContain('never rerun a step with complete success evidence')
+    expect(commander).not.toContain('Never assume it did nothing.')
+    expect(commander).not.toContain('check for an interim report first')
+    // The delegated-work section keeps its own evidence rules and adds none of these.
+    expect(commander).toContain('you trust artifacts, not narration.')
+    expect(commander).toContain('A failing role still writes a report: where it got stuck, what it tried, where the evidence is.')
+  })
+
+  it('gives the worker its own recording and collection duty without commander acceptance rules', () => {
+    expect(worker).toContain(
+      'Before a long or verification command, write the active milestone, exact command, cwd, and log path to the assigned report; '
+      + 'record the background job/process id when available.',
+    )
+    expect(worker).toContain(
+      'At settlement, add the exit code or an explicitly unknown outcome and artifact paths.',
+    )
+    expect(worker).toContain(
+      'On continuation, first report and collect those existing records and jobs for the commander.',
+    )
+    expect(worker).not.toContain('closing message')
+    expect(worker).not.toContain('accept satisfied criteria')
+    expect(worker).not.toContain('start at most one replacement')
+  })
+
+  it('pins automatic compaction to the same unfinished objective and leaves replacement to the recovery rule', () => {
     expect(commander).toContain('Let automatic compaction continue an unfinished objective when the worker\'s context remains relevant.')
     expect(commander).toContain('Do not compact merely to reuse a worker for a new objective; hand off the report and start fresh.')
-    expect(commander).toContain('Before replacing a running worker, stop or settle it and inspect its artifacts and background jobs.')
+    expect(commander).not.toContain('Before replacing a running worker, stop or settle it and inspect its artifacts and background jobs.')
   })
 })

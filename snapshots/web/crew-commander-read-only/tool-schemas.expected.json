@@ -85,13 +85,13 @@
     },
     {
       "name": "crew_git",
-      "description": "Run one allowlisted Git operation directly with literal arguments, without a shell. Use for Crew commander Git reads and approved Git writes. Shell expansion and command-execution options are not available.",
+      "description": "Run one allowlisted Git operation directly with literal arguments, without a shell. Use for Crew commander Git reads and approved Git writes. Shell expansion and command-execution options are not available. A Git non-zero exit is returned with exitCode, stdout, and stderr; validation, launch, cancellation, and cleanup failures remain tool errors.",
       "parameters": {
         "type": "object",
         "properties": {
           "operation": {
             "type": "string",
-            "description": "Git subcommand to run.",
+            "description": "Git subcommand to run. Rev-list and branch queries are reads; branch creation and every fetch are writes.",
             "enum": [
               "status",
               "diff",
@@ -99,6 +99,8 @@
               "show",
               "ls-files",
               "rev-parse",
+              "rev-list",
+              "branch",
               "checkout",
               "reset",
               "restore",
@@ -108,12 +110,13 @@
               "push",
               "rebase",
               "merge",
-              "switch"
+              "switch",
+              "fetch"
             ]
           },
           "args": {
             "type": "array",
-            "description": "Literal arguments after the subcommand. Options are allowlisted per operation; use -- before path-only arguments.",
+            "description": "Literal arguments after the subcommand. Options are allowlisted per operation; log and rev-list also accept -N as a decimal commit limit. Use rev-list --count for counts and log --numstat --first-parent for merge-introduced changes. Fetch requires one named remote and no URL or refspec; the tool supplies fixed refspec and safety options. Branch accepts an allowlisted query or a new branch name with an optional start point and always uses --no-track. Use -- before path-only arguments.",
             "items": {
               "type": "string"
             }

@@ -1,6 +1,6 @@
 /** Crew commander replay: direct writes fail while delegation and bounded Git remain available. */
 import { execFile } from 'node:child_process'
-import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -101,9 +101,15 @@ describe('Crew commander read-only composition', () => {
     expect(prompt).toContain('use planner only when an unresolved design choice has a high cost to reverse')
     // Fact pack before any planner call.
     expect(prompt).toContain('Before any planner call, give it a fact pack:')
-    // Reuse by acceptance objective, with budgets excluded as a reuse criterion.
-    expect(prompt).toContain('Reuse a worker by acceptance objective, not by directory or remaining budget.')
+    // Reuse by acceptance objective: a phase never starts a worker, budgets never justify reuse.
+    expect(prompt).toContain('Reuse a worker by acceptance objective, not phase, directory, command count, or remaining budget.')
+    expect(prompt).toContain('a phase never requires a fresh worker')
     expect(prompt).toContain('Run budgets are per turn and never justify reuse.')
+    // Recovery reads evidence before it dispatches, and an unknown mutation blocks retry.
+    expect(prompt).toContain('recover before dispatching: call `list_agents`')
+    expect(prompt).toContain('A closing message is not completion evidence')
+    expect(prompt).toContain('Unknown mutation effects block retry and dependent work until verified')
+    expect(prompt).not.toContain('Start a fresh worker for a new acceptance objective or phase')
     // Automatic compaction and the terminal-failure boundary.
     expect(prompt).toContain('Let automatic compaction continue an unfinished objective')
     expect(prompt).toContain('Do not automatically resume a budget-stopped or terminal quota/auth-failed worker.')
@@ -146,6 +152,91 @@ describe('Crew commander read-only composition', () => {
       await rm(repo, { recursive: true, force: true })
     }
   })
+
+  it('creates a branch and fetches a named local remote through the mounted preset', async () => {
+    const git = promisify(execFile)
+    const root = await mkdtemp(join(tmpdir(), 'dsh-crew-branch-fetch-'))
+    let gitHandle: AgentHandle | undefined
+    try {
+      const remote = join(root, 'remote.git')
+      const source = join(root, 'source')
+      await git('git', ['init', '--quiet', '--bare', remote])
+      await git('git', ['init', '--quiet', source])
+      await git('git', ['-C', source, 'config', 'user.name', 'Crew Test'])
+      await git('git', ['-C', source, 'config', 'user.email', 'crew@example.invalid'])
+      await writeFile(join(source, 'a.txt'), 'base\n')
+      await git('git', ['-C', source, 'add', 'a.txt'])
+      await git('git', ['-C', source, 'commit', '--quiet', '-m', 'base'])
+      await git('git', ['-C', source, 'push', '--quiet', remote, 'HEAD:refs/heads/main'])
+      await git('git', ['-C', remote, 'symbolic-ref', 'HEAD', 'refs/heads/main'])
+      const repo = join(root, 'clone')
+      await git('git', ['clone', '--quiet', remote, repo])
+      await git('git', ['-C', repo, 'config', 'user.name', 'Crew Test'])
+      await git('git', ['-C', repo, 'config', 'user.email', 'crew@example.invalid'])
+      // Hostile configuration plus the shared checkpoints the fetch must not touch.
+      await git('git', ['-C', repo, 'branch', 'keep-local'])
+      await git('git', ['-C', repo, 'tag', 'keep-tag'])
+      await git('git', ['-C', repo, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/heads/CFG/*'])
+      await git('git', ['-C', repo, 'config', 'remote.origin.pruneTags', 'true'])
+      await git('git', ['-C', repo, 'config', 'remote.origin.prune', 'true'])
+      const marker = join(root, 'uploadpack-ran')
+      const program = join(root, 'marker.cjs')
+      await writeFile(program, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')\n`)
+      await chmod(program, 0o700)
+      await git('git', ['-C', repo, 'config', 'remote.origin.uploadpack', program])
+      await writeFile(join(repo, '.git', 'FETCH_HEAD'), 'sentinel-fetch-head\n')
+      const localBranch = (await git('git', ['-C', repo, 'rev-parse', 'refs/heads/keep-local'])).stdout.trim()
+      const localTag = (await git('git', ['-C', repo, 'rev-parse', 'refs/tags/keep-tag'])).stdout.trim()
+
+      gitHandle = await scaffold.ctx.agents.create({
+        sessionId: SessionId('crew-commander-branch-fetch'),
+        meta: { cwd: scaffold.workspaceCwd, agentPreset: 'crew' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx, 'crew').then(() => undefined),
+      })
+      gitHandle.agent.session.append('sandbox/mode', { mode: 'danger-full-access' })
+      gitHandle.agent.session.append('approval/policy', { policy: 'never' })
+      const run = (callId: string, args: Record<string, unknown>) => executeModelToolFixture(gitHandle?.agent.ctx as never, {
+        callId: ToolCallId(callId), name: 'crew_git', arguments: args,
+        agent: gitHandle?.agent as never, signal: new AbortController().signal,
+      })
+
+      const created = await run('crew-branch-create', { operation: 'branch', cwd: repo, args: ['crew-test/backup', 'origin/main'] })
+      expect(created.isError, JSON.stringify(created)).toBe(false)
+      if (created.isError) throw new Error('expected mounted branch creation to reach Git')
+      expect(created.value).toMatchObject({ operation: 'branch', exitCode: 0 })
+      const query = await run('crew-branch-query', { operation: 'branch', cwd: repo, args: ['--list', 'crew-test/*'] })
+      expect(query.isError).toBe(false)
+      if (query.isError) throw new Error('expected mounted branch query to reach Git')
+      const listed = query.value as { exitCode: number | null; stdout: { text: string } }
+      expect(listed.exitCode).toBe(0)
+      expect(listed.stdout.text).toContain('crew-test/backup')
+      // The branch was created after the local branch set was recorded, so the fetch
+      // baseline below includes it instead of contradicting its existence.
+      const branchesBefore = (await git('git', ['-C', repo, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/'])).stdout
+
+      await writeFile(join(source, 'advance.txt'), 'advance\n')
+      await git('git', ['-C', source, 'add', 'advance.txt'])
+      await git('git', ['-C', source, 'commit', '--quiet', '-m', 'advance'])
+      await git('git', ['-C', source, 'push', '--quiet', remote, 'HEAD:refs/heads/main'])
+      const expected = (await git('git', ['-C', source, 'rev-parse', 'HEAD'])).stdout.trim()
+
+      const fetched = await run('crew-fetch', { operation: 'fetch', cwd: repo, args: ['origin'] })
+      expect(fetched.isError, JSON.stringify(fetched)).toBe(false)
+      if (fetched.isError) throw new Error('expected mounted fetch to reach Git')
+      expect(fetched.value).toMatchObject({ operation: 'fetch', exitCode: 0 })
+      expect((await git('git', ['-C', repo, 'rev-parse', 'refs/remotes/origin/main'])).stdout.trim()).toBe(expected)
+      expect((await git('git', ['-C', repo, 'for-each-ref', '--format=%(refname)', 'refs/heads/CFG/'])).stdout).toBe('')
+      expect((await git('git', ['-C', repo, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/'])).stdout).toBe(branchesBefore)
+      expect((await git('git', ['-C', repo, 'rev-parse', 'refs/heads/keep-local'])).stdout.trim()).toBe(localBranch)
+      expect((await git('git', ['-C', repo, 'rev-parse', 'refs/tags/keep-tag'])).stdout.trim()).toBe(localTag)
+      expect(await readFile(join(repo, '.git', 'FETCH_HEAD'), 'utf8')).toBe('sentinel-fetch-head\n')
+      await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await gitHandle?.dispose()
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
 
   it('keeps its snapshot inventory closed', async () => {
     await assertFixtureInventory(DIR, [

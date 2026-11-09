@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { appendFile, chmod, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -100,8 +101,8 @@ async function setup(options: {
   return { ctx, fiber, spawn, request, confine }
 }
 
-async function setupReal(config: CrewGit.Config = {}) {
-  vi.stubEnv('GIT_CONFIG_GLOBAL', '/dev/null')
+async function setupReal(config: CrewGit.Config = {}, globalConfig = '/dev/null') {
+  vi.stubEnv('GIT_CONFIG_GLOBAL', globalConfig)
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1')
   const ctx = new Context()
   contexts.push(ctx)
@@ -124,11 +125,11 @@ async function temporaryDirectory(): Promise<string> {
   return path
 }
 
-function git(cwd: string, args: readonly string[], input?: string): Promise<string> {
+function git(cwd: string, args: readonly string[], input?: string, globalConfig = '/dev/null'): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile('git', [...args], {
       cwd,
-      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+      env: { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1' },
     }, (error, stdout, stderr) => {
       if (error) reject(new Error(`git ${args.join(' ')} failed: ${stderr}`, { cause: error }))
       else resolve(stdout)
@@ -168,12 +169,124 @@ async function createFilteredRepository(root: string, filterName: string, comman
   return repo
 }
 
+/** A private global Git config directory so a test can record Trace2 events. */
+async function gitGlobalDirectory(root: string): Promise<string> {
+  const path = join(root, 'git-global')
+  await mkdir(path, { recursive: true })
+  return path
+}
+
+/** Count `git maintenance` child processes a Trace2 event log recorded. */
+async function maintenanceRuns(tracePath: string): Promise<number> {
+  let text: string
+  try {
+    text = await readFile(tracePath, 'utf8')
+  } catch (error: unknown) {
+    if ((error as { code?: string }).code === 'ENOENT') return 0
+    throw error
+  }
+  return text.split('\n').filter(line => line.includes('"argv":[') && line.includes('"maintenance"')).length
+}
+
+/** A repository with one ordinary commit followed by a merge, plus a `side` branch. */
+async function createMergeRepository(root: string): Promise<string> {
+  const repo = await createRepository(root)
+  await writeFile(join(repo, 'a.txt'), 'one\n')
+  await git(repo, ['add', 'a.txt'])
+  await git(repo, ['commit', '--quiet', '-m', 'one'])
+  // Pin the first branch name so `main...side` below does not depend on init.defaultBranch.
+  await git(repo, ['checkout', '--quiet', '-B', 'main'])
+  await git(repo, ['branch', 'side'])
+  await writeFile(join(repo, 'a.txt'), 'two\n')
+  await git(repo, ['commit', '--quiet', '-am', 'two'])
+  await git(repo, ['checkout', '--quiet', 'side'])
+  await writeFile(join(repo, 'b.txt'), 'side\n')
+  await git(repo, ['add', 'b.txt'])
+  await git(repo, ['commit', '--quiet', '-m', 'side'])
+  await git(repo, ['checkout', '--quiet', 'main'])
+  await git(repo, ['merge', '--quiet', '--no-ff', '-m', 'merge side', 'side'])
+  return repo
+}
+
+/** A bare remote whose `main` holds one commit. */
+async function createRemoteWithMain(root: string): Promise<string> {
+  const bare = join(root, 'remote.git')
+  const source = join(root, 'source')
+  await git(root, ['init', '--quiet', '--bare', bare])
+  await git(root, ['init', '--quiet', source])
+  await git(source, ['config', 'user.name', 'Crew Test'])
+  await git(source, ['config', 'user.email', 'crew@example.invalid'])
+  await writeFile(join(source, 'a.txt'), 'base\n')
+  await git(source, ['add', 'a.txt'])
+  await git(source, ['commit', '--quiet', '-m', 'base'])
+  await git(source, ['push', '--quiet', bare, 'HEAD:refs/heads/main'])
+  // A bare remote with no HEAD ref clones into a repository with no local branch.
+  await git(bare, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  return bare
+}
+
+/** Clone a prepared remote; the clone's `origin` is a local path, so nothing reaches the network. */
+async function cloneRepository(root: string, remote: string): Promise<string> {
+  const repo = join(root, 'clone')
+  await git(root, ['clone', '--quiet', remote, repo])
+  await git(repo, ['config', 'user.name', 'Crew Test'])
+  await git(repo, ['config', 'user.email', 'crew@example.invalid'])
+  return repo
+}
+
+/** Push one more commit to the remote's `main` and return the new commit id. */
+async function advanceRemoteMain(root: string, remote: string, name = 'advance.txt'): Promise<string> {
+  const source = join(root, 'source')
+  await writeFile(join(source, name), `${name}\n`)
+  await git(source, ['add', name])
+  await git(source, ['commit', '--quiet', '-m', name])
+  await git(source, ['push', '--quiet', remote, 'HEAD:refs/heads/main'])
+  return (await git(source, ['rev-parse', 'HEAD'])).trim()
+}
+
 /** Give HEAD an OpenPGP signature header so log can be asked to verify it. */
 async function signHead(repo: string): Promise<void> {
   const raw = await git(repo, ['cat-file', 'commit', 'HEAD'])
   const signed = raw.replace('\n\n', '\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n fake\n -----END PGP SIGNATURE-----\n\n')
   const hash = (await git(repo, ['hash-object', '-t', 'commit', '-w', '--stdin'], signed)).trim()
   await git(repo, ['update-ref', 'HEAD', hash])
+}
+
+/** The output fields `crew_git` projects for one finished Git process. */
+interface GitProjection {
+  readonly operation: string
+  readonly exitCode: number | null
+  readonly stdout: { readonly text: string }
+  readonly stderr: { readonly text: string }
+}
+
+/** Read one string field from a JSON object, refusing anything else. */
+function jsonString(container: object, key: string): string {
+  const value: unknown = Reflect.get(container, key)
+  if (typeof value !== 'string') throw new TypeError(`expected ${key} to be a string`)
+  return value
+}
+
+/** Read one nested text field, the only shape `crew_git` returns for a stream. */
+function jsonText(container: object, key: string): string {
+  const stream: unknown = Reflect.get(container, key)
+  if (typeof stream !== 'object' || stream === null) throw new TypeError(`expected ${key} to be an object`)
+  return jsonString(stream, 'text')
+}
+
+/** Read a successful `crew_git` projection, which its output schema fixes as an object. */
+function projectionOf(result: { readonly isError: false; readonly value: JsonValue }): GitProjection {
+  if (typeof result.value !== 'object' || result.value === null || Array.isArray(result.value)) {
+    throw new TypeError('expected a crew_git projection object')
+  }
+  const exitCode: unknown = Reflect.get(result.value, 'exitCode')
+  if (typeof exitCode !== 'number' && exitCode !== null) throw new TypeError('expected an exit code')
+  return {
+    operation: jsonString(result.value, 'operation'),
+    exitCode,
+    stdout: { text: jsonText(result.value, 'stdout') },
+    stderr: { text: jsonText(result.value, 'stderr') },
+  }
 }
 
 let callCounter = 0
@@ -490,6 +603,206 @@ describe('Crew commander Git tool', () => {
     expect(operationCalls(spawn)).toHaveLength(0)
   })
 
+  it.each([
+    ['log', ['-v']],
+    ['log', ['-5']],
+    ['log', ['--no-merges']],
+    ['log', ['--numstat', '--first-parent']],
+    ['diff', ['--numstat']],
+    ['show', ['--numstat']],
+  ] as const)('runs %s with the extended read option %j without write approval', async (operation, args) => {
+    const { ctx, spawn, request } = await setup()
+    const result = await call(ctx, { operation, args })
+    expect(result.isError).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+    const argv = operationCalls(spawn)[0]?.argv ?? []
+    expect(argv).toEqual(expect.arrayContaining([operation, ...args]))
+    // The read-time program probe still precedes the operation.
+    expect(spawn.mock.calls[0]?.[0].argv).toEqual(expect.arrayContaining(['config', '--name-only', '--list']))
+  })
+
+  it.each([
+    ['rev-list', ['--count', 'HEAD']],
+    ['rev-list', ['--left-right', '--count', 'main...side']],
+    ['rev-list', ['--no-merges', 'HEAD']],
+    ['rev-list', ['--first-parent', '-5']],
+  ] as const)('runs rev-list as a read with %j', async (operation, args) => {
+    const { ctx, spawn, request } = await setup()
+    const result = await call(ctx, { operation, args })
+    expect(result.isError).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+    expect(operationCalls(spawn)[0]?.argv).toEqual(expect.arrayContaining(['rev-list', ...args]))
+  })
+
+  it.each([
+    ['log', ['--verbose'], 'Git accepts -v on log and show and rejects --verbose'],
+    ['show', ['--verbose'], 'Git accepts -v on log and show and rejects --verbose'],
+    ['diff', ['--verbose'], 'Git accepts -v on log and show and rejects --verbose'],
+    ['log', ['--count'], 'Use rev-list --count for a commit count'],
+    ['rev-list', ['--numstat'], 'Use log --numstat --first-parent'],
+    ['rev-list', ['--stat'], 'Use log --numstat --first-parent'],
+    ['status', ['-Z'], 'Accepted: --short'],
+    ['rebase', ['--exec=touch /tmp/x'], 'Accepted: --continue'],
+  ] as const)('rejects %s %j before spawning with a usable alternative', async (operation, args, hint) => {
+    const { ctx, spawn } = await setup({ approve: true })
+    const result = await call(ctx, { operation, args })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'CREW_GIT_ARGUMENTS' } } })
+    expect(spawn).not.toHaveBeenCalled()
+    const message = result.isError ? result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('') : ''
+    expect(message).toContain(operation)
+    expect(message).toContain(JSON.stringify(args[0] as string))
+    expect(message).toContain(hint)
+  })
+
+  it.each([['-0'], ['-5'], ['-000']])('accepts %s as a decimal commit limit on log and rev-list', async (limit) => {
+    const { ctx, spawn } = await setup()
+    for (const operation of ['log', 'rev-list'] as const) {
+      const result = await call(ctx, { operation, args: [limit] })
+      expect(result.isError).toBe(false)
+    }
+    expect(operationCalls(spawn)).toHaveLength(2)
+  })
+
+  it.each([['-5x'], ['--5'], ['-n5']])('rejects %s as a malformed commit limit', async (limit) => {
+    const { ctx, spawn } = await setup()
+    const result = await call(ctx, { operation: 'rev-list', args: [limit] })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'CREW_GIT_ARGUMENTS' } } })
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [[]],
+    [['--all']],
+    [['--list', 'topic/*']],
+    [['--show-current']],
+    [['--contains=HEAD']],
+    [['--merged=main', '--format=%(refname:short)']],
+  ] as const)('classifies branch %j as a read query', async (args) => {
+    const { ctx, spawn, request } = await setup()
+    const result = await call(ctx, { operation: 'branch', args })
+    expect(result.isError).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+    expect(operationCalls(spawn)[0]?.argv).toEqual(expect.arrayContaining(['branch', ...args]))
+    expect(ctx.tools.get('crew_git')?.isConcurrencySafe?.({ operation: 'branch', args })).toBe(true)
+  })
+
+  it.each([[['crew-test/one']], [['crew-test/two', 'HEAD']]])('creates branch from %j as a write with an injected --no-track', async (args) => {
+    const { ctx, spawn, request } = await setup({ approve: true })
+    const result = await call(ctx, { operation: 'branch', args })
+    expect(result.isError).toBe(false)
+    expect(request).toHaveBeenCalledOnce()
+    expect(operationCalls(spawn)[0]?.argv).toEqual(expect.arrayContaining(['branch', '--no-track', ...args]))
+    // A write must not pay for the read-time program probe.
+    expect(spawn.mock.calls.some(entry => entry[0].argv.includes('config'))).toBe(false)
+    expect(ctx.tools.get('crew_git')?.isConcurrencySafe?.({ operation: 'branch', args })).toBe(false)
+  })
+
+  it('does not create a branch when its approval is refused', async () => {
+    const { ctx, spawn } = await setup({ approve: false })
+    const result = await call(ctx, { operation: 'branch', args: ['crew-test/refused'] })
+    expect(result.isError).toBe(true)
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [['-D', 'main']],
+    [['-m', 'main', 'renamed']],
+    [['-f', 'main', 'HEAD']],
+    [['--track', 'new', 'origin/main']],
+    [['--no-track', 'new', 'origin/main']],
+    [['--list', '-D', 'main']],
+    [['--list', '--delete', 'main']],
+    [['one', 'two', 'three']],
+  ] as const)('rejects the branch mutation form %j', async (args) => {
+    const { ctx, spawn } = await setup({ approve: true })
+    const result = await call(ctx, { operation: 'branch', args })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'CREW_GIT_ARGUMENTS' } } })
+    expect(spawn).not.toHaveBeenCalled()
+    const message = result.isError ? result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('') : ''
+    expect(message).toContain('branch <new-branch> [<start-point>]')
+    expect(message).toContain('--no-track')
+  })
+
+  it('requests approval for every fetch, including a dry run', async () => {
+    for (const args of [['origin'], ['--dry-run', 'origin'], ['--prune', 'origin']]) {
+      const { ctx, request } = await setup({ approve: false })
+      const result = await call(ctx, { operation: 'fetch', args })
+      expect(result.isError).toBe(true)
+      expect(request).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'crew_git' }))
+      expect(ctx.tools.get('crew_git')?.isConcurrencySafe?.({ operation: 'fetch', args })).toBe(false)
+    }
+  })
+
+  it.each([
+    [['origin'], '--no-prune'],
+    [['--prune', 'origin'], '--prune'],
+    [['--no-prune', '--dry-run', 'origin'], '--no-prune'],
+  ] as const)('generates the fixed fetch argv for %j', async (args, pruneFlag) => {
+    const { ctx, spawn, request } = await setup({ approve: true })
+    const result = await call(ctx, { operation: 'fetch', args })
+    expect(result.isError).toBe(false)
+    expect(request).toHaveBeenCalledOnce()
+    const argv = operationCalls(spawn)[0]?.argv ?? []
+    expect(argv.slice(argv.indexOf('fetch'))).toEqual([
+      'fetch', pruneFlag,
+      '--no-tags', '--no-prune-tags', '--no-write-fetch-head', '--no-auto-gc',
+      '--upload-pack=git-upload-pack', '--refmap=',
+      ...(args as readonly string[]).includes('--dry-run') ? ['--dry-run'] : [],
+      'origin', '+refs/heads/*:refs/remotes/origin/*',
+    ])
+    expect(spawn.mock.calls.some(entry => entry[0].argv.includes('config'))).toBe(false)
+  })
+
+  it.each([
+    [[]],
+    [['origin', 'upstream']],
+    [['https://example.invalid/repo.git']],
+    [['../repo.git']],
+    [['ext::sh -c touch% /tmp/x']],
+    [['origin', 'main:local']],
+    [['--tags', 'origin']],
+    [['-f', 'origin']],
+    [['foo.bar']],
+    [['foo/bar']],
+    [['foo..bar']],
+    [['-origin']],
+    [['--prune', '--no-prune', 'origin']],
+  ] as const)('rejects the fetch form %j', async (args) => {
+    // Approval passes here so the assertions reach argument validation rather than its refusal.
+    const { ctx, spawn } = await setup({ approve: true })
+    const result = await call(ctx, { operation: 'fetch', args })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'CREW_GIT_ARGUMENTS' } } })
+    expect(spawn).not.toHaveBeenCalled()
+    const message = result.isError ? result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('') : ''
+    expect(message).toContain('fetch')
+    expect(message).toContain('[A-Za-z0-9][A-Za-z0-9_-]*')
+  })
+
+  it.each(['origin', 'upstream-1', 'fork_1'])('accepts the named remote %s', async (remote) => {
+    const { ctx } = await setup({ approve: true })
+    const result = await call(ctx, { operation: 'fetch', args: [remote] })
+    expect(result.isError).toBe(false)
+  })
+
+  it('returns a non-zero Git exit as a structured result rather than a tool error', async () => {
+    const { ctx } = await setup({ onSpawn: () => handle({ exitCode: 128, signal: null }, '', 'fatal: bad revision\n') })
+    const result = await call(ctx, { operation: 'rev-list', args: ['--count', 'nope'] })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected a structured Git failure')
+    expect(result.value).toMatchObject({ exitCode: 128, stderr: { text: 'fatal: bad revision\n' } })
+  })
+
+  it('keeps rev-list reads parallel and every fetch exclusive', async () => {
+    const { ctx } = await setup()
+    const tool = ctx.tools.get('crew_git')
+    expect(tool?.isConcurrencySafe?.({ operation: 'rev-list', args: ['--count', 'HEAD'] })).toBe(true)
+    expect(tool?.isConcurrencySafe?.({ operation: 'log', args: ['--numstat'] })).toBe(true)
+    expect(tool?.isConcurrencySafe?.({ operation: 'branch', args: ['--show-current'] })).toBe(true)
+    for (const args of [{ operation: 'fetch', args: ['origin'] }, { operation: 'branch', args: ['new-branch'] }, { operation: 'commit', args: [] }, null, {}, { operation: 'unknown' }]) {
+      expect(tool?.isConcurrencySafe?.(args)).toBe(false)
+    }
+  })
+
   it('rejects a process grace that exceeds the timer ceiling at configuration load', () => {
     expect(() => CrewGit.Config({ graceMs: MAX_TIMER_DELAY_MS + 1 })).toThrow()
   })
@@ -574,6 +887,223 @@ describe('Crew commander Git real execution regressions', () => {
     const { ctx } = await setupReal({ maxOutputBytes: 128 })
     const result = await call(ctx, { operation: 'diff', cwd: repo })
     expect(result).toMatchObject({ isError: true, error: { info: { code: 'CREW_GIT_CONFIG_UNREADABLE' } } })
+    expect(existsSync(marker)).toBe(false)
+  })
+
+  it('runs the extended read options against a real repository, including merge numstat', async () => {
+    const root = await temporaryDirectory()
+    const repo = await createMergeRepository(root)
+    const { ctx } = await setupReal()
+    const merge = (await git(repo, ['rev-list', '--merges', '-1', 'HEAD'])).trim()
+
+    for (const [operation, args] of [
+      ['log', ['-v', '-1', '--oneline']],
+      ['log', ['-5', '--oneline']],
+      ['log', ['--no-merges', '--oneline']],
+      ['log', ['--numstat', '-1', '--first-parent']],
+      ['diff', ['--numstat', 'HEAD~1', 'HEAD']],
+      ['show', ['--numstat', '--format=%s', merge]],
+      ['rev-list', ['--count', 'HEAD']],
+      ['rev-list', ['--left-right', '--count', 'main...side']],
+      ['rev-list', ['--no-merges', 'HEAD']],
+      ['rev-list', ['--first-parent', '-2', 'HEAD']],
+    ] as const) {
+      const result = await call(ctx, { operation, cwd: repo, args: [...args] })
+      expect(result.isError, `${operation} ${args.join(' ')}`).toBe(false)
+      if (result.isError) throw new Error('expected read success')
+      expect(projectionOf(result).exitCode, `${operation} ${args.join(' ')}`).toBe(0)
+    }
+
+    const withoutFirstParent = await call(ctx, { operation: 'log', cwd: repo, args: ['--numstat', '-1', '--format=%s', merge] })
+    const withFirstParent = await call(ctx, { operation: 'log', cwd: repo, args: ['--numstat', '--first-parent', '-1', '--format=%s', merge] })
+    const direct = await call(ctx, { operation: 'diff', cwd: repo, args: ['--numstat', `${merge}^1`, merge] })
+    if (withoutFirstParent.isError || withFirstParent.isError || direct.isError) throw new Error('expected numstat reads to succeed')
+    const numeric = (text: string): string[] => text.split('\n').filter(line => /^[0-9-]+\t[0-9-]+\t/.test(line))
+    expect(numeric(projectionOf(withoutFirstParent).stdout.text)).toEqual([])
+    expect(numeric(projectionOf(withFirstParent).stdout.text)).toEqual(numeric(projectionOf(direct).stdout.text))
+    expect(numeric(projectionOf(direct).stdout.text).length).toBeGreaterThan(0)
+  }, 60_000)
+
+  it('creates a branch without auto-tracking and leaves HEAD, index, and worktree alone', async () => {
+    const root = await temporaryDirectory()
+    const remote = await createRemoteWithMain(root)
+    const repo = await cloneRepository(root, remote)
+    await git(repo, ['config', 'branch.autoSetupMerge', 'true'])
+    await writeFile(join(repo, 'dirty.txt'), 'untracked\n')
+    await writeFile(join(repo, 'a.txt'), 'dirty worktree\n')
+    const before = await git(repo, ['rev-parse', 'HEAD'])
+    const headRef = await git(repo, ['symbolic-ref', 'HEAD'])
+    const index = await git(repo, ['write-tree'])
+
+    const { ctx } = await setupReal({ requireWriteApproval: false })
+    const created = await call(ctx, { operation: 'branch', cwd: repo, args: ['crew-test/backup', 'origin/main'] })
+    expect(created.isError).toBe(false)
+    if (created.isError) throw new Error('expected branch creation to succeed')
+    expect(projectionOf(created).exitCode).toBe(0)
+
+    expect((await git(repo, ['rev-parse', 'refs/heads/crew-test/backup'])).trim())
+      .toBe((await git(repo, ['rev-parse', 'origin/main'])).trim())
+    await expect(git(repo, ['config', '--get', 'branch.crew-test/backup.remote'])).rejects.toThrow()
+    await expect(git(repo, ['config', '--get', 'branch.crew-test/backup.merge'])).rejects.toThrow()
+    expect(await git(repo, ['rev-parse', 'HEAD'])).toBe(before)
+    expect(await git(repo, ['symbolic-ref', 'HEAD'])).toBe(headRef)
+    expect(await git(repo, ['write-tree'])).toBe(index)
+    expect(await readFile(join(repo, 'a.txt'), 'utf8')).toBe('dirty worktree\n')
+    expect(await readFile(join(repo, 'dirty.txt'), 'utf8')).toBe('untracked\n')
+
+    const query = await call(ctx, { operation: 'branch', cwd: repo, args: ['--list', 'crew-test/*'] })
+    expect(query.isError).toBe(false)
+    if (query.isError) throw new Error('expected branch query to succeed')
+    expect(projectionOf(query).stdout.text).toContain('crew-test/backup')
+  })
+
+  it('fetches only refs/remotes/<remote>/* while hostile repository configuration stays inert', async () => {
+    const root = await temporaryDirectory()
+    const remote = await createRemoteWithMain(root)
+    const repo = await cloneRepository(root, remote)
+    await git(repo, ['branch', 'keep-local'])
+    await git(repo, ['tag', 'keep-tag'])
+    await writeFile(join(repo, '.git', 'FETCH_HEAD'), 'sentinel-fetch-head\n')
+    await git(repo, ['config', 'remote.origin.fetch', '+refs/heads/*:refs/heads/CFG/*'])
+    await git(repo, ['config', 'remote.origin.pruneTags', 'true'])
+    await git(repo, ['config', 'remote.origin.prune', 'true'])
+    await git(repo, ['config', 'fetch.prune', 'true'])
+    await git(repo, ['config', 'remote.origin.tagOpt', '--tags'])
+    const localBranch = await git(repo, ['rev-parse', 'refs/heads/keep-local'])
+    const localTag = await git(repo, ['rev-parse', 'refs/tags/keep-tag'])
+    const trackingBefore = await git(repo, ['rev-parse', 'refs/remotes/origin/main'])
+    const { ctx } = await setupReal({ requireWriteApproval: false })
+
+    const dryRun = await call(ctx, { operation: 'fetch', cwd: repo, args: ['--dry-run', 'origin'] })
+    expect(dryRun.isError).toBe(false)
+    if (dryRun.isError) throw new Error('expected the dry run to reach Git')
+    expect(projectionOf(dryRun).exitCode).toBe(0)
+    expect(await git(repo, ['rev-parse', 'refs/remotes/origin/main'])).toBe(trackingBefore)
+
+    const expected = await advanceRemoteMain(root, remote)
+    const fetched = await call(ctx, { operation: 'fetch', cwd: repo, args: ['origin'] })
+    expect(fetched.isError).toBe(false)
+    if (fetched.isError) throw new Error('expected the fetch to reach Git')
+    expect(projectionOf(fetched).exitCode).toBe(0)
+    expect((await git(repo, ['rev-parse', 'refs/remotes/origin/main'])).trim()).toBe(expected)
+    expect(await git(repo, ['for-each-ref', '--format=%(refname)', 'refs/heads/CFG/'])).toBe('')
+    expect(await git(repo, ['rev-parse', 'refs/heads/keep-local'])).toBe(localBranch)
+    expect(await git(repo, ['rev-parse', 'refs/tags/keep-tag'])).toBe(localTag)
+    expect(await readFile(join(repo, '.git', 'FETCH_HEAD'), 'utf8')).toBe('sentinel-fetch-head\n')
+
+    const stale = await git(repo, ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin/'])
+    expect(stale).toContain('refs/remotes/origin/main')
+  })
+
+  it('prunes a stale remote-tracking ref only when --prune is explicit', async () => {
+    const root = await temporaryDirectory()
+    const remote = await createRemoteWithMain(root)
+    const repo = await cloneRepository(root, remote)
+    await git(repo, ['branch', 'keep-local'])
+    await git(repo, ['tag', 'keep-tag'])
+    await writeFile(join(repo, '.git', 'FETCH_HEAD'), 'sentinel-fetch-head\n')
+    await git(repo, ['update-ref', 'refs/remotes/origin/gone', 'HEAD'])
+    await git(repo, ['config', 'remote.origin.prune', 'true'])
+    await git(repo, ['config', 'fetch.prune', 'true'])
+    const localBranch = await git(repo, ['rev-parse', 'refs/heads/keep-local'])
+    const localTag = await git(repo, ['rev-parse', 'refs/tags/keep-tag'])
+    const { ctx } = await setupReal({ requireWriteApproval: false })
+
+    const expectedKept = await advanceRemoteMain(root, remote)
+    const kept = await call(ctx, { operation: 'fetch', cwd: repo, args: ['origin'] })
+    expect(kept.isError).toBe(false)
+    if (kept.isError) throw new Error('expected the fetch to reach Git')
+    expect(projectionOf(kept).exitCode).toBe(0)
+    expect((await git(repo, ['rev-parse', 'refs/remotes/origin/main'])).trim()).toBe(expectedKept)
+    expect(await git(repo, ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin/gone'])).toContain('refs/remotes/origin/gone')
+
+    const expectedPruned = await advanceRemoteMain(root, remote, 'second.txt')
+    const pruned = await call(ctx, { operation: 'fetch', cwd: repo, args: ['--prune', 'origin'] })
+    expect(pruned.isError).toBe(false)
+    if (pruned.isError) throw new Error('expected the pruning fetch to reach Git')
+    expect(projectionOf(pruned).exitCode).toBe(0)
+    expect((await git(repo, ['rev-parse', 'refs/remotes/origin/main'])).trim()).toBe(expectedPruned)
+    expect(await git(repo, ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin/gone'])).toBe('')
+    expect(await git(repo, ['rev-parse', 'refs/heads/keep-local'])).toBe(localBranch)
+    expect(await git(repo, ['rev-parse', 'refs/tags/keep-tag'])).toBe(localTag)
+    expect(await readFile(join(repo, '.git', 'FETCH_HEAD'), 'utf8')).toBe('sentinel-fetch-head\n')
+  })
+
+  it.runIf(process.platform !== 'win32')('does not run the repository-configured upload-pack program', async () => {
+    const root = await temporaryDirectory()
+    const remote = await createRemoteWithMain(root)
+    const repo = await cloneRepository(root, remote)
+    const { marker, program } = await markerProgram(root)
+    await git(repo, ['config', 'remote.origin.uploadpack', program])
+    await git(repo, ['branch', 'keep-local'])
+    await git(repo, ['tag', 'keep-tag'])
+    await writeFile(join(repo, '.git', 'FETCH_HEAD'), 'sentinel-fetch-head\n')
+    const localBranch = await git(repo, ['rev-parse', 'refs/heads/keep-local'])
+    const localTag = await git(repo, ['rev-parse', 'refs/tags/keep-tag'])
+    const expected = await advanceRemoteMain(root, remote)
+    const { ctx } = await setupReal({ requireWriteApproval: false })
+
+    const result = await call(ctx, { operation: 'fetch', cwd: repo, args: ['origin'] })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected the fetch to reach Git')
+    expect(projectionOf(result).exitCode).toBe(0)
+    expect((await git(repo, ['rev-parse', 'refs/remotes/origin/main'])).trim()).toBe(expected)
+    expect(existsSync(marker)).toBe(false)
+    expect(await git(repo, ['rev-parse', 'refs/heads/keep-local'])).toBe(localBranch)
+    expect(await git(repo, ['rev-parse', 'refs/tags/keep-tag'])).toBe(localTag)
+    expect(await readFile(join(repo, '.git', 'FETCH_HEAD'), 'utf8')).toBe('sentinel-fetch-head\n')
+  })
+
+  it('suppresses automatic maintenance while an equivalent bare fetch runs it', async () => {
+    const root = await temporaryDirectory()
+    const remote = await createRemoteWithMain(root)
+    const repo = await cloneRepository(root, remote)
+    await git(repo, ['branch', 'keep-local'])
+    await git(repo, ['tag', 'keep-tag'])
+    await writeFile(join(repo, '.git', 'FETCH_HEAD'), 'sentinel-fetch-head\n')
+    const localBranch = await git(repo, ['rev-parse', 'refs/heads/keep-local'])
+    const localTag = await git(repo, ['rev-parse', 'refs/tags/keep-tag'])
+    // Trace2 records a `maintenance run --auto` child process, so the control proves
+    // this checkout would maintain on its own and the fixed argv suppresses it.
+    const trace = join(root, 'trace2.json')
+    const globalDirectory = await gitGlobalDirectory(root)
+    await writeFile(join(globalDirectory, 'config'), `[trace2]\n\teventTarget = ${trace}\n`)
+
+    const controlExpected = await advanceRemoteMain(root, remote, 'control.txt')
+    await git(repo, ['fetch', '--no-prune', '--no-tags', '--no-prune-tags', '--no-write-fetch-head',
+      '--upload-pack=git-upload-pack', '--refmap=', 'origin', '+refs/heads/*:refs/remotes/origin/*'],
+    undefined, join(globalDirectory, 'config'))
+    expect((await git(repo, ['rev-parse', 'refs/remotes/origin/main'])).trim()).toBe(controlExpected)
+    const controlCount = await maintenanceRuns(trace)
+    expect(controlCount).toBeGreaterThan(0)
+
+    const expected = await advanceRemoteMain(root, remote, 'fixed.txt')
+    await rm(trace, { force: true })
+    const { ctx } = await setupReal({ requireWriteApproval: false }, join(globalDirectory, 'config'))
+    const result = await call(ctx, { operation: 'fetch', cwd: repo, args: ['origin'] })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected the fetch to reach Git')
+    expect(projectionOf(result).exitCode).toBe(0)
+    expect((await git(repo, ['rev-parse', 'refs/remotes/origin/main'])).trim()).toBe(expected)
+    expect(await maintenanceRuns(trace)).toBe(0)
+    expect(await git(repo, ['rev-parse', 'refs/heads/keep-local'])).toBe(localBranch)
+    expect(await git(repo, ['rev-parse', 'refs/tags/keep-tag'])).toBe(localTag)
+    expect(await readFile(join(repo, '.git', 'FETCH_HEAD'), 'utf8')).toBe('sentinel-fetch-head\n')
+  })
+
+  it('reports an ext:: remote as a structured Git failure without running the helper', async () => {
+    const root = await temporaryDirectory()
+    const { marker, program } = await markerProgram(root)
+    const repo = await createRepository(root)
+    await writeFile(join(repo, 'a.txt'), 'stored\n')
+    await git(repo, ['add', 'a.txt'])
+    await git(repo, ['commit', '--quiet', '-m', 'baseline'])
+    await git(repo, ['remote', 'add', 'evil', `ext::sh -c ${shellQuote(process.execPath)}+${shellQuote(program)}`])
+    const { ctx } = await setupReal({ requireWriteApproval: false })
+    const result = await call(ctx, { operation: 'fetch', cwd: repo, args: ['evil'] })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected a structured Git result')
+    expect(projectionOf(result).exitCode).not.toBe(0)
     expect(existsSync(marker)).toBe(false)
   })
 

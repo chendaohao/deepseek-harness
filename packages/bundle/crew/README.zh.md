@@ -63,13 +63,21 @@ kind: "package-bundle"
 
 指挥者按混合判据触发 `planner`。用户点名要规划或设计，就派 planner；用户明确排除，就不派；两者都没有时，只有当一个尚未确定的设计选择回退成本很高——接口或模块归属存在竞争、架构方案实质不同、或需求之间冲突——才派 planner。派 planner 之前必须先给出事实包：带证据的已核实事实、假设、未知项、用户决定、目标指标与非目标。planner 出方案后交给 `reviewer`，没有方案 PASS 就不为这条已规划的路径派 worker。`planner` 工具描述只说明用途，触发规则只写在指挥者 persona 一处。
 
-工人复用按验收目标决定，不看目录，也不看剩余预算。同一个未完成的验收目标内，指挥者用 `send_message` 续用原工人做增量修复、补测试用例、重复验证和 reviewer 要求的返工。新目标或新阶段、同目录下的独立任务、旧上下文大部分无关、或反复漂移，都改派新工人。没有收尾消息的失败留在原工人身上：先查它的 interim report，完整就接受，只有在同一失败出现两次或出现 clear drift 之后才换人；新验收目标或新阶段仍然换新工人。文件与报告本来就在共享工作区，复用保留的只是工作上下文。
+工人复用按同一个验收目标决定——一个可独立验收的可观察结果及其验收标准——不看阶段，不看目录，不看命令条数，也不看剩余预算。同一个未完成的验收目标内，指挥者用 `send_message` 续用原工人做实施、验证、修复、补证据、reviewer 返工，以及分别获得授权的 dry-run 与 execute；阶段变化绝不新开工人。只有独立目标、大部分无关或会误导的上下文、明确漂移、两次相同的失败恢复、交接完证据后仍不可续作的子会话、或用户批准的独立拆分，才新开工人。共享文件与编译串行只决定同一个工人内部的步骤顺序，不把一个目标拆成一命令一个工人；工人自验也不替代独立验收，dry-run 成功不构成 execute 授权。
 
-自动压缩可以让工人在同一个未完成目标内继续，前提是它的上下文仍然相关；自动压缩绝不能用来为新目标复用工人——交接报告并换新工人。运行预算按 turn 生效，从不构成复用理由，因此因预算停止或 quota/auth 终止失败的工人不会被自动续作：先由用户选择缩小任务、显式调整预算或更换路由。替换仍在运行的工人前，必须先停止或结算它，并检查它的产物与后台任务。
+恢复先读证据再派活。进程重启后，或结算消息没有收尾内容时，指挥者先调用 `list_agents`，读各子会话被指派的报告、改动文件与日志，盘点已记录的后台任务或要求原工人收集这些结果，然后才续作或替换。`inactive` 只表示当前没有 turn 在执行，不代表成功或失败；infrastructure `aborted` 的结果在证据确立之前保持 `unknown`；只有收尾消息缺失、而完整成功证据已在磁盘上时，绝不重跑该步。运行中的工人保持排他：用 `send_message` 引导它，不启动替代者，也不重复它的活动命令。已满足的验收项不再执行命令，报告缺失时由同一个工人补写；follow-up 不可能或两次相同的恢复尝试都失败时，指挥者先结算在跑的工作、收集产物与后台结果，再用已完成证据与剩余验收项启动至多一个替代工人。未知的写操作副作用会阻断重试与依赖它的工作，直到核对出目标状态；无法核实时按 unknown 上报。
+
+工人负责留痕，因为续作时的工人与指挥者都依赖它：每条长命令或验证命令之前，把当前 milestone、确切命令、cwd 与日志路径写进被指派的报告，能取得时记下后台 job/process id；结算时补上 exit code 或明确的 `unknown`，以及产物路径；续作时先收集这些既有记录与后台结果。
+
+自动压缩可以让工人在同一个未完成目标内继续，前提是它的上下文仍然相关；自动压缩绝不能用来为新目标复用工人——交接报告并换新工人。运行预算按 turn 生效，从不构成复用理由，因此因预算停止或 quota/auth 终止失败的工人不会被自动续作，直到用户选择缩小任务、显式调整预算或更换路由；用户或祖先主动 abort 的工人则完全不会自动续作。
 
 会话自己的路由由本 bundle 挂载的 formation 服务（`dsh-crew/formation`）记录，委派行在读取自己已存默认值之前先经 `subagentRouteSettings` 读它。这也是组合不需要为每个会话再开一个设置命名空间的原因：会话日志就是存储，冷恢复重放同一套路由，不必回查组合库。
 
-指挥者没有通用 shell，也没有文件写入或编辑工具。所有实施动作都派给 `worker`，包括单文件补丁和单独一条测试命令。`crew_git` 支持只读操作 `status`、`diff`、`log`、`show`、`ls-files`、`rev-parse`；写操作 `checkout`、`reset`、`restore`、`stash`、`clean`、`commit`、`push`、`rebase`、`merge`、`switch` 默认需要用户批准。在 `crew-commander-git` 行设置 `requireWriteApproval: false`，或把它的 `DSH_CREW_GIT_REQUIRE_WRITE_APPROVAL` 环境输入设为 `false`，可授权写入而不再逐次审批；两种设置都不会绕过 Session 沙箱。参数是逐条校验选项白名单的字面 argv 值。每次调用都应用 Session 沙箱策略，禁用仓库钩子和文件系统监视器，拒绝打开编辑器，并且绝不调用 shell 或外部远程助手。
+指挥者没有通用 shell，也没有文件写入或编辑工具。所有实施动作都派给 `worker`，包括单文件补丁和单独一条测试命令。`crew_git` 支持只读操作 `status`、`diff`、`log`、`show`、`ls-files`、`rev-parse`、`rev-list` 与 `branch` 查询；写操作 `checkout`、`reset`、`restore`、`stash`、`clean`、`commit`、`push`、`rebase`、`merge`、`switch`、`fetch` 与创建分支默认需要用户批准。在 `crew-commander-git` 行设置 `requireWriteApproval: false`，或把它的 `DSH_CREW_GIT_REQUIRE_WRITE_APPROVAL` 环境输入设为 `false`，可授权写入而不再逐次审批；两种设置都不会绕过 Session 沙箱。参数是逐条校验选项白名单的字面 argv 值；`log` 与 `rev-list` 另接受 `-N` 形式的十进制提交数上限。计数用 `rev-list --count`，因为 `git log --count` 会被静默忽略；合并引入的改动量用 `log --numstat --first-parent`，因为单用 `--numstat` 对合并提交不输出任何数字行。每次调用都应用 Session 沙箱策略，禁用仓库钩子和文件系统监视器，拒绝打开编辑器，并且绝不调用 shell 或外部远程助手。
+
+`branch` 只有两种可用形式。白名单查询（`--list`、`--all`、`--remotes`、`--show-current`、`--contains=`、`--merged=`、`--points-at=`、`--format=`、`--sort=`）是只读操作；`branch <新分支> [<起点>]` 在不切换 HEAD 的前提下创建 ref，且工具始终传入 `--no-track`，因此 `branch.autoSetupMerge` 与 remote-tracking 起点都无法追加 upstream 配置。删除、改名、复制、强制、改 upstream 与调用方自带的 track 开关都没有可用形式。
+
+`fetch` 只接受一个命名 remote，别的都不接受：`fetch [--dry-run] [--prune | --no-prune] <remote>`。URL、路径、用户 refspec、额外选项，以及不符合 `[A-Za-z0-9][A-Za-z0-9_-]*` 的 remote 名一律拒绝。其余 argv 由工具自己构造——`--no-tags --no-prune-tags --no-write-fetch-head --no-auto-gc --upload-pack=git-upload-pack --refmap=`，再加唯一固定 refspec 写入 `refs/remotes/<remote>/*`——所以仓库配置无法把 ref 更新改向本地分支、删除 tag、写 `FETCH_HEAD`、触发自动维护或指定 upload-pack 程序。所有 `fetch` 都按写操作处理，`--dry-run` 也不例外；它的 transport 与凭据助手仍按已批准的写操作对待。
 
 只读操作另外拒绝仓库自身配置能够执行的任何程序。读取开始前，工具先列出在该仓库生效的 Git 配置键，通过 Git 的环境键值槽位，把其中的程序键——内容过滤器、合并驱动器、diff 助手、签名程序、编辑器、传输命令、凭据助手——仅对本次调用覆盖为空串。分离的键值槽位能保留含 `=` 的子节名。读取会禁用 `log.showSignature`，把仓库的 `format.pretty` 替换为 `medium`，拒绝 `--format=` 中的 `%G…` 签名占位符，并清除继承的 Git 追踪输出目标。如果完整键列表超过 `maxOutputBytes`，读取会报 `CREW_GIT_CONFIG_UNREADABLE`，而不是使用不完整的覆盖继续执行。配置、index 及其时间戳都不被写入；读取显示的是被过滤文件的存储字节（Git LFS 指针），而非还原后的内容。写操作保留仓库的过滤器与合并驱动器，因为提交和检出依赖它们；默认启用逐次审批时，用户对写操作的批准就是把这一后果摆在面前。
 
@@ -106,7 +114,8 @@ kind: "package-bundle"
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **这些规则是提示词约束，不是运行时强制。** 混合 planner 触发、事实包、按验收目标复用、压缩选择以及方案 PASS 与交付 PASS 的措辞都写在指挥者 persona 和工具描述里。指挥者仍然可以跳过规划轮次、跨目标复用工人、或在没有交付 PASS 时声称完成。两者的运行时拒绝都属于第二批交付。
+- **这些规则是提示词约束，不是运行时强制。** 混合 planner 触发、事实包、按验收目标复用、重启后的恢复顺序、工人的证据留痕、压缩选择以及方案 PASS 与交付 PASS 的措辞都写在指挥者与工人的 persona 和工具描述里。指挥者仍然可以跳过规划轮次、跨目标复用工人、不读报告就派活、在证据已存在时重跑、或在没有交付 PASS 时声称完成。这里没有恢复调度器、工人池或重复命令拒绝；两者的运行时拒绝都属于第二批交付。
+- **`crew_git` 的新增能力没有越出已批准的写模型。** `rev-list` 与 `branch` 查询是只读操作；每次 `fetch` 与创建分支都是写操作，部署可以逐次审批，因此把 `requireWriteApproval` 设为 `false` 的部署会获得无人值守的 fetch 与建分支能力。`fetch` 保证本地分支、tag、`FETCH_HEAD`、自动维护与 upload-pack 程序都不被改动；它不承诺 `.git` 其余部分不变，因为 fetch 本身会写对象库与目标 remote-tracking ref。它的 transport 与凭据助手仍按已批准的写操作运行。
 - **三个角色是并列的，不是门禁。** 指挥者可以跳过规划或审核，直接派 worker。方案 PASS 与交付 PASS 的绑定、方案变化后摘要失效、以及让门禁可执行的证据清单，属于另一份交付。
 - **角色边界使用不同机制。** 指挥者的预设没有通用 shell 与文件写入行，因此不能直接实施。每个角色预设还以 `preset-tool-mask` 开头，在该预设作用域上调用 `tools.restrict()`，把继承来的全局工具收窄到声明保留的名字。掩码是派生而非硬编码的，所以部署多挂一个插件时也会被一并收窄。规划者与审核者仍保留 shell 行以支持其读取和报告流程；它们的 persona 仍禁止实施与长命令。
 - **角色预设声明为不可选，而不是被隐藏。** 每个角色带 `userSelectable: false`，所以新建会话的预设选择器与预设页只提供 `crew`；`session.create` 点名某个角色会被以 `agent-preset/invalid` 拒绝。这个标记是名册上的事实，不是注册表策略：内部挂载按 id 点名预设，从不读它。
