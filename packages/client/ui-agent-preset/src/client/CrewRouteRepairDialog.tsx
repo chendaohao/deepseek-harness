@@ -51,6 +51,21 @@ function withCurrent(entries: readonly { readonly id: string; readonly name: str
   return [{ id: current, name: current }, ...entries]
 }
 
+/** Fold case and separator differences so two spellings of one identifier compare equal. */
+function comparableText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+/**
+ * One picker entry's label. The catalog id appears only where it names
+ * something the display name does not, so a provider whose name repeats its id
+ * and a model whose name differs from its id only in case and separators each
+ * read once.
+ */
+function entryLabel(entry: { readonly id: string; readonly name: string }): string {
+  return comparableText(entry.name) === comparableText(entry.id) ? entry.name : `${entry.name} · ${entry.id}`
+}
+
 const CREW_ROLES = ['worker', 'planner', 'reviewer'] as const satisfies readonly CrewRole[]
 
 const ROLE_KEYS = {
@@ -177,7 +192,7 @@ export function CrewRouteRepairDialog(props: Props) {
                   onChange={(event) => { selectProvider(event.target.value) }}
                 >
                   {withCurrent(groups, draft.provider).map(entry => (
-                    <option key={entry.id} value={entry.id}>{entry.name} · {entry.id}</option>
+                    <option key={entry.id} value={entry.id}>{entryLabel(entry)}</option>
                   ))}
                 </select>
               </label>
@@ -190,7 +205,7 @@ export function CrewRouteRepairDialog(props: Props) {
                   onChange={(event) => { selectModel(event.target.value) }}
                 >
                   {withCurrent(group?.models ?? [], draft.model).map(entry => (
-                    <option key={entry.id} value={entry.id}>{entry.name} · {entry.id}</option>
+                    <option key={entry.id} value={entry.id}>{entryLabel(entry)}</option>
                   ))}
                 </select>
               </label>
@@ -212,7 +227,7 @@ export function CrewRouteRepairDialog(props: Props) {
                       onChange={(event) => { setDraft({ ...draft, reasoningEffort: event.target.value }) }}
                     >
                       {withCurrent(efforts, draft.reasoningEffort).map(entry => (
-                        <option key={entry.id} value={entry.id}>{entry.name} · {entry.id}</option>
+                        <option key={entry.id} value={entry.id}>{entryLabel(entry)}</option>
                       ))}
                     </select>
                   )}

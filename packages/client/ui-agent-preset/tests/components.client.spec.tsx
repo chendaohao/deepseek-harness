@@ -847,6 +847,57 @@ describe('the crew session-header label', () => {
 
 
 describe('the Crew route repair dialog', () => {
+  it('names each picker entry once when the catalog name repeats its id', async () => {
+    const { loadCrewRouteCatalog } = renderLabel(CREW_SESSION, {}, RECORDED)
+    loadCrewRouteCatalog.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        ...CATALOG,
+        groups: [{
+          id: 'workbuddy',
+          name: 'workbuddy',
+          models: [{
+            id: 'deepseek-v4.1-flash',
+            name: 'Deepseek-V4.1-Flash',
+            reasoning: { efforts: [{ id: 'max', name: 'Max' }], defaultEffort: 'max' },
+          }],
+        }],
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+
+    const provider = await screen.findByLabelText<HTMLSelectElement>(en.crewRouteRepairProvider)
+    const providerLabels = [...provider.options].map(option => option.textContent)
+    // A provider whose display name already is its id reads once; the stored
+    // route the catalog no longer advertises still selects itself.
+    expect(providerLabels).toContain('workbuddy')
+    expect(providerLabels).toContain('deepseek')
+
+    fireEvent.change(provider, { target: { value: 'workbuddy' } })
+    const model = screen.getByLabelText<HTMLSelectElement>(en.crewRouteRepairModel)
+    // Case and separators alone do not make an id worth repeating.
+    expect([...model.options].map(option => option.textContent)).toEqual(['Deepseek-V4.1-Flash'])
+    expect([...screen.getByLabelText<HTMLSelectElement>(en.crewRouteRepairEffort).options]
+      .map(option => option.textContent)).toEqual(['Max'])
+  })
+
+  it('keeps the id where the display name says something else', async () => {
+    const { loadCrewRouteCatalog } = renderLabel(CREW_SESSION, {}, RECORDED)
+    loadCrewRouteCatalog.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        ...CATALOG,
+        groups: [{ id: 'workbuddy', name: 'WorkBuddy Cloud', models: [] }],
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    const provider = await screen.findByLabelText<HTMLSelectElement>(en.crewRouteRepairProvider)
+    // The stored provider the catalog no longer advertises leads as its bare id;
+    // the advertised one keeps its id because the name alone does not name it.
+    expect([...provider.options].map(option => option.textContent))
+      .toEqual(['deepseek', 'WorkBuddy Cloud · workbuddy'])
+  })
+
   it('replaces only the selected role with the chosen catalog route', async () => {
     const { replaceCrewRole } = renderLabel(CREW_SESSION, {}, RECORDED)
     fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))

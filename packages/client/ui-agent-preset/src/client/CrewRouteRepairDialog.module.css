@@ -23,9 +23,17 @@
   padding: 0 10px;
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-primary);
+  background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
   font: inherit;
+}
+
+/* The native popup paints its rows from the option's own fill on the platforms
+   whose popup honours it; without one they fall back to the OS list surface,
+   which is light even under the dark palette. */
+.control option {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
 }
 
 .control:disabled {
