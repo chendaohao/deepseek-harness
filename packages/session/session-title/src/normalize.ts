@@ -61,6 +61,38 @@ export function normalizeSessionTitle(input: string, maxBytes: number): string {
 }
 
 /**
+ * Characters that end a phrase in the scripts the fallback serves. A CJK
+ * message carries no inter-word spaces, so its whole sentence is a single
+ * word and only a phrase boundary keeps the truncated fallback readable.
+ */
+const PHRASE_BOUNDARY = /[，。；：、！？,.;:!?]/u
+
+/**
+ * Truncate at the last phrase boundary that fits, falling back to the hard
+ * byte cut when no boundary survives half the budget. Half the budget is the
+ * floor that keeps the boundary rule from turning a capped title into a stub.
+ * @param input - normalized single-line text.
+ * @param maxBytes - positive UTF-8 byte budget.
+ * @returns the longest phrase-aligned prefix within the budget.
+ */
+function truncateAtPhraseBoundary(input: string, maxBytes: number): string {
+  if (Buffer.byteLength(input, 'utf8') <= maxBytes) return input
+  const hard = truncateTitleUtf8(input, maxBytes)
+  const minimumBytes = Math.ceil(maxBytes / 2)
+  let prefix = ''
+  let used = 0
+  let boundary = ''
+  for (const character of input) {
+    const bytes = Buffer.byteLength(character, 'utf8')
+    if (used + bytes > maxBytes) break
+    used += bytes
+    prefix += character
+    if (PHRASE_BOUNDARY.test(character)) boundary = prefix
+  }
+  return Buffer.byteLength(boundary, 'utf8') >= minimumBytes ? boundary.trimEnd() : hard
+}
+
+/**
  * Derive the deterministic first-prompt fallback.
  * @param input - text from the first eligible human message.
  * @param maxWords - positive whitespace-delimited word cap.
@@ -69,6 +101,7 @@ export function normalizeSessionTitle(input: string, maxBytes: number): string {
  */
 export function fallbackSessionTitle(input: string, maxWords: number, maxBytes: number): string {
   assertPositiveInteger('maxWords', maxWords)
+  assertPositiveInteger('maxBytes', maxBytes)
   const words = cleanTitleText(input).split(' ').filter(Boolean).slice(0, maxWords)
-  return truncateTitleUtf8(words.join(' '), maxBytes).trimEnd()
+  return truncateAtPhraseBoundary(words.join(' '), maxBytes).trimEnd()
 }

@@ -38,9 +38,22 @@ describe('session title normalization', () => {
     expect(Buffer.byteLength(fallbackSessionTitle('😀😀', 5, 5), 'utf8')).toBe(4)
   })
 
+  it('ends a byte-capped fallback at a phrase boundary instead of mid-word', () => {
+    const cjk = '我需要把我的置顶功能和crew预设打包成插件发布，先检查插件市场是否有同类的'
+    expect(fallbackSessionTitle(cjk, 5, 80)).toBe('我需要把我的置顶功能和crew预设打包成插件发布，')
+    expect(fallbackSessionTitle('检查服务，现在已经没有额度，我需要知道能否自动领取', 5, 40))
+      .toBe('检查服务，现在已经没有额度')
+  })
+
+  it('keeps the hard byte cut when no phrase boundary survives half the budget', () => {
+    expect(fallbackSessionTitle('我需要把我的置顶功能', 5, 40)).toBe('我需要把我的置顶功能')
+    expect(fallbackSessionTitle('一二三四五六七八九十一二三四五', 5, 10)).toBe('一二三')
+  })
+
   it('rejects non-positive and fractional public limits', () => {
     expect(() => truncateTitleUtf8('title', 0)).toThrow(/maxBytes must be a positive integer/)
     expect(() => fallbackSessionTitle('title', 1.5, 10)).toThrow(/maxWords must be a positive integer/)
+    expect(() => fallbackSessionTitle('title', 5, 0)).toThrow(/maxBytes must be a positive integer/)
   })
 })
 

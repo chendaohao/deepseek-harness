@@ -61,7 +61,11 @@
       name: '@deepseek-ai/dsh-session-title'
       config:
         fallbackMaxWords: 5
-        fallbackMaxBytes: 40
+        # A CJK first message has no spaces, so its whole sentence is one
+        # word and only this byte cap bounds the fallback. Matched to
+        # maxTitleBytes: truncation then stops at a phrase boundary
+        # instead of mid-word while the model title is in flight.
+        fallbackMaxBytes: 80
         maxTitleBytes: 80
 
     - id: session-title-llm

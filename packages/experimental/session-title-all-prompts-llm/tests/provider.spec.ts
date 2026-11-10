@@ -247,6 +247,13 @@ describe('all-messages LLM title provider', () => {
     [['**a** and **b**\nnote'], '**a** and **b**'],
     [['Fix *args* handling'], 'Fix *args* handling'],
     [['*args'], '*args'],
+    [['生成会话标题：**置顶功能与crew预设插件发布可行性分析**'], '置顶功能与crew预设插件发布可行性分析'],
+    [['会话标题：**检查额度**'], '检查额度'],
+    [['**会话标题：** 只回复两个字：可用'], '只回复两个字：可用'],
+    [['Session title: **Run `echo ok` via bash tool**'], 'Run `echo ok` via bash tool'],
+    [['**Title:** "Run `echo ok` via bash tool"'], 'Run `echo ok` via bash tool'],
+    [['标题：修复登录超时'], '修复登录超时'],
+    [['“阳台种番茄”'], '阳台种番茄'],
   ])('takes the title from the first non-empty output line %j', async (deltas, title) => {
     const { ctx } = await harness(LLM_CONFIG, [
       { type: 'block-start', index: 0, blockType: 'text' },

@@ -59,6 +59,10 @@ A small provider strategy: it builds the first-message system instruction and JS
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: config schema, first-message prompt and framing, output parsing, and direct provider registration |
 
+### Output parsing
+
+The first non-empty answer line becomes the title, after dropping a reasoning tail (`</think>` and everything before it), a label naming the answer (`生成会话标题：`, `标题：`, `**Session title:**`), one surrounding quotation pair, and one emphasis pair wrapping the whole line. Text that merely contains emphasis or a colon, such as `Fix *args* handling`, is preserved verbatim.
+
 ### Scheduling
 
 The title service schedules automatic work: for the `first-prompt` cadence it starts a revision only when the session has no parent, holds exactly one eligible message, and has no title yet; the provider call begins after the exact main-request route is logged, and a newer revision supersedes older work.

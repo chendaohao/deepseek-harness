@@ -96,20 +96,61 @@ function frameMessages(messages: readonly SessionTitleUserMessage[]): string {
 /** Asterisk emphasis wrapping a whole line, such as `**Title**`. */
 const EMPHASIS_WRAPPER = /^(?<marker>\*{1,3})(?<inner>\S(?:.*\S)?)\k<marker>$/u
 
+/** An emphasis run left dangling once a label around it is gone, such as `Title**`. */
+const DANGLING_EMPHASIS = /[*_]{1,3}$/u
+
 /**
- * Take the title from model output: the first non-empty line, without
- * asterisk emphasis that wraps that whole line. Models that disregard the
- * one-line instruction put the title first and commentary after it. A line
- * that is entirely `*` emphasis loses the marker pair even when the model
- * meant it literally; the inner-marker check keeps emphasis inside a longer
- * line, and the system instruction forbids Markdown.
+ * A label naming the answer instead of being it, such as `生成会话标题：` or
+ * `**Session title:**`. Emphasis on either side of the label belongs to the
+ * label, not the title. The required colon keeps an ordinary title that
+ * merely starts with 标题 intact.
  */
-function titleFromOutput(text: string): string {
-  const line = text.split(/\r?\n/u).map(item => item.trim()).find(item => item.length > 0) ?? ''
+const TITLE_LABEL = /^(?:[*_]{1,3}\s*)?(?:(?:生成)?会话标题|标题|(?:session\s+)?title)\s*(?:[*_]{1,3})?\s*[:：]\s*(?:[*_]{1,3})?\s*/iu
+
+/** Quotation pairs a model wraps a complete title in. */
+const QUOTE_PAIRS = [['"', '"'], ["'", "'"], ['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ['《', '》'], ['`', '`']] as const
+
+/** Drop one emphasis pair that wraps a whole line. */
+function stripEmphasis(line: string): string {
   const groups = EMPHASIS_WRAPPER.exec(line)?.groups
   const marker = groups?.['marker']
   const inner = groups?.['inner']
   return marker === undefined || inner === undefined || inner.includes(marker) ? line : inner
+}
+
+/** Drop an emphasis run with no partner left in the text. */
+function stripDanglingEmphasis(line: string): string {
+  const stripped = line.replace(DANGLING_EMPHASIS, '').trim()
+  return stripped.length > 0 && !/[*_]/u.test(stripped) ? stripped : line
+}
+
+/** Drop one quotation pair that wraps a whole line. */
+function stripQuotes(line: string): string {
+  for (const [open, close] of QUOTE_PAIRS) {
+    if (line.length <= open.length + close.length) continue
+    if (!line.startsWith(open) || !line.endsWith(close)) continue
+    const inner = line.slice(open.length, line.length - close.length)
+    if (!inner.includes(open)) return inner.trim()
+  }
+  return line
+}
+
+/**
+ * Take the title from model output: the answer after a reasoning tail, the
+ * first non-empty line, without a label naming the answer, surrounding
+ * quotation, or asterisk emphasis that wraps it. Models that disregard the
+ * one-line instruction put the title first and commentary after it, prefix it
+ * with `标题：`, or wrap it in quotes; the system instruction forbids all
+ * three, so each is recovered here rather than stored. A line that is
+ * entirely `*` emphasis loses the marker pair even when the model meant it
+ * literally; the inner-marker check keeps emphasis inside a longer line.
+ */
+function titleFromOutput(text: string): string {
+  // Some models stream their reasoning before the answer in the same block.
+  const answer = text.includes('</think>') ? text.slice(text.lastIndexOf('</think>') + '</think>'.length) : text
+  const line = answer.split(/\r?\n/u).map(item => item.trim()).find(item => item.length > 0) ?? ''
+  const titled = line.replace(TITLE_LABEL, '').trim()
+  return stripQuotes(stripEmphasis(stripDanglingEmphasis(titled)))
 }
 
 /** Reject terminal tool-call or max-token outcomes and derive one non-empty title from the text blocks. */
