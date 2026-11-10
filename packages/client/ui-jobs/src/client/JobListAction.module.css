@@ -135,19 +135,17 @@
 }
 
 /* Narrow viewports: the trigger sits anywhere along the header's actions
-   line, so a left-anchored menu overflows the right edge and a trigger
-   centered menu still reads off-center against the viewport. Pin the menu
-   to the viewport center (fixed, so the 50% resolves against the viewport
-   — the same posture as the context panel and the model-select menu),
-   with vertical placement just below the header actions line. Keep this
-   breakpoint in sync with NARROW_VIEWPORT_QUERY in JobListAction.tsx,
-   which yields placement to this posture here. */
+   line, so an anchored menu is placed against the trigger and can overflow
+   an edge. Take the width between the window margins and center it there
+   with the auto margins. A centering transform must not be used: a
+   `@position-try` fallback rewrites only the insets, so the transform would
+   survive and push the box half its width off the left edge. */
 @media (max-width: 640px) {
   .menu {
-    position: fixed;
     top: 120px;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 12px;
+    right: 12px;
+    margin-inline: auto;
   }
 }
 

@@ -458,7 +458,10 @@ describe('web e2e: a crew session records its combination and runs the three rol
     // Repair only worker from the live catalog. The replacement is durable and
     // changes the next delegation resolver without sending another model call.
     const modelCallsBeforeRepair = events.filter(event => event.type === 'request/header').length
-    await pageA.getByRole('button', { name: '换路', exact: true }).click()
+    // The repair action lives in the combination chip's own menu, which lists
+    // the recorded role routes above it.
+    await pageA.getByRole('button', { name: `Crew · ${COMBINATION_A}`, exact: true }).click()
+    await pageA.getByRole('menuitem', { name: '换路', exact: true }).click()
     const repair = pageA.getByRole('dialog', { name: '更换 Crew 角色路由' })
     await repair.getByLabel('模型').waitFor()
     await pageA.screenshot({ path: join(process.cwd(), '.artifacts/crew-route-repair-light.png'), animations: 'disabled' })

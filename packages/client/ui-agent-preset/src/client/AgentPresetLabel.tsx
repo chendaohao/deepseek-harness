@@ -1,22 +1,25 @@
 /**
  * The session header's agent-preset label.
  *
- * Read-only by construction: a session's composition is fixed once its
- * conversation starts, and a header is only worth reading after that. Offering
- * a control here would promise a switch the host refuses; naming what the
- * session runs is the honest affordance, and the choice itself lives on the
- * new-session screen ({@link AgentPresetSeat}).
+ * The composition is fixed once a conversation starts, so this never offers a
+ * preset switch: the choice lives on the new-session screen
+ * ({@link AgentPresetSeat}), and naming what the session runs is the honest
+ * affordance here.
  *
- * A crew session also names the model combination it recorded. That reading is
- * the session's own record, not the combination library's current template, and
- * every reading other than "recorded" says so in its own words; a failed read
- * offers the one action it can honour, reading again.
+ * A crew session also names the model combination it recorded, and that
+ * reading — the session's own record, not the combination library's current
+ * template — is what its menu lists. Every reading other than "recorded" says
+ * so in its own words. The menu carries the actions on the combination
+ * (changing a role route, reading again after a failure) rather than a row of
+ * text buttons beside the label: those buttons spent header width the
+ * subagent count needed, and the actions belong to the thing they act on.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconAgentPresetOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconAgentPresetOutlineRegular, IconChevronDownOutlineRegular, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 // Type-only: pulls the ui-conversation SlotMap merge (the header actions).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -93,21 +96,33 @@ function crewPresentation(
       }
     case 'ready-without-routes':
       return { label: t('crewRoutesUnapplied'), hint: t('crewRoutesUnappliedHint'), retry: false }
-    case 'ready-with-routes': {
-      const applied = appliedText(state.presetName, t)
-      // One line per role: the bubble wraps instead of truncating, which is what
-      // keeps three provider/model/effort triples readable on a narrow screen.
-      const routes = state.routes.map(route => t('crewRoutesRoute', {
-        role: t(ROLE_KEYS[route.role]),
-        provider: route.provider,
-        model: route.model,
-        reasoningEffort: route.reasoningEffort,
-      }))
-      return { label: applied, hint: [applied, ...routes].join('\n'), retry: false }
-    }
+    case 'ready-with-routes':
+      // The trigger already names the combination, so the bubble carries only
+      // what it cannot: one line per role, wrapping instead of truncating,
+      // which keeps three provider/model/effort triples readable when narrow.
+      return { label: appliedText(state.presetName, t), hint: crewRouteLines(state, t).join('\n'), retry: false }
+    /* v8 ignore next 3 -- closed-union backstop; only reached if a reading is forged */
     default:
       return assertNever(state)
   }
+}
+
+/**
+ * Name each role's recorded route.
+ * @param state - a reading that recorded routes for every role.
+ * @param t - this surface's dictionary.
+ * @returns one line per role, in the formation's role order.
+ */
+function crewRouteLines(
+  state: Extract<CrewRoutesState, { status: 'ready-with-routes' }>,
+  t: TranslateNS<'settings.agentPreset'>,
+): string[] {
+  return state.routes.map(route => t('crewRoutesRoute', {
+    role: t(ROLE_KEYS[route.role]),
+    provider: route.provider,
+    model: route.model,
+    reasoningEffort: route.reasoningEffort,
+  }))
 }
 
 /**
@@ -141,6 +156,7 @@ export function AgentPresetLabel({
   const crew = useCrewRoutes(state => state)
   const [repairGeneration, setRepairGeneration] = useState<number>()
   const nextRepairGeneration = useRef(0)
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
     // Deployments that compose no presets never label anything, so the roster
@@ -173,40 +189,81 @@ export function AgentPresetLabel({
   }
 
   const presentation = crewPresentation(crew, text?.description, t)
+  // The repair action and the failed read's retry live in the chip's own menu:
+  // they act on this combination, so they belong where it is named, and the
+  // header row then spends no width on two text buttons.
+  const entries: MenuEntry[] = []
+  if (crew.status === 'ready-with-routes') {
+    // One heading per role, in the formation's order: the combination name is
+    // already on the trigger, so the list starts at what the trigger cannot say.
+    for (const route of crew.routes) {
+      entries.push({
+        type: 'label',
+        id: `route:${route.role}`,
+        text: t('crewRoutesRoute', {
+          role: t(ROLE_KEYS[route.role]),
+          provider: route.provider,
+          model: route.model,
+          reasoningEffort: route.reasoningEffort,
+        }),
+      })
+    }
+    entries.push({ type: 'separator', id: 'repair-separator' }, {
+      id: 'repair',
+      label: t('crewRouteRepairAction'),
+    })
+  }
+  if (presentation.retry) entries.push({ id: 'retry', label: t('crewRoutesRetry') })
+  const actionable = entries.length > 0
+
+  const chip = (
+    <>
+      <IconAgentPresetOutlineRegular size={14} className={css.icon} />
+      <span className={css.name}>{presentation.label}</span>
+      {actionable ? <IconChevronDownOutlineRegular size={12} className={css.chevron} /> : null}
+    </>
+  )
+
   return (
     <span className={css.row}>
-      <Tooltip label={presentation.hint} portal openOnClick side="bottom">
-        <span className={css.label} role="img" aria-label={presentation.label} tabIndex={0}>
-          <IconAgentPresetOutlineRegular size={14} className={css.icon} />
-          <span className={css.name}>{presentation.label}</span>
-        </span>
-      </Tooltip>
-      {crew.status === 'ready-with-routes'
+      {actionable
         ? (
-          <button
-            type="button"
-            className={css.retry}
-            onClick={() => {
-              const generation = nextRepairGeneration.current + 1
-              nextRepairGeneration.current = generation
-              setRepairGeneration(generation)
+          <Menu
+            open={open}
+            onClose={() => { setOpen(false) }}
+            items={entries}
+            onSelect={(id) => {
+              setOpen(false)
+              if (id === 'repair') {
+                const generation = nextRepairGeneration.current + 1
+                nextRepairGeneration.current = generation
+                setRepairGeneration(generation)
+              } else void loadCrewRoutes()
             }}
-          >
-            {t('crewRouteRepairAction')}
-          </button>
+            align="start"
+            portal
+            className={css.menuAnchor}
+            anchor={(
+              <button
+                type="button"
+                className={css.label}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                aria-label={presentation.label}
+                onClick={() => { setOpen(value => !value) }}
+              >
+                {chip}
+              </button>
+            )}
+          />
         )
-        : null}
-      {presentation.retry
-        ? (
-          <button
-            type="button"
-            className={css.retry}
-            onClick={() => { void loadCrewRoutes() }}
-          >
-            {t('crewRoutesRetry')}
-          </button>
-        )
-        : null}
+        : (
+          // No action to offer: the chip only explains, so a tooltip carries the
+          // reason and a tap pins it on devices without hover.
+          <Tooltip label={presentation.hint} portal openOnClick side="bottom">
+            <span className={css.label} role="img" aria-label={presentation.label} tabIndex={0}>{chip}</span>
+          </Tooltip>
+        )}
       {repairGeneration !== undefined && crew.status === 'ready-with-routes'
         ? (
           <CrewRouteRepairDialog

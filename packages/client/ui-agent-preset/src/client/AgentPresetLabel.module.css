@@ -1,78 +1,83 @@
-/* Session-header agent-preset label, its read retry, and Crew route repair. */
+/* Session-header agent-preset label and the Crew combination menu it opens. */
 
-/* Keep the text actions beside the label without letting them squeeze it. */
 .row {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   min-width: 0;
 }
 
+/* The Menu anchor wrapper: its flex auto-minimum would hold the chip's full
+   width, so the row could never compress it. `flex: none` keeps the chip from
+   ellipsizing under pressure — this label keeps its name until the container
+   step below drops it whole, because the name is the last text the row gives
+   up. */
+.menuAnchor {
+  flex: none;
+  min-width: 0;
+  max-width: 220px;
+}
+
+/* The chip itself, in both forms: a button when the combination offers actions
+   and a passive span when the reading has nothing to act on. */
 .label {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: 180px;
+  max-width: 100%;
   min-width: 0;
-  padding: 0 2px 0 0;
+  padding: 0 4px;
   height: 22px;
+  border: 0;
   border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-fill-tsp-secondary);
+  font: inherit;
   font-size: 12px;
   line-height: 22px;
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-/* Narrow viewports: the preset name (e.g. "PTC 模式") stays fully readable —
-   the label stops shrinking before its text ellipsizes, and the remaining
-   actions-row controls absorb the squeeze. */
-@media (max-width: 640px) {
-  .label {
-    flex: 0 0 auto;
+button.label {
+  cursor: pointer;
+}
+
+button.label[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+@media (hover: hover) {
+  button.label:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
   }
+}
+
+button.label:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--dsw-focus-ring-width) var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
 }
 
 .icon {
   flex: none;
 }
 
-/* Retry and route repair share the compact text-action treatment. */
-.retry {
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chevron {
   flex: none;
-  padding: 0 4px;
-  height: 22px;
-  border: 0;
-  border-radius: var(--dsw-radius-xs);
-  background: none;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 12px;
-  line-height: 22px;
-  cursor: pointer;
+  color: var(--dsw-alias-label-caption);
 }
 
-@media (hover: hover) {
-  .retry:hover {
-    background: var(--dsw-alias-fill-tsp-secondary);
-  }
-}
-
-.retry:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: -2px;
-}
-
-/* The preset is passive chrome, so it sheds its name before any interactive
-   header action loses its label: the label narrows to the icon-only form,
-   whose full name and description stay on the title attribute. */
-@container (max-width: 540px) {
-  .label {
-    padding: 0 4px;
-  }
-
+/* Header-row ladder: the subagent count sheds its number first (ui-subagent
+   drops at 420px), then this label sheds its name — the preset outranks that
+   count, so its name survives longer. The Crew actions already live in this
+   chip's menu rather than beside it, and the icon-only form keeps the chevron
+   so the menu stays discoverable; the accessible name rides the trigger
+   either way. */
+@container (max-width: 300px) {
   .name {
     display: none;
   }

@@ -106,12 +106,17 @@
   transition: transform 120ms ease;
 }
 
+/* While running, the dot stands in for the plain glyph so a busy header reads as
+   activity rather than another static icon. */
 .trigger .compactIcon {
   display: none;
 }
 
-/* The title-row container drops passive preset text at 540px; this action yields later. */
-@container (max-width: 460px) {
+/* The title-row container drops the subagent count at 420px, before the preset
+   label sheds its name at 300px: the preset name outranks this action, so this
+   number is the row's first text to go. Below this step the running dot
+   returns to the plain glyph and the accessible name still carries the count. */
+@container (max-width: 420px) {
   .trigger .compactIcon {
     display: block;
   }
@@ -122,36 +127,6 @@
 
   .trigger .count {
     display: none;
-  }
-
-  .trigger {
-    box-sizing: border-box;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    justify-content: center;
-    color: var(--dsw-alias-label-secondary);
-  }
-
-  .trigger .activitySlot,
-  .trigger .activitySlot > svg {
-    width: 15px;
-    height: 15px;
-  }
-
-  .trigger:focus-visible {
-    color: var(--dsw-alias-label-secondary);
-  }
-
-  .trigger:active {
-    background: var(--dsw-alias-interactive-bg-active);
-  }
-
-  @media (hover: hover) {
-    .trigger:hover {
-      color: var(--dsw-alias-label-secondary);
-      background: var(--dsw-alias-interactive-bg-hover);
-    }
   }
 }
 

@@ -729,17 +729,6 @@ function stubBubbleObserver(): void {
   vi.stubGlobal('ResizeObserver', BubbleObserver)
 }
 
-/**
- * Make the bubble paintable: it shows only after ResizeObserver reports a size.
- * @param coarse - whether the primary input reports no hover (a touch device).
- */
-function pinBubble(coarse = false): void {
-  stubBubbleObserver()
-  vi.stubGlobal('matchMedia', vi.fn(() => ({
-    matches: coarse, addEventListener: () => {}, removeEventListener: () => {},
-  })))
-}
-
 describe('the crew session-header label', () => {
   it('says the recorded combination is still being read while the read is in flight', async () => {
     const { load, loadCrewRoutes } = renderLabel(CREW_SESSION, {}, { status: 'loading' })
@@ -752,24 +741,21 @@ describe('the crew session-header label', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('names the recorded combination and lists every role route in the bubble', () => {
-    pinBubble()
-    try {
-      renderLabel(CREW_SESSION, {}, RECORDED)
+  it('names the recorded combination and lists every role route in its menu', () => {
+    renderLabel(CREW_SESSION, {}, RECORDED)
 
-      const applied = translate('crewRoutesApplied', { name: 'Night shift' })
-      const anchor = screen.getByRole('img', { name: applied })
-      expect(anchor.textContent).toBe(applied)
-      expect(screen.getByRole('button', { name: en.crewRouteRepairAction })).toBeTruthy()
+    const applied = translate('crewRoutesApplied', { name: 'Night shift' })
+    const trigger = screen.getByRole('button', { name: applied })
+    expect(trigger.textContent).toBe(applied)
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
 
-      fireEvent.click(anchor)
-      const bubble = screen.getByRole('tooltip')
-      // All three roles: a combination the session did not record would be a claim.
-      for (const line of ROUTE_LINES) expect(bubble.textContent).toContain(line)
-      expect(bubble.textContent).toContain(applied)
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    fireEvent.click(trigger)
+    const menu = screen.getByRole('menu')
+    // All three roles: a combination the session did not record would be a claim.
+    for (const line of ROUTE_LINES) expect(menu.textContent).toContain(line)
+    // The trigger already names the combination, so the menu does not repeat it.
+    expect(menu.textContent).not.toContain(applied)
+    expect(within(menu).getByRole('menuitem', { name: en.crewRouteRepairAction })).toBeTruthy()
   })
 
   it('says the roles run their own defaults when the session recorded no combination', () => {
@@ -795,11 +781,12 @@ describe('the crew session-header label', () => {
       status: 'error', message: 'gateway disconnected',
     })
 
-    expect(screen.getByRole('img', { name: en.crewRoutesError })).toBeTruthy()
+    const trigger = screen.getByRole('button', { name: en.crewRoutesError })
     await waitFor(() => { expect(loadCrewRoutes).toHaveBeenCalledTimes(1) })
 
     // The retry is the only interaction: it re-reads, it never changes the session.
-    fireEvent.click(screen.getByRole('button', { name: en.crewRoutesRetry }))
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: en.crewRoutesRetry }))
     expect(loadCrewRoutes).toHaveBeenCalledTimes(2)
 
     // Whatever the retry finds is what the header then says.
@@ -807,44 +794,65 @@ describe('the crew session-header label', () => {
     expect(screen.getByRole('img', { name: en.crewRoutesUnapplied })).toBeTruthy()
   })
 
-  it('keeps a long combination name whole for assistive technology and the bubble', () => {
-    pinBubble()
-    try {
-      const name = 'night-shift-with-a-very-long-combination-name-that-the-header-cannot-fit'
-      renderLabel(CREW_SESSION, {}, { ...RECORDED, presetName: name })
+  it('keeps a long combination name whole for assistive technology and the trigger', () => {
+    const name = 'night-shift-with-a-very-long-combination-name-that-the-header-cannot-fit'
+    renderLabel(CREW_SESSION, {}, { ...RECORDED, presetName: name })
 
-      const applied = translate('crewRoutesApplied', { name })
-      // The visible span may ellipsize in CSS, but neither the DOM text nor the
-      // accessible name is cut: both carry the whole name.
-      const anchor = screen.getByRole('img', { name: applied })
-      expect(anchor.textContent).toBe(applied)
-
-      fireEvent.click(anchor)
-      expect(screen.getByRole('tooltip').textContent).toContain(applied)
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    const applied = translate('crewRoutesApplied', { name })
+    // The visible span may ellipsize in CSS, but neither the DOM text nor the
+    // accessible name is cut: both carry the whole name.
+    const trigger = screen.getByRole('button', { name: applied })
+    expect(trigger.textContent).toBe(applied)
   })
 
-  it('pins the role routes open on tap, the only way a touch device can read them', () => {
-    pinBubble(true)
-    try {
-      renderLabel(CREW_SESSION, {}, RECORDED)
+  it('keeps the role routes reachable by keyboard on the menu trigger', () => {
+    renderLabel(CREW_SESSION, {}, RECORDED)
 
-      // The native title attribute never shows on touch; the pinned bubble is
-      // the mobile-readable explanation (responsive UI: tap-to-show).
-      expect(screen.queryByRole('tooltip')).toBeNull()
-      fireEvent.click(screen.getByRole('img', {
-        name: translate('crewRoutesApplied', { name: 'Night shift' }),
-      }))
-      const bubble = screen.getByRole('tooltip')
-      for (const line of ROUTE_LINES) expect(bubble.textContent).toContain(line)
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    const trigger = screen.getByRole('button', { name: translate('crewRoutesApplied', { name: 'Night shift' }) })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    for (const line of ROUTE_LINES) expect(screen.getByRole('menu').textContent).toContain(line)
+  })
+
+  it('names a record that lost its source combination name', () => {
+    renderLabel(CREW_SESSION, {}, { ...RECORDED, presetName: null })
+
+    // The routes are still the session's own; only the template's name is gone,
+    // so the label says so instead of inventing one.
+    const applied = translate('crewRoutesApplied', { name: en.crewRoutesUnnamed })
+    expect(screen.getByRole('button', { name: applied })).toBeTruthy()
+    expect(screen.getByText(applied)).toBeTruthy()
+  })
+
+  it('closes the combination menu without acting on it', () => {
+    const { loadCrewRoutes } = renderLabel(CREW_SESSION, {}, RECORDED)
+
+    const trigger = screen.getByRole('button', { name: translate('crewRoutesApplied', { name: 'Night shift' }) })
+    fireEvent.click(trigger)
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    // A dismissal changes nothing: the reading stays, and no route was re-read.
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(loadCrewRoutes).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
 
+
+/**
+ * Open the combination menu on the header chip and pick its repair row.
+ *
+ * The repair action lives in the chip's own menu rather than beside it, so
+ * every dialog test starts here instead of on a bare header button.
+ */
+function openRepair(): void {
+  fireEvent.click(screen.getByRole('button', {
+    name: translate('crewRoutesApplied', { name: RECORDED.presetName }),
+  }))
+  fireEvent.click(screen.getByRole('menuitem', { name: en.crewRouteRepairAction }))
+}
 
 describe('the Crew route repair dialog', () => {
   it('names each picker entry once when the catalog name repeats its id', async () => {
@@ -864,7 +872,7 @@ describe('the Crew route repair dialog', () => {
         }],
       },
     })
-    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    openRepair()
 
     const provider = await screen.findByLabelText<HTMLSelectElement>(en.crewRouteRepairProvider)
     const providerLabels = [...provider.options].map(option => option.textContent)
@@ -890,7 +898,7 @@ describe('the Crew route repair dialog', () => {
         groups: [{ id: 'workbuddy', name: 'WorkBuddy Cloud', models: [] }],
       },
     })
-    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    openRepair()
     const provider = await screen.findByLabelText<HTMLSelectElement>(en.crewRouteRepairProvider)
     // The stored provider the catalog no longer advertises leads as its bare id;
     // the advertised one keeps its id because the name alone does not name it.
@@ -900,7 +908,7 @@ describe('the Crew route repair dialog', () => {
 
   it('replaces only the selected role with the chosen catalog route', async () => {
     const { replaceCrewRole } = renderLabel(CREW_SESSION, {}, RECORDED)
-    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    openRepair()
     fireEvent.change(await screen.findByLabelText(en.crewRouteRepairRole), { target: { value: 'reviewer' } })
     fireEvent.change(screen.getByLabelText(en.crewRouteRepairProvider), { target: { value: 'tierflow' } })
     expect(screen.getByLabelText<HTMLSelectElement>(en.crewRouteRepairModel).value).toBe('tierflow-pro')
@@ -919,14 +927,14 @@ describe('the Crew route repair dialog', () => {
     const { replaceCrewRole } = renderLabel(CREW_SESSION, {}, RECORDED)
     const firstSave = Promise.withResolvers<CrewRouteRepairOutcome>()
     replaceCrewRole.mockReturnValueOnce(firstSave.promise)
-    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    openRepair()
     fireEvent.change(await screen.findByLabelText(en.crewRouteRepairProvider), { target: { value: 'tierflow' } })
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.crewRouteRepairConfirm }))
     expect(replaceCrewRole).toHaveBeenCalledTimes(1)
 
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
-    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    openRepair()
     expect(await screen.findByLabelText(en.crewRouteRepairProvider)).toBeTruthy()
 
     await act(async () => {
@@ -940,7 +948,7 @@ describe('the Crew route repair dialog', () => {
   it('keeps the selected route visible when the Host refuses the replacement', async () => {
     const { replaceCrewRole } = renderLabel(CREW_SESSION, {}, RECORDED)
     replaceCrewRole.mockResolvedValueOnce({ ok: false, message: 'quota exhausted' })
-    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    openRepair()
     fireEvent.change(await screen.findByLabelText(en.crewRouteRepairProvider), { target: { value: 'tierflow' } })
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.crewRouteRepairConfirm }))
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', translate('crewRouteRepairFailed', { message: 'quota exhausted' }))
@@ -952,7 +960,7 @@ describe('the Crew route repair dialog', () => {
   it('retries a failed catalog read without losing the open dialog', async () => {
     const { loadCrewRouteCatalog } = renderLabel(CREW_SESSION, {}, RECORDED)
     loadCrewRouteCatalog.mockResolvedValueOnce({ ok: false, message: 'offline' })
-    fireEvent.click(screen.getByRole('button', { name: en.crewRouteRepairAction }))
+    openRepair()
     expect((await screen.findByRole('alert')).textContent).toContain(translate('crewRouteRepairCatalogFailed', { message: 'offline' }))
     fireEvent.click(screen.getByRole('button', { name: en.crewRoutesRetry }))
     expect(await screen.findByLabelText(en.crewRouteRepairProvider)).toBeTruthy()

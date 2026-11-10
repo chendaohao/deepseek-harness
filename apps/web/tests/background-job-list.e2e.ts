@@ -257,6 +257,16 @@ describe.skipIf(MODE === 'record')('web e2e: background job list', () => {
       expect(await list.count()).toBe(0)
       await trigger.click()
       await list.waitFor()
+      // The narrow posture centers the sheet between the window margins; a
+      // leftover centering transform would push it half its width offscreen.
+      const menuBounds = await list.evaluate((node) => {
+        const box = (node.closest('[data-menu-material]') ?? node).getBoundingClientRect()
+        return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: innerWidth, height: innerHeight }
+      })
+      expect(menuBounds.left).toBeGreaterThanOrEqual(0)
+      expect(menuBounds.right).toBeLessThanOrEqual(menuBounds.width)
+      expect(menuBounds.top).toBeGreaterThanOrEqual(0)
+      expect(menuBounds.bottom).toBeLessThanOrEqual(menuBounds.height)
       await list.getByRole('button', { name: 'Finished 1', exact: true }).waitFor()
       await trigger.click()
       await list.waitFor({ state: 'detached' })
