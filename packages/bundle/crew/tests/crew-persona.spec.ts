@@ -61,6 +61,7 @@ const rows: readonly PatchRow[] = loadOverlayPatches('crew-persona-snapshot', PA
 const commander = personaOf(rows, 'preset-crew')
 const reviewer = personaOf(rows, 'preset-crew-reviewer')
 const worker = personaOf(rows, 'preset-crew-worker')
+const planner = personaOf(rows, 'preset-crew-planner')
 
 describe('crew model-visible persona rules', () => {
   it('freezes the commander rule text verbatim', () => {
@@ -225,6 +226,33 @@ describe('crew model-visible persona rules', () => {
     expect(worker).not.toContain('closing message')
     expect(worker).not.toContain('accept satisfied criteria')
     expect(worker).not.toContain('start at most one replacement')
+  })
+
+  it('pins batched probing to one script per probe family', () => {
+    expect(worker).toContain('Batched probing; this is a hard requirement:')
+    expect(worker).toContain('write the probe list into one script or one shell loop, run it once')
+    expect(worker).toContain('One command per probe pays the whole conversation again on every call')
+    expect(worker).toContain('State the probe count and the log path in the report')
+  })
+
+  it('makes a settlement notice a notification rather than a turn of its own', () => {
+    expect(commander).toContain('A settlement notice is not a turn of its own.')
+    expect(commander).toContain(
+      'While at least one other role is still running, answer a notice without opening new work: '
+      + 'no fresh delegation, no new command, no re-plan.',
+    )
+    expect(commander).toContain('Batch the remaining conclusions: act once, from the reports on disk')
+    // The rule must not erase the failure path the settlement rule owns.
+    expect(commander).toContain('if it misses the acceptance criteria, `send_message` the same role to keep fixing')
+  })
+
+  it('fixes plan revisions and re-audits to the delta instead of the whole document', () => {
+    expect(planner).toContain('Write the revision as a delta (hard requirement):')
+    expect(planner).toContain('`## Revision <n>` section listing one line per edit')
+    expect(planner).toContain('leaves unchanged sections byte-identical')
+    expect(reviewer).toContain('Read the delta, not the document (hard requirement):')
+    expect(reviewer).toContain('read that section first, then only the sections it names')
+    expect(reviewer).toContain('A full re-read of an unchanged document buys no new evidence')
   })
 
   it('pins automatic compaction to the same unfinished objective and leaves replacement to the recovery rule', () => {
