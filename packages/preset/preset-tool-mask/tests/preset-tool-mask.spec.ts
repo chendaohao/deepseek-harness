@@ -140,4 +140,40 @@ describe('tool scope', () => {
     await expect(preset.ctx.plugin(toolScope, { allowPrefixes: ['mcp__'], denyPrefixes: ['mcp__fs'] }))
       .rejects.toThrow(/overlaps an allowPrefix/)
   })
+
+  it('drops one member of an otherwise kept prefix family', async () => {
+    const ctx = await host(['mcp__filesystem__read', 'mcp__filesystem__write', 'read'])
+    const preset = presetScope(ctx)
+    // `deny` carries the exact name: a denyPrefix inside a kept prefix family
+    // is rejected as an overlapping declaration, not read as a narrowing.
+    await preset.ctx.plugin(toolScope, {
+      allowPrefixes: ['mcp__filesystem__'],
+      deny: ['mcp__filesystem__write'],
+    })
+    const agent = agentScope(ctx, scopeOf(preset.ctx)!)
+    expect(await visible(agent)).toEqual(['mcp__filesystem__read'])
+  })
+
+  // `tools.restrict()` rejects a name the catalog does not hold, and the throw
+  // happens during child creation, so one stale entry would fail every Agent
+  // under the preset instead of narrowing it. The mask derives its deny list
+  // from the live catalog, which makes a stale declaration inert; this pins it.
+  it('treats a deny entry this deployment does not register as inert', async () => {
+    const ctx = await host(['read', 'write'])
+    const preset = presetScope(ctx)
+    await preset.ctx.plugin(toolScope, { allow: ['read', 'write'], deny: ['absent', 'mcp__absent__x'] })
+    const agent = agentScope(ctx, scopeOf(preset.ctx)!)
+    expect(await visible(agent)).toEqual(['read', 'write'])
+  })
+
+  it('re-expands cleanly when a masked tool is unregistered', async () => {
+    const ctx = await host(['read'])
+    const preset = presetScope(ctx)
+    await preset.ctx.plugin(toolScope, { allow: ['read'] })
+    const agent = agentScope(ctx, scopeOf(preset.ctx)!)
+    const unregister = ctx.tools.register(tool('transient'))
+    expect(await visible(agent)).toEqual(['read'])
+    unregister()
+    expect(await visible(agent)).toEqual(['read'])
+  })
 })
