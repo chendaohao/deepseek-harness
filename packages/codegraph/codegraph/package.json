@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-codegraph",
   "description": "CodeGraph integration: scoped CodeGraph checklist instructions for indexed workspaces plus a lazily started codegraph MCP server",
-  "version": "0.2.1-rc.3",
+  "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
   },
