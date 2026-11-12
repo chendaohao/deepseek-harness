@@ -7,11 +7,11 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 预设可以添加插件行、可以用同名行遮蔽宿主行，但预设里没有任何东西能移除一个全局工具。一个只声明 `read` 与 `write` 的审核员预设，依旧带着部署的 shell、MCP 文件编辑工具、任务板和其余全部宿主工具，只能靠人设文字请模型不要用它们。这个包补上它：把它挂在预设第一行，该预设作用域看到的全局目录就被收窄到声明保留的名字，由该预设组合出的每个 Agent 沿作用域链继承这项收窄。宿主自己的 Agent 仍持有完整目录。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [理解实现](#understand-the-implementation)
@@ -110,7 +110,7 @@ kind: "package-reference"
 - **掩码不能凭空造出工具** —— 预设保留的是宿主注册过的工具。宿主从未挂载的工具无法被点名引入，为它写 `allow` 条目只会得到一次警告。
 
 <a id="dev-note"></a>
-### 开发者说明
+### 开发备注
 
 <details>
 <summary>面向维护者的工作背景 —— 点击展开</summary>

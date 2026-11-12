@@ -13,9 +13,9 @@
  */
 
 import { accessSync, constants } from 'node:fs'
-import { release as osRelease } from 'node:os'
 import { delimiter, dirname, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { isWsl } from './host-environment.ts'
 import { runNativeCommand, type NativeCommandRunner } from './runner.ts'
 
 /** Testable command boundary; native implementations never invoke a shell. */
@@ -91,13 +91,6 @@ type PathOpenIntent = 'default' | 'association' | 'text-editor'
 /** Whether one environment marker is set to a non-empty value. */
 function present(value: string | undefined): boolean {
   return value !== undefined && value !== ''
-}
-
-/** Distinguish WSL from desktop Linux using its process and kernel markers. */
-function isWsl(internals: PathOpenerInternals): boolean {
-  const env = internals.env ?? process.env
-  if (present(env.WSL_DISTRO_NAME) || present(env.WSL_INTEROP)) return true
-  return (internals.osRelease ?? osRelease()).toLowerCase().includes('microsoft')
 }
 
 /**

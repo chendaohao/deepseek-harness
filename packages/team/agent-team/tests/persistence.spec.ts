@@ -168,10 +168,15 @@ for (const backend of backends) {
       expect(projections.subagentCatalog).toMatchObject([
         { id: started.childId, mode: 'continuable', label: 'restart worker' },
       ])
+      // A resume reconciles the orphaned child's settlement notice and wakes the
+      // root once; that reconciliation runs detached, so wait for it to settle
+      // before sampling — reassigning a task must then add no request of its own.
+      await vi.waitFor(() => { expect(second.adapter.requests.length).toBe(1) }, { timeout: 5_000 })
+      const requestsAfterResume = second.adapter.requests.length
       await expect(second.ctx.agentTeams.updateTask(rootHandle.agent, {
         taskId: created.id, expectedRevision: 1, action: 'reassign', owner: started.childId,
       })).resolves.toMatchObject({ ownerId: started.childId, ownerName: 'agent-1' })
-      expect(second.adapter.requests).toEqual([])
+      expect(second.adapter.requests).toHaveLength(requestsAfterResume)
       await rootHandle.dispose()
       await second.dispose()
     })

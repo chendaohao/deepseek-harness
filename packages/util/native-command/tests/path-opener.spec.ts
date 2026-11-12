@@ -494,6 +494,7 @@ describe('native file manager', () => {
     expect(run).not.toHaveBeenCalled()
     await expect(revealNativePath('/file', signal(), { platform: 'darwin', run })).rejects.toThrow('desktop failed')
     expect(nativeFileManager()).toBe(ambientFileManager)
+    expect(nativeFileManager({ platform: 'linux', env: {}, osRelease: '6.8.0-generic' })).toBe('directory')
   })
 })
 

@@ -45,7 +45,7 @@ async function setup(model = new MockAdapter([]), goal = false) {
   if (goal) {
     goals = await ctx.plugin(GoalService, { defaultMaxGoalRounds: 2 })
     await ctx.plugin(GoalCommand)
-    await ctx.plugin(GoalDriver)
+    await ctx.plugin(GoalDriver, { roundIntervalMs: 0 })
   }
   ctx.effect(() => ctx.llm.registerAdapter(['query-activity'], model))
   const notices: { method: string; params: object }[] = []

@@ -25,7 +25,7 @@ async function scenario(path: 'sdk' | 'native', cwd: string) {
     await ctx.plugin(CommandRuntime)
     await ctx.plugin(GoalService, { defaultMaxGoalRounds: 2 })
     await ctx.plugin(CommandGoal)
-    await ctx.plugin(GoalDriver)
+    await ctx.plugin(GoalDriver, { roundIntervalMs: 0 })
     await ctx.plugin(GoalTools, {})
     const model = new MockAdapter([textResponse('READY'), textResponse('FIRST'), textResponse('SECOND')])
     ctx.effect(() => ctx.llm.registerAdapter(['goal-parity'], model))

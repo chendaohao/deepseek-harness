@@ -126,7 +126,10 @@ export class CrewBudgetCardController {
     }))
   }
 
-  /** @returns The Crew budget snapshot and staged write actions. */
+  /**
+   * Publish the live budget snapshot and the write actions the card stages.
+   * @returns The Crew budget snapshot and staged write actions.
+   */
   inject(): CrewBudgetCardFace {
     return { hooks: { crewBudgetCard: this.store }, ...this.form.actions() }
   }

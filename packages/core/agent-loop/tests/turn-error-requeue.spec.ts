@@ -5,6 +5,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import LlmRuntime, { createUserMessage, LlmError } from '@deepseek-ai/dsh-llm'
+import type { BuiltinLlmFailureCode } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -25,7 +26,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   return ctx
 }
 
-function fail(message: string, code: string): () => never {
+function fail(message: string, code: BuiltinLlmFailureCode): () => never {
   return () => {
     throw new LlmError(message, code)
   }

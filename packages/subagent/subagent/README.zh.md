@@ -107,7 +107,6 @@ kind: "package-reference"
 | [`src/activation.ts`](src/activation.ts) | 执行期记录、容量槽、子级锁与本地输出捕获 |
 | [`src/continuation-messages.ts`](src/continuation-messages.ts) | 相邻 Agent 消息、返回指引与结算通知 |
 | [`src/settlement-reconciliation.ts`](src/settlement-reconciliation.ts) | 重启后从持久化日志推导丢失结算记录的子级账目 |
-| [`src/internal.ts`](src/internal.ts) | Host 专用 Queue 与 Steer 适配器，以及标准相邻 Agent 消息标记 |
 | [`src/structured.ts`](src/structured.ts) | Activation 局部结构化捕获与保护 |
 | [`src/types.ts`](src/types.ts) | 公开的请求、结果与提供方约定 |
 | [`src/descriptor.ts`](src/descriptor.ts) | 版本化的 `subagent/descriptor` 会话事件词汇 |
@@ -127,7 +126,7 @@ kind: "package-reference"
 
 ### Activation 结算
 
-管理器预留子级身份与容量，创建本地 Agent 或外部执行，并接受初始任务。本地 Agent 活动、待处理输入及所拥有的后代均结束后，管理器在最终 Session flush 后重新验证活动状态并关闭准入。本地与外部 activation 都在句柄清理、容量归还及结算通知结束后交付结果。宿主等待会汇合仍在推进的后代及其清理，包括失败的执行；空闲停放子树继续驻留，但不延迟宿主完成。关闭准入并释放句柄可防止迟到工作进入已释放的 Agent。父级投递在结算后发送通知；调用方投递由等待中的工作流收集。Headless 宿主交替等待 `agent.whenIdle()` 与 `waitForChildren(agent)`，直至没有子级工作，且父级在检查子级期间保持空闲、Session 序号不变，让完成通知可驱动父级生成最终答案。
+管理器预留子级身份与容量，创建本地 Agent 或外部执行，并接受初始任务。本地 Agent 活动和待处理输入结束后，管理器在最终 Session flush 后重新验证活动状态并关闭准入。本地与外部 activation 都在句柄清理、容量归还及结算通知结束后交付结果。宿主在 subagent 树根上等待仍在推进的成员及其清理，包括失败的执行；有停放输入的空闲成员继续驻留，但不延迟宿主完成。普通成员不等待后代。关闭准入并释放句柄可防止迟到工作进入已释放的 Agent。父级投递仅在创建者仍在线时于结算后发送通知；调用方投递由等待中的工作流收集。Headless 宿主交替等待 `agent.whenIdle()` 与 `waitForTreeWork(agent)`，直至没有子级工作，且父级在检查子级期间保持空闲、Session 序号不变，让完成通知可驱动父级生成最终答案。本地 Agent 因工厂卸载而释放时，管理器在 Agent 停稳并离开注册表后结算其 Activation。如果关闭失败时仍有待处理输入，原本为 `completed` 的结果改为报告 `error`，并保留已经生成的输出。
 
 当驻留 Activation 结算时，管理器会在 parent 自身的轮次流中告知该 child 的直接 parent。若进程在投递前死亡，parent 日志中不会留下通知；因此 Agent 恢复（`agent/created` 且 source 为 `resume`）时，管理器会对账其持久化目录：每个非驻留、且持久化 epoch 已结束但没有对应结算通知的可继续 child 都会补投一条——账目从 child 自身日志折叠而来，未关闭的轮次或无人认领的后续输入按已停止处理，绝不按已完成处理。
 

@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-11-10-publish-the-crew-formation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-11-10-publish-the-crew-formation.md
+/agent-note-publish-the-crew-formation-in-dependency-order:
+  en: 3d172617238945f1
+  zh: 0bf44c2940c75c60
+/agent-note-publish-the-crew-formation-in-dependency-order/problem:
+  en: 76d84e9ad6fab0c1
+  zh: c453aba5b2b6a2e2
+/agent-note-publish-the-crew-formation-in-dependency-order/proposal:
+  en: ec1c73d01cb990f8
+  zh: d05af9734f8caeb4
+/agent-note-publish-the-crew-formation-in-dependency-order/proposal/verification-before-starting:
+  en: 298235f8b6dfaef8
+  zh: 23c67af90367113e
+/agent-note-publish-the-crew-formation-in-dependency-order/alternatives-considered:
+  en: c7eb54b3b1c7184b
+  zh: 7ac5a93b71a888e9
+/agent-note-publish-the-crew-formation-in-dependency-order/acceptance-criteria:
+  en: 6982609b0edb6cf4
+  zh: 91137bc70272d5b9
+/agent-note-publish-the-crew-formation-in-dependency-order/risks:
+  en: 6f9f8a83554a88a8
+  zh: 588b6d89e44f7cf3

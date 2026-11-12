@@ -12,8 +12,8 @@
   en: 9ad9ca12d1cba17c
   zh: 6662391a727d7417
 /session-persistence-event-catalog/event-envelope:
-  en: 788379acfb74c8df
-  zh: ae1d62169679d89b
+  en: 457a631427d9e225
+  zh: 66e35ac4137f2cd7
 /session-persistence-event-catalog/events:
   en: f4776ba3d0fd53ce
   zh: e86769f50a69055a
@@ -327,8 +327,8 @@
   en: e8dd0cebbb930eb7
   zh: e8dd0cebbb930eb7
 /session-persistence-event-catalog/events/working-directory/working-directory-change-log-only:
-  en: 075369b880bd304b
-  zh: 0eca94dbaf5d9090
+  en: 27f0761cbdd6fe2f
+  zh: 33528f333498132d
 /session-persistence-event-catalog/events/workspace:
   en: 63ee1a85e4b59ae3
   zh: 63ee1a85e4b59ae3
@@ -1296,8 +1296,8 @@
   en: a933c64c65bcbe78
   zh: f376d84f34a541c3
 /session-persistence-event-catalog/resolved-persistence-types/sandboxmode:
-  en: c9fa5343ea99733b
-  zh: d6de41351c57a73f
+  en: 5adc2bf6745ccc67
+  zh: 566cb9aaa4a177c9
 /session-persistence-event-catalog/resolved-persistence-types/schedulechange:
   en: b20a355fde48f699
   zh: 5d0fd858e2dbff06
@@ -1404,8 +1404,8 @@
   en: 0080c345c319a4b5
   zh: de1a8b3ed621ce21
 /session-persistence-event-catalog/resolved-persistence-types/toolrestriction:
-  en: d70be5d46cb1ef7d
-  zh: d3d5a05d62e443fe
+  en: b2488366535b5fdc
+  zh: b64d50345521eb99
 /session-persistence-event-catalog/resolved-persistence-types/toolresultmessage:
   en: 2258683c3cfa4ce3
   zh: 5663aa76c911761b
@@ -1593,8 +1593,8 @@
   en: bef51e0442ebb903
   zh: 240ebeb160533d8c
 /session-persistence-event-catalog/resolved-persistence-types/cwd:
-  en: 1bc55be85a68f0a3
-  zh: 9e84a55ed11bba5d
+  en: 2809c921c6996791
+  zh: 80b15177561766d7
 /session-persistence-event-catalog/resolved-persistence-types/decision-durationms-exitcode-handlerid:
   en: a99ac57bbec0370f
   zh: 9073329e324a66e0
@@ -2049,8 +2049,8 @@
   en: 0b74295f7c5c8f11
   zh: 5f1213cec87f6be0
 /session-persistence-event-catalog/resolved-persistence-types/kind-working-directory:
-  en: d6808f5172781153
-  zh: 157eabd488a4ab1e
+  en: f1fc763b779678e5
+  zh: 5db3a07f783ad2b5
 /session-persistence-event-catalog/resolved-persistence-types/limit-observed-reason-turn:
   en: 5069a3d8bdea4352
   zh: a05aa5b277c88d88

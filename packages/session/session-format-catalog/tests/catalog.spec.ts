@@ -109,10 +109,14 @@ describe('first-party Session format catalog', () => {
     // Fork-owned plugins that append their own Session events; the released V3
     // inventory predates them and they carry no cross-format references.
     const forkOwned = new Set([
+      'crew/route-replaced',
+      'crew/routes-selected',
+      'crew/run-budget-exceeded',
       'job/registered',
       'job/settled',
       'notify-hooks/summary-request',
       'notify-hooks/summary-result',
+      'team/mode',
     ])
     expect(
       [...KNOWN_SESSION_EVENT_TYPES].filter(type => (

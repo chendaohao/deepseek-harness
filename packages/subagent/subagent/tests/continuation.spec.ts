@@ -101,7 +101,7 @@ async function setupWith(
       rmSync(persistedRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     })
   }
-  await ctx.plugin(AgentLoop, { agents: [] })
+  const loop = await ctx.plugin(AgentLoop, { agents: [] })
   if (options.sessionQuery !== false) await ctx.plugin(TestSessionQuery)
   await mountWorkingDirectoryFixture(ctx)
   if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
@@ -111,7 +111,7 @@ async function setupWith(
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = await ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
-  return { ctx, parent, disposePersistence, root }
+  return { ctx, parent, disposePersistence, root, loop }
 }
 
 async function setup(script: Script, options: { persistence?: boolean } = {}) {
@@ -3535,6 +3535,39 @@ describe('continuable settlement delivery', () => {
     expect(persisted.events.flatMap(event => event.type === 'agent/inbox/spliced'
       ? [{ inserted: event.data.inserted.length, removed: event.data.removedCount ?? 0 }]
       : [])).toEqual([{ inserted: 1, removed: 0 }, { inserted: 0, removed: 1 }])
+  })
+
+  it('does not wake a parent whose scope is unwinding during factory unload', async () => {
+    const { ctx, parent, loop } = await setup([textResponse('child answer')])
+    const flushing = Promise.withResolvers<undefined>()
+    const releaseFlush = Promise.withResolvers<undefined>()
+    const unwinding = Promise.withResolvers<undefined>()
+    const releaseParent = Promise.withResolvers<undefined>()
+    parent.ctx.effect(() => async () => {
+      unwinding.resolve(undefined)
+      await releaseParent.promise
+    })
+    ctx.on('session/flush', async (session) => {
+      if (session.header.origin !== 'subagent') return
+      flushing.resolve(undefined)
+      await releaseFlush.promise
+    })
+    let unload: Promise<void> | undefined
+    try {
+      const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+      await flushing.promise
+      unload = loop.dispose()
+      await unwinding.promise
+      await started.result
+      expect(ctx.agents.get(parent.id)).toBe(parent)
+      expect(parent.session.snapshotEvents().some(event => event.type === 'turn/start')).toBe(false)
+      expect(settlementNotices(parent)).toEqual([])
+    } finally {
+      releaseFlush.resolve(undefined)
+      releaseParent.resolve(undefined)
+      await unload
+      await ctx.fiber.dispose()
+    }
   })
 
   it('stores the notice for an absent parent instead of dropping it', async () => {

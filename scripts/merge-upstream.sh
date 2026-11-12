@@ -120,6 +120,9 @@ cat >"$FORK_ALIAS_BLOCK_FILE" <<'EOF'
       "@deepseek-ai/dsh-client-ui-remote/client": ["./packages/client/ui-remote/src/client"],
       "@deepseek-ai/dsh-client-ui-mobile": ["./packages/client/ui-mobile/src"],
       "@deepseek-ai/dsh-client-ui-mobile/client": ["./packages/client/ui-mobile/src/client"],
+      "@deepseek-ai/dsh-tool-subagent/worker-route-settings": ["./packages/subagent/tool-subagent/src/worker-route-settings.ts"],
+      "@deepseek-ai/dsh-tool-subagent/route-settings-registry": ["./packages/subagent/tool-subagent/src/route-settings-registry.ts"],
+      "@deepseek-ai/dsh-tool-subagent/route-presets": ["./packages/subagent/tool-subagent/src/route-presets.ts"],
 EOF
 
 # One hint per hand-resolved path prefix; printed with the manual queue.
@@ -310,6 +313,7 @@ while IFS= read -r alias; do
 done <<'EOF'
 "@deepseek-ai/dsh-mcp-client/src/*"
 "@deepseek-ai/dsh-client-ui-remote"
+"@deepseek-ai/dsh-tool-subagent/worker-route-settings"
 EOF
 
 git add -u
